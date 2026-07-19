@@ -15,6 +15,10 @@ retrieval:
   top_k: 10
   vector_top_k: 10
   fulltext_top_k: 10
+  fusion_method: rrf   # rrf | concat (P3-PERF-03)
+  fusion_k: 60
+  parallel: true       # P3-PERF-02
+  cache_answer_ttl_seconds: 3600
   graph:
     max_hop_neighbors: 2
     max_path_hops: 4
@@ -23,6 +27,10 @@ retrieval:
     beam_width: 20
     high_degree_threshold: 30
     relation_relevance_threshold: 0.12
+
+triage:
+  enabled: true        # P3-PERF-01
+  escalate_fast_path: true
 
 knowledge:
   chunk_size_chars: 1200

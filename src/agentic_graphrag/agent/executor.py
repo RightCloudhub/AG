@@ -1,7 +1,8 @@
-"""Executor: choose tools and run retrieval (FR-AG-03)."""
+"""Executor: choose tools and run retrieval (FR-AG-03 / P3-PERF-02/03)."""
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -11,8 +12,10 @@ from agentic_graphrag.config import load_prompt
 from agentic_graphrag.generation.trace import ToolCallTrace
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.retrieval.contracts import Candidate, concat_candidates
+from agentic_graphrag.retrieval.cache import RetrievalCache
+from agentic_graphrag.retrieval.contracts import Candidate
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
+from agentic_graphrag.retrieval.fusion import Reranker, fuse_candidates
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
 
@@ -35,12 +38,25 @@ class Executor:
         fulltext: FulltextRetriever | None = None,
         llm: LLMProvider | None = None,
         known_entities: list[str] | None = None,
+        *,
+        parallel: bool = True,
+        fusion_method: str = "rrf",
+        fusion_k: int = 60,
+        fusion_limit: int | None = 30,
+        cache: RetrievalCache | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
         self.graph = graph
         self.vector = vector
         self.fulltext = fulltext
         self.llm = llm
         self.known_entities = known_entities or []
+        self.parallel = parallel
+        self.fusion_method = fusion_method
+        self.fusion_k = fusion_k
+        self.fusion_limit = fusion_limit
+        self.cache = cache
+        self.reranker = reranker
 
     def run(
         self,
@@ -50,21 +66,95 @@ class Executor:
         allow_llm: bool = True,
     ) -> tuple[list[Candidate], list[ToolCallTrace]]:
         specs = self._choose_tools(sub_question, entities_hint or [], allow_llm=allow_llm)
+        tools_key = ",".join(sorted(s.tool for s in specs))
+        if self.cache is not None:
+            cached = self.cache.get_retrieval(sub_question, tools_key)
+            if cached is not None:
+                traces = [
+                    ToolCallTrace(
+                        tool="cache",
+                        reason="retrieval cache hit",
+                        args={"tools": tools_key},
+                        hits=[h.id for h in cached[:20]],
+                    )
+                ]
+                return cached, traces
+
         evidence: list[list[Candidate]] = []
         traces: list[ToolCallTrace] = []
 
-        for spec in specs:
-            hits = self._dispatch(spec.tool, spec.args, sub_question)
-            evidence.append(hits)
-            traces.append(
-                ToolCallTrace(
-                    tool=spec.tool,
-                    reason=spec.reason,
-                    args=spec.args,
-                    hits=[h.id for h in hits[:20]],
+        if self.parallel and len(specs) > 1:
+            results = self._run_parallel(specs, sub_question)
+            for spec, hits, err in results:
+                if err:
+                    hits = []
+                evidence.append(hits)
+                traces.append(
+                    ToolCallTrace(
+                        tool=spec.tool,
+                        reason=spec.reason + (f" (degraded: {err})" if err else ""),
+                        args=spec.args,
+                        hits=[h.id for h in hits[:20]],
+                    )
                 )
-            )
-        return concat_candidates(*evidence), traces
+        else:
+            for spec in specs:
+                try:
+                    hits = self._dispatch(spec.tool, spec.args, sub_question)
+                except Exception as exc:  # noqa: BLE001 — channel failure degrades
+                    hits = []
+                    traces.append(
+                        ToolCallTrace(
+                            tool=spec.tool,
+                            reason=f"{spec.reason} (degraded: {type(exc).__name__})",
+                            args=spec.args,
+                            hits=[],
+                        )
+                    )
+                    evidence.append(hits)
+                    continue
+                evidence.append(hits)
+                traces.append(
+                    ToolCallTrace(
+                        tool=spec.tool,
+                        reason=spec.reason,
+                        args=spec.args,
+                        hits=[h.id for h in hits[:20]],
+                    )
+                )
+
+        fused = fuse_candidates(
+            *evidence,
+            query=sub_question,
+            method=self.fusion_method,
+            k=self.fusion_k,
+            limit=self.fusion_limit,
+            reranker=self.reranker,
+        )
+        if self.cache is not None:
+            self.cache.set_retrieval(sub_question, fused, tools_key)
+        return fused, traces
+
+    def _run_parallel(
+        self, specs: list[ToolCallSpec], sub_question: str
+    ) -> list[tuple[ToolCallSpec, list[Candidate], str | None]]:
+        out: list[tuple[ToolCallSpec, list[Candidate], str | None]] = []
+        with ThreadPoolExecutor(max_workers=min(8, len(specs))) as pool:
+            futs = {
+                pool.submit(self._dispatch, spec.tool, spec.args, sub_question): spec
+                for spec in specs
+            }
+            for fut in as_completed(futs):
+                spec = futs[fut]
+                try:
+                    hits = fut.result()
+                    out.append((spec, hits, None))
+                except Exception as exc:  # noqa: BLE001
+                    out.append((spec, [], type(exc).__name__))
+        # Preserve original tool order for stable fusion ranks
+        order = {id(s): i for i, s in enumerate(specs)}
+        out.sort(key=lambda row: order.get(id(row[0]), 0))
+        return out
 
     def resolve_entities(self, text: str, hint: list[str] | None = None) -> list[str]:
         base = list(hint or [])

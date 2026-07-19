@@ -144,8 +144,22 @@ class Candidate(BaseModel):
 
     @property
     def channel(self) -> Channel:
-        """Coarse channel: vector | graph | fulltext | fusion."""
-        return channel_of(self.source)
+        """Coarse channel: vector | graph | fulltext | fusion.
+
+        After RRF, ``source`` may be ``fusion`` — recover origin channel from
+        ``structured.origin_source`` / ``origins`` so Agent/eval still see
+        graph vs text correctly.
+        """
+        ch = channel_of(self.source)
+        if ch != "fusion":
+            return ch
+        origin = (self.structured or {}).get("origin_source")
+        if origin:
+            return channel_of(str(origin))
+        origins = (self.structured or {}).get("origins") or []
+        if origins and isinstance(origins[0], dict) and origins[0].get("source"):
+            return channel_of(str(origins[0]["source"]))
+        return ch
 
     def is_graph(self) -> bool:
         return self.channel == "graph"

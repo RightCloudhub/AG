@@ -7,6 +7,7 @@ All limits load from ``configs/default.yaml`` → ``AppConfig.guardrails`` via
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -102,13 +103,14 @@ class GuardrailState:
     hop: int = 0
     tripped: bool = False
     reason: str = ""
+    started_at: float = 0.0
 
 
 class Guardrails:
     def __init__(self, config: GuardrailConfig, budget: BudgetTracker | None = None) -> None:
         self.config = config
         self.budget = budget or config.budget_tracker()
-        self.state = GuardrailState()
+        self.state = GuardrailState(started_at=time.monotonic())
 
     def on_hop_start(self) -> None:
         self.state.hop += 1
@@ -119,6 +121,16 @@ class Guardrails:
             self.state.tripped = True
             self.state.reason = f"max_hops exceeded ({self.state.hop}/{self.config.max_hops})"
             return
+        # Wall-clock timeout (P3 / F9 fix)
+        if self.config.query_timeout_seconds > 0 and self.state.started_at > 0:
+            elapsed = time.monotonic() - self.state.started_at
+            if elapsed > self.config.query_timeout_seconds:
+                self.state.tripped = True
+                self.state.reason = (
+                    f"query_timeout exceeded "
+                    f"({elapsed:.1f}s/{self.config.query_timeout_seconds}s)"
+                )
+                return
         try:
             self.budget.check()
         except BudgetExceeded as exc:

@@ -128,6 +128,63 @@ def _normalize_scope(result: CriticResult, *, remaining_subquestions: int) -> Cr
     return result
 
 
+def extract_entity_conclusion(
+    sub_question: str,
+    evidence: list[Candidate],
+) -> str | None:
+    """Clean entity name for placeholder materialization (not full edge text).
+
+    Avoids polluting ``{from:sqN}`` with strings like
+    ``Apex Holdings -[PARENT_OF]-> BrightLink ...``.
+    """
+    graph_hits = [c for c in evidence if c.is_graph()]
+    if not graph_hits:
+        return None
+    c = graph_hits[0]
+    st = c.structured or {}
+    ql = (sub_question or "").lower()
+    head = str(st.get("head") or "")
+    tail = str(st.get("tail") or st.get("neighbor") or "")
+    rel = str(st.get("relation") or "").upper()
+
+    if head or tail:
+        if "parent" in ql:
+            if rel in {"PARENT_OF", "OWNS"}:
+                return head or tail
+            if rel in {"SUBSIDIARY_OF"}:
+                return tail or head
+            return head or tail
+        if "ceo" in ql or "who is" in ql or "who " in ql:
+            if rel in {"CEO_OF", "WORKED_AT", "EMPLOYED_BY"}:
+                return head or tail
+            return head or tail
+        if "subsidiary" in ql or "child" in ql:
+            return tail or head
+        # Default: prefer the non-query side
+        q_ent = str(st.get("query_entity") or "")
+        if q_ent and head and q_ent.lower() in head.lower():
+            return tail or head
+        if q_ent and tail and q_ent.lower() in tail.lower():
+            return head or tail
+        return tail or head
+
+    # Parse edge content fallback
+    try:
+        from agentic_graphrag.generation.offline_edges import parse_edges
+
+        edges = parse_edges([c.content])
+        if edges:
+            h, r, t = edges[0]
+            if "parent" in ql:
+                return h if r in {"PARENT_OF", "OWNS"} else t
+            if "ceo" in ql or r in {"CEO_OF", "WORKED_AT"}:
+                return h
+            return t
+    except Exception:
+        pass
+    return None
+
+
 def _offline_critique(
     question: str,
     sub_question: str,
@@ -140,7 +197,12 @@ def _offline_critique(
 ) -> CriticResult:
     graph_hits = [c for c in evidence if c.is_graph()]
     eids = [c.id for c in evidence[:8]]
-    partial = graph_hits[0].content if graph_hits else (evidence[0].content if evidence else None)
+    partial = extract_entity_conclusion(sub_question, evidence)
+    if partial is None and evidence:
+        # Last resort: short content only if it looks like a bare name
+        raw = graph_hits[0].content if graph_hits else evidence[0].content
+        if raw and "-[" not in raw and len(raw) < 80:
+            partial = raw
 
     # Planned DAG still has unfinished nodes → sub-question sufficient, not global
     if remaining_subquestions > 0 and hop < max_hops:

@@ -68,7 +68,16 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     vector_top_k: int = 10
     fulltext_top_k: int = 10
+    fusion_method: str = "rrf"
+    fusion_k: int = 60
+    parallel: bool = True
+    cache_answer_ttl_seconds: float = 3600.0
     graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)
+
+
+class TriageConfig(BaseModel):
+    enabled: bool = True
+    escalate_fast_path: bool = True
 
 
 class KnowledgeConfig(BaseModel):
@@ -115,6 +124,7 @@ class AppConfig(BaseModel):
     env: str = "local"
     guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    triage: TriageConfig = Field(default_factory=TriageConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
