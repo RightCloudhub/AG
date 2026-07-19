@@ -1,4 +1,4 @@
-"""FastAPI application factory (P2-ARCH-03)."""
+"""FastAPI application factory (P2-ARCH-03 + P3/P4 routes)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,16 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from agentic_graphrag.api.auth import AuthRateLimitMiddleware
 from agentic_graphrag.api.envelope import MetaBody, fail
 from agentic_graphrag.api.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
+from agentic_graphrag.api.routes import knowledge as knowledge_routes
 from agentic_graphrag.api.routes import query as query_routes
 from agentic_graphrag.api.service import QueryService, build_default_service
+from agentic_graphrag.config import ROOT_DIR
 
 
 @asynccontextmanager
@@ -36,12 +40,15 @@ def create_app(*, query_service: QueryService | None = None) -> FastAPI:
 
     app = FastAPI(
         title="AgenticGraphRAG",
-        version="0.1.0",
+        version="0.2.0",
         description="Multi-hop agentic GraphRAG query API",
         lifespan=_lifespan,
     )
     if query_service is not None:
         app.state.query_service = query_service
+
+    # Auth + rate limit (optional via AGR_REQUIRE_AUTH / AGR_API_KEYS)
+    app.add_middleware(AuthRateLimitMiddleware)
 
     @app.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError) -> JSONResponse:
@@ -74,6 +81,23 @@ def create_app(*, query_service: QueryService | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(query_routes.router)
+    app.include_router(knowledge_routes.router)
+
+    # Trial web UI (P4-UI-01)
+    web_dir = ROOT_DIR / "web"
+    if web_dir.is_dir():
+        static = web_dir / "static"
+        if static.is_dir():
+            app.mount("/web/static", StaticFiles(directory=str(static)), name="web-static")
+
+        @app.get("/web", response_class=HTMLResponse)
+        @app.get("/web/", response_class=HTMLResponse)
+        def web_ui() -> FileResponse:
+            index = web_dir / "index.html"
+            if not index.exists():
+                return HTMLResponse("<h1>Web UI missing</h1>", status_code=404)  # type: ignore[return-value]
+            return FileResponse(index)
+
     return app
 
 

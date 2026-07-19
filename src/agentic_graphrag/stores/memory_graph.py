@@ -111,7 +111,27 @@ class InMemoryGraphStore:
         return found
 
     def counts(self) -> dict[str, int]:
-        return {"nodes": len(self._entities), "relationships": len(self._relations)}
+        n = len(self._entities)
+        r = len(self._relations)
+        # Include both legacy keys (nodes/relationships) and common aliases
+        # used by browse APIs (entities / entity_count).
+        return {
+            "nodes": n,
+            "entities": n,
+            "entity_count": n,
+            "relationships": r,
+            "relations": r,
+        }
+
+    def list_entities(self, *, limit: int = 50, offset: int = 0) -> list[EntityRecord]:
+        """Public browse helper for graph entity listing (P5-CAP-01)."""
+        items = list(self._entities.values())
+        items.sort(key=lambda e: (e.type, e.name.lower()))
+        if offset < 0:
+            offset = 0
+        if limit < 0:
+            limit = 0
+        return items[offset : offset + limit]
 
     def close(self) -> None:
         return None

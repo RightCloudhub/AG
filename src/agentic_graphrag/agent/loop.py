@@ -2,7 +2,7 @@
 
 Node handlers live in :mod:`agentic_graphrag.agent.loop_runtime`.
 This module wires the StateGraph, attaches a checkpointer (P2-AG-03),
-and exposes :func:`run_agentic_query`.
+and exposes :func:`run_agentic_query` / :func:`run_query` (with triage).
 """
 
 from __future__ import annotations
@@ -13,17 +13,22 @@ from uuid import uuid4
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
 from agentic_graphrag.agent.executor import Executor
+from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
+from agentic_graphrag.agent.triage import Route, should_escalate_fast_path, triage
+from agentic_graphrag.generation.confidence import grade_confidence
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
+from agentic_graphrag.retrieval.contracts import Candidate
 
 __all__ = [
     "AgentState",
     "build_graph",
     "invoke_config",
     "run_agentic_query",
+    "run_query",
 ]
 
 
@@ -130,5 +135,110 @@ def run_agentic_query(
     # Surface final memory snapshot size for debugging / audit hooks
     mem_snap = result.get("memory_snapshot") or {}
     meta["memory_evidence_count"] = len(mem_snap.get("evidence") or [])
+    # Confidence grade (P5-CAP-03)
+    evidence = [Candidate.model_validate(e) for e in (result.get("evidence") or [])]
+    meta["confidence"] = grade_confidence(out, evidence)
     out.metadata = meta
     return out
+
+
+def run_query(
+    question: str,
+    executor: Executor,
+    llm: LLMProvider | None,
+    *,
+    guard_cfg: GuardrailConfig | None = None,
+    budget: BudgetTracker | None = None,
+    allow_llm: bool = True,
+    recursion_limit: int | None = None,
+    checkpointer: Any | None = None,
+    thread_id: str | None = None,
+    force_agentic: bool = False,
+    enable_triage: bool = True,
+    known_entities: list[str] | None = None,
+) -> ReasoningChain:
+    """Entry with complexity triage (P3-PERF-01).
+
+    Simple questions take Fast Path; multi-hop / forced use Agentic.
+    Fast Path may escalate once when evidence is insufficient.
+    """
+    guard_cfg = guard_cfg or GuardrailConfig.from_app_config()
+    budget = budget or guard_cfg.budget_tracker()
+    known = known_entities if known_entities is not None else list(executor.known_entities or [])
+
+    if not enable_triage or force_agentic:
+        chain = run_agentic_query(
+            question,
+            executor,
+            llm,
+            guard_cfg=guard_cfg,
+            budget=budget,
+            allow_llm=allow_llm,
+            recursion_limit=recursion_limit,
+            checkpointer=checkpointer,
+            thread_id=thread_id,
+        )
+        if force_agentic:
+            chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
+        return chain
+
+    decision = triage(
+        question,
+        llm if allow_llm else None,
+        allow_llm=allow_llm and llm is not None,
+        force_agentic=False,
+        known_entities=known,
+    )
+    triage_meta = decision.model_dump(mode="json")
+
+    if decision.route == Route.FAST_PATH:
+        chain = run_fast_path(
+            question,
+            executor,
+            llm,
+            allow_llm=allow_llm,
+            budget=budget,
+            triage_meta=triage_meta,
+        )
+        # One-shot escalate when Fast Path is weak
+        ev_count = sum(len(s.evidence_ids) for s in chain.steps)
+        has_graph = any(
+            "graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls
+        )
+        if should_escalate_fast_path(
+            ev_count,
+            has_graph=has_graph,
+            answer_status=chain.status.value if chain.status else None,
+        ):
+            agentic = run_agentic_query(
+                question,
+                executor,
+                llm,
+                guard_cfg=guard_cfg,
+                budget=budget,
+                allow_llm=allow_llm,
+                recursion_limit=recursion_limit,
+                checkpointer=checkpointer,
+                thread_id=thread_id,
+            )
+            agentic.metadata = {
+                **(agentic.metadata or {}),
+                "triage": triage_meta,
+                "escalated_from_fast_path": True,
+            }
+            return agentic
+        return chain
+
+    chain = run_agentic_query(
+        question,
+        executor,
+        llm,
+        guard_cfg=guard_cfg,
+        budget=budget,
+        allow_llm=allow_llm,
+        recursion_limit=recursion_limit,
+        checkpointer=checkpointer,
+        thread_id=thread_id,
+    )
+    chain.metadata = {**(chain.metadata or {}), "triage": triage_meta}
+    return chain

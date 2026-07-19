@@ -1,0 +1,220 @@
+"""Knowledge management APIs (FR-API-03 / P3-KG-04)."""
+
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Request, UploadFile
+from pydantic import BaseModel, Field
+
+from agentic_graphrag.api.envelope import MetaBody, ok
+from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
+
+router = APIRouter(prefix="/v1", tags=["knowledge"])
+
+# In-process ingest task registry (pilot-scale)
+_TASKS: dict[str, dict[str, Any]] = {}
+
+
+class DocUploadMeta(BaseModel):
+    title: str = ""
+    source: str = ""
+    doc_id: str | None = None
+
+
+class ReviewDecisionBody(BaseModel):
+    decision: str = Field(..., description="approve|reject|skip")
+    reviewer: str = ""
+    note: str = ""
+
+
+class FeedbackBody(BaseModel):
+    query_id: str
+    accurate: bool
+    reason: str = ""
+
+
+def _service(request: Request) -> QueryService:
+    svc = getattr(request.app.state, "query_service", None)
+    if svc is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
+    return svc
+
+
+@router.post("/docs")
+async def upload_docs(
+    request: Request,
+    files: list[UploadFile] | None = None,
+) -> dict:
+    """Batch document upload — creates an ingest task (FR-API-03)."""
+    task_id = str(uuid.uuid4())
+    saved: list[dict[str, str]] = []
+    for f in files or []:
+        content = await f.read()
+        text = content.decode("utf-8", errors="replace")
+        doc_id = f.filename or str(uuid.uuid4())
+        saved.append({"doc_id": doc_id, "bytes": str(len(text)), "name": f.filename or ""})
+    _TASKS[task_id] = {
+        "id": task_id,
+        "status": "queued" if saved else "empty",
+        "docs": saved,
+        "created_at": time.time(),
+        "message": "Documents accepted; run extract pipeline offline or via worker",
+    }
+    # Optionally enqueue review spotcheck
+    svc = _service(request)
+    if svc.review_queue is not None and saved:
+        svc.review_queue.enqueue(
+            ReviewType.SPOTCHECK,
+            {"task_id": task_id, "doc_count": len(saved)},
+            confidence=0.5,
+            batch_id=task_id,
+        )
+    return ok(_TASKS[task_id], meta=MetaBody(request_id=task_id))
+
+
+@router.get("/ingest-tasks/{task_id}")
+def get_ingest_task(task_id: str) -> dict:
+    task = _TASKS.get(task_id)
+    if task is None:
+        raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
+    return ok(task)
+
+
+@router.get("/review-queue")
+def list_review_queue(
+    request: Request,
+    status: str | None = "pending",
+    type: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    svc = _service(request)
+    if svc.review_queue is None:
+        return ok([], meta=MetaBody(total=0, limit=limit, page=1))
+    items = svc.review_queue.list(status=status, type=type, limit=limit, offset=offset)
+    return ok(
+        [i.to_dict() for i in items],
+        meta=MetaBody(total=len(items), limit=limit, page=offset // max(limit, 1) + 1),
+    )
+
+
+@router.post("/review-queue/{item_id}/decision")
+def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> dict:
+    svc = _service(request)
+    if svc.review_queue is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
+    try:
+        dec = ReviewDecision(body.decision.lower())
+    except ValueError as exc:
+        raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
+    try:
+        item = svc.review_queue.decide(
+            item_id, dec, reviewer=body.reviewer, note=body.note
+        )
+    except KeyError as exc:
+        raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    return ok(item.to_dict())
+
+
+@router.get("/audit/queries/{query_id}")
+def get_audit_query(query_id: str, request: Request) -> dict:
+    """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01)."""
+    svc = _service(request)
+    if svc.audit_store is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
+    row = svc.audit_store.get(query_id)
+    if row is None:
+        raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
+    return ok(row)
+
+
+@router.post("/feedback")
+def post_feedback(body: FeedbackBody, request: Request) -> dict:
+    """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
+    svc = _service(request)
+    user_id = request.headers.get("x-user-id") or "anonymous"
+    result = svc.submit_feedback(
+        body.query_id,
+        accurate=body.accurate,
+        reason=body.reason,
+        user_id=user_id,
+    )
+    return ok(result)
+
+
+@router.get("/metrics")
+def get_metrics_summary() -> dict:
+    from agentic_graphrag.observability.metrics import get_metrics
+
+    return ok(get_metrics().summary())
+
+
+@router.get("/graph/entities")
+def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> dict:
+    """Minimal graph browse API scaffold (P5-CAP-01).
+
+    Supports stores that expose ``list_entities`` (InMemoryGraphStore) or a
+    public/private entity map (``entities`` / ``_entities``).
+    """
+    svc = _service(request)
+    store = svc.bundle.graph
+    lim = max(0, min(int(limit or 50), 500))
+    off = max(0, int(offset or 0))
+
+    records = _list_entity_records(store, limit=lim, offset=off)
+    total = _entity_total(store, fallback=len(records) if off == 0 else None)
+    rows = [
+        {
+            "id": e.id,
+            "name": e.name,
+            "type": e.type,
+            "aliases": list(getattr(e, "aliases", None) or []),
+        }
+        for e in records
+    ]
+    return ok(rows, meta=MetaBody(total=total, limit=lim, page=(off // lim + 1) if lim else 1))
+
+
+def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
+    """Resolve entity list from GraphStore implementations without Protocol change."""
+    lister = getattr(store, "list_entities", None)
+    if callable(lister):
+        try:
+            return list(lister(limit=limit, offset=offset))
+        except TypeError:
+            # Older signature without offset
+            items = list(lister(limit=limit))
+            return items[offset : offset + limit]
+
+    for attr in ("entities", "_entities"):
+        entities = getattr(store, attr, None)
+        if isinstance(entities, dict):
+            items = list(entities.values())
+            items.sort(key=lambda e: (getattr(e, "type", ""), getattr(e, "name", "").lower()))
+            return items[offset : offset + limit]
+        if isinstance(entities, list):
+            return list(entities)[offset : offset + limit]
+    return []
+
+
+def _entity_total(store: object, *, fallback: int | None) -> int:
+    counts = {}
+    try:
+        counts = store.counts()  # type: ignore[attr-defined]
+    except Exception:
+        counts = {}
+    if isinstance(counts, dict):
+        for key in ("entities", "entity_count", "nodes", "node_count"):
+            if key in counts:
+                try:
+                    return int(counts[key])
+                except (TypeError, ValueError):
+                    pass
+    if fallback is not None:
+        return int(fallback)
+    return 0
