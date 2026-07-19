@@ -34,6 +34,17 @@
 - **结论（2026-07）**：**Conditional-Go** — 见 `reports/G1_review.md`
 - **No-Go 处理**：输出根因分析报告，评审决定调整路线或终止，避免沉没成本扩大。
 
+### G1 → G2 过渡条件（Conditional-Go 关闭项，进入阶段二全量前）
+
+完整 playbook：[`phases/g1-to-g2-transition.md`](./phases/g1-to-g2-transition.md)  
+一键：`./scripts/g1_to_g2_gate.sh` → `reports/G1_to_G2_status.json`
+
+| 条件 | 任务 | 通过判据 | 状态 |
+|------|------|----------|------|
+| C1 真实试点语料 | P1-GOV-01 | ≥100 篇 + 授权 + MANIFEST | ⬜ |
+| C2 实时 LLM 重跑 | P1-EV-04 | 抽取人工抽检 ≥70% + 20 case live 报告 | ⬜ |
+| C3 Neo4j 回归 | P1-EV-05 | `build-graph` + `run-cases --neo4j` | ⬜ |
+
 ### G2 — MVP 出口
 - [ ] 全部 P0 需求（PRD 第3节）实现并通过测试
 - [ ] 评测集 ≥200 条完成标注，评测脚本可一键运行

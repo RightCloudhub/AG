@@ -1,0 +1,28 @@
+{
+  "gate": "G1_to_G2",
+  "ts": "2026-07-19T11:46:20.993545+00:00",
+  "pass": false,
+  "conditions": {
+    "C1_pilot_corpus_P1_GOV_01": {
+      "pass": false,
+      "status": "fail",
+      "report": "reports/pilot_corpus_validation.json"
+    },
+    "C2_live_llm": {
+      "pass": false,
+      "status": "pending",
+      "report": "reports/llm_live_rerun.json"
+    },
+    "C3_neo4j_regression": {
+      "pass": false,
+      "status": "skip",
+      "report": "reports/neo4j_regression.json"
+    }
+  },
+  "playbook": "plan/phases/g1-to-g2-transition.md",
+  "next_actions": [
+    "Fill data/pilot/MANIFEST.yaml + ≥100 docs; run validate_pilot_corpus.sh",
+    "Run ./scripts/llm_live_rerun.sh; human-label spotcheck; score-spotcheck",
+    "Start Docker/Neo4j; ./scripts/neo4j_regression.sh"
+  ]
+}

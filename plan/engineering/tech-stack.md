@@ -59,4 +59,4 @@
 - [x] 向量库具体产品：Qdrant（POC）
 - [ ] 前端技术栈（试点阶段前定即可）
 - [ ] 部署形态：K8s / 单机 Docker Compose（试点规模决定）
-- [ ] 正式试点领域与语料替换当前 interim 公司关系语料（P1-GOV-01 / R5）
+- [ ] 正式试点领域与语料替换当前 interim 公司关系语料（P1-GOV-01 / R5）— 见 [g1-to-g2-transition.md](../phases/g1-to-g2-transition.md) C1 · `data/pilot/`

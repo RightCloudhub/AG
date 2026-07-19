@@ -15,7 +15,7 @@
 ## 任务清单
 
 ### 前置决策（W1，阻塞项）
-- [~] `P1-GOV-01` 确定首个试点领域与语料范围（≥100 篇文档），获得数据授权 — 负责人：产品 — **POC 暂用 interim 公司关系语料（6 篇 + seed 三元组），待正式领域替换**
+- [~] `P1-GOV-01` 确定首个试点领域与语料范围（≥100 篇文档），获得数据授权 — 负责人：产品 — **POC 暂用 interim 公司关系语料（6 篇 + seed 三元组）；G1→G2 过渡 C1，见 [g1-to-g2-transition.md](./g1-to-g2-transition.md)、`data/pilot/`**
 - [x] `P1-GOV-02` 图数据库选型决策（Neo4j）→ 写入 tech-stack.md ADR-001 已采纳 — 负责人：架构
 - [x] `P1-GOV-03` LLM 选型：OpenAI 兼容双档位 + BudgetTracker；POC 预算待业务确认 — 负责人：架构
 
@@ -44,6 +44,8 @@
 - [x] `P1-EV-01` 设计 20 个多跳 case（`evals/datasets/poc_cases.jsonl`）
 - [x] `P1-EV-02` 端到端跑测脚本骨架（`cli.run_cases_main`；需 Neo4j 时跑全量）
 - [x] `P1-EV-03` G1 评审材料：`reports/G1_review.md`（Conditional-Go；20/20、成本延迟、风险、环境声明）
+- [ ] `P1-EV-04` **G1→G2 C2**：实时 LLM 重跑 — 抽取抽检（`spotcheck --mode llm`）+ 20 case live（`scripts/llm_live_rerun.sh`）
+- [ ] `P1-EV-05` **G1→G2 C3**：Neo4j 回归 — `build-graph` seed 入图 + `run-cases --no-llm --neo4j`（`scripts/neo4j_regression.sh`）
 
 ## 交付物
 

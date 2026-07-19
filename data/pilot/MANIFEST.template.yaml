@@ -1,0 +1,47 @@
+# Copy to MANIFEST.yaml and fill in. Non-secret metadata only in git.
+# P1-GOV-01 — pilot domain & corpus scope
+
+version: "0.1.0"
+status: draft  # draft | approved | superseded
+
+domain:
+  id: ""                    # e.g. corporate_relations | legal_contracts | ...
+  display_name: ""          # 中文/英文显示名
+  description: ""
+  owner_product: ""         # 产品负责人
+  owner_kg: ""              # 图谱负责人
+
+authorization:
+  source: ""                # 数据来源（内部系统 / 公开集 / 合作方）
+  license_or_agreement: ""  # 协议编号或 license 名
+  approved_by: ""
+  approved_date: ""         # YYYY-MM-DD
+  expires_on: ""            # YYYY-MM-DD or null
+  pii_desensitized: false
+  notes: ""
+
+corpus:
+  raw_path: "data/pilot/raw"   # or absolute external mount
+  min_docs: 100
+  # filled by validate_pilot_corpus.sh:
+  doc_count: 0
+  format: "md|txt|html"
+  language: "zh|en|mixed"
+  approx_tokens: null
+
+schema:
+  path: "configs/schema/domain_v0.yaml"
+  name: ""                  # must match schema file name field after revision
+  notes: "Revise entity/relation types for this domain before full extract"
+
+multihop_focus:
+  - "example: parent company → CEO → prior employers"
+  - "example: product → producer → competitors / suppliers"
+
+checklist:
+  domain_locked: false
+  authorization_complete: false
+  docs_ge_100: false
+  ingest_smoke_ok: false
+  schema_aligned: false
+  product_signoff: false

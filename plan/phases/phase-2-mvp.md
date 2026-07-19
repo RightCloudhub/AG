@@ -1,7 +1,18 @@
 # 阶段二：MVP 构建（4-6周）
 
 **目标**：完整四层架构落地，全部 P0 需求实现；建成 ≥200 条评测集并输出与 Baseline 的量化对比报告。
-**前提**：G1 通过。POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [testing-strategy.md](../engineering/testing-strategy.md)）。
+**前提**：G1 **Conditional-Go** 的过渡条件关闭（或评审豁免）——见 [g1-to-g2-transition.md](./g1-to-g2-transition.md)：  
+C1 正式试点语料（P1-GOV-01）· C2 实时 LLM 重跑 · C3 Neo4j 回归。  
+POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [testing-strategy.md](../engineering/testing-strategy.md)）。
+
+### 入场检查（W0，进入 W1 前）
+
+```bash
+./scripts/g1_to_g2_gate.sh              # 汇总 C1/C2/C3 → reports/G1_to_G2_status.json
+./scripts/g1_to_g2_gate.sh --with-llm   # 含 C2 自动部分
+```
+
+- [ ] `P2-ENTRY-01` 过渡门禁通过或书面豁免已归档
 
 ## 周计划
 

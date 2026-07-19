@@ -104,11 +104,15 @@
 - 20 case 全量批跑稳定；准确率与图证据覆盖满足 G1 ≥60% 条。  
 - 推理链、成本/延迟字段齐全，可审计。
 
-**条件（进入阶段二前）**
+**条件（进入阶段二前）** — 已展开为可执行 playbook：
 
-1. 锁定正式试点语料并重建 Schema/图谱。  
-2. 配置 LLM 后重跑抽取抽检与 20 case（或扩展集）。  
-3. 有 Docker 时用 Neo4j 回归 `agr-build-graph` + `run-cases`。
+| # | 条件 | Playbook | 脚本 |
+|---|------|----------|------|
+| C1 | 锁定正式试点语料并重建 Schema/图谱 | [g1-to-g2-transition.md](../plan/phases/g1-to-g2-transition.md) §C1 | `scripts/validate_pilot_corpus.sh` · `data/pilot/` |
+| C2 | 配置 LLM 后重跑抽取抽检与 20 case | 同上 §C2 | `scripts/llm_live_rerun.sh` · `spotcheck --mode llm` |
+| C3 | Docker/Neo4j 回归 `build-graph` + `run-cases` | 同上 §C3 | `scripts/neo4j_regression.sh`（`run-cases --neo4j`） |
+
+汇总：`./scripts/g1_to_g2_gate.sh` → `reports/G1_to_G2_status.json`
 
 **No-Go 情形（未触发）**：多跳完全不可行、成本量级失控、正确率远低于 60% 且无优化路径。
 

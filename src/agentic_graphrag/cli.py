@@ -6,9 +6,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
-from agentic_graphrag.config import ROOT_DIR, get_config, get_settings, resolve_path
-from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
+from agentic_graphrag.config import get_config, get_settings, resolve_path
+from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
 from agentic_graphrag.knowledge.schema_check import Triple, load_schema, validate_triples
 from agentic_graphrag.stores.doc_store import FileDocStore
@@ -19,6 +20,57 @@ from agentic_graphrag.stores.interfaces import ChunkRecord
 def _ensure_dirs(cfg) -> None:
     for key in ("data_dir", "raw_docs_dir", "processed_dir", "cache_dir", "indexes_dir"):
         resolve_path(getattr(cfg.paths, key)).mkdir(parents=True, exist_ok=True)
+
+
+def _neo4j_unavailable_hint(uri: str, exc: BaseException) -> str:
+    return (
+        f"Neo4j unavailable at {uri}: {exc}\n"
+        "  Offline dry-run:  agr-build-graph --triples … --no-llm [--memory-graph]\n"
+        "  Start Neo4j:      docker compose up -d\n"
+        "  Offline eval:     agr-run-cases --no-llm  (loads seed triples itself)"
+    )
+
+
+def _open_graph_store(
+    settings: Any,
+    *,
+    memory: bool = False,
+    allow_memory_fallback: bool = False,
+) -> tuple[Any, str]:
+    """Open a GraphStore.
+
+    - ``memory=True`` → always InMemoryGraphStore (process-local).
+    - else try Neo4j; on failure optionally fall back to memory (seed / offline paths).
+    """
+    if memory:
+        from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
+
+        return InMemoryGraphStore(), "memory"
+
+    from agentic_graphrag.stores.neo4j_store import Neo4jGraphStore
+
+    store: Any = None
+    try:
+        store = Neo4jGraphStore(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+        store.ping()
+        return store, "neo4j"
+    except Exception as exc:
+        if store is not None:
+            try:
+                store.close()
+            except Exception:
+                pass
+        if allow_memory_fallback:
+            from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
+
+            print(
+                f"Warning: Neo4j unavailable at {settings.neo4j_uri} ({exc}); "
+                "falling back to in-memory graph (process-local, not persisted).",
+                file=sys.stderr,
+            )
+            return InMemoryGraphStore(), "memory"
+        print(_neo4j_unavailable_hint(settings.neo4j_uri, exc), file=sys.stderr)
+        sys.exit(1)
 
 
 def ingest_main(argv: list[str] | None = None) -> None:
@@ -64,10 +116,17 @@ def ingest_main(argv: list[str] | None = None) -> None:
 
 
 def build_graph_main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Extract triples and load Neo4j graph")
+    parser = argparse.ArgumentParser(
+        description="Extract triples and load graph (Neo4j by default; --memory-graph for offline)"
+    )
     parser.add_argument("--chunks", default=None, help="chunks.jsonl path")
     parser.add_argument("--triples", default=None, help="Optional precomputed triples JSONL")
     parser.add_argument("--no-llm", action="store_true", help="Skip LLM; load --triples only")
+    parser.add_argument(
+        "--memory-graph",
+        action="store_true",
+        help="Use in-memory graph (no Neo4j; process-local dry-run / offline seed validation)",
+    )
     parser.add_argument("--no-clear", action="store_true", help="Do not clear graph first")
     args = parser.parse_args(argv)
     cfg = get_config()
@@ -122,14 +181,29 @@ def build_graph_main(argv: list[str] | None = None) -> None:
 
     validated = validate_triples(triples, schema)
     triples = validated.accepted
-    print(f"Schema-valid triples: {len(triples)} (rejected {len(validated.rejected)})")
+    print(
+        f"Schema-valid triples: {len(triples)} (rejected {len(validated.rejected)})",
+        flush=True,
+    )
 
-    from agentic_graphrag.stores.neo4j_store import Neo4jGraphStore
-
-    store = Neo4jGraphStore(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+    # Seed / --no-llm path is offline-friendly: prefer Neo4j when up, else memory.
+    # LLM extract path requires Neo4j (no silent fallback).
+    store, backend = _open_graph_store(
+        settings,
+        memory=args.memory_graph,
+        allow_memory_fallback=args.no_llm,
+    )
     try:
         stats = load_triples_into_graph(store, triples, clear_first=not args.no_clear)
-        print(json.dumps(stats, indent=2))
+        stats["backend"] = backend
+        print(json.dumps(stats, indent=2), flush=True)
+        if backend == "memory":
+            print(
+                "Note: in-memory graph is process-local. "
+                "Offline eval does not need this step — use: agr-run-cases --no-llm",
+                file=sys.stderr,
+                flush=True,
+            )
     finally:
         store.close()
 
@@ -200,9 +274,17 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cases", default=None)
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--memory-graph", action="store_true", help="Use in-memory graph from seed triples")
+    parser.add_argument(
+        "--neo4j",
+        action="store_true",
+        help="Force Neo4j graph backend (even with --no-llm). Use after agr-build-graph populated Neo4j.",
+    )
     parser.add_argument("--seed-triples", default="data/processed/seed_triples.jsonl")
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
+    if args.memory_graph and args.neo4j:
+        print("Conflicting flags: --memory-graph and --neo4j", file=sys.stderr)
+        sys.exit(2)
     cfg = get_config()
     settings = get_settings()
     cases_path = resolve_path(args.cases or cfg.eval.cases_path)
@@ -220,7 +302,6 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     from agentic_graphrag.retrieval.graph import GraphRetriever
     from agentic_graphrag.retrieval.vector import VectorRetriever
     from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
-    from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
     from agentic_graphrag.stores.vector_store import InMemoryVectorStore, QdrantVectorStore
 
     seed_path = resolve_path(args.seed_triples)
@@ -245,15 +326,26 @@ def run_cases_main(argv: list[str] | None = None) -> None:
         key=lambda s: (-len(s), s.lower()),
     )
 
-    if args.memory_graph or args.no_llm:
-        graph_store = InMemoryGraphStore()
+    # Graph backend selection:
+    #   --memory-graph          → always in-memory (+ load seed)
+    #   --neo4j                 → force Neo4j (for regression after build-graph)
+    #   --no-llm (default)      → offline convenience: in-memory + seed (no Docker)
+    #   live LLM (no flags)     → require Neo4j
+    use_memory = args.memory_graph or (args.no_llm and not args.neo4j)
+    graph_store, graph_backend = _open_graph_store(
+        settings,
+        memory=use_memory,
+        allow_memory_fallback=False,
+    )
+    if graph_backend == "memory":
         if triples:
             load_triples_into_graph(graph_store, triples, clear_first=True)
-        print(f"Loaded {len(triples)} seed triples into in-memory graph ({graph_store.counts()})")
+        print(
+            f"Loaded {len(triples)} seed triples into in-memory graph "
+            f"({graph_store.counts()})"
+        )
     else:
-        from agentic_graphrag.stores.neo4j_store import Neo4jGraphStore
-
-        graph_store = Neo4jGraphStore(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+        print(f"Using Neo4j graph store at {settings.neo4j_uri} ({graph_store.counts()})")
 
     graph_ret = GraphRetriever(
         graph_store,
@@ -411,17 +503,31 @@ def score_main(argv: list[str] | None = None) -> None:
 
 
 def spotcheck_main(argv: list[str] | None = None) -> None:
-    """Generate triple spot-check sample for P1-KG-05."""
+    """Generate triple spot-check sample for P1-KG-05 / G1→G2 live extract audit."""
     parser = argparse.ArgumentParser(description="Build triple spot-check sample")
     parser.add_argument("--triples", default="data/processed/seed_triples.jsonl")
     parser.add_argument("--out", default="reports/triple_spotcheck.jsonl")
     parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument(
+        "--mode",
+        choices=("seed", "llm"),
+        default="seed",
+        help="seed: schema-valid→correct (POC baseline); llm: pending_human for manual audit",
+    )
+    parser.add_argument(
+        "--schema",
+        default="configs/schema/domain_v0.yaml",
+        help="Schema YAML path",
+    )
     args = parser.parse_args(argv)
     from agentic_graphrag.config import resolve_path as rp
     from agentic_graphrag.knowledge.schema_check import Triple, load_schema, validate_triple
 
     triples_path = rp(args.triples)
-    schema = load_schema(rp("configs/schema/domain_v0.yaml"))
+    if not triples_path.exists():
+        print(f"Triples file not found: {triples_path}", file=sys.stderr)
+        sys.exit(2)
+    schema = load_schema(rp(args.schema))
     out_path = rp(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -431,8 +537,18 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
             continue
         t = Triple.model_validate(json.loads(line))
         reason = validate_triple(t, schema)
-        # Seed triples are curated gold for interim corpus → label correct when schema-valid
-        label = "correct" if reason is None else "incorrect"
+        if args.mode == "seed":
+            # Seed triples are curated gold for interim corpus → label correct when schema-valid
+            label = "correct" if reason is None else "incorrect"
+            label_source = "seed_baseline_schema_valid"
+        else:
+            # LLM extract: leave for human audit; schema failure is already incorrect
+            if reason is not None:
+                label = "incorrect"
+                label_source = "schema_reject"
+            else:
+                label = "pending_human"
+                label_source = "llm_extract_pending_human"
         rows.append(
             {
                 "head": t.head.model_dump(),
@@ -440,28 +556,43 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
                 "tail": t.tail.model_dump(),
                 "confidence": t.confidence,
                 "source_span": t.source_span,
+                "source_doc_id": t.source_doc_id,
+                "source_chunk_id": t.source_chunk_id,
                 "schema_ok": reason is None,
                 "schema_reason": reason,
                 "human_label": label,
-                "label_source": "seed_baseline_schema_valid",
+                "label_source": label_source,
             }
         )
         if len(rows) >= args.limit:
             break
 
-    correct = sum(1 for r in rows if r["human_label"] == "correct")
-    rate = correct / len(rows) if rows else 0.0
+    labeled = [r for r in rows if r["human_label"] in ("correct", "incorrect")]
+    pending = sum(1 for r in rows if r["human_label"] == "pending_human")
+    correct = sum(1 for r in labeled if r["human_label"] == "correct")
+    rate = correct / len(labeled) if labeled else None
     with out_path.open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     summary = {
+        "mode": args.mode,
         "sample_size": len(rows),
         "correct": correct,
-        "incorrect": len(rows) - correct,
-        "correct_rate": round(rate, 4),
-        "correct_rate_pct": round(rate * 100, 2),
-        "label_source": "seed_baseline (schema-valid seed triples treated as correct)",
-        "note": "P1-KG-05 seed baseline; replace with human labels when LLM extract is audited",
+        "incorrect": sum(1 for r in labeled if r["human_label"] == "incorrect"),
+        "pending_human": pending,
+        "correct_rate": round(rate, 4) if rate is not None else None,
+        "correct_rate_pct": round(rate * 100, 2) if rate is not None else None,
+        "label_source": (
+            "seed_baseline (schema-valid seed triples treated as correct)"
+            if args.mode == "seed"
+            else "llm extract: set human_label correct|incorrect then re-score"
+        ),
+        "target_correct_rate_pct": 70.0,
+        "note": (
+            "P1-KG-05 seed baseline"
+            if args.mode == "seed"
+            else "G1→G2 live extract audit: fill human_label, then: python -m agentic_graphrag score-spotcheck"
+        ),
         "path": str(out_path),
     }
     summary_path = out_path.with_suffix(".summary.json")
@@ -469,10 +600,54 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
+def score_spotcheck_main(argv: list[str] | None = None) -> None:
+    """Re-score a spotcheck JSONL after human labels are filled in."""
+    parser = argparse.ArgumentParser(description="Score triple spot-check after human labeling")
+    parser.add_argument("--in", dest="inp", default="reports/triple_spotcheck_llm.jsonl")
+    parser.add_argument("--out", default=None, help="Summary JSON path (default: <in>.summary.json)")
+    args = parser.parse_args(argv)
+    inp = resolve_path(args.inp)
+    if not inp.exists():
+        print(f"Not found: {inp}", file=sys.stderr)
+        sys.exit(2)
+    rows = [
+        json.loads(line)
+        for line in inp.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    pending = [r for r in rows if r.get("human_label") == "pending_human"]
+    labeled = [r for r in rows if r.get("human_label") in ("correct", "incorrect")]
+    correct = sum(1 for r in labeled if r["human_label"] == "correct")
+    rate = correct / len(labeled) if labeled else None
+    summary = {
+        "sample_size": len(rows),
+        "labeled": len(labeled),
+        "pending_human": len(pending),
+        "correct": correct,
+        "incorrect": len(labeled) - correct,
+        "correct_rate": round(rate, 4) if rate is not None else None,
+        "correct_rate_pct": round(rate * 100, 2) if rate is not None else None,
+        "pass_g1_extract_gate": bool(rate is not None and rate >= 0.70 and not pending),
+        "target_correct_rate_pct": 70.0,
+        "path": str(inp),
+    }
+    out = resolve_path(args.out) if args.out else inp.with_suffix(".summary.json")
+    out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if pending:
+        print(f"Warning: {len(pending)} rows still pending_human", file=sys.stderr)
+    if rate is not None and rate < 0.70:
+        print(f"Below 70% extract gate: {rate * 100:.1f}%", file=sys.stderr)
+        sys.exit(3)
+
+
 def query_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Single query (agentic)")
     parser.add_argument("question")
     parser.add_argument("--no-llm", action="store_true")
+    parser.add_argument("--memory-graph", action="store_true", help="Use in-memory graph from seed triples")
+    parser.add_argument("--neo4j", action="store_true", help="Force Neo4j graph backend")
+    parser.add_argument("--seed-triples", default="data/processed/seed_triples.jsonl")
     args = parser.parse_args(argv)
     # Reuse run_cases machinery for one question
     cases_path = resolve_path("data/processed/_single_case.jsonl")
@@ -481,9 +656,13 @@ def query_main(argv: list[str] | None = None) -> None:
         json.dumps({"id": "adhoc", "question": args.question, "gold_answer": ""}, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    run_args = ["--cases", str(cases_path)]
+    run_args = ["--cases", str(cases_path), "--seed-triples", args.seed_triples]
     if args.no_llm:
         run_args.append("--no-llm")
+    if args.memory_graph:
+        run_args.append("--memory-graph")
+    if args.neo4j:
+        run_args.append("--neo4j")
     run_cases_main(run_args)
 
 

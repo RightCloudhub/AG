@@ -13,6 +13,7 @@ plan/
 ├── roadmap.md                    # 总路线图：时间线、阶段门禁、依赖关系
 ├── phases/                       # 按阶段的执行计划（做什么、何时算完成）
 │   ├── phase-1-poc.md            # 阶段一：POC 验证（3-4周）
+│   ├── g1-to-g2-transition.md    # G1→G2 过渡条件（C1 语料 / C2 LLM / C3 Neo4j）
 │   ├── phase-2-mvp.md            # 阶段二：MVP 构建（4-6周）
 │   ├── phase-3-optimization.md   # 阶段三：工程优化（3-4周）
 │   ├── phase-4-pilot.md          # 阶段四：试点上线（2-3周）

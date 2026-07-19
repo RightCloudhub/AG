@@ -22,10 +22,15 @@ def _validate_identifier(value: str, kind: str) -> str:
 
 class Neo4jGraphStore:
     def __init__(self, uri: str, user: str, password: str) -> None:
+        self._uri = uri
         self._driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
 
     def close(self) -> None:
         self._driver.close()
+
+    def ping(self) -> None:
+        """Fail fast if Neo4j is unreachable (driver connect is lazy)."""
+        self._driver.verify_connectivity()
 
     def clear(self) -> None:
         with self._driver.session() as session:

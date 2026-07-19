@@ -27,13 +27,22 @@ cp .env.example .env
 # 编辑 .env 填入 LLM_API_KEY（可选；离线可用 seed 三元组 + --no-llm）
 ```
 
-### 2. 基础设施
+### 2. 基础设施（可选；离线路径不需要）
 
 ```bash
 docker compose up -d
 # Neo4j Browser: http://localhost:7474  (neo4j / agentic-graphrag)
 # Qdrant:       http://localhost:6333
 ```
+
+| 模式 | 图后端 | LLM |
+|------|--------|-----|
+| 离线 seed | `InMemoryGraphStore`（进程内） | 不需要（`--no-llm`） |
+| 持久 seed | Neo4j（需 Docker） | 不需要（`--no-llm`） |
+| 全量抽取 | Neo4j（需 Docker） | 需要 `LLM_API_KEY` |
+
+> **`--no-llm` ≠ 自动跳过 Neo4j**，但 seed 建图路径会在 Neo4j 不可用时**自动回退**到内存图并打印 Warning。  
+> 强制内存：`--memory-graph`。离线评测更省事：直接 `agr-run-cases --no-llm`（自己加载 seed，无需先 `build-graph`）。
 
 ### 3. 文档接入与建图（离线 seed，无需 LLM）
 
@@ -44,7 +53,7 @@ python -m agentic_graphrag.cli  # 查看入口；或使用下方脚本
 # 推荐：直接调用模块入口
 python -c "from agentic_graphrag.cli import ingest_main; ingest_main([])"
 
-# 用 seed 三元组入图（不调 LLM）
+# seed 三元组入图（不调 LLM；Neo4j 可用则写入，否则自动内存 dry-run）
 python -c "from agentic_graphrag.cli import build_graph_main; build_graph_main(['--triples','data/processed/seed_triples.jsonl','--no-llm'])"
 
 # BM25 索引（可跳过 embedding）
@@ -60,10 +69,16 @@ agr-index --no-embed
 agr-run-cases --no-llm
 ```
 
+强制进程内 dry-run（即使 Neo4j 已启动）：
+
+```bash
+agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm --memory-graph
+```
+
 ### 4. 带 LLM 的全量抽取
 
 ```bash
-# 需要有效 LLM_API_KEY
+# 需要有效 LLM_API_KEY + Neo4j（无自动回退）
 agr-ingest
 agr-build-graph
 agr-index
@@ -72,11 +87,32 @@ agr-run-cases
 
 ### 5. 离线评测与 G1
 
+`--no-llm` 时 `run-cases` **自行**把 `seed_triples.jsonl` 载入 `InMemoryGraphStore`，不依赖 Neo4j，也不依赖事先跑 `agr-build-graph`。
+
 ```bash
 python -m agentic_graphrag run-cases --no-llm   # 20 case → reports/poc_run.jsonl + accuracy
+# 或: agr-query --no-llm "Who is the CEO of Apex Holdings?"
 python -m agentic_graphrag score
 python -m agentic_graphrag spotcheck            # P1-KG-05 seed baseline
 # G1 memo: reports/G1_review.md  (Conditional-Go)
+```
+
+### 5b. G1 → G2 过渡（Conditional-Go 关闭）
+
+Playbook：[plan/phases/g1-to-g2-transition.md](./plan/phases/g1-to-g2-transition.md)
+
+| 条件 | 命令 |
+|------|------|
+| C1 试点语料 P1-GOV-01 | 填 `data/pilot/MANIFEST.yaml` + 语料 → `./scripts/validate_pilot_corpus.sh` |
+| C2 实时 LLM | `.env` 配好 key → `./scripts/llm_live_rerun.sh` → 人工标抽检 → `score-spotcheck` |
+| C3 Neo4j 回归 | `docker compose up -d neo4j` → `./scripts/neo4j_regression.sh` |
+
+```bash
+./scripts/g1_to_g2_gate.sh                 # 汇总 C1/C2/C3
+./scripts/g1_to_g2_gate.sh --with-llm      # 含 live LLM
+# Neo4j + offline 答案器（图走 Neo4j，不调 LLM）：
+agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm
+agr-run-cases --no-llm --neo4j
 ```
 
 ### 6. 测试

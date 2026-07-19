@@ -11,6 +11,7 @@ from agentic_graphrag.cli import (
     query_main,
     run_cases_main,
     score_main,
+    score_spotcheck_main,
     spotcheck_main,
 )
 
@@ -22,6 +23,7 @@ _COMMANDS = {
     "query": query_main,
     "score": score_main,
     "spotcheck": spotcheck_main,
+    "score-spotcheck": score_spotcheck_main,
 }
 
 
@@ -29,7 +31,7 @@ def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print(
             "Usage: python -m agentic_graphrag "
-            "<ingest|build-graph|index|run-cases|query|score|spotcheck> [args...]"
+            "<ingest|build-graph|index|run-cases|query|score|spotcheck|score-spotcheck> [args...]"
         )
         sys.exit(0 if len(sys.argv) > 1 else 1)
     cmd = sys.argv[1]

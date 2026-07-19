@@ -25,6 +25,9 @@ data/processed/chunks.jsonl
 data/processed/triples.jsonl
 data/processed/rejected_triples.jsonl
 data/processed/_single_case.jsonl
+# Pilot raw docs may be large/sensitive; keep template + README tracked
+data/pilot/raw/**
+!data/pilot/raw/.gitkeep
 *.db
 .neo4j/
 .qdrant/
@@ -36,10 +39,11 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Logs & reports (keep G1 review tracked)
+# Logs & reports (keep G1 review + transition status tracked)
 logs/
 reports/*
 !reports/G1_review.md
+!reports/G1_to_G2_status.json
 *.log
 
 # Secrets
