@@ -1,0 +1,48 @@
+# AgenticGraphRAG default config (no secrets — use env vars)
+
+app:
+  name: agentic-graphrag
+  env: local
+
+guardrails:
+  max_hops: 5
+  max_llm_calls: 20
+  max_tokens_per_query: 50000
+  query_timeout_seconds: 60
+  recursion_limit: 15  # max_hops * 3
+
+retrieval:
+  top_k: 10
+  vector_top_k: 10
+  fulltext_top_k: 10
+  graph:
+    max_hop_neighbors: 2
+    max_path_hops: 4
+    max_neighbors_per_layer: 50
+    max_paths: 20
+
+knowledge:
+  chunk_size_chars: 1200
+  chunk_overlap_chars: 150
+  extract_confidence_threshold: 0.5
+  schema_path: configs/schema/domain_v0.yaml
+
+llm:
+  strong_model: gpt-4.1
+  light_model: gpt-4.1-mini
+  embedding_model: text-embedding-3-small
+  temperature: 0.0
+  max_retries: 2
+  timeout_seconds: 60
+
+paths:
+  data_dir: data
+  raw_docs_dir: data/raw
+  processed_dir: data/processed
+  cache_dir: data/cache
+  indexes_dir: data/indexes
+  prompts_dir: configs/prompts
+
+eval:
+  cases_path: evals/datasets/poc_cases.jsonl
+  report_dir: reports

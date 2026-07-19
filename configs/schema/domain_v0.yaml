@@ -1,0 +1,133 @@
+# Domain Schema V0 — Company / Person / Product / Event (interim POC domain)
+# Adjust when pilot domain is confirmed (P1-GOV-01).
+
+version: "0.1.0"
+name: corporate_relations_v0
+description: >
+  Interim schema for multi-hop POC: corporate ownership, employment,
+  products, competition, and supply relationships.
+
+entity_types:
+  Company:
+    description: A business organization
+    attributes:
+      - name: industry
+        type: string
+        required: false
+      - name: country
+        type: string
+        required: false
+      - name: founded_year
+        type: integer
+        required: false
+
+  Person:
+    description: An individual person
+    attributes:
+      - name: title
+        type: string
+        required: false
+      - name: nationality
+        type: string
+        required: false
+
+  Product:
+    description: A product or service offering
+    attributes:
+      - name: category
+        type: string
+        required: false
+      - name: launch_year
+        type: integer
+        required: false
+
+  Event:
+    description: A notable business event (funding, M&A, lawsuit, etc.)
+    attributes:
+      - name: event_type
+        type: string
+        required: false
+      - name: date
+        type: string
+        required: false
+      - name: amount
+        type: string
+        required: false
+
+  Location:
+    description: Geographic location
+    attributes:
+      - name: region
+        type: string
+        required: false
+
+relation_types:
+  SUBSIDIARY_OF:
+    description: Company is a subsidiary / owned by another company
+    head: Company
+    tail: Company
+
+  PARENT_OF:
+    description: Company is the parent of another company
+    head: Company
+    tail: Company
+
+  CEO_OF:
+    description: Person is CEO of a company
+    head: Person
+    tail: Company
+
+  WORKS_AT:
+    description: Person currently works at a company
+    head: Person
+    tail: Company
+
+  WORKED_AT:
+    description: Person previously worked at a company
+    head: Person
+    tail: Company
+
+  FOUNDED:
+    description: Person founded a company
+    head: Person
+    tail: Company
+
+  PRODUCES:
+    description: Company produces a product
+    head: Company
+    tail: Product
+
+  COMPETES_WITH:
+    description: Company competes with another company
+    head: Company
+    tail: Company
+
+  SUPPLIES:
+    description: Company supplies to another company or product ecosystem
+    head: Company
+    tail: Company
+
+  SUPPLIES_FOR:
+    description: Company supplies components/services for a product
+    head: Company
+    tail: Product
+
+  LOCATED_IN:
+    description: Entity is located in a place
+    head: [Company, Person, Event]
+    tail: Location
+
+  PARTICIPATED_IN:
+    description: Company or person participated in an event
+    head: [Company, Person]
+    tail: Event
+
+  ACQUIRED:
+    description: Company acquired another company
+    head: Company
+    tail: Company
+
+  PARTNER_OF:
+    description: Business partnership between companies
+    head: Company
+    tail: Company
