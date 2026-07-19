@@ -8,6 +8,7 @@ from __future__ import annotations
 from agentic_graphrag.cli._common import _open_graph_store
 from agentic_graphrag.cli.baseline import run_baseline_main
 from agentic_graphrag.cli.cases import eval_main, run_cases_main, score_main
+from agentic_graphrag.cli.eval_cmd import badcase_main, gen_cases_main, pilot_triples_main
 from agentic_graphrag.cli.graph_cmd import build_graph_main
 from agentic_graphrag.cli.index_cmd import index_main
 from agentic_graphrag.cli.ingest import ingest_main
@@ -28,4 +29,7 @@ __all__ = [
     "spotcheck_main",
     "score_spotcheck_main",
     "query_main",
+    "gen_cases_main",
+    "badcase_main",
+    "pilot_triples_main",
 ]

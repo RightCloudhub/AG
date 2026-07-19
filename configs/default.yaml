@@ -51,5 +51,5 @@ paths:
   prompts_dir: configs/prompts
 
 eval:
-  cases_path: evals/datasets/poc_cases.jsonl
+  cases_path: evals/datasets/g2_dev.jsonl
   report_dir: reports

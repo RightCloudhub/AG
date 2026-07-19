@@ -35,7 +35,7 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 - [x] `P2-KG-01` 抽取管线工程化：任务化、失败重试、来源元数据落库（FR-KG-01/02 完整版）— `run_extract_pipeline` journal/retry/quarantine/provenance
 - [x] `P2-KG-02` Schema 校验强制化：不合规三元组拒绝入图并记录（FR-KG-03）— `knowledge/schema_check.gate_triples` · reject log
 - [x] `P2-KG-03` 置信度阈值过滤入图，阈值可配置（FR-KG-06 部分）— `KnowledgeConfig.extract_confidence_threshold` · gate
-- [ ] `P2-KG-04` 图谱规模扩展至试点领域全量语料
+- [x] `P2-KG-04` 图谱规模扩展至试点领域全量语料 — 226 docs ingest + 519 pilot triples → Neo4j/memory（`data/processed/pilot_*` · `reports/pilot_build_graph_*.log`）
 
 ### 检索工作流（RT）
 - [x] `P2-RT-01` 图检索增强：子图遍历 + 相关性剪枝 + Top-K 路径采样（FR-RT-02 完整版，防路径爆炸）— `retrieval/graph.py` beam + relation cues + config caps
@@ -50,12 +50,12 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 - [x] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）— `configs/schema/reasoning_chain_v1.json`
 
 ### 评测工作流（EV）
-- [x] `P2-EV-01` 评测集 **codeable substrate**（schema + 分层校验 + 从 seed 三元组确定性生成器）— `eval/cases.py` · `eval/gold_gen.py`；≥200 条人工/扩充集仍待填满（见 EV-02）
-- [ ] `P2-EV-02` 金标标注：答案 + 支持证据（节点/边/文档片段），标注规范文档化；扩至 ≥200 条
+- [x] `P2-EV-01` 评测集 **codeable substrate**（schema + 分层校验 + 从 seed 三元组确定性生成器）— `eval/cases.py` · `eval/gold_gen.py`
+- [x] `P2-EV-02` 金标 ≥200 + 证据 + 标注规范 + dev/heldout/guardrail — `agr-gen-cases` · `evals/datasets/g2_*.jsonl` · `ANNOTATION_SPEC.md`（人工抽检签字仍 pending）
 - [x] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）— `eval/baseline_rag.py` · `agr-run-baseline`
-- [x] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）— `eval/report.py` · `agr-eval`（对照已有 run 产物；全量执行 deferred）
-- [ ] `P2-EV-05` 首轮全量评测 + badcase 归因分类（检索失败/分解失败/生成失败/图谱缺失）
-- [ ] `P2-EV-06` 针对 badcase 优化一轮，二轮评测，产出 G2 评审材料
+- [x] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）— `eval/report.py` · `agr-eval`
+- [x] `P2-EV-05` 首轮全量评测 + badcase 归因（retrieval/decomposition/generation/graph_missing）— `reports/g2_dev_eval*` · `agr-badcase`
+- [x] `P2-EV-06` 优化一轮说明 + 二轮评测 + G2 评审材料 — `reports/G2_review.md` · `G2_review.json`
 
 ## 交付物
 

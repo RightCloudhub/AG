@@ -60,11 +60,11 @@
 
 | ID | 事项 | 为何延期 / 缺口 | 如何解 |
 |----|------|-----------------|--------|
-| **P2-KG-04** | 图谱扩至试点全量语料 | 依赖锁定真实领域 + 授权文档（C1） | C1 后：ingest → extract → build-graph 到试点规模 |
-| **P2-EV-02** | 金标 ≥200 条（含证据） | 仅有 substrate（`eval/cases.py`、`eval/gold_gen.py`）；人工/扩充集未填满 | 标注或生成+复核至 ≥200；补标注规范文档 |
-| **P2-EV-04** *（部分）* | 评测全量执行 | 脚本与报告写入已完成；**全量 live agentic/baseline 重跑 deferred** — 现对比依赖已有离线 run 产物 | `agr-run-cases` / `agr-run-baseline` 后再 `agr-eval`（held-out） |
-| **P2-EV-05** | 首轮全量评测 + badcase 归因 | 卡在 EV-02 规模 + 可信跑数 | 检索/分解/生成/图谱缺失四类归因 |
-| **P2-EV-06** | 二轮评测 + G2 材料 | 在 EV-05 优化之后 | G2 评审包 |
+| **P2-KG-04** | 图谱扩至试点全量语料 | **工程关闭**（合成 226 篇 + 519 确定性三元组 → Neo4j/memory） | 产品真域仍待 C1 产品签字后重抽 |
+| **P2-EV-02** | 金标 ≥200 条（含证据） | **工程关闭**：`g2_*.jsonl` + `ANNOTATION_SPEC.md` + dev/heldout/guardrail；**人工抽检签字 pending** | 评测负责人抽检后改 `annotation_status` |
+| **P2-EV-04** | 评测执行 | 脚本齐；dev offline 全量已跑（`g2_dev_eval`）；**live LLM / heldout 门禁仍 deferred** | heldout + live |
+| **P2-EV-05** | 首轮全量 + badcase | **工程关闭**（dev offline）：`reports/g2_dev_badcase.json` | live 对照 |
+| **P2-EV-06** | 二轮 + G2 材料 | **工程关闭**：`reports/G2_review.md`；正式 G2 Go 仍 Conditional | heldout 锁定 + 人工签字 |
 
 ### G2 门禁清单（均未关闭）
 

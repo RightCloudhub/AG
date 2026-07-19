@@ -4,48 +4,77 @@ from __future__ import annotations
 
 import sys
 
-from agentic_graphrag.cli import (
-    build_graph_main,
-    eval_main,
-    export_reasoning_schema_main,
-    index_main,
-    ingest_main,
-    query_main,
-    run_baseline_main,
-    run_cases_main,
-    score_main,
-    score_spotcheck_main,
-    spotcheck_main,
-)
 
-_COMMANDS = {
-    "ingest": ingest_main,
-    "build-graph": build_graph_main,
-    "index": index_main,
-    "run-cases": run_cases_main,
-    "run-baseline": run_baseline_main,
-    "eval": eval_main,
-    "query": query_main,
-    "score": score_main,
-    "spotcheck": spotcheck_main,
-    "score-spotcheck": score_spotcheck_main,
-    "export-reasoning-schema": export_reasoning_schema_main,
-}
-
-
-def main() -> None:
-    if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
+def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in {"-h", "--help"}:
         print(
-            "Usage: python -m agentic_graphrag "
-            "<ingest|build-graph|index|run-cases|run-baseline|eval|query|score|"
-            "spotcheck|score-spotcheck|export-reasoning-schema> [args...]"
+            "Usage: python -m agentic_graphrag <command> ...\n"
+            "Commands: ingest, build-graph, index, run-cases, run-baseline, score, eval,\n"
+            "          gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck,\n"
+            "          export-reasoning-schema, query"
         )
-        sys.exit(0 if len(sys.argv) > 1 else 1)
-    cmd = sys.argv[1]
-    if cmd not in _COMMANDS:
+        return
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "ingest":
+        from agentic_graphrag.cli import ingest_main
+
+        ingest_main(rest)
+    elif cmd == "build-graph":
+        from agentic_graphrag.cli import build_graph_main
+
+        build_graph_main(rest)
+    elif cmd == "index":
+        from agentic_graphrag.cli import index_main
+
+        index_main(rest)
+    elif cmd == "run-cases":
+        from agentic_graphrag.cli import run_cases_main
+
+        run_cases_main(rest)
+    elif cmd == "run-baseline":
+        from agentic_graphrag.cli import run_baseline_main
+
+        run_baseline_main(rest)
+    elif cmd == "score":
+        from agentic_graphrag.cli import score_main
+
+        score_main(rest)
+    elif cmd == "eval":
+        from agentic_graphrag.cli import eval_main
+
+        eval_main(rest)
+    elif cmd == "gen-cases":
+        from agentic_graphrag.cli import gen_cases_main
+
+        gen_cases_main(rest)
+    elif cmd == "pilot-triples":
+        from agentic_graphrag.cli import pilot_triples_main
+
+        pilot_triples_main(rest)
+    elif cmd == "badcase":
+        from agentic_graphrag.cli import badcase_main
+
+        badcase_main(rest)
+    elif cmd == "spotcheck":
+        from agentic_graphrag.cli import spotcheck_main
+
+        spotcheck_main(rest)
+    elif cmd == "score-spotcheck":
+        from agentic_graphrag.cli import score_spotcheck_main
+
+        score_spotcheck_main(rest)
+    elif cmd == "export-reasoning-schema":
+        from agentic_graphrag.cli import export_reasoning_schema_main
+
+        export_reasoning_schema_main(rest)
+    elif cmd == "query":
+        from agentic_graphrag.cli import query_main
+
+        query_main(rest)
+    else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
         sys.exit(2)
-    _COMMANDS[cmd](sys.argv[2:])
 
 
 if __name__ == "__main__":

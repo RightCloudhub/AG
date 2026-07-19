@@ -59,6 +59,48 @@ def test_gold_gen_from_seed_triples():
     assert len({c.question for c in cases}) == len(cases)
 
 
+def test_g2_dataset_meets_stratification_if_present():
+    path = resolve_path("evals/datasets/g2_all.jsonl")
+    if not path.exists():
+        return
+    cases = load_cases(path)
+    report = validate_stratification(cases, strict_total=True)
+    assert report.ok, report.errors
+    assert report.total >= 200
+    # evidence on answered cases
+    for c in cases:
+        if c.resolved_category().value == "no_answer":
+            continue
+        assert c.gold_path or c.gold_evidence, c.id
+
+
+def test_split_sets_deterministic():
+    from agentic_graphrag.eval.split_sets import split_gold_cases
+
+    cases = [
+        EvalCase(id=f"c{i}", question=f"Q{i}?", gold_answer="a", hops=2, category=CaseCategory.HOP2)
+        for i in range(40)
+    ]
+    s1 = split_gold_cases(cases, heldout_ratio=0.25)
+    s2 = split_gold_cases(cases, heldout_ratio=0.25)
+    assert [c.id for c in s1["dev"]] == [c.id for c in s2["dev"]]
+    assert len(s1["dev"]) + len(s1["heldout"]) == 40
+
+
+def test_badcase_attribution_correct_row():
+    from agentic_graphrag.eval.badcase import attribute_row
+
+    row = {
+        "case_id": "x",
+        "gold": "Elena Varga",
+        "prediction": "Elena Varga",
+        "status": "answered",
+        "chain": {"steps": [{"tool_calls": [{"tool": "graph_neighbors", "hits": ["Elena"]}]}]},
+    }
+    out = attribute_row(row, {"x": {"gold_path": ["A", "CEO_OF", "Elena Varga"], "hops": 2}})
+    assert out["attribution"] == "correct"
+
+
 def test_dump_and_reload(tmp_path: Path):
     cases = [
         EvalCase(

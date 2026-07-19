@@ -39,14 +39,24 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Logs & reports (keep G1 review + transition status tracked)
+# Logs & reports (keep gate review artifacts tracked)
 logs/
 reports/*
 !reports/G1_review.md
 !reports/G1_to_G2_status.json
 !reports/G1_to_G2_closeout.md
 !reports/G1_live_llm_memo.md
+!reports/G2_review.md
+!reports/G2_review.json
+!reports/g2_dev_eval.md
+!reports/g2_dev_eval.json
+!reports/g2_dev_badcase.json
+!reports/pilot_build_graph_neo4j.log
 *.log
+
+# Extract runtime journals (regenerable)
+data/processed/extract_journal.jsonl
+data/processed/extract_quarantine.jsonl
 
 # Local non-Python runtimes (JDK / Neo4j tarball extracts, etc.)
 # See docs/EXTERNAL_RUNTIMES.md — prefer docker-compose, do not commit binaries.

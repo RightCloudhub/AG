@@ -1,0 +1,62 @@
+{
+  "task": "P2-EV-02",
+  "triples": 519,
+  "gold_total": 200,
+  "stratification": {
+    "ok": true,
+    "total": 200,
+    "by_category": {
+      "2hop": 90,
+      "3hop": 60,
+      "open": 30,
+      "no_answer": 20
+    },
+    "errors": [],
+    "warnings": []
+  },
+  "splits": {
+    "dev": {
+      "total": 153,
+      "by_category": {
+        "2hop": 70,
+        "3hop": 41,
+        "open": 26,
+        "no_answer": 16
+      }
+    },
+    "heldout": {
+      "total": 47,
+      "by_category": {
+        "2hop": 20,
+        "3hop": 19,
+        "open": 4,
+        "no_answer": 4
+      }
+    },
+    "guardrail": {
+      "total": 25,
+      "by_category": {
+        "no_answer": 22,
+        "open": 3
+      }
+    },
+    "all_gold": {
+      "total": 200,
+      "by_category": {
+        "2hop": 90,
+        "3hop": 60,
+        "open": 30,
+        "no_answer": 20
+      }
+    }
+  },
+  "paths": {
+    "all": "/home/arch1/AG/evals/datasets/g2_all.jsonl",
+    "dev": "/home/arch1/AG/evals/datasets/g2_dev.jsonl",
+    "heldout": "/home/arch1/AG/evals/datasets/g2_heldout.jsonl",
+    "guardrail": "/home/arch1/AG/evals/datasets/g2_guardrail.jsonl",
+    "dev_alias": "/home/arch1/AG/evals/datasets/dev.jsonl",
+    "heldout_alias": "/home/arch1/AG/evals/datasets/heldout.jsonl",
+    "guardrail_alias": "/home/arch1/AG/evals/datasets/guardrail.jsonl"
+  }
+}
