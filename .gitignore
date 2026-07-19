@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.python-version
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Data & runtime (keep sample corpus + seed triples tracked)
+data/cache/
+data/indexes/
+data/processed/docs/
+data/processed/chunks.jsonl
+data/processed/triples.jsonl
+data/processed/rejected_triples.jsonl
+data/processed/_single_case.jsonl
+*.db
+.neo4j/
+.qdrant/
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs & reports (keep G1 review tracked)
+logs/
+reports/*
+!reports/G1_review.md
+*.log
+
+# Secrets
+*.pem
+secrets/
