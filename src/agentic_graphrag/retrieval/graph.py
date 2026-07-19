@@ -104,9 +104,7 @@ class GraphRetriever:
                         "relations": [r.type for r in path.relations],
                         "length": path.length,
                     },
-                    citations=[
-                        Citation(entity_id=n.id, span=n.name) for n in path.nodes
-                    ],
+                    citations=[Citation(entity_id=n.id, span=n.name) for n in path.nodes],
                 )
             )
         return out

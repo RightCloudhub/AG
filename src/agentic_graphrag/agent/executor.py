@@ -120,7 +120,9 @@ class Executor:
         for key in ("entity", "name", "source", "target"):
             if key in args and is_stopword_entity(str(args[key])):
                 if names:
-                    args[key] = names[0] if key != "target" else (names[1] if len(names) > 1 else names[0])
+                    args[key] = (
+                        names[0] if key != "target" else (names[1] if len(names) > 1 else names[0])
+                    )
         return ToolCallSpec(tool=spec.tool, args=args, reason=spec.reason)
 
     def _heuristic(self, sub_question: str, entities_hint: list[str]) -> list[ToolCallSpec]:
@@ -128,7 +130,10 @@ class Executor:
         specs: list[ToolCallSpec] = []
         names = self.resolve_entities(sub_question, entities_hint)
 
-        if any(k in q for k in ("path", "between", "之间", "关系链", "connects", "chain")) and len(names) >= 2:
+        if (
+            any(k in q for k in ("path", "between", "之间", "关系链", "connects", "chain"))
+            and len(names) >= 2
+        ):
             specs.append(
                 ToolCallSpec(
                     tool="graph_path",
@@ -157,7 +162,11 @@ class Executor:
         )
         if any(k in q for k in relation_cues):
             for ent in names[:2]:
-                hops = 3 if any(k in q for k in ("parent", "ceo of", "supplier", "compet", "chain")) else 2
+                hops = (
+                    3
+                    if any(k in q for k in ("parent", "ceo of", "supplier", "compet", "chain"))
+                    else 2
+                )
                 specs.append(
                     ToolCallSpec(
                         tool="graph_neighbors",
@@ -177,8 +186,16 @@ class Executor:
                 )
 
         # Always add lexical/semantic backup when available
-        specs.append(ToolCallSpec(tool="vector_search", args={"query": sub_question}, reason="semantic recall"))
-        specs.append(ToolCallSpec(tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"))
+        specs.append(
+            ToolCallSpec(
+                tool="vector_search", args={"query": sub_question}, reason="semantic recall"
+            )
+        )
+        specs.append(
+            ToolCallSpec(
+                tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"
+            )
+        )
         return specs
 
     def _dispatch(self, tool: str, args: dict[str, Any], sub_question: str) -> list[Candidate]:

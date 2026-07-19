@@ -6,7 +6,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from agentic_graphrag.agent.entities import extract_entity_mentions, primary_entity
+from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
@@ -77,7 +77,11 @@ def plan_offline(
         ]
 
     # Pattern: companies CEO of X previously worked at
-    if primary and "ceo" in ql and any(k in ql for k in ("previously work", "worked at", "work at", "worked for")):
+    if (
+        primary
+        and "ceo" in ql
+        and any(k in ql for k in ("previously work", "worked at", "work at", "worked for"))
+    ):
         return [
             SubQuestion(
                 id="sq1",
@@ -125,7 +129,11 @@ def plan_offline(
         ]
 
     # Pattern: suppliers of product that also supply competitor
-    if len(entities) >= 1 and "supplier" in ql and any(k in ql for k in ("also", "shared", "among")):
+    if (
+        len(entities) >= 1
+        and "supplier" in ql
+        and any(k in ql for k in ("also", "shared", "among"))
+    ):
         ent = entities[0]
         return [
             SubQuestion(
@@ -142,7 +150,9 @@ def plan_offline(
         ]
 
     # Pattern: relationship chain between A and B
-    if len(entities) >= 2 and any(k in ql for k in ("relationship", "chain", "connection", "path", "between")):
+    if len(entities) >= 2 and any(
+        k in ql for k in ("relationship", "chain", "connection", "path", "between")
+    ):
         a, b = entities[0], entities[1]
         return [
             SubQuestion(

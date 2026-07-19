@@ -77,7 +77,7 @@ def score_pair(prediction: str, gold: str) -> dict:
         pass
 
     correct = ratio >= 0.6 or (alias_hits >= 1 and ratio >= 0.4)
-    # Special: gold "Yes" 
+    # Special: gold "Yes"
     if gn in {"yes", "no"} and gn in pn.split():
         correct = True
         ratio = 1.0

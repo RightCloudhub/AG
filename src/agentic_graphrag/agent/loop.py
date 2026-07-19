@@ -223,7 +223,9 @@ def build_graph(
     g.set_entry_point("planner")
     g.add_edge("planner", "executor")
     g.add_edge("executor", "critic")
-    g.add_conditional_edges("critic", route_after_critic, {"executor": "executor", "answer": "answer"})
+    g.add_conditional_edges(
+        "critic", route_after_critic, {"executor": "executor", "answer": "answer"}
+    )
     g.add_edge("answer", END)
     return g.compile()
 

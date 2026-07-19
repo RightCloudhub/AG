@@ -24,7 +24,9 @@ class FulltextRetriever:
                     score=float(score),
                     structured={"doc_id": chunk.doc_id, "index": chunk.index},
                     citations=[
-                        Citation(doc_id=chunk.doc_id, chunk_id=chunk.chunk_id, span=chunk.text[:200])
+                        Citation(
+                            doc_id=chunk.doc_id, chunk_id=chunk.chunk_id, span=chunk.text[:200]
+                        )
                     ],
                     metadata={"rank": rank},
                 )
