@@ -34,6 +34,8 @@ class LLMProvider:
         strong_model: str = "gpt-4.1",
         light_model: str = "gpt-4.1-mini",
         embedding_model: str = "text-embedding-3-small",
+        embedding_base_url: str | None = None,
+        embedding_api_key: str | None = None,
         temperature: float = 0.0,
         timeout_seconds: float = 60.0,
         budget: BudgetTracker | None = None,
@@ -41,6 +43,11 @@ class LLMProvider:
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        # Separate embedding endpoint (multi-provider); fall back to chat endpoint.
+        emb_url = (embedding_base_url or "").strip() or self.base_url
+        self.embedding_base_url = emb_url.rstrip("/")
+        emb_key = embedding_api_key if embedding_api_key not in (None, "") else api_key
+        self.embedding_api_key = emb_key
         self.strong_model = strong_model
         self.light_model = light_model
         self.embedding_model = embedding_model
@@ -84,7 +91,13 @@ class LLMProvider:
                 )
             return str(cached["content"])
 
-        data = self._post("/chat/completions", payload)
+        data = self._post(
+            "/chat/completions",
+            payload,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            key_env="LLM_API_KEY",
+        )
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage") or {}
         if self.budget:
@@ -100,12 +113,22 @@ class LLMProvider:
 
     def embed(self, text: str) -> list[float]:
         payload = {"model": self.embedding_model, "input": text}
-        cache_key = self._cache_key("embed", payload)
+        # Include endpoint in cache key so multi-provider caches do not collide.
+        cache_key = self._cache_key(
+            "embed",
+            {"base_url": self.embedding_base_url, "payload": payload},
+        )
         cached = self._read_cache(cache_key)
         if cached is not None:
             return list(cached["embedding"])
 
-        data = self._post("/embeddings", payload)
+        data = self._post(
+            "/embeddings",
+            payload,
+            base_url=self.embedding_base_url,
+            api_key=self.embedding_api_key,
+            key_env="LLM_EMBEDDING_API_KEY (or LLM_API_KEY)",
+        )
         embedding = data["data"][0]["embedding"]
         # Embeddings do not count toward hop LLM call budget by default,
         # but we still record token usage if budget exists.
@@ -120,16 +143,24 @@ class LLMProvider:
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         return [self.embed(t) for t in texts]
 
-    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self.api_key:
+    def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        base_url: str,
+        api_key: str,
+        key_env: str = "LLM_API_KEY",
+    ) -> dict[str, Any]:
+        if not api_key:
             raise RuntimeError(
-                "LLM_API_KEY is not set. Configure .env or use MockLLMProvider in tests."
+                f"{key_env} is not set. Configure .env or use MockLLMProvider in tests."
             )
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(base_url=self.base_url, timeout=self.timeout_seconds) as client:
+        with httpx.Client(base_url=base_url, timeout=self.timeout_seconds) as client:
             resp = client.post(path, headers=headers, json=payload)
             resp.raise_for_status()
             return resp.json()

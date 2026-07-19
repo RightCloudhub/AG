@@ -38,6 +38,10 @@ llm:
   strong_model: gpt-4.1
   light_model: gpt-4.1-mini
   embedding_model: text-embedding-3-small
+  # Optional; env LLM_EMBEDDING_BASE_URL / LLM_EMBEDDING_API_KEY preferred.
+  # Leave empty to reuse chat LLM_BASE_URL / LLM_API_KEY.
+  embedding_base_url: ""
+  embedding_api_key: ""
   temperature: 0.0
   max_retries: 2
   timeout_seconds: 60

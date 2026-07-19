@@ -12,7 +12,14 @@ from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import run_agentic_query
 from agentic_graphrag.api.errors import BUDGET_EXCEEDED, INTERNAL_ERROR, ApiError
 from agentic_graphrag.api.schemas import QueryRequest, QueryResultData
-from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.config import (
+    AppConfig,
+    Settings,
+    build_llm_provider,
+    get_config,
+    get_settings,
+    resolve_path,
+)
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
@@ -111,13 +118,7 @@ class QueryService:
         )
         llm_for_embed: LLMProvider | MockLLMProvider | None
         if self.allow_llm and self.settings.llm_api_key:
-            llm_for_embed = LLMProvider(
-                api_key=self.settings.llm_api_key,
-                base_url=self.settings.llm_base_url,
-                strong_model=self.cfg.llm.strong_model,
-                light_model=self.cfg.llm.light_model,
-                embedding_model=self.cfg.llm.embedding_model,
-            )
+            llm_for_embed = build_llm_provider(settings=self.settings, cfg=self.cfg)
         else:
             llm_for_embed = MockLLMProvider()
         vector_ret = VectorRetriever(
@@ -133,14 +134,11 @@ class QueryService:
 
     def _build_llm(self, budget: BudgetTracker) -> LLMProvider | MockLLMProvider:
         if self.allow_llm and self.settings.llm_api_key:
-            return LLMProvider(
-                api_key=self.settings.llm_api_key,
-                base_url=self.settings.llm_base_url,
-                strong_model=self.cfg.llm.strong_model,
-                light_model=self.cfg.llm.light_model,
-                embedding_model=self.cfg.llm.embedding_model,
+            return build_llm_provider(
                 budget=budget,
                 cache_dir=resolve_path(self.cfg.paths.cache_dir) / "llm",
+                settings=self.settings,
+                cfg=self.cfg,
             )
         return MockLLMProvider(budget=budget)
 

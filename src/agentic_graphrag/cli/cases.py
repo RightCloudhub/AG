@@ -113,13 +113,12 @@ def run_cases_main(argv: list[str] | None = None) -> None:
                 vstore.upsert(chunks)
                 vector_ret = VectorRetriever(vstore, llm, top_k=cfg.retrieval.vector_top_k)
     else:
-        llm = LLMProvider(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-            strong_model=cfg.llm.strong_model,
-            light_model=cfg.llm.light_model,
-            embedding_model=cfg.llm.embedding_model,
+        from agentic_graphrag.config import build_llm_provider
+
+        llm = build_llm_provider(
             cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
+            settings=settings,
+            cfg=cfg,
         )
         try:
             vstore = QdrantVectorStore(settings.qdrant_url, settings.qdrant_collection)

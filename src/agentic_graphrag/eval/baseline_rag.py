@@ -240,14 +240,13 @@ def build_baseline_pipeline(
 
     budget = BudgetTracker(max_llm_calls=1000, max_tokens=2_000_000)
     if allow_llm and settings.llm_api_key:
-        llm: LLMProvider | MockLLMProvider = LLMProvider(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-            strong_model=cfg.llm.strong_model,
-            light_model=cfg.llm.light_model,
-            embedding_model=cfg.llm.embedding_model,
+        from agentic_graphrag.config import build_llm_provider
+
+        llm: LLMProvider | MockLLMProvider = build_llm_provider(
             budget=budget,
             cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
+            settings=settings,
+            cfg=cfg,
         )
     else:
         llm = MockLLMProvider(embedding_dim=32, budget=budget)

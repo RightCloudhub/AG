@@ -37,9 +37,9 @@ def build_graph_main(argv: list[str] | None = None) -> None:
             if line.strip():
                 triples.append(Triple.model_validate(json.loads(line)))
     elif not args.no_llm:
+        from agentic_graphrag.config import build_llm_provider
         from agentic_graphrag.knowledge.extraction import RetryPolicy, run_extract_pipeline
         from agentic_graphrag.llm.budget import BudgetTracker
-        from agentic_graphrag.llm.provider import LLMProvider
         from agentic_graphrag.stores.doc_store import FileDocStore
 
         chunks_path = resolve_path(args.chunks or f"{cfg.paths.processed_dir}/chunks.jsonl")
@@ -49,14 +49,11 @@ def build_graph_main(argv: list[str] | None = None) -> None:
             if line.strip()
         ]
         budget = BudgetTracker(max_llm_calls=10_000, max_tokens=10_000_000)
-        llm = LLMProvider(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-            strong_model=cfg.llm.strong_model,
-            light_model=cfg.llm.light_model,
-            embedding_model=cfg.llm.embedding_model,
+        llm = build_llm_provider(
             budget=budget,
             cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
+            settings=settings,
+            cfg=cfg,
         )
         doc_store = FileDocStore(resolve_path(cfg.paths.processed_dir) / "docs")
         pipe = run_extract_pipeline(

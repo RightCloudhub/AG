@@ -5,11 +5,15 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from agentic_graphrag.llm.budget import BudgetTracker
+    from agentic_graphrag.llm.provider import LLMProvider
 
 
 def _find_root() -> Path:
@@ -83,6 +87,10 @@ class LLMConfig(BaseModel):
     strong_model: str = "gpt-4.1"
     light_model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"
+    # Optional defaults; env LLM_EMBEDDING_BASE_URL / LLM_EMBEDDING_API_KEY override.
+    # Empty → use chat endpoint (LLM_BASE_URL / LLM_API_KEY).
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
     temperature: float = 0.0
     max_retries: int = 2
     timeout_seconds: int = 60
@@ -127,6 +135,9 @@ class Settings(BaseSettings):
     llm_strong_model: str | None = Field(default=None, alias="LLM_STRONG_MODEL")
     llm_light_model: str | None = Field(default=None, alias="LLM_LIGHT_MODEL")
     llm_embedding_model: str | None = Field(default=None, alias="LLM_EMBEDDING_MODEL")
+    # Separate embedding provider (OpenAI-compatible). Empty → fall back to chat URL/key.
+    llm_embedding_base_url: str | None = Field(default=None, alias="LLM_EMBEDDING_BASE_URL")
+    llm_embedding_api_key: str | None = Field(default=None, alias="LLM_EMBEDDING_API_KEY")
 
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
     neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER")
@@ -178,6 +189,10 @@ def get_config(config_path: str | None = None) -> AppConfig:
         cfg.llm.light_model = settings.llm_light_model
     if settings.llm_embedding_model:
         cfg.llm.embedding_model = settings.llm_embedding_model
+    if settings.llm_embedding_base_url:
+        cfg.llm.embedding_base_url = settings.llm_embedding_base_url
+    if settings.llm_embedding_api_key:
+        cfg.llm.embedding_api_key = settings.llm_embedding_api_key
     if settings.max_hops is not None:
         cfg.guardrails.max_hops = settings.max_hops
     if settings.max_llm_calls is not None:
@@ -188,6 +203,64 @@ def get_config(config_path: str | None = None) -> AppConfig:
     # Silence unused import warning for os in some linters — used by dotenv load side-effect.
     _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
     return cfg
+
+
+def resolve_chat_base_url(settings: Settings | None = None) -> str:
+    s = settings or get_settings()
+    return (s.llm_base_url or "https://api.openai.com/v1").rstrip("/")
+
+
+def resolve_embedding_base_url(
+    settings: Settings | None = None,
+    cfg: AppConfig | None = None,
+) -> str:
+    """Embedding endpoint; falls back to chat ``LLM_BASE_URL`` when unset."""
+    s = settings or get_settings()
+    c = cfg or get_config()
+    for candidate in (s.llm_embedding_base_url, c.llm.embedding_base_url):
+        if candidate and str(candidate).strip():
+            return str(candidate).strip().rstrip("/")
+    return resolve_chat_base_url(s)
+
+
+def resolve_embedding_api_key(
+    settings: Settings | None = None,
+    cfg: AppConfig | None = None,
+) -> str:
+    """Embedding API key; falls back to ``LLM_API_KEY`` when unset."""
+    s = settings or get_settings()
+    c = cfg or get_config()
+    for candidate in (s.llm_embedding_api_key, c.llm.embedding_api_key):
+        if candidate is not None and str(candidate).strip():
+            return str(candidate).strip()
+    return s.llm_api_key or ""
+
+
+def build_llm_provider(
+    *,
+    budget: BudgetTracker | None = None,
+    cache_dir: str | Path | None = None,
+    settings: Settings | None = None,
+    cfg: AppConfig | None = None,
+) -> LLMProvider:
+    """Construct ``LLMProvider`` with chat vs embedding endpoint split."""
+    from agentic_graphrag.llm.provider import LLMProvider
+
+    s = settings or get_settings()
+    c = cfg or get_config()
+    return LLMProvider(
+        api_key=s.llm_api_key,
+        base_url=resolve_chat_base_url(s),
+        strong_model=c.llm.strong_model,
+        light_model=c.llm.light_model,
+        embedding_model=c.llm.embedding_model,
+        embedding_base_url=resolve_embedding_base_url(s, c),
+        embedding_api_key=resolve_embedding_api_key(s, c),
+        temperature=c.llm.temperature,
+        timeout_seconds=c.llm.timeout_seconds,
+        budget=budget,
+        cache_dir=cache_dir,
+    )
 
 
 def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:

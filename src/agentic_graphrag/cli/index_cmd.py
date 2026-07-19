@@ -36,14 +36,13 @@ def index_main(argv: list[str] | None = None) -> None:
     if args.no_embed:
         return
 
-    from agentic_graphrag.llm.provider import LLMProvider
+    from agentic_graphrag.config import build_llm_provider
     from agentic_graphrag.stores.vector_store import InMemoryVectorStore, QdrantVectorStore
 
-    llm = LLMProvider(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        embedding_model=cfg.llm.embedding_model,
+    llm = build_llm_provider(
         cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
+        settings=settings,
+        cfg=cfg,
     )
     for ch in chunks:
         ch.embedding = llm.embed(ch.text)
