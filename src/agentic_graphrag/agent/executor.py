@@ -210,6 +210,7 @@ class Executor:
                 entity,
                 max_hops=int(args.get("max_hops", 2)),
                 relation_types=args.get("relation_types"),
+                sub_question=sub_question,
             )
         if tool == "graph_path":
             src = str(args.get("source") or "")
@@ -221,7 +222,24 @@ class Executor:
                 dst = names[1] if len(names) > 1 else ""
             if not src or not dst:
                 return []
-            return self.graph.paths(src, dst, max_hops=int(args.get("max_hops", 4)))
+            return self.graph.paths(
+                src,
+                dst,
+                max_hops=int(args.get("max_hops", 4)),
+                sub_question=sub_question,
+            )
+        if tool == "graph_subgraph":
+            seeds = args.get("entities") or args.get("seeds") or []
+            if isinstance(seeds, str):
+                seeds = [seeds]
+            if not seeds:
+                seeds = self.resolve_entities(sub_question)[:3]
+            return self.graph.subgraph(
+                [str(s) for s in seeds],
+                max_hops=int(args.get("max_hops", 2)),
+                relation_types=args.get("relation_types"),
+                sub_question=sub_question,
+            )
         if tool == "vector_search" and self.vector is not None:
             return self.vector.search(str(args.get("query") or sub_question))
         if tool == "fulltext_search" and self.fulltext is not None:

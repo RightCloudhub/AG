@@ -20,12 +20,19 @@ retrieval:
     max_path_hops: 4
     max_neighbors_per_layer: 50
     max_paths: 20
+    beam_width: 20
+    high_degree_threshold: 30
+    relation_relevance_threshold: 0.12
 
 knowledge:
   chunk_size_chars: 1200
   chunk_overlap_chars: 150
   extract_confidence_threshold: 0.5
   schema_path: configs/schema/domain_v0.yaml
+  extract_max_attempts: 3
+  extract_retry_base_delay_seconds: 0.5
+  extract_journal_path: data/processed/extract_journal.jsonl
+  extract_quarantine_path: data/processed/extract_quarantine.jsonl
 
 llm:
   strong_model: gpt-4.1

@@ -49,10 +49,15 @@ class GuardrailsConfig(BaseModel):
 
 
 class GraphRetrievalConfig(BaseModel):
+    """Graph retrieval caps (P2-RT-01) — no magic numbers in retriever code paths."""
+
     max_hop_neighbors: int = 2
     max_path_hops: int = 4
     max_neighbors_per_layer: int = 50
     max_paths: int = 20
+    beam_width: int = 20
+    high_degree_threshold: int = 30
+    relation_relevance_threshold: float = 0.12
 
 
 class RetrievalConfig(BaseModel):
@@ -67,6 +72,11 @@ class KnowledgeConfig(BaseModel):
     chunk_overlap_chars: int = 150
     extract_confidence_threshold: float = 0.5
     schema_path: str = "configs/schema/domain_v0.yaml"
+    # P2-KG-01 extraction pipeline
+    extract_max_attempts: int = 3
+    extract_retry_base_delay_seconds: float = 0.5
+    extract_journal_path: str = "data/processed/extract_journal.jsonl"
+    extract_quarantine_path: str = "data/processed/extract_quarantine.jsonl"
 
 
 class LLMConfig(BaseModel):

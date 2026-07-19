@@ -68,9 +68,8 @@ select = ["E", "F", "I", "UP", "B"]
 branch = false
 source = ["agentic_graphrag"]
 omit = [
-    "*/agentic_graphrag/cli.py",
+    "*/agentic_graphrag/cli/*",
     "*/agentic_graphrag/__main__.py",
-    "*/agentic_graphrag/knowledge/extraction.py",
     "*/agentic_graphrag/stores/neo4j_store.py",
     "*/agentic_graphrag/llm/provider.py",
     "*/agentic_graphrag/generation/answer.py",

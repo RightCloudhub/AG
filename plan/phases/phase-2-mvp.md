@@ -26,19 +26,19 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 ## 任务清单
 
 ### 架构与服务化（ARCH）
-- [ ] `P2-ARCH-01` 按 [repo-structure.md](../engineering/repo-structure.md) 建立正式仓库：分层模块、依赖注入、配置管理（密钥走环境变量）
+- [x] `P2-ARCH-01` 按 [repo-structure.md](../engineering/repo-structure.md) 建立正式仓库：分层模块、依赖注入、配置管理（密钥走环境变量）— `stores/factory` DI · `config.py`+env · `cli/` 分包 · layer dirs (`agent|retrieval|knowledge|generation|api|eval|llm|stores`)
 - [x] `P2-ARCH-02` 存储抽象接口（Repository 模式）：GraphStore / VectorStore / DocStore / LLMClient，factory 组合根（NFR-10）— `stores/interfaces.py` · `stores/factory.py` · `llm/interfaces.py`
 - [x] `P2-ARCH-03` `POST /v1/query` API + 统一响应 envelope + 输入 schema 校验（FR-API-01/04，NFR-07）— `api/app.py` · `agr-api`
 - [x] `P2-ARCH-04` CI 流水线：lint + 单测 + 覆盖率门禁（≥80%）— `.github/workflows/ci.yml` · `pyproject.toml` coverage
 
 ### 图谱工作流（KG）
-- [ ] `P2-KG-01` 抽取管线工程化：任务化、失败重试、来源元数据落库（FR-KG-01/02 完整版）
+- [x] `P2-KG-01` 抽取管线工程化：任务化、失败重试、来源元数据落库（FR-KG-01/02 完整版）— `run_extract_pipeline` journal/retry/quarantine/provenance
 - [x] `P2-KG-02` Schema 校验强制化：不合规三元组拒绝入图并记录（FR-KG-03）— `knowledge/schema_check.gate_triples` · reject log
 - [x] `P2-KG-03` 置信度阈值过滤入图，阈值可配置（FR-KG-06 部分）— `KnowledgeConfig.extract_confidence_threshold` · gate
 - [ ] `P2-KG-04` 图谱规模扩展至试点领域全量语料
 
 ### 检索工作流（RT）
-- [ ] `P2-RT-01` 图检索增强：子图遍历 + 相关性剪枝 + Top-K 路径采样（FR-RT-02 完整版，防路径爆炸）
+- [x] `P2-RT-01` 图检索增强：子图遍历 + 相关性剪枝 + Top-K 路径采样（FR-RT-02 完整版，防路径爆炸）— `retrieval/graph.py` beam + relation cues + config caps
 - [x] `P2-RT-02` 三路检索接口统一：候选项携带来源类型、分数、引用— `retrieval/contracts.py` (`vector_chunk` / `graph_path` / `graph_neighbor` / `fulltext_chunk`)
 
 ### Agent 工作流（AG）
@@ -50,8 +50,8 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 - [x] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）— `configs/schema/reasoning_chain_v1.json`
 
 ### 评测工作流（EV）
-- [ ] `P2-EV-01` 评测集设计定稿：≥200 条，2跳/3跳/开放路径分级，含 ≥20 条"无答案"问题（供 AC-7）
-- [ ] `P2-EV-02` 金标标注：答案 + 支持证据（节点/边/文档片段），标注规范文档化
+- [x] `P2-EV-01` 评测集 **codeable substrate**（schema + 分层校验 + 从 seed 三元组确定性生成器）— `eval/cases.py` · `eval/gold_gen.py`；≥200 条人工/扩充集仍待填满（见 EV-02）
+- [ ] `P2-EV-02` 金标标注：答案 + 支持证据（节点/边/文档片段），标注规范文档化；扩至 ≥200 条
 - [x] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）— `eval/baseline_rag.py` · `agr-run-baseline`
 - [x] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）— `eval/report.py` · `agr-eval`（对照已有 run 产物；全量执行 deferred）
 - [ ] `P2-EV-05` 首轮全量评测 + badcase 归因分类（检索失败/分解失败/生成失败/图谱缺失）

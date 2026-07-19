@@ -105,13 +105,7 @@ class QueryService:
         return _chain_to_data(chain)
 
     def _build_executor(self) -> Executor:
-        graph_ret = GraphRetriever(
-            self.bundle.graph,
-            max_neighbors_per_layer=self.cfg.retrieval.graph.max_neighbors_per_layer,
-            max_paths=self.cfg.retrieval.graph.max_paths,
-            default_neighbor_hops=self.cfg.retrieval.graph.max_hop_neighbors,
-            default_path_hops=self.cfg.retrieval.graph.max_path_hops,
-        )
+        graph_ret = GraphRetriever.from_config(self.bundle.graph, self.cfg)
         fulltext_ret = FulltextRetriever(
             self.bundle.fulltext, top_k=self.cfg.retrieval.fulltext_top_k
         )

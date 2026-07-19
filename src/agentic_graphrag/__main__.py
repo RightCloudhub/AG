@@ -6,6 +6,7 @@ import sys
 
 from agentic_graphrag.cli import (
     build_graph_main,
+    eval_main,
     export_reasoning_schema_main,
     index_main,
     ingest_main,
@@ -23,6 +24,7 @@ _COMMANDS = {
     "index": index_main,
     "run-cases": run_cases_main,
     "run-baseline": run_baseline_main,
+    "eval": eval_main,
     "query": query_main,
     "score": score_main,
     "spotcheck": spotcheck_main,
@@ -35,7 +37,7 @@ def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print(
             "Usage: python -m agentic_graphrag "
-            "<ingest|build-graph|index|run-cases|run-baseline|query|score|"
+            "<ingest|build-graph|index|run-cases|run-baseline|eval|query|score|"
             "spotcheck|score-spotcheck|export-reasoning-schema> [args...]"
         )
         sys.exit(0 if len(sys.argv) > 1 else 1)
