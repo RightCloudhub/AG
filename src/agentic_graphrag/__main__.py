@@ -1,0 +1,43 @@
+"""python -m agentic_graphrag <command>"""
+
+from __future__ import annotations
+
+import sys
+
+from agentic_graphrag.cli import (
+    build_graph_main,
+    index_main,
+    ingest_main,
+    query_main,
+    run_cases_main,
+    score_main,
+    spotcheck_main,
+)
+
+_COMMANDS = {
+    "ingest": ingest_main,
+    "build-graph": build_graph_main,
+    "index": index_main,
+    "run-cases": run_cases_main,
+    "query": query_main,
+    "score": score_main,
+    "spotcheck": spotcheck_main,
+}
+
+
+def main() -> None:
+    if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
+        print(
+            "Usage: python -m agentic_graphrag "
+            "<ingest|build-graph|index|run-cases|query|score|spotcheck> [args...]"
+        )
+        sys.exit(0 if len(sys.argv) > 1 else 1)
+    cmd = sys.argv[1]
+    if cmd not in _COMMANDS:
+        print(f"Unknown command: {cmd}", file=sys.stderr)
+        sys.exit(2)
+    _COMMANDS[cmd](sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()
