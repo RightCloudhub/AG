@@ -44,7 +44,7 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 ### Agent 工作流（AG）
 - [x] `P2-AG-01` Planner 升级：支持树状/图状子问题依赖，子问题可依赖前序结果动态生成（FR-AG-02 完整版）— `agent/planner.py` DAG + `{from:sqN}` materialize
 - [x] `P2-AG-02` Critic 升级：区分"子问题未答全"与"原问题未答全"，支持子问题改写（FR-AG-04 完整版）— `CriticScope` + rewrite/exclude
-- [x] `P2-AG-03` Memory 升级：已排除假设记录；跨子问题证据共享（FR-AG-05 完整版）；状态承载迁至 LangGraph typed state + checkpointer，去重/排除假设语义逻辑保持自研— `MemorySnapshot` / `AgentState.memory_snapshot`
+- [x] `P2-AG-03` Memory 升级：已排除假设记录；跨子问题证据共享（FR-AG-05 完整版）；状态承载迁至 LangGraph typed state + checkpointer，去重/排除假设语义逻辑保持自研— `MemorySnapshot` / `AgentState.memory_snapshot` · `agent/checkpointer.py` · `build_graph(checkpointer=…)` · 节点 `_hydrate_from_state`
 - [x] `P2-AG-04` 护栏参数化：跳数/调用次数/token 预算/超时/recursion 均从配置读取，触顶兜底带已探索路径摘要（FR-AG-06/07）— `GuardrailConfig.from_app_config`
 - [x] `P2-AG-05` 答案关键论断绑定引用；无引用断言在生成层拦截（FR-AN-01，AC-7 基础）— `generation/citations.py` · split `offline_answer.py`
 - [x] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）— `configs/schema/reasoning_chain_v1.json`

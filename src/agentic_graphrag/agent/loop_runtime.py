@@ -53,7 +53,26 @@ class AgentRuntime:
         self.guards = Guardrails(guard_cfg, budget=budget)
         self.memory = MemoryState()
 
+    def _hydrate_from_state(self, state: AgentState) -> None:
+        """Restore Memory (and hop floor) from checkpointer-backed state.
+
+        LangGraph persists ``AgentState``; semantic objects on this runtime
+        must rehydrate so resume / audit replay work with a fresh runtime.
+        """
+        snap = state.get("memory_snapshot")
+        if snap:
+            self.memory = MemoryState.from_snapshot(snap)
+        hop = int(state.get("hop") or 0)
+        if hop > self.guards.state.hop:
+            self.guards.state.hop = hop
+        status = str(state.get("guardrail_status") or "")
+        if status.startswith("tripped") or "tripped" in status.lower():
+            self.guards.state.tripped = True
+            if not self.guards.state.reason:
+                self.guards.state.reason = status
+
     def node_planner(self, state: AgentState) -> AgentState:
+        self._hydrate_from_state(state)
         allow_llm = bool(state.get("allow_llm", True))
         known = list(self.executor.known_entities or [])
         sqs = plan(
@@ -73,6 +92,7 @@ class AgentRuntime:
         }
 
     def node_executor(self, state: AgentState) -> AgentState:
+        self._hydrate_from_state(state)
         guards = self.guards
         memory = self.memory
         executor = self.executor
@@ -155,6 +175,7 @@ class AgentRuntime:
         }
 
     def node_critic(self, state: AgentState) -> AgentState:
+        self._hydrate_from_state(state)
         if state.get("done"):
             return state
         guards = self.guards
@@ -250,6 +271,7 @@ class AgentRuntime:
         return new_state
 
     def node_answer(self, state: AgentState) -> AgentState:
+        self._hydrate_from_state(state)
         chain = ReasoningChain.model_validate(state["chain"])
         evidence = [Candidate.model_validate(e) for e in state.get("evidence") or []]
         allow_llm = bool(state.get("allow_llm", True))

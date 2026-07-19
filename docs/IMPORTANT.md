@@ -81,7 +81,7 @@
 
 | 领域 | 已交付 | 仍延期 |
 |------|--------|--------|
-| P2-AG-03 Memory | typed state 上的 snapshot 字段 | **持久化 LangGraph checkpointer**（仅有序列化钩子；`build_graph` 未接 durable checkpointer） |
+| P2-AG-03 Memory | typed state + `MemorySaver` checkpointer + 节点 hydrate | 磁盘 SQLite checkpointer 可选（需 `langgraph-checkpoint-sqlite`）；跨进程审计 API 仍在 P3-AN-01 |
 | P2-EV-01 | Case schema + 确定性金标生成器 | ≥200 人工/精选集（EV-02） |
 | P2-RT-01 图 beam | 词法 relation cue + beam 上限 | **Embedding 重排**（`graph_beam.py` 标明 P3） |
 | P2-KG-01 抽取管线 | journal / retry / quarantine / 溯源 | 试点语料上的 live 抽取质量；人工隔离区审核 UX |
