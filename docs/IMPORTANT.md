@@ -109,43 +109,40 @@
 
 ---
 
-## 4. ⚪ 阶段三 — 工程优化（整阶段延期）
+## 4. ⚪ 阶段三 — 工程优化（代码已落地；G3 效果门禁仍开）
 
 权威：[`plan/phases/phase-3-optimization.md`](../plan/phases/phase-3-optimization.md)  
-**前提：** G2 通过。
+**前提：** G2 通过（效果数字仍 Conditional）。
 
-| 轨道 | ID | 主题 |
-|------|-----|------|
-| PERF | P3-PERF-01 … 07 | 分诊 / Fast Path；检索并行；RRF + re-ranker 钩子；缓存；模型分级；SSE；压测 P95 |
-| OP | P3-OP-01 … 04 | 查询级指标；租户/用户/单查询预算硬上限；全链路 trace；护栏专项集 |
-| KG | P3-KG-01 … 04 | 增量更新 + 冲突；实体消歧；审核 UI；知识管理 API |
-| AN | P3-AN-01 … 02 | 推理链落库 + 审计 API；可视化组件 |
-| EV | P3-EV-01 … 03 | 最终 AC-1/2（+25pp、Recall ≥85%）；分诊 A/B；G3 材料 |
+| 轨道 | 状态 | 说明 |
+|------|------|------|
+| PERF 01–07 | **代码 [x]** | 分诊/Fast Path、并行检索、RRF、缓存、SSE、压测脚手架 |
+| OP 01–04 | **代码 [x]** | metrics、三级预算、trace、护栏脚本 |
+| KG 01–04 | **代码 [x]** | incremental / resolution / review queue / knowledge API |
+| AN 01–02 | **代码 [x]** | audit store + web 推理链展示 |
+| EV 01–03 | **仍开** | held-out + live 达标 + G3 正式材料 |
 
-**仓库骨架中尚未实现的占位**（见 `plan/engineering/repo-structure.md`）：
-
-- `agent/triage.py`、`retrieval/fusion.py`、`agent/tools/`、`knowledge/resolution.py`、`knowledge/incremental.py`、`knowledge/review/`、`api/auth.py`、`api/sse.py`、`observability/`、`web/`
+**仍延期：** G3 门禁数字（AC-1/2 live held-out、生产级压测 P95）。
 
 ---
 
-## 5. ⚪ 阶段四 / 五 — 试点与规模化（延期）
+## 5. ⚪ 阶段四 / 五 — 试点与规模化
 
 ### 阶段四试点（[`phase-4-pilot.md`](../plan/phases/phase-4-pilot.md)）
 
-| ID | 主题 |
+| ID | 状态 |
 |----|------|
-| P4-UI-01/02 | 问答 Web 界面；API 鉴权 + 限流 |
-| P4-REL-01…04 | 生产部署、安全检查、告警、运维手册 |
-| P4-OPS-01…04 | 灰度放量、反馈→badcase、人工复核回路、周会机制 |
-| P4-AC-01…03 | AC-1…7 全量证据；生产审计抽样；G4 评审 |
+| P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
+| P4-REL-02…04 | **部分 [x]** — ops-runbook + metrics；生产部署/告警接部署侧 |
+| P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
+| P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
 
-### 阶段五规模化（[`phase-5-scale.md`](../plan/phases/phase-5-scale.md)）— 仅方向，试点后另行立项
+### 阶段五规模化（[`phase-5-scale.md`](../plan/phases/phase-5-scale.md)）— 方向 + 脚手架
 
-| ID | 主题 |
+| ID | 状态 |
 |----|------|
-| P5-EXT-01…03 | 多领域图谱；跨域实体对齐；多租户隔离 |
-| P5-CAP-01…04 | 图谱浏览 UI；外部工具（SQL/API）；答案置信度分级；学习型 re-ranker |
-| P5-GOV-01…04 | 图谱月度体检；评测集持续扩充；策略变更治理；成本持续优化 |
+| P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
+| P5-EXT-01/02、GOV-* | **立项后** |
 
 ---
 

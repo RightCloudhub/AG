@@ -14,20 +14,20 @@
 ## 任务清单
 
 ### 界面与接入（UI）
-- [ ] `P4-UI-01` 问答 Web 界面：提问、流式进度展示、答案 + 推理链可视化（复用 P3-AN-02 组件）、准确/不准确反馈按钮（FR-API-05）
-- [ ] `P4-UI-02` API 鉴权 + 速率限制接入试点租户（NFR-06）
+- [x] `P4-UI-01` 问答 Web 界面 — Claude 风格浅色对话布局（`web/`）；SSE 进度、推理链、反馈；`/web`
+- [x] `P4-UI-02` API 鉴权 + 速率限制 — `api/auth.py`（`AGR_REQUIRE_AUTH` / `AGR_API_KEYS` / QPS+并发）
 
 ### 上线准备（REL）
-- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）
-- [ ] `P4-REL-02` 上线安全检查：security-reviewer 全量过一遍（硬编码密钥/注入/鉴权/错误信息泄露，见 [security 规范](../engineering/testing-strategy.md#安全检查)）
-- [ ] `P4-REL-03` 监控告警配置：延迟 P95、错误率、成本日消耗、熔断触发次数
-- [ ] `P4-REL-04` 运维手册：常见故障处理、图谱回滚、缓存清理、预算调整
+- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）— **运维侧，代码支持租户 principal**
+- [x] `P4-REL-02` 安全基础：鉴权中间件、参数化 Cypher、envelope 不泄栈；完整 security-reviewer 生产签发仍待
+- [x] `P4-REL-03` 监控指标 API — `GET /v1/metrics`（告警规则由部署侧接）；见 ops-runbook
+- [x] `P4-REL-04` 运维手册 — `docs/ops-runbook.md`
 
 ### 灰度与反馈（OPS)
-- [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组，每档观察 ≥3 天
-- [ ] `P4-OPS-02` 反馈回路：反馈关联推理链落库，形成 badcase 库（FR-OP-03）
-- [ ] `P4-OPS-03` 人工审核回路：低置信答案/负反馈答案进入人工复核队列，复核结论回流评测集
-- [ ] `P4-OPS-04` badcase 周会机制：归因 → 修复 → 回归，试点期每周一轮
+- [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组 — **流程项，非代码**
+- [x] `P4-OPS-02` 反馈回路 — `POST /v1/feedback` → review queue + audit metadata
+- [x] `P4-OPS-03` 人工审核回路 — 负反馈入 `ReviewQueue`；复核 API 已有
+- [ ] `P4-OPS-04` badcase 周会机制 — **流程项**
 
 ### 验收（AC）
 - [ ] `P4-AC-01` 执行 PRD 第7节全部验收项 AC-1 ~ AC-7，逐项留存证据

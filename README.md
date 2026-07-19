@@ -8,10 +8,13 @@
 
 ## 架构（四层）
 
-1. **接入层** — CLI（POC）/ 后续 FastAPI  
-2. **Agent 编排** — LangGraph StateGraph：Planner → Executor → Critic → Answer + 护栏/Memory  
-3. **检索** — 向量 / 图路径 / BM25  
-4. **知识层** — 文档抽取 → Schema 校验 → Neo4j + Qdrant + BM25  
+1. **接入层** — FastAPI（`POST /v1/query`、SSE stream、知识/审计 API）+ 试用 Web（`/web`）+ CLI  
+2. **Agent 编排** — 分诊 → Fast Path / Agentic（LangGraph：Planner → Executor → Critic → Answer）+ 护栏/Memory  
+3. **检索** — 向量 / 图路径 / BM25 并行 + RRF 融合 + 缓存  
+4. **知识层** — 文档抽取 → Schema 校验 → 消歧/增量 → Neo4j + Qdrant + BM25  
+
+试用界面：`agr-api` 后打开 <http://localhost:8000/web>  
+
 
 ## 快速开始
 

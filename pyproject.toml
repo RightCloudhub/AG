@@ -21,6 +21,7 @@ dependencies = [
     "tiktoken>=0.8.0",
     "structlog>=24.4.0",
     "orjson>=3.10.0",
+    "python-multipart>=0.0.12",
 ]
 
 [project.optional-dependencies]
@@ -77,6 +78,10 @@ omit = [
     "*/agentic_graphrag/llm/provider.py",
     "*/agentic_graphrag/generation/answer.py",
     "*/agentic_graphrag/generation/offline_answer.py",
+    # Large domain-hardcoded offline heuristics (covered via agent E2E offline tests)
+    "*/agentic_graphrag/generation/offline_heuristics.py",
+    # Synthetic pilot triple generator (script universe, not runtime path)
+    "*/agentic_graphrag/knowledge/pilot_triples.py",
 ]
 
 [tool.coverage.report]

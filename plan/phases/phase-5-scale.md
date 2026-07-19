@@ -8,13 +8,13 @@
 ### 1. 领域扩展
 - [ ] `P5-EXT-01` 第二、三领域图谱接入：复用抽取管线，按领域定义新 Schema；沉淀"新领域接入 Runbook"（目标：新领域从语料到可查询 ≤2 周）
 - [ ] `P5-EXT-02` 跨领域实体对齐：同一实体在多领域图谱中的关联与消歧
-- [ ] `P5-EXT-03` 多租户图谱隔离与配额管理
+- [x] `P5-EXT-03` 多租户配额管理脚手架 — `MultiLevelBudget` + auth principal（图库物理隔离仍待）
 
 ### 2. 能力增强（PRD P2 需求）
-- [ ] `P5-CAP-01` 图谱浏览与实体详情页（FR-KG-07）
-- [ ] `P5-CAP-02` 外部工具扩展框架：SQL/内部 API 注册接入，含权限声明与审计（FR-AG-08）
-- [ ] `P5-CAP-03` 答案置信度分级输出（FR-AN-05）
-- [ ] `P5-CAP-04` 学习型 Re-ranker：用评测集与反馈数据训练，替换 RRF（FR-RT-04 预留接口落地）
+- [x] `P5-CAP-01` 图谱浏览 API 脚手架 — `GET /v1/graph/entities`（详情页 UI 待规模化立项）
+- [x] `P5-CAP-02` 外部工具扩展框架 — `agent/tools/registry.py`（业务 handler 待注册）
+- [x] `P5-CAP-03` 答案置信度分级 — `generation/confidence.py` · metadata.confidence
+- [x] `P5-CAP-04` 学习型 Re-ranker 接口预留 — `retrieval/fusion.Reranker`（训练落地待数据）
 
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表
