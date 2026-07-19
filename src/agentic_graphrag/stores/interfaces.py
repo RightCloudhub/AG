@@ -1,4 +1,11 @@
-"""Storage abstractions — implementations must satisfy these protocols (NFR-10)."""
+"""Storage abstractions — Repository pattern (NFR-10 / P2-ARCH-02).
+
+All graph / vector / fulltext / document backends MUST implement these
+``Protocol``s. Application code depends only on the protocols; concrete
+adapters live in sibling modules (``memory_graph``, ``neo4j_store``, …).
+
+``isinstance(obj, GraphStore)`` works at runtime via ``@runtime_checkable``.
+"""
 
 from __future__ import annotations
 
@@ -57,13 +64,17 @@ class ChunkRecord:
 
 @runtime_checkable
 class GraphStore(Protocol):
+    """Graph repository: entities, relations, multi-hop neighbors / paths."""
+
     def clear(self) -> None: ...
 
     def upsert_entities(self, entities: list[EntityRecord]) -> int: ...
 
     def upsert_relations(self, relations: list[RelationRecord]) -> int: ...
 
-    def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None: ...
+    def get_entity_by_name(
+        self, name: str, entity_type: str | None = None
+    ) -> EntityRecord | None: ...
 
     def neighbors(
         self,
@@ -90,11 +101,15 @@ class GraphStore(Protocol):
 
 @runtime_checkable
 class VectorStore(Protocol):
+    """Vector similarity store for chunk embeddings."""
+
     def ensure_collection(self, dim: int) -> None: ...
 
     def upsert(self, chunks: list[ChunkRecord]) -> int: ...
 
-    def search(self, query_vector: list[float], top_k: int = 10) -> list[tuple[ChunkRecord, float]]: ...
+    def search(
+        self, query_vector: list[float], top_k: int = 10
+    ) -> list[tuple[ChunkRecord, float]]: ...
 
     def clear(self) -> None: ...
 
@@ -103,6 +118,8 @@ class VectorStore(Protocol):
 
 @runtime_checkable
 class FulltextStore(Protocol):
+    """Keyword / BM25 fulltext index over chunks."""
+
     def index(self, chunks: list[ChunkRecord]) -> int: ...
 
     def search(self, query: str, top_k: int = 10) -> list[tuple[ChunkRecord, float]]: ...
@@ -112,6 +129,8 @@ class FulltextStore(Protocol):
 
 @runtime_checkable
 class DocStore(Protocol):
+    """Document blob store (source of truth for raw document text)."""
+
     def save(self, doc: DocumentRecord) -> None: ...
 
     def get(self, doc_id: str) -> DocumentRecord | None: ...

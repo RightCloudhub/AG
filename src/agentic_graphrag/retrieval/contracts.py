@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class CandidateSource(str, Enum):
+class CandidateSource(StrEnum):
     VECTOR = "vector"
     GRAPH = "graph"
     FULLTEXT = "fulltext"

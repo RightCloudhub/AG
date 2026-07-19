@@ -1,4 +1,4 @@
-"""Filesystem-backed document store for POC."""
+"""Document store adapters implementing ``DocStore`` (P2-ARCH-02)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,22 @@ import json
 from pathlib import Path
 
 from agentic_graphrag.stores.interfaces import DocumentRecord
+
+
+class InMemoryDocStore:
+    """Process-local document store for tests and offline API smoke."""
+
+    def __init__(self) -> None:
+        self._docs: dict[str, DocumentRecord] = {}
+
+    def save(self, doc: DocumentRecord) -> None:
+        self._docs[doc.doc_id] = doc
+
+    def get(self, doc_id: str) -> DocumentRecord | None:
+        return self._docs.get(doc_id)
+
+    def list_ids(self) -> list[str]:
+        return sorted(self._docs)
 
 
 class FileDocStore:

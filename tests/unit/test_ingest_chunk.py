@@ -1,5 +1,5 @@
-from agentic_graphrag.knowledge.ingest import chunk_text, load_documents_from_dir
 from agentic_graphrag.config import resolve_path
+from agentic_graphrag.knowledge.ingest import chunk_text, load_documents_from_dir
 
 
 def test_chunk_text_overlap():

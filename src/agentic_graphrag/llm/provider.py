@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +14,7 @@ import httpx
 from agentic_graphrag.llm.budget import BudgetTracker
 
 
-class Tier(str, Enum):
+class Tier(StrEnum):
     STRONG = "strong"
     LIGHT = "light"
 
@@ -111,7 +111,9 @@ class LLMProvider:
         # but we still record token usage if budget exists.
         if self.budget:
             usage = data.get("usage") or {}
-            self.budget.prompt_tokens += int(usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0))
+            self.budget.prompt_tokens += int(
+                usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0)
+            )
         self._write_cache(cache_key, {"embedding": embedding})
         return list(embedding)
 

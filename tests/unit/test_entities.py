@@ -6,7 +6,6 @@ from agentic_graphrag.agent.entities import (
     primary_entity,
 )
 
-
 LEXICON = [
     "NovaTech Industries",
     "Apex Holdings",

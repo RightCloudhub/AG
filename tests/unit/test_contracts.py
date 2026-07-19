@@ -1,4 +1,4 @@
-from agentic_graphrag.generation.trace import ReasoningChain, QueryStatus
+from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.retrieval.contracts import (
     Candidate,
     CandidateSource,

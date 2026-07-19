@@ -105,9 +105,7 @@ _QUOTED = re.compile(r"[\"“](.+?)[\"”]")
 _CJK_SPAN = re.compile(r"[\u4e00-\u9fff]{2,20}")
 _CAP_WORD = re.compile(r"\b[A-Z][A-Za-z0-9&.-]*\b")
 # Multi-word Title Case spans: "NovaTech Industries", "Apex Holdings"
-_TITLE_SPAN = re.compile(
-    r"\b(?:[A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*){0,4})\b"
-)
+_TITLE_SPAN = re.compile(r"\b(?:[A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*){0,4})\b")
 
 
 def is_stopword_entity(name: str) -> bool:
@@ -173,7 +171,6 @@ def extract_entity_mentions(
 
     lexicon = lexicon_from_names(known_entities)
     found: list[str] = []
-    remaining = text
     # 1) Quoted spans first
     for m in _QUOTED.findall(text):
         if not is_stopword_entity(m):
@@ -246,6 +243,8 @@ def _overlaps(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
     return False
 
 
-def primary_entity(text: str, known_entities: list[str] | tuple[str, ...] | None = None) -> str | None:
+def primary_entity(
+    text: str, known_entities: list[str] | tuple[str, ...] | None = None
+) -> str | None:
     mentions = extract_entity_mentions(text, known_entities, max_entities=3)
     return mentions[0] if mentions else None

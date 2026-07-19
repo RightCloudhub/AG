@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from neo4j import GraphDatabase, Driver
+from neo4j import Driver, GraphDatabase
 
 from agentic_graphrag.stores.interfaces import EntityRecord, PathRecord, RelationRecord
 
@@ -83,13 +83,13 @@ class Neo4jGraphStore:
                 count += 1
         return count
 
-    def get_entity_by_name(
-        self, name: str, entity_type: str | None = None
-    ) -> EntityRecord | None:
+    def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
         with self._driver.session() as session:
             if entity_type:
                 label = _validate_identifier(entity_type, "label")
-                query = f"MATCH (e:`{label}`) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1"
+                query = (
+                    f"MATCH (e:`{label}`) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1"
+                )
             else:
                 query = "MATCH (e) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1"
             result = session.run(query, name=name)
@@ -117,11 +117,14 @@ class Neo4jGraphStore:
             rel_filter = "AND type(r) IN $rel_types"
             params["rel_types"] = relation_types
 
+        path_rel_filter = ""
+        if rel_filter:
+            path_rel_filter = rel_filter.replace("r", "last(relationships(path))")
         query = f"""
         MATCH (src)
         WHERE toLower(src.name) = toLower($name)
         MATCH path = (src)-[r*1..{max_hops}]-(dst)
-        WHERE src <> dst {rel_filter.replace('r', 'last(relationships(path))') if rel_filter else ''}
+        WHERE src <> dst {path_rel_filter}
         WITH dst, last(relationships(path)) AS r, length(path) AS hops
         RETURN dst, r, hops
         LIMIT $limit
@@ -179,7 +182,9 @@ class Neo4jGraphStore:
                     for i, r in enumerate(path.relationships)
                 ]
                 results.append(
-                    PathRecord(nodes=nodes, relations=rels, length=len(rels), score=1.0 / max(len(rels), 1))
+                    PathRecord(
+                        nodes=nodes, relations=rels, length=len(rels), score=1.0 / max(len(rels), 1)
+                    )
                 )
         return results
 

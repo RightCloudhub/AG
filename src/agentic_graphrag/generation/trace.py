@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 
-class QueryStatus(str, Enum):
+class QueryStatus(StrEnum):
     ANSWERED = "answered"
     PARTIAL = "partial"
     NO_ANSWER = "no_answer"
@@ -61,8 +61,5 @@ class ReasoningChain(BaseModel):
     def honest_fallback(self, reason: str = "insufficient evidence") -> None:
         paths = "; ".join(self.explored_paths[:20]) if self.explored_paths else "(none)"
         self.status = QueryStatus.NO_ANSWER
-        self.answer = (
-            f"无法基于现有知识回答。原因: {reason}。"
-            f"已探索路径摘要: {paths}。"
-        )
+        self.answer = f"无法基于现有知识回答。原因: {reason}。已探索路径摘要: {paths}。"
         self.claims = []

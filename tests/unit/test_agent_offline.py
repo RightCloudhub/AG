@@ -1,12 +1,14 @@
 """Offline agent loop using seed graph data without Neo4j/LLM network."""
 
+import json
+
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import run_agentic_query
 from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.config import resolve_path
 from agentic_graphrag.knowledge.graph_builder import triples_to_records
 from agentic_graphrag.knowledge.schema_check import Triple
-from agentic_graphrag.llm.provider import MockLLMProvider
 from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
@@ -17,8 +19,6 @@ from agentic_graphrag.stores.interfaces import (
     PathRecord,
     RelationRecord,
 )
-from agentic_graphrag.config import resolve_path
-import json
 
 
 class FakeGraphStore:
@@ -82,7 +82,9 @@ class FakeGraphStore:
 
 def _load_seed_store() -> FakeGraphStore:
     triples = []
-    for line in resolve_path("data/processed/seed_triples.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (
+        resolve_path("data/processed/seed_triples.jsonl").read_text(encoding="utf-8").splitlines()
+    ):
         if line.strip():
             triples.append(Triple.model_validate(json.loads(line)))
     entities, relations = triples_to_records(triples)
@@ -98,7 +100,10 @@ def test_offline_agent_returns_chain():
             ChunkRecord(
                 chunk_id="c1",
                 doc_id="d1",
-                text="Elena Varga is the CEO of Apex Holdings. NovaTech Industries is a subsidiary of Apex Holdings.",
+                text=(
+                    "Elena Varga is the CEO of Apex Holdings. "
+                    "NovaTech Industries is a subsidiary of Apex Holdings."
+                ),
                 index=0,
             )
         ]

@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
-
-T = TypeVar("T", bound=BaseModel)
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 
@@ -23,7 +21,7 @@ def extract_json(text: str) -> Any:
     return json.loads(text)
 
 
-def complete_structured(
+def complete_structured[T: BaseModel](
     llm: LLMProvider,
     messages: list[Message],
     model_type: type[T],
@@ -34,7 +32,7 @@ def complete_structured(
     """Call LLM and parse into a Pydantic model with limited retries."""
     history = list(messages)
     last_error: Exception | None = None
-    for attempt in range(max_retries + 1):
+    for _attempt in range(max_retries + 1):
         raw = llm.complete(
             history,
             tier=tier,

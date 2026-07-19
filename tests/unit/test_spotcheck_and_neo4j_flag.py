@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -42,7 +41,9 @@ def test_spotcheck_seed_mode(tmp_path: Path):
             str(Path(__file__).resolve().parents[2] / "configs/schema/domain_v0.yaml"),
         ]
     )
-    rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [
+        json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     assert len(rows) == 1
     assert rows[0]["human_label"] == "correct"
     assert rows[0]["label_source"] == "seed_baseline_schema_valid"
@@ -68,7 +69,9 @@ def test_spotcheck_llm_mode_pending(tmp_path: Path):
             str(schema),
         ]
     )
-    rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [
+        json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     assert rows[0]["human_label"] == "pending_human"
     summary = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
     assert summary["pending_human"] == 1
@@ -78,7 +81,10 @@ def test_spotcheck_llm_mode_pending(tmp_path: Path):
 def test_score_spotcheck_after_labels(tmp_path: Path):
     path = tmp_path / "spot.jsonl"
     path.write_text(
-        json.dumps({"human_label": "correct"}) + "\n" + json.dumps({"human_label": "incorrect"}) + "\n",
+        json.dumps({"human_label": "correct"})
+        + "\n"
+        + json.dumps({"human_label": "incorrect"})
+        + "\n",
         encoding="utf-8",
     )
     with pytest.raises(SystemExit) as ei:

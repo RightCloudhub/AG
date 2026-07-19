@@ -60,7 +60,7 @@ class MemoryState:
             f"Explored sub-questions: {len(self.explored_subquestions)}",
             f"Explored paths: {len(self.explored_paths)}",
         ]
-        for i, (eid, c) in enumerate(list(self.evidence.items())[:max_items]):
+        for _i, (eid, c) in enumerate(list(self.evidence.items())[:max_items]):
             lines.append(f"  - [{eid}] {c.content[:120]}")
         if self.conclusions:
             lines.append("Conclusions:")

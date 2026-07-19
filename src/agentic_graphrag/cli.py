@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.config import get_config, get_settings, resolve_path
@@ -169,7 +168,10 @@ def build_graph_main(argv: list[str] | None = None) -> None:
         reject_path = resolve_path(f"{cfg.paths.processed_dir}/rejected_triples.jsonl")
         with reject_path.open("w", encoding="utf-8") as f:
             for t, reason in rejected:
-                f.write(json.dumps({"triple": t.model_dump(), "reason": reason}, ensure_ascii=False) + "\n")
+                f.write(
+                    json.dumps({"triple": t.model_dump(), "reason": reason}, ensure_ascii=False)
+                    + "\n"
+                )
         print(f"Extracted accepted={len(accepted)} rejected={len(rejected)}")
         triples_path = resolve_path(f"{cfg.paths.processed_dir}/triples.jsonl")
         with triples_path.open("w", encoding="utf-8") as f:
@@ -211,7 +213,9 @@ def build_graph_main(argv: list[str] | None = None) -> None:
 def index_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build vector + BM25 indexes")
     parser.add_argument("--chunks", default=None)
-    parser.add_argument("--memory-vector", action="store_true", help="Use in-memory vector (no Qdrant)")
+    parser.add_argument(
+        "--memory-vector", action="store_true", help="Use in-memory vector (no Qdrant)"
+    )
     parser.add_argument("--no-embed", action="store_true", help="Skip embeddings (BM25 only)")
     args = parser.parse_args(argv)
     cfg = get_config()
@@ -254,7 +258,13 @@ def index_main(argv: list[str] | None = None) -> None:
             for ch in chunks:
                 f.write(
                     json.dumps(
-                        {"chunk_id": ch.chunk_id, "embedding": ch.embedding, "text": ch.text, "doc_id": ch.doc_id, "index": ch.index},
+                        {
+                            "chunk_id": ch.chunk_id,
+                            "embedding": ch.embedding,
+                            "text": ch.text,
+                            "doc_id": ch.doc_id,
+                            "index": ch.index,
+                        },
                         ensure_ascii=False,
                     )
                     + "\n"
@@ -273,11 +283,16 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run POC evaluation cases")
     parser.add_argument("--cases", default=None)
     parser.add_argument("--no-llm", action="store_true")
-    parser.add_argument("--memory-graph", action="store_true", help="Use in-memory graph from seed triples")
+    parser.add_argument(
+        "--memory-graph", action="store_true", help="Use in-memory graph from seed triples"
+    )
     parser.add_argument(
         "--neo4j",
         action="store_true",
-        help="Force Neo4j graph backend (even with --no-llm). Use after agr-build-graph populated Neo4j.",
+        help=(
+            "Force Neo4j graph backend (even with --no-llm). "
+            "Use after agr-build-graph populated Neo4j."
+        ),
     )
     parser.add_argument("--seed-triples", default="data/processed/seed_triples.jsonl")
     parser.add_argument("--out", default=None)
@@ -313,16 +328,8 @@ def run_cases_main(argv: list[str] | None = None) -> None:
             if line.strip()
         ]
     known_entities: list[str] = sorted(
-        {
-            t.head.name.strip()
-            for t in triples
-            if t.head.name.strip()
-        }
-        | {
-            t.tail.name.strip()
-            for t in triples
-            if t.tail.name.strip()
-        },
+        {t.head.name.strip() for t in triples if t.head.name.strip()}
+        | {t.tail.name.strip() for t in triples if t.tail.name.strip()},
         key=lambda s: (-len(s), s.lower()),
     )
 
@@ -340,10 +347,7 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     if graph_backend == "memory":
         if triples:
             load_triples_into_graph(graph_store, triples, clear_first=True)
-        print(
-            f"Loaded {len(triples)} seed triples into in-memory graph "
-            f"({graph_store.counts()})"
-        )
+        print(f"Loaded {len(triples)} seed triples into in-memory graph ({graph_store.counts()})")
     else:
         print(f"Using Neo4j graph store at {settings.neo4j_uri} ({graph_store.counts()})")
 
@@ -486,9 +490,7 @@ def run_cases_main(argv: list[str] | None = None) -> None:
 
     acc_path = report_dir / "poc_accuracy.json"
     acc = write_accuracy_summary(report_path, acc_path)
-    print(
-        f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}"
-    )
+    print(f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
 
 
 def score_main(argv: list[str] | None = None) -> None:
@@ -591,7 +593,10 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
         "note": (
             "P1-KG-05 seed baseline"
             if args.mode == "seed"
-            else "G1→G2 live extract audit: fill human_label, then: python -m agentic_graphrag score-spotcheck"
+            else (
+                "G1→G2 live extract audit: fill human_label, then: "
+                "python -m agentic_graphrag score-spotcheck"
+            )
         ),
         "path": str(out_path),
     }
@@ -604,16 +609,16 @@ def score_spotcheck_main(argv: list[str] | None = None) -> None:
     """Re-score a spotcheck JSONL after human labels are filled in."""
     parser = argparse.ArgumentParser(description="Score triple spot-check after human labeling")
     parser.add_argument("--in", dest="inp", default="reports/triple_spotcheck_llm.jsonl")
-    parser.add_argument("--out", default=None, help="Summary JSON path (default: <in>.summary.json)")
+    parser.add_argument(
+        "--out", default=None, help="Summary JSON path (default: <in>.summary.json)"
+    )
     args = parser.parse_args(argv)
     inp = resolve_path(args.inp)
     if not inp.exists():
         print(f"Not found: {inp}", file=sys.stderr)
         sys.exit(2)
     rows = [
-        json.loads(line)
-        for line in inp.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in inp.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
     pending = [r for r in rows if r.get("human_label") == "pending_human"]
     labeled = [r for r in rows if r.get("human_label") in ("correct", "incorrect")]
@@ -645,7 +650,9 @@ def query_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Single query (agentic)")
     parser.add_argument("question")
     parser.add_argument("--no-llm", action="store_true")
-    parser.add_argument("--memory-graph", action="store_true", help="Use in-memory graph from seed triples")
+    parser.add_argument(
+        "--memory-graph", action="store_true", help="Use in-memory graph from seed triples"
+    )
     parser.add_argument("--neo4j", action="store_true", help="Force Neo4j graph backend")
     parser.add_argument("--seed-triples", default="data/processed/seed_triples.jsonl")
     args = parser.parse_args(argv)
@@ -653,7 +660,10 @@ def query_main(argv: list[str] | None = None) -> None:
     cases_path = resolve_path("data/processed/_single_case.jsonl")
     cases_path.parent.mkdir(parents=True, exist_ok=True)
     cases_path.write_text(
-        json.dumps({"id": "adhoc", "question": args.question, "gold_answer": ""}, ensure_ascii=False) + "\n",
+        json.dumps(
+            {"id": "adhoc", "question": args.question, "gold_answer": ""}, ensure_ascii=False
+        )
+        + "\n",
         encoding="utf-8",
     )
     run_args = ["--cases", str(cases_path), "--seed-triples", args.seed_triples]
@@ -668,5 +678,7 @@ def query_main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     # Dispatch by script name if needed
-    print("Use: agr-ingest | agr-build-graph | agr-index | agr-run-cases | agr-query", file=sys.stderr)
+    print(
+        "Use: agr-ingest | agr-build-graph | agr-index | agr-run-cases | agr-query", file=sys.stderr
+    )
     sys.exit(1)

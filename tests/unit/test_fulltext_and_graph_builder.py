@@ -50,7 +50,9 @@ def test_bm25_search():
     store = BM25FulltextStore()
     store.index(
         [
-            ChunkRecord(chunk_id="1", doc_id="d", text="Elena Varga is CEO of Apex Holdings", index=0),
+            ChunkRecord(
+                chunk_id="1", doc_id="d", text="Elena Varga is CEO of Apex Holdings", index=0
+            ),
             ChunkRecord(chunk_id="2", doc_id="d", text="QuantumEdge Server is a product", index=1),
         ]
     )

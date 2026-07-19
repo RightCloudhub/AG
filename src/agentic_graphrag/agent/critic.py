@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,7 @@ from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource
 
 
-class CriticAction(str, Enum):
+class CriticAction(StrEnum):
     SUFFICIENT = "sufficient"
     NEXT_HOP = "next_hop"
     REWRITE = "rewrite"

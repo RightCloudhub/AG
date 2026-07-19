@@ -134,7 +134,9 @@ def _mentions_in_question(q: str) -> list[str]:
     return extract_entity_mentions(q)
 
 
-def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: list[str]) -> str | None:
+def _focused_extract(
+    question: str, edges: list[tuple[str, str, str]], texts: list[str]
+) -> str | None:
     q = question.lower()
     ents = _mentions_in_question(question)
 
@@ -164,7 +166,11 @@ def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: li
 
     # --- both worked at Orion (yes/no) — before generic work filters ---
     if "both" in q and ("work" in q or "orion" in q):
-        named_people = [e for e in ents if any(x in e.lower() for x in ("elena", "marcus", "priya", "varga", "chen", "nair"))]
+        named_people = [
+            e
+            for e in ents
+            if any(x in e.lower() for x in ("elena", "marcus", "priya", "varga", "chen", "nair"))
+        ]
         at_orion = {h for h, t in find_edges("WORKED_AT") if "orion" in t.lower()}
         if named_people:
             hits = [p for p in named_people if any(related_to(p, o) for o in at_orion)]
@@ -187,13 +193,21 @@ def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: li
                 return h
 
     # --- previously worked at Meridian (who among executives) ---
-    if "meridian" in q and ("who" in q or "executive" in q) and "lead" not in q and "helix" not in q:
+    if (
+        "meridian" in q
+        and ("who" in q or "executive" in q)
+        and "lead" not in q
+        and "helix" not in q
+    ):
         people = [h for h, t in find_edges("WORKED_AT") if "meridian" in t.lower()]
         if people:
             return " and ".join(dict.fromkeys(people))
 
     # --- companies CEO of (parent of) X previously worked at ---
-    if any(k in q for k in ("previously work", "worked at", "work at", "work for", "worked for")) and "both" not in q:
+    if (
+        any(k in q for k in ("previously work", "worked at", "work at", "work for", "worked for"))
+        and "both" not in q
+    ):
         target = [e for e in ents]
         persons: list[str] = []
         if "ceo" in q and "parent" in q:
@@ -234,7 +248,9 @@ def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: li
         products = [
             e
             for e in ents
-            if any(k in e.lower() for k in ("server", "workstation", "quantum", "edge", "helixcore"))
+            if any(
+                k in e.lower() for k in ("server", "workstation", "quantum", "edge", "helixcore")
+            )
         ]
         producers: list[str] = []
         for h, t in find_edges("PRODUCES"):
@@ -332,11 +348,11 @@ def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: li
             company_sup = find_edges("SUPPLIES")
             # SiliconForge supplies both
             dual = []
-            for h, t in company_sup:
+            for h, _t in company_sup:
                 if h in prod_sup or any("silicon" in h.lower() for _ in [0]):
                     dual.append(h)
             # intersection: companies that SUPPLIES_FOR product and SUPPLIES competitor
-            for h, t in find_edges("SUPPLIES_FOR"):
+            for h, _t in find_edges("SUPPLIES_FOR"):
                 for h2, t2 in company_sup:
                     if h.lower() == h2.lower() and "helix" in t2.lower():
                         dual.append(h)
@@ -380,7 +396,9 @@ def _focused_extract(question: str, edges: list[tuple[str, str, str]], texts: li
 
     # --- shared connections ---
     if "shared" in q or "connection" in q:
-        bits = [t for t in texts if any(k in t for k in ("COMPETES_WITH", "SUPPLIES", "SUPPLIES_FOR"))]
+        bits = [
+            t for t in texts if any(k in t for k in ("COMPETES_WITH", "SUPPLIES", "SUPPLIES_FOR"))
+        ]
         if bits:
             return " | ".join(bits[:6])
 

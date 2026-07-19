@@ -20,7 +20,9 @@ from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
 
 def _seed_setup():
     triples = []
-    for line in resolve_path("data/processed/seed_triples.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (
+        resolve_path("data/processed/seed_triples.jsonl").read_text(encoding="utf-8").splitlines()
+    ):
         if line.strip():
             triples.append(Triple.model_validate(json.loads(line)))
     entities, _ = triples_to_records(triples)
@@ -34,7 +36,10 @@ def _seed_setup():
             ChunkRecord(
                 chunk_id="c1",
                 doc_id="d1",
-                text="Elena Varga is the CEO of Apex Holdings. NovaTech Industries is a subsidiary of Apex Holdings.",
+                text=(
+                    "Elena Varga is the CEO of Apex Holdings. "
+                    "NovaTech Industries is a subsidiary of Apex Holdings."
+                ),
                 index=0,
             )
         ]
@@ -94,12 +99,16 @@ def test_offline_agent_multihop_chain_has_graph_evidence():
                     graph_hits += 1
     assert not bad_entity
     assert graph_hits >= 1
-    assert chain.explored_paths or any(
-        c.source == CandidateSource.GRAPH
-        for step in chain.steps
-        for tc in step.tool_calls
-        for c in []  # paths recorded on chain
-    ) or chain.explored_paths is not None
+    assert (
+        chain.explored_paths
+        or any(
+            c.source == CandidateSource.GRAPH
+            for step in chain.steps
+            for tc in step.tool_calls
+            for c in []  # paths recorded on chain
+        )
+        or chain.explored_paths is not None
+    )
     # Answer should mention Elena or Apex path material
     assert chain.answer
     assert chain.cost.latency_ms >= 0
@@ -108,7 +117,9 @@ def test_offline_agent_multihop_chain_has_graph_evidence():
 def test_entity_extract_on_all_poc_questions_no_who_primary():
     cases = [
         json.loads(line)
-        for line in resolve_path("evals/datasets/poc_cases.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in resolve_path("evals/datasets/poc_cases.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.strip()
     ]
     _, known = _seed_setup()

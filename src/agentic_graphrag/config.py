@@ -11,13 +11,13 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 def _find_root() -> Path:
     """Locate repo root (handles editable install, site-packages, and cwd)."""
     env = os.environ.get("AGENTIC_GRAPHRAG_ROOT")
     if env:
         return Path(env).resolve()
 
-    markers = ("pyproject.toml", "PRD.md", "configs/default.yaml")
     starts = [Path.cwd(), Path(__file__).resolve().parent]
     for start in starts:
         for candidate in [start, *start.parents]:
@@ -26,7 +26,7 @@ def _find_root() -> Path:
             ):
                 return candidate.resolve()
             # Lightweight marker check
-            if all((candidate / m).exists() for m in ("pyproject.toml", "configs")):
+            if (candidate / "pyproject.toml").exists() and (candidate / "configs").exists():
                 return candidate.resolve()
     # Last resort: walk up from this file looking for pyproject near src/
     here = Path(__file__).resolve()

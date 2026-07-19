@@ -44,7 +44,10 @@ class SchemaDefinition:
             lines.append(f"  - {et}")
         lines.append("Relation types:")
         for rt, meta in sorted(self.relation_types.items()):
-            lines.append(f"  - {rt}: {meta.get('head')} -> {meta.get('tail')} ({meta.get('description', '')})")
+            lines.append(
+                f"  - {rt}: {meta.get('head')} -> {meta.get('tail')} "
+                f"({meta.get('description', '')})"
+            )
         return "\n".join(lines)
 
 

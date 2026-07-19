@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid5, NAMESPACE_URL
+from uuid import NAMESPACE_URL, uuid5
 
 from agentic_graphrag.stores.interfaces import ChunkRecord
 

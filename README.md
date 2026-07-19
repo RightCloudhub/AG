@@ -115,11 +115,29 @@ agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm
 agr-run-cases --no-llm --neo4j
 ```
 
-### 6. 测试
+### 6. HTTP API（P2-ARCH-03）
 
 ```bash
-pytest -q
+agr-api
+# 或: uvicorn agentic_graphrag.api.app:create_app --factory --port 8000
+
+curl -s http://127.0.0.1:8000/healthz
+curl -s -X POST http://127.0.0.1:8000/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Who is the CEO of Apex Holdings?","max_hops":4}'
 ```
+
+默认离线：seed 三元组 + 内存图 + Mock LLM。配置 `LLM_API_KEY` 后可启用 live LLM 答案路径。
+
+### 7. 测试与 CI（P2-ARCH-04）
+
+```bash
+ruff check src tests scripts
+ruff format --check src tests scripts
+pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
+```
+
+GitHub Actions：`.github/workflows/ci.yml`（lint + unit + coverage ≥80%）。
 
 ## 仓库布局
 
@@ -128,15 +146,17 @@ pytest -q
 ```
 configs/          # 配置、Schema、Prompt（无密钥）
 src/agentic_graphrag/
+  api/            # FastAPI：envelope、POST /v1/query
   agent/          # LangGraph 循环 + 护栏/Memory
   retrieval/      # 向量/图/全文
   knowledge/      # 接入、抽取、入图
-  llm/            # Provider + Budget
-  stores/         # Repository 适配器
+  llm/            # LLMClient Protocol + Provider + Budget
+  stores/         # Repository 协议 + factory 组合根
   generation/     # 答案与推理链
 data/raw/         # 示例语料
 evals/datasets/   # 20 条 POC case
 tests/            # 单元测试
+.github/workflows # CI
 ```
 
 ## POC 范围与非目标

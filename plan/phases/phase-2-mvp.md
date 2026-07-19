@@ -27,9 +27,9 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 
 ### 架构与服务化（ARCH）
 - [ ] `P2-ARCH-01` 按 [repo-structure.md](../engineering/repo-structure.md) 建立正式仓库：分层模块、依赖注入、配置管理（密钥走环境变量）
-- [ ] `P2-ARCH-02` 存储抽象接口（Repository 模式）：GraphStore / VectorStore / DocStore / LLMProvider，POC 实现迁入（NFR-10）
-- [ ] `P2-ARCH-03` `POST /v1/query` API + 统一响应 envelope + 输入 schema 校验（FR-API-01/04，NFR-07）
-- [ ] `P2-ARCH-04` CI 流水线：lint + 单测 + 覆盖率门禁（见 [cicd-observability.md](../engineering/cicd-observability.md)）
+- [x] `P2-ARCH-02` 存储抽象接口（Repository 模式）：GraphStore / VectorStore / DocStore / LLMClient，factory 组合根（NFR-10）— `stores/interfaces.py` · `stores/factory.py` · `llm/interfaces.py`
+- [x] `P2-ARCH-03` `POST /v1/query` API + 统一响应 envelope + 输入 schema 校验（FR-API-01/04，NFR-07）— `api/app.py` · `agr-api`
+- [x] `P2-ARCH-04` CI 流水线：lint + 单测 + 覆盖率门禁（≥80%）— `.github/workflows/ci.yml` · `pyproject.toml` coverage
 
 ### 图谱工作流（KG）
 - [ ] `P2-KG-01` 抽取管线工程化：任务化、失败重试、来源元数据落库（FR-KG-01/02 完整版）
