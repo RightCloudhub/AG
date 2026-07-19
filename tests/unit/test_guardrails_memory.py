@@ -35,7 +35,7 @@ def test_memory_add_evidence():
     m = MemoryState()
     c = Candidate(
         id="e1",
-        source=CandidateSource.GRAPH,
+        source=CandidateSource.GRAPH_NEIGHBOR,
         content="A -[CEO_OF]-> B",
         score=1.0,
     )
@@ -43,3 +43,15 @@ def test_memory_add_evidence():
     assert added == ["e1"]
     assert len(m.evidence) == 1
     assert m.is_path_explored("A -[CEO_OF]-> B")
+
+
+def test_memory_excluded_hypotheses_and_snapshot():
+    m = MemoryState()
+    m.exclude_hypothesis("Who is CEO of FakeCo?")
+    assert m.is_excluded("who is ceo of fakeco?")
+    m.mark_subquestion_done("sq1", "Apex Holdings")
+    snap = m.to_snapshot()
+    assert "sq1" in snap["conclusions_by_subquestion"]
+    restored = MemoryState.from_snapshot(snap)
+    assert restored.conclusions_by_subquestion["sq1"] == "Apex Holdings"
+    assert restored.is_excluded("Who is CEO of FakeCo?")

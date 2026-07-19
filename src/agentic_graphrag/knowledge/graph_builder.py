@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
-from agentic_graphrag.knowledge.schema_check import Triple
+from agentic_graphrag.knowledge.schema_check import (
+    SchemaDefinition,
+    Triple,
+    ValidationResult,
+    gate_triples,
+)
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
 
 
@@ -69,16 +76,50 @@ def load_triples_into_graph(
     triples: list[Triple],
     *,
     clear_first: bool = True,
-) -> dict[str, int]:
-    entities, relations = triples_to_records(triples)
+    schema: SchemaDefinition | None = None,
+    confidence_threshold: float | None = None,
+    reject_log_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Upsert triples into ``store``.
+
+    When ``schema`` is provided, applies the P2-KG-02/03 ingestion gate
+    (schema + optional confidence threshold) and never writes rejected
+    triples. Rejections are optionally appended to ``reject_log_path``.
+    """
+    gate: ValidationResult | None = None
+    accepted = triples
+    if schema is not None:
+        thr = 0.0 if confidence_threshold is None else float(confidence_threshold)
+        gate = gate_triples(triples, schema, confidence_threshold=thr)
+        accepted = gate.accepted
+        if reject_log_path is not None and gate.rejected:
+            _append_reject_log(reject_log_path, gate)
+
+    entities, relations = triples_to_records(accepted)
     if clear_first:
         store.clear()
     n_ent = store.upsert_entities(entities)
     n_rel = store.upsert_relations(relations)
     counts = store.counts()
-    return {
+    stats: dict[str, Any] = {
         "entities_upserted": n_ent,
         "relations_upserted": n_rel,
         "nodes": counts.get("nodes", 0),
         "relationships": counts.get("relationships", 0),
+        "triples_input": len(triples),
+        "triples_accepted": len(accepted),
+        "triples_rejected": len(gate.rejected) if gate else 0,
     }
+    if gate is not None:
+        stats["rejection_reasons"] = gate.rejection_reasons
+    return stats
+
+
+def _append_reject_log(path: str | Path, result: ValidationResult) -> None:
+    import json
+
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as f:
+        for row in result.to_reject_records():
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")

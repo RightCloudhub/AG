@@ -22,7 +22,7 @@ class VectorRetriever:
             candidates.append(
                 Candidate(
                     id=chunk.chunk_id,
-                    source=CandidateSource.VECTOR,
+                    source=CandidateSource.VECTOR_CHUNK,
                     content=chunk.text,
                     score=float(score),
                     structured={"doc_id": chunk.doc_id, "index": chunk.index},

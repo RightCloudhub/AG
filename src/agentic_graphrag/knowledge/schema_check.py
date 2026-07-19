@@ -1,4 +1,8 @@
-"""Schema loading and triple validation (FR-KG-03)."""
+"""Schema loading, triple validation, and ingestion gates (FR-KG-03 / FR-KG-06).
+
+P2-KG-02: non-conforming triples are rejected and recorded (never enter the graph).
+P2-KG-03: confidence threshold is configurable and applied at the same gate.
+"""
 
 from __future__ import annotations
 
@@ -53,8 +57,26 @@ class SchemaDefinition:
 
 @dataclass
 class ValidationResult:
+    """Outcome of schema (+ optional confidence) validation."""
+
     accepted: list[Triple]
     rejected: list[tuple[Triple, str]]
+
+    @property
+    def rejection_reasons(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for _, reason in self.rejected:
+            # Bucket by leading token for dashboards
+            bucket = reason.split(":")[0].strip() if reason else "unknown"
+            counts[bucket] = counts.get(bucket, 0) + 1
+        return counts
+
+    def to_reject_records(self) -> list[dict[str, Any]]:
+        """Serializable reject-table rows for analysis / audit."""
+        return [
+            {"triple": t.model_dump(mode="json"), "reason": reason}
+            for t, reason in self.rejected
+        ]
 
 
 def load_schema(path: str | Path) -> SchemaDefinition:
@@ -80,7 +102,7 @@ def _as_type_set(value: Any) -> set[str]:
 
 
 def validate_triple(triple: Triple, schema: SchemaDefinition) -> str | None:
-    """Return rejection reason or None if valid."""
+    """Return rejection reason or None if schema-valid."""
     if triple.head.type not in schema.entity_types:
         return f"unknown head type: {triple.head.type}"
     if triple.tail.type not in schema.entity_types:
@@ -100,6 +122,7 @@ def validate_triple(triple: Triple, schema: SchemaDefinition) -> str | None:
 
 
 def validate_triples(triples: list[Triple], schema: SchemaDefinition) -> ValidationResult:
+    """Schema-only validation (P2-KG-02 core)."""
     accepted: list[Triple] = []
     rejected: list[tuple[Triple, str]] = []
     for t in triples:
@@ -109,3 +132,40 @@ def validate_triples(triples: list[Triple], schema: SchemaDefinition) -> Validat
         else:
             accepted.append(t)
     return ValidationResult(accepted=accepted, rejected=rejected)
+
+
+def filter_by_confidence(
+    triples: list[Triple],
+    threshold: float,
+) -> ValidationResult:
+    """Confidence threshold filter (P2-KG-03). Schema is not checked here."""
+    if threshold < 0.0 or threshold > 1.0:
+        raise ValueError(f"confidence threshold must be in [0, 1], got {threshold}")
+    accepted: list[Triple] = []
+    rejected: list[tuple[Triple, str]] = []
+    for t in triples:
+        if t.confidence < threshold:
+            rejected.append((t, f"confidence {t.confidence} < {threshold}"))
+        else:
+            accepted.append(t)
+    return ValidationResult(accepted=accepted, rejected=rejected)
+
+
+def gate_triples(
+    triples: list[Triple],
+    schema: SchemaDefinition,
+    *,
+    confidence_threshold: float = 0.5,
+) -> ValidationResult:
+    """Full ingestion gate: schema enforcement then confidence threshold.
+
+    Used at graph load time so seed/LLM/manual paths share one policy
+    (P2-KG-02 + P2-KG-03). Order: schema first (so reject reasons stay
+    diagnostic), then confidence on schema-accepted triples.
+    """
+    schema_result = validate_triples(triples, schema)
+    conf_result = filter_by_confidence(schema_result.accepted, confidence_threshold)
+    return ValidationResult(
+        accepted=conf_result.accepted,
+        rejected=[*schema_result.rejected, *conf_result.rejected],
+    )

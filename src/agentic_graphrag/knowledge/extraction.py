@@ -7,7 +7,7 @@ from agentic_graphrag.knowledge.schema_check import (
     ExtractResult,
     SchemaDefinition,
     Triple,
-    validate_triples,
+    gate_triples,
 )
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
@@ -40,13 +40,8 @@ def extract_from_chunk(
         t.source_doc_id = t.source_doc_id or chunk.doc_id
         t.source_chunk_id = t.source_chunk_id or chunk.chunk_id
 
-    validated = validate_triples(result.triples, schema)
-    accepted = [t for t in validated.accepted if t.confidence >= confidence_threshold]
-    rejected = list(validated.rejected)
-    for t in validated.accepted:
-        if t.confidence < confidence_threshold:
-            rejected.append((t, f"confidence {t.confidence} < {confidence_threshold}"))
-    return accepted, rejected
+    gated = gate_triples(result.triples, schema, confidence_threshold=confidence_threshold)
+    return gated.accepted, gated.rejected
 
 
 def extract_from_chunks(

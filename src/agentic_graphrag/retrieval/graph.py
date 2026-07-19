@@ -49,7 +49,7 @@ class GraphRetriever:
             out.append(
                 Candidate(
                     id=f"nbr:{entity_name}:{rel.type}:{ent.name}:{i}",
-                    source=CandidateSource.GRAPH,
+                    source=CandidateSource.GRAPH_NEIGHBOR,
                     content=content,
                     score=rel.confidence,
                     structured={
@@ -95,7 +95,7 @@ class GraphRetriever:
             out.append(
                 Candidate(
                     id=f"path:{source_name}:{target_name}:{i}",
-                    source=CandidateSource.GRAPH,
+                    source=CandidateSource.GRAPH_PATH,
                     content=content,
                     score=path.score,
                     structured={

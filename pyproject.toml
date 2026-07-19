@@ -37,6 +37,7 @@ agr-build-graph = "agentic_graphrag.cli:build_graph_main"
 agr-index = "agentic_graphrag.cli:index_main"
 agr-run-cases = "agentic_graphrag.cli:run_cases_main"
 agr-run-baseline = "agentic_graphrag.cli:run_baseline_main"
+agr-eval = "agentic_graphrag.cli:eval_main"
 agr-query = "agentic_graphrag.cli:query_main"
 agr-api = "agentic_graphrag.api.app:run_server"
 
@@ -73,6 +74,7 @@ omit = [
     "*/agentic_graphrag/stores/neo4j_store.py",
     "*/agentic_graphrag/llm/provider.py",
     "*/agentic_graphrag/generation/answer.py",
+    "*/agentic_graphrag/generation/offline_answer.py",
 ]
 
 [tool.coverage.report]

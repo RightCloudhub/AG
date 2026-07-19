@@ -19,7 +19,7 @@ class FulltextRetriever:
             out.append(
                 Candidate(
                     id=chunk.chunk_id,
-                    source=CandidateSource.FULLTEXT,
+                    source=CandidateSource.FULLTEXT_CHUNK,
                     content=chunk.text,
                     score=float(score),
                     structured={"doc_id": chunk.doc_id, "index": chunk.index},

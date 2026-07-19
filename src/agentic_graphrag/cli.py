@@ -10,7 +10,7 @@ from typing import Any
 from agentic_graphrag.config import get_config, get_settings, resolve_path
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
-from agentic_graphrag.knowledge.schema_check import Triple, load_schema, validate_triples
+from agentic_graphrag.knowledge.schema_check import Triple, gate_triples, load_schema
 from agentic_graphrag.stores.doc_store import FileDocStore
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 from agentic_graphrag.stores.interfaces import ChunkRecord
@@ -181,12 +181,23 @@ def build_graph_main(argv: list[str] | None = None) -> None:
         print("--no-llm requires --triples", file=sys.stderr)
         sys.exit(2)
 
-    validated = validate_triples(triples, schema)
-    triples = validated.accepted
+    # P2-KG-02/03: schema + confidence gate before any write
+    thr = cfg.knowledge.extract_confidence_threshold
+    gated = gate_triples(triples, schema, confidence_threshold=thr)
+    reject_path = resolve_path(f"{cfg.paths.processed_dir}/rejected_triples.jsonl")
+    with reject_path.open("w", encoding="utf-8") as f:
+        for t, reason in gated.rejected:
+            f.write(
+                json.dumps({"triple": t.model_dump(), "reason": reason}, ensure_ascii=False) + "\n"
+            )
+    triples = gated.accepted
     print(
-        f"Schema-valid triples: {len(triples)} (rejected {len(validated.rejected)})",
+        f"Ingestion gate: accepted={len(triples)} rejected={len(gated.rejected)} "
+        f"(threshold={thr}) → {reject_path}",
         flush=True,
     )
+    if gated.rejection_reasons:
+        print(f"Rejection reasons: {gated.rejection_reasons}", flush=True)
 
     # Seed / --no-llm path is offline-friendly: prefer Neo4j when up, else memory.
     # LLM extract path requires Neo4j (no silent fallback).
@@ -196,8 +207,14 @@ def build_graph_main(argv: list[str] | None = None) -> None:
         allow_memory_fallback=args.no_llm,
     )
     try:
-        stats = load_triples_into_graph(store, triples, clear_first=not args.no_clear)
+        stats = load_triples_into_graph(
+            store,
+            triples,
+            clear_first=not args.no_clear,
+            # Already gated above; pass schema=None to avoid double-filter
+        )
         stats["backend"] = backend
+        stats["gate_rejected"] = len(gated.rejected)
         print(json.dumps(stats, indent=2), flush=True)
         if backend == "memory":
             print(
@@ -493,6 +510,71 @@ def score_main(argv: list[str] | None = None) -> None:
 
     acc = write_accuracy_summary(resolve_path(args.report), resolve_path(args.out))
     print(json.dumps(acc.to_dict(), ensure_ascii=False, indent=2))
+
+
+def eval_main(argv: list[str] | None = None) -> None:
+    """P2-EV-04 — one-click comparison report from existing run artifacts.
+
+    Does not re-execute systems. Produce runs first with::
+
+        agr-run-cases --no-llm
+        agr-run-baseline --no-llm
+        agr-eval
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build Accuracy / evidence Recall / latency / cost comparison report "
+            "from agentic + baseline JSONL run artifacts (P2-EV-04)"
+        )
+    )
+    parser.add_argument(
+        "--agentic",
+        default="reports/poc_run.jsonl",
+        help="Agentic system run JSONL",
+    )
+    parser.add_argument(
+        "--baseline",
+        default="reports/baseline_run.jsonl",
+        help="Baseline run JSONL (optional if missing)",
+    )
+    parser.add_argument(
+        "--cases",
+        default=None,
+        help="Gold cases JSONL (for hops / gold_path evidence recall)",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output directory (default: configs eval.report_dir)",
+    )
+    parser.add_argument(
+        "--stem",
+        default="eval_comparison",
+        help="Output filename stem (writes .json and .md)",
+    )
+    args = parser.parse_args(argv)
+    cfg = get_config()
+    from agentic_graphrag.eval.report import build_comparison_report, write_comparison_report
+
+    agentic_path = resolve_path(args.agentic)
+    baseline_path = resolve_path(args.baseline)
+    cases_path = resolve_path(args.cases or cfg.eval.cases_path)
+    out_dir = resolve_path(args.out or cfg.eval.report_dir)
+
+    if not agentic_path.exists():
+        print(f"Agentic run not found: {agentic_path}", file=sys.stderr)
+        print("Run first: agr-run-cases --no-llm", file=sys.stderr)
+        sys.exit(2)
+
+    report = build_comparison_report(
+        agentic_path=agentic_path,
+        baseline_path=baseline_path if baseline_path.exists() else None,
+        cases_path=cases_path if cases_path.exists() else None,
+    )
+    paths = write_comparison_report(report, out_dir, stem=args.stem)
+    print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
+    print(f"Report JSON → {paths['json']}")
+    print(f"Report MD   → {paths['md']}")
 
 
 def run_baseline_main(argv: list[str] | None = None) -> None:

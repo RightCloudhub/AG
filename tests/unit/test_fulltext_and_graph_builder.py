@@ -86,7 +86,7 @@ def test_build_graph_main_memory_graph_offline(tmp_path: Path, capsys):
     triples_path = _write_seed_triple(tmp_path / "seed.jsonl")
     build_graph_main(["--triples", str(triples_path), "--no-llm", "--memory-graph"])
     out = capsys.readouterr().out
-    assert "Schema-valid triples: 1" in out
+    assert "Ingestion gate: accepted=1" in out
     assert '"backend": "memory"' in out
     assert '"nodes": 2' in out
 
@@ -97,7 +97,7 @@ def test_build_graph_main_no_llm_falls_back_when_neo4j_down(tmp_path: Path, caps
     with patch("agentic_graphrag.stores.neo4j_store.Neo4jGraphStore", _BrokenNeo4j):
         build_graph_main(["--triples", str(triples_path), "--no-llm"])
     captured = capsys.readouterr()
-    assert "Schema-valid triples: 1" in captured.out
+    assert "Ingestion gate: accepted=1" in captured.out
     assert '"backend": "memory"' in captured.out
     assert "falling back to in-memory" in captured.err
 

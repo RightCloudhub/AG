@@ -64,7 +64,7 @@ def test_executor_graph_neighbors_targets_named_entity():
         ent = str(t.args.get("entity", ""))
         assert ent.lower() not in {"who", "which", "what", "ceo"}
         assert "novatech" in ent.lower() or ent in known
-    graph_hits = [c for c in candidates if c.source == CandidateSource.GRAPH]
+    graph_hits = [c for c in candidates if c.is_graph()]
     assert graph_hits, "expected non-empty graph evidence"
     blob = " ".join(c.content for c in graph_hits).lower()
     assert "apex" in blob or "elena" in blob or "parent" in blob or "subsidiary" in blob
@@ -102,7 +102,7 @@ def test_offline_agent_multihop_chain_has_graph_evidence():
     assert (
         chain.explored_paths
         or any(
-            c.source == CandidateSource.GRAPH
+            c.is_graph()
             for step in chain.steps
             for tc in step.tool_calls
             for c in []  # paths recorded on chain

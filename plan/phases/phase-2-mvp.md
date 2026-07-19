@@ -33,26 +33,27 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 
 ### 图谱工作流（KG）
 - [ ] `P2-KG-01` 抽取管线工程化：任务化、失败重试、来源元数据落库（FR-KG-01/02 完整版）
-- [ ] `P2-KG-02` Schema 校验强制化：不合规三元组拒绝入图并记录（FR-KG-03）
-- [ ] `P2-KG-03` 置信度阈值过滤入图，阈值可配置（FR-KG-06 部分）
+- [x] `P2-KG-02` Schema 校验强制化：不合规三元组拒绝入图并记录（FR-KG-03）— `knowledge/schema_check.gate_triples` · reject log
+- [x] `P2-KG-03` 置信度阈值过滤入图，阈值可配置（FR-KG-06 部分）— `KnowledgeConfig.extract_confidence_threshold` · gate
 - [ ] `P2-KG-04` 图谱规模扩展至试点领域全量语料
 
 ### 检索工作流（RT）
 - [ ] `P2-RT-01` 图检索增强：子图遍历 + 相关性剪枝 + Top-K 路径采样（FR-RT-02 完整版，防路径爆炸）
-- [ ] `P2-RT-02` 三路检索接口统一：候选项携带来源类型、分数、引用
+- [x] `P2-RT-02` 三路检索接口统一：候选项携带来源类型、分数、引用— `retrieval/contracts.py` (`vector_chunk` / `graph_path` / `graph_neighbor` / `fulltext_chunk`)
 
 ### Agent 工作流（AG）
-- [ ] `P2-AG-01` Planner 升级：支持树状/图状子问题依赖，子问题可依赖前序结果动态生成（FR-AG-02 完整版）
-- [ ] `P2-AG-02` Critic 升级：区分"子问题未答全"与"原问题未答全"，支持子问题改写（FR-AG-04 完整版）
-- [ ] `P2-AG-03` Memory 升级：已排除假设记录；跨子问题证据共享（FR-AG-05 完整版）；状态承载迁至 LangGraph typed state + checkpointer，去重/排除假设语义逻辑保持自研
+- [x] `P2-AG-01` Planner 升级：支持树状/图状子问题依赖，子问题可依赖前序结果动态生成（FR-AG-02 完整版）— `agent/planner.py` DAG + `{from:sqN}` materialize
+- [x] `P2-AG-02` Critic 升级：区分"子问题未答全"与"原问题未答全"，支持子问题改写（FR-AG-04 完整版）— `CriticScope` + rewrite/exclude
+- [x] `P2-AG-03` Memory 升级：已排除假设记录；跨子问题证据共享（FR-AG-05 完整版）；状态承载迁至 LangGraph typed state + checkpointer，去重/排除假设语义逻辑保持自研— `MemorySnapshot` / `AgentState.memory_snapshot`
 - [x] `P2-AG-04` 护栏参数化：跳数/调用次数/token 预算/超时/recursion 均从配置读取，触顶兜底带已探索路径摘要（FR-AG-06/07）— `GuardrailConfig.from_app_config`
-- [ ] `P2-AG-05` 答案关键论断绑定引用；无引用断言在生成层拦截（FR-AN-01，AC-7 基础）
+- [x] `P2-AG-05` 答案关键论断绑定引用；无引用断言在生成层拦截（FR-AN-01，AC-7 基础）— `generation/citations.py` · split `offline_answer.py`
 - [x] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）— `configs/schema/reasoning_chain_v1.json`
 
 ### 评测工作流（EV）
 - [ ] `P2-EV-01` 评测集设计定稿：≥200 条，2跳/3跳/开放路径分级，含 ≥20 条"无答案"问题（供 AC-7）
 - [ ] `P2-EV-02` 金标标注：答案 + 支持证据（节点/边/文档片段），标注规范文档化
-- [x] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）— `eval/baseline_rag.py` · `agr-run-baseline`- [ ] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）
+- [x] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）— `eval/baseline_rag.py` · `agr-run-baseline`
+- [x] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）— `eval/report.py` · `agr-eval`（对照已有 run 产物；全量执行 deferred）
 - [ ] `P2-EV-05` 首轮全量评测 + badcase 归因分类（检索失败/分解失败/生成失败/图谱缺失）
 - [ ] `P2-EV-06` 针对 badcase 优化一轮，二轮评测，产出 G2 评审材料
 
