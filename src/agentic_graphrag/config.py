@@ -1,0 +1,189 @@
+"""Load application configuration from YAML + environment variables."""
+
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+def _find_root() -> Path:
+    """Locate repo root (handles editable install, site-packages, and cwd)."""
+    env = os.environ.get("AGENTIC_GRAPHRAG_ROOT")
+    if env:
+        return Path(env).resolve()
+
+    markers = ("pyproject.toml", "PRD.md", "configs/default.yaml")
+    starts = [Path.cwd(), Path(__file__).resolve().parent]
+    for start in starts:
+        for candidate in [start, *start.parents]:
+            if (candidate / "configs" / "default.yaml").exists() and (
+                (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
+            ):
+                return candidate.resolve()
+            # Lightweight marker check
+            if all((candidate / m).exists() for m in ("pyproject.toml", "configs")):
+                return candidate.resolve()
+    # Last resort: walk up from this file looking for pyproject near src/
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").exists() and (parent / "src").exists():
+            return parent
+    return Path.cwd().resolve()
+
+
+ROOT_DIR = _find_root()
+DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.yaml"
+
+
+class GuardrailsConfig(BaseModel):
+    max_hops: int = 5
+    max_llm_calls: int = 20
+    max_tokens_per_query: int = 50_000
+    query_timeout_seconds: int = 60
+    recursion_limit: int = 15
+
+
+class GraphRetrievalConfig(BaseModel):
+    max_hop_neighbors: int = 2
+    max_path_hops: int = 4
+    max_neighbors_per_layer: int = 50
+    max_paths: int = 20
+
+
+class RetrievalConfig(BaseModel):
+    top_k: int = 10
+    vector_top_k: int = 10
+    fulltext_top_k: int = 10
+    graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)
+
+
+class KnowledgeConfig(BaseModel):
+    chunk_size_chars: int = 1200
+    chunk_overlap_chars: int = 150
+    extract_confidence_threshold: float = 0.5
+    schema_path: str = "configs/schema/domain_v0.yaml"
+
+
+class LLMConfig(BaseModel):
+    strong_model: str = "gpt-4.1"
+    light_model: str = "gpt-4.1-mini"
+    embedding_model: str = "text-embedding-3-small"
+    temperature: float = 0.0
+    max_retries: int = 2
+    timeout_seconds: int = 60
+
+
+class PathsConfig(BaseModel):
+    data_dir: str = "data"
+    raw_docs_dir: str = "data/raw"
+    processed_dir: str = "data/processed"
+    cache_dir: str = "data/cache"
+    indexes_dir: str = "data/indexes"
+    prompts_dir: str = "configs/prompts"
+
+
+class EvalConfig(BaseModel):
+    cases_path: str = "evals/datasets/poc_cases.jsonl"
+    report_dir: str = "reports"
+
+
+class AppConfig(BaseModel):
+    name: str = "agentic-graphrag"
+    env: str = "local"
+    guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+    eval: EvalConfig = Field(default_factory=EvalConfig)
+
+
+class Settings(BaseSettings):
+    """Secrets and connection endpoints from environment."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_base_url: str = Field(default="https://api.openai.com/v1", alias="LLM_BASE_URL")
+    llm_strong_model: str | None = Field(default=None, alias="LLM_STRONG_MODEL")
+    llm_light_model: str | None = Field(default=None, alias="LLM_LIGHT_MODEL")
+    llm_embedding_model: str | None = Field(default=None, alias="LLM_EMBEDDING_MODEL")
+
+    neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
+    neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER")
+    neo4j_password: str = Field(default="agentic-graphrag", alias="NEO4J_PASSWORD")
+
+    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_collection: str = Field(default="agentic_chunks", alias="QDRANT_COLLECTION")
+
+    max_hops: int | None = Field(default=None, alias="MAX_HOPS")
+    max_llm_calls: int | None = Field(default=None, alias="MAX_LLM_CALLS")
+    max_tokens_per_query: int | None = Field(default=None, alias="MAX_TOKENS_PER_QUERY")
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Config root must be a mapping: {path}")
+    return data
+
+
+def resolve_path(relative: str | Path) -> Path:
+    """Resolve a project-relative path against repo root."""
+    p = Path(relative)
+    if p.is_absolute():
+        return p
+    return (ROOT_DIR / p).resolve()
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+@lru_cache
+def get_config(config_path: str | None = None) -> AppConfig:
+    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    raw = _load_yaml(path)
+    cfg = AppConfig.model_validate(raw)
+
+    settings = get_settings()
+    if settings.llm_strong_model:
+        cfg.llm.strong_model = settings.llm_strong_model
+    if settings.llm_light_model:
+        cfg.llm.light_model = settings.llm_light_model
+    if settings.llm_embedding_model:
+        cfg.llm.embedding_model = settings.llm_embedding_model
+    if settings.max_hops is not None:
+        cfg.guardrails.max_hops = settings.max_hops
+    if settings.max_llm_calls is not None:
+        cfg.guardrails.max_llm_calls = settings.max_llm_calls
+    if settings.max_tokens_per_query is not None:
+        cfg.guardrails.max_tokens_per_query = settings.max_tokens_per_query
+
+    # Silence unused import warning for os in some linters — used by dotenv load side-effect.
+    _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
+    return cfg
+
+
+def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
+    """Load a prompt file by stem name (e.g. 'extract' → extract.md)."""
+    base = resolve_path(prompts_dir or get_config().paths.prompts_dir)
+    path = base / f"{name}.md"
+    if not path.exists():
+        raise FileNotFoundError(f"Prompt not found: {path}")
+    return path.read_text(encoding="utf-8")
