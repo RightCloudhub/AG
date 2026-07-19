@@ -6,11 +6,11 @@
 
 | 层 | 组件 | 建议 | 备选 | 状态 |
 |---|---|---|---|---|
-| 图数据库 | GraphStore | Neo4j（生态成熟，Cypher 表达力强，团队上手快） | NebulaGraph（数据超亿级边时切换） | 提议（ADR-001） |
-| 向量库 | VectorStore | 与图库解耦的独立向量库（如 Qdrant/Milvus/pgvector 按运维成本选） | — | 提议（ADR-002） |
-| 全文检索 | FulltextStore | Elasticsearch/OpenSearch；POC 期可用轻量 BM25 库 | — | 提议 |
-| LLM | LLMProvider | 强/轻双档位，经统一网关接入，供应商可替换（NFR-10） | — | 提议（ADR-003） |
-| 服务框架 | API | Python（FastAPI）——LLM/检索生态最全 | Go/TS（若团队栈不同，评审改选） | 提议（ADR-004） |
+| 图数据库 | GraphStore | Neo4j（生态成熟，Cypher 表达力强，团队上手快） | NebulaGraph（数据超亿级边时切换） | 已采纳（ADR-001） |
+| 向量库 | VectorStore | Qdrant（POC 默认）；与图库解耦 | Milvus/pgvector | 已采纳（ADR-002） |
+| 全文检索 | FulltextStore | POC：rank_bm25 进程内；规模化可换 ES/OpenSearch | Elasticsearch | 已采纳（POC） |
+| LLM | LLMProvider | 强/轻双档位，OpenAI 兼容网关，供应商可替换（NFR-10） | — | 已采纳（ADR-003） |
+| 服务框架 | API | Python（FastAPI）——LLM/检索生态最全；POC 先 CLI | Go/TS | 已采纳（ADR-004） |
 | 前端 | 试用界面 | 轻量 SPA（React/Vue 按团队熟悉度） | — | 待定 |
 | 编排 | Agent 框架 | **LangGraph（StateGraph）+ 自研控制逻辑**（护栏/Memory去重/推理链） | AgentScope（仅深度绑定 Qwen/DashScope 生态时重议） | 已采纳（ADR-005） |
 | 可观测 | Trace/监控 | OpenTelemetry + 现有监控栈 | — | 待定 |
@@ -19,26 +19,26 @@
 
 ## 2. ADR 条目
 
-### ADR-001：图数据库选 Neo4j（提议）
+### ADR-001：图数据库选 Neo4j（已采纳，2026-07 POC 启动）
 - **背景**：PRD 开放问题 #1；试点领域数据量预估在千万边以下。
 - **决策**：POC/MVP 用 Neo4j Community；GraphStore 接口抽象隔离，数据规模超阈值时迁移 NebulaGraph。
 - **理由**：生态成熟、Cypher 学习曲线平缓、单机即可支撑试点规模；团队图谱经验不足（风险登记 R4），选最低摩擦方案。
 - **影响**：图检索工具基于 Cypher 参数化模板实现；迁移成本被接口抽象控制在检索层内部。
 
-### ADR-002：向量库独立于图库（提议）
+### ADR-002：向量库独立于图库 / Qdrant（已采纳，2026-07 POC 启动）
 - **背景**：部分图库带向量能力，但成熟度参差。
-- **决策**:向量检索用独立向量库，不用图库内置向量功能。
-- **理由**：三路检索独立演进（NFR-10）；向量库选型可按运维成本单独决策。
+- **决策**：向量检索用独立 **Qdrant**；不用图库内置向量功能。POC 另提供 `InMemoryVectorStore` 便于离线测试。
+- **理由**：三路检索独立演进（NFR-10）；Qdrant 单容器运维成本低。
 
-### ADR-003：LLM 双档位 + 统一网关（提议）
+### ADR-003：LLM 双档位 + 统一网关（已采纳，2026-07 POC 启动）
 - **背景**：Agent 多轮调用成本高（风险 R2）；不同角色对模型能力要求不同。
-- **决策**：Planner/Critic/生成用强档位，Executor 工具选择/分诊用轻档位；全部经统一 LLMProvider 接口 + 网关（限流、计费、重试、缓存）。
+- **决策**：Planner/Critic/生成用强档位，Executor 工具选择/分诊用轻档位；全部经统一 LLMProvider 接口（OpenAI 兼容）+ 缓存 + BudgetTracker。
 - **影响**：成本核算与预算熔断（FR-OP-02）在网关层统一实现。
 
-### ADR-004：服务端语言 Python/FastAPI（提议）
+### ADR-004：服务端语言 Python/FastAPI（已采纳，2026-07 POC 启动）
 - **背景**：需快速迭代 Prompt 与检索策略。
-- **决策**：Python 3.12 + FastAPI + Pydantic（schema 校验天然满足 NFR-07）。
-- **影响**：遵循 `~/.claude/rules/python/` 规范；异步 IO 支撑检索并行化（FR-RT-05）。
+- **决策**：Python ≥3.12 + FastAPI + Pydantic（schema 校验天然满足 NFR-07）。POC 阶段以 CLI/脚本驱动，API 路由预留。
+- **影响**：异步 IO 支撑检索并行化（FR-RT-05）。
 
 ### ADR-005：Agent 循环采用 LangGraph 运行时 + 自研控制逻辑（已采纳，2026-07 修订）
 - **背景**：原提议为全自研轻量循环。经 LangGraph vs AgentScope vs 组合方案评估后修订本决策。
@@ -55,7 +55,8 @@
 
 ## 3. 待决策清单（评审会）
 
-- [ ] ADR-001~004 批准或改选（ADR-005 已采纳：LangGraph + 自研控制逻辑，评审会知会即可）
-- [ ] 向量库具体产品（运维团队意见）
+- [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）
+- [x] 向量库具体产品：Qdrant（POC）
 - [ ] 前端技术栈（试点阶段前定即可）
 - [ ] 部署形态：K8s / 单机 Docker Compose（试点规模决定）
+- [ ] 正式试点领域与语料替换当前 interim 公司关系语料（P1-GOV-01 / R5）

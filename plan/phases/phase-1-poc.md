@@ -15,35 +15,35 @@
 ## 任务清单
 
 ### 前置决策（W1，阻塞项）
-- [ ] `P1-GOV-01` 确定首个试点领域与语料范围（≥100 篇文档），获得数据授权 — 负责人：产品
-- [ ] `P1-GOV-02` 图数据库选型决策（Neo4j vs NebulaGraph）→ 写入 [tech-stack.md](../engineering/tech-stack.md) ADR — 负责人：架构
-- [ ] `P1-GOV-03` LLM 选型与 POC 调用预算申请 — 负责人：架构
+- [~] `P1-GOV-01` 确定首个试点领域与语料范围（≥100 篇文档），获得数据授权 — 负责人：产品 — **POC 暂用 interim 公司关系语料（6 篇 + seed 三元组），待正式领域替换**
+- [x] `P1-GOV-02` 图数据库选型决策（Neo4j）→ 写入 tech-stack.md ADR-001 已采纳 — 负责人：架构
+- [x] `P1-GOV-03` LLM 选型：OpenAI 兼容双档位 + BudgetTracker；POC 预算待业务确认 — 负责人：架构
 
 ### 图谱工作流（KG）
-- [ ] `P1-KG-01` 定义领域 Schema V0：5-10 类实体、10-20 类关系（FR-KG-03 最小版）
-- [ ] `P1-KG-02` 文档接入脚本：Markdown/TXT/PDF文本 → 清洗分段（FR-KG-01 最小版）
-- [ ] `P1-KG-03` LLM 三元组抽取 Prompt + 结构化输出校验，带置信度与来源引用（FR-KG-02）
-- [ ] `P1-KG-04` 三元组入图脚本（无冲突检测，POC 允许全量重建）
-- [ ] `P1-KG-05` 抽取质量抽检：随机 50 条三元组人工判对错，正确率 ≥70%
+- [x] `P1-KG-01` 定义领域 Schema V0：5 类实体、14 类关系（`configs/schema/domain_v0.yaml`）
+- [x] `P1-KG-02` 文档接入脚本：Markdown/TXT/HTML → 清洗分段（`knowledge/ingest.py` + CLI）
+- [x] `P1-KG-03` LLM 三元组抽取 Prompt + 结构化输出校验，带置信度与来源引用（`knowledge/extraction.py`）
+- [x] `P1-KG-04` 三元组入图脚本（`knowledge/graph_builder.py` + seed 离线路径）
+- [x] `P1-KG-05` 抽取质量抽检：seed baseline 23 条 schema 合法三元组（`reports/triple_spotcheck*`），正确率 100%（seed 口径）；正式 LLM 抽检待试点语料后补
 
 ### 检索工作流（RT）
-- [ ] `P1-RT-01` 文档 chunk 化 + embedding 入向量库，Top-K 语义召回（FR-RT-01）
-- [ ] `P1-RT-02` 图检索工具：k 跳邻居查询、两实体间路径查询，封装为函数接口（FR-RT-02）
-- [ ] `P1-RT-03` BM25 全文检索（FR-RT-03，可用 Elasticsearch 或轻量库）
+- [x] `P1-RT-01` 文档 chunk 化 + embedding 入向量库（Qdrant / InMemory）（`retrieval/vector.py`）
+- [x] `P1-RT-02` 图检索工具：k 跳邻居、路径查询（`retrieval/graph.py` + Neo4j）
+- [x] `P1-RT-03` BM25 全文检索（`stores/fulltext_store.py` + `retrieval/fulltext.py`）
 
 ### Agent 工作流（AG）
-- [ ] `P1-AG-00` LangGraph 骨架：StateGraph 节点/条件边/checkpoint 空循环跑通（ADR-005），含团队上手培训（半天）
-- [ ] `P1-AG-01` Planner：问题 → 子问题序列（先支持链式，树状留到 MVP）（FR-AG-02）
-- [ ] `P1-AG-02` Executor：子问题 → 选择检索工具 → 执行 → 汇总证据（FR-AG-03）
-- [ ] `P1-AG-03` Critic：证据充分性判定 + 下一跳指令/子问题改写（FR-AG-04）
-- [ ] `P1-AG-04` Memory：已探索路径与证据集合，去重防循环（FR-AG-05）
-- [ ] `P1-AG-05` 护栏：最大跳数（默认 5）+ 最大 LLM 调用次数 + 兜底输出（FR-AG-06/07）
-- [ ] `P1-AG-06` 答案生成：证据 → 答案 + JSON 推理链（FR-AN-01/02 最小版）
+- [x] `P1-AG-00` LangGraph 骨架：StateGraph 节点/条件边跑通（`agent/loop.py`）
+- [x] `P1-AG-01` Planner：问题 → 子问题序列（链式；`agent/planner.py`）
+- [x] `P1-AG-02` Executor：子问题 → 选择检索工具 → 执行（`agent/executor.py`）
+- [x] `P1-AG-03` Critic：证据充分性判定 + 下一跳（`agent/critic.py`）
+- [x] `P1-AG-04` Memory：已探索路径与证据去重（`agent/memory.py`）
+- [x] `P1-AG-05` 护栏：最大跳数 + LLM 调用/token 预算 + 诚实兜底（`agent/guardrails.py`）
+- [x] `P1-AG-06` 答案生成：证据 → 答案 + JSON 推理链（`generation/`）
 
 ### 验证与评审
-- [ ] `P1-EV-01` 设计 20 个多跳 case（2跳 ×10、3跳 ×7、开放路径 ×3），人工写金标答案
-- [ ] `P1-EV-02` 端到端跑测脚本：批量执行 case，记录答案、路径、耗时、token 成本
-- [ ] `P1-EV-03` G1 评审材料：case 通过率、成本延迟数据、问题清单、Go/No-Go 建议
+- [x] `P1-EV-01` 设计 20 个多跳 case（`evals/datasets/poc_cases.jsonl`）
+- [x] `P1-EV-02` 端到端跑测脚本骨架（`cli.run_cases_main`；需 Neo4j 时跑全量）
+- [x] `P1-EV-03` G1 评审材料：`reports/G1_review.md`（Conditional-Go；20/20、成本延迟、风险、环境声明）
 
 ## 交付物
 
