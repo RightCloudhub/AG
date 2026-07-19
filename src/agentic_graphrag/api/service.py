@@ -168,11 +168,18 @@ def _chain_to_data(chain: ReasoningChain) -> QueryResultData:
 
 
 def build_default_service() -> QueryService:
-    """Factory used by FastAPI lifespan — offline unless LLM key is present."""
+    """Factory used by FastAPI lifespan.
+
+    Defaults to **offline** (memory graph + seed + MockLLM) so CI/local smoke
+    stays deterministic. Opt into live LLM with ``AGR_ALLOW_LLM=1`` when a real
+    ``LLM_API_KEY`` is configured (avoids 403/rate-limit flaking unit tests).
+    """
+    import os
+
     settings = get_settings()
     cfg = get_config()
     svc = QueryService.create_offline(cfg=cfg, settings=settings)
-    if settings.llm_api_key:
-        # Keep offline graph; enable live LLM answers when key configured.
+    allow = os.environ.get("AGR_ALLOW_LLM", "").lower() in {"1", "true", "yes"}
+    if allow and settings.llm_api_key and "your-key" not in settings.llm_api_key:
         svc.allow_llm = True
     return svc

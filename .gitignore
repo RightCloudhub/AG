@@ -44,7 +44,13 @@ logs/
 reports/*
 !reports/G1_review.md
 !reports/G1_to_G2_status.json
+!reports/G1_to_G2_closeout.md
+!reports/G1_live_llm_memo.md
 *.log
+
+# Local non-Python runtimes (JDK / Neo4j tarball extracts, etc.)
+# See docs/EXTERNAL_RUNTIMES.md — prefer docker-compose, do not commit binaries.
+.tools/
 
 # Secrets
 *.pem

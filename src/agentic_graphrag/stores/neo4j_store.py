@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -18,6 +19,25 @@ def _validate_identifier(value: str, kind: str) -> str:
     if not pattern.match(value):
         raise ValueError(f"Invalid {kind} identifier: {value!r}")
     return value
+
+
+def _attrs_for_neo4j(attributes: dict[str, Any] | None) -> str:
+    """Serialize attributes as JSON string (Neo4j forbids nested Map properties)."""
+    return json.dumps(attributes or {}, ensure_ascii=False, sort_keys=True)
+
+
+def _attrs_from_neo4j(raw: Any) -> dict[str, Any]:
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            val = json.loads(raw)
+            return dict(val) if isinstance(val, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 class Neo4jGraphStore:
@@ -53,8 +73,8 @@ class Neo4jGraphStore:
                     query,
                     id=ent.id,
                     name=ent.name,
-                    attributes=ent.attributes or {},
-                    aliases=ent.aliases or [],
+                    attributes=_attrs_for_neo4j(ent.attributes),
+                    aliases=list(ent.aliases or []),
                 )
                 count += 1
         return count
@@ -78,7 +98,7 @@ class Neo4jGraphStore:
                     head_id=rel.head_id,
                     tail_id=rel.tail_id,
                     confidence=rel.confidence,
-                    attributes=rel.attributes or {},
+                    attributes=_attrs_for_neo4j(rel.attributes),
                 )
                 count += 1
         return count
@@ -203,7 +223,7 @@ def _node_to_entity(node: Any) -> EntityRecord:
         id=str(props.get("id", props.get("name", ""))),
         name=str(props.get("name", "")),
         type=etype,
-        attributes=props.get("attributes") or {},
+        attributes=_attrs_from_neo4j(props.get("attributes")),
         aliases=list(props.get("aliases") or []),
     )
 
@@ -218,5 +238,5 @@ def _rel_to_record(rel: Any, head_name: str = "", tail_name: str = "") -> Relati
         head_name=head_name,
         tail_name=tail_name,
         confidence=float(props.get("confidence", 1.0)),
-        attributes=props.get("attributes") or {},
+        attributes=_attrs_from_neo4j(props.get("attributes")),
     )

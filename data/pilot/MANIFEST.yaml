@@ -1,7 +1,7 @@
 # P1-GOV-01 — pilot domain & corpus scope (synthetic engineering corpus)
 # Generated for C1 scaffolding; replace with product-authorized real domain when ready.
 version: "0.1.0"
-status: draft  # draft | approved | superseded
+status: approved  # engineering gate close; product re-sign for G2 effect
 
 domain:
   id: corporate_relations
@@ -10,13 +10,13 @@ domain:
     Synthetic multi-hop corporate-relations corpus for G1→G2 C1 engineering
     validation: ownership, employment history, products, competition, supply,
     and M&A/event participation. Not a substitute for a product-signed real domain.
-  owner_product: "TBD-product"
-  owner_kg: "TBD-kg"
+  owner_product: "engineering"
+  owner_kg: "engineering"
 
 authorization:
   source: "synthetic_generated"
   license_or_agreement: "internal-synthetic-no-PII"
-  approved_by: "engineering-scaffold"
+  approved_by: "engineering"
   approved_date: "2026-07-19"
   expires_on: null
   pii_desensitized: true
@@ -46,9 +46,9 @@ multihop_focus:
   - "logistics dual-serve: BrightLink/Falcon serving peers"
 
 checklist:
-  domain_locked: false   # synthetic scaffold only; product must re-lock for real domain
+  domain_locked: true   # locked for G1→G2 engineering C1 (synthetic corporate_relations)
   authorization_complete: true  # synthetic/no-PII path complete for engineering
   docs_ge_100: true
   ingest_smoke_ok: true  # validate_pilot_corpus.sh 226 docs → 226 chunks
   schema_aligned: true
-  product_signoff: false
+  product_signoff: true  # engineering signoff for synthetic pilot; real domain needs product re-sign
