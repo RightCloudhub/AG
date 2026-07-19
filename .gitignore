@@ -49,3 +49,8 @@ reports/*
 # Secrets
 *.pem
 secrets/
+
+# Coverage artifacts
+coverage.json
+coverage.xml
+.coverage
