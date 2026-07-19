@@ -45,15 +45,14 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 - [ ] `P2-AG-01` Planner 升级：支持树状/图状子问题依赖，子问题可依赖前序结果动态生成（FR-AG-02 完整版）
 - [ ] `P2-AG-02` Critic 升级：区分"子问题未答全"与"原问题未答全"，支持子问题改写（FR-AG-04 完整版）
 - [ ] `P2-AG-03` Memory 升级：已排除假设记录；跨子问题证据共享（FR-AG-05 完整版）；状态承载迁至 LangGraph typed state + checkpointer，去重/排除假设语义逻辑保持自研
-- [ ] `P2-AG-04` 护栏参数化：跳数/调用次数/token 预算均从配置读取，触顶兜底带已探索路径摘要（FR-AG-06/07）
+- [x] `P2-AG-04` 护栏参数化：跳数/调用次数/token 预算/超时/recursion 均从配置读取，触顶兜底带已探索路径摘要（FR-AG-06/07）— `GuardrailConfig.from_app_config`
 - [ ] `P2-AG-05` 答案关键论断绑定引用；无引用断言在生成层拦截（FR-AN-01，AC-7 基础）
-- [ ] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）
+- [x] `P2-AG-06` 推理链 JSON Schema 定稿（子问题→工具→节点/边/片段→中间结论→答案）（FR-AN-02）— `configs/schema/reasoning_chain_v1.json`
 
 ### 评测工作流（EV）
 - [ ] `P2-EV-01` 评测集设计定稿：≥200 条，2跳/3跳/开放路径分级，含 ≥20 条"无答案"问题（供 AC-7）
 - [ ] `P2-EV-02` 金标标注：答案 + 支持证据（节点/边/文档片段），标注规范文档化
-- [ ] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）
-- [ ] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）
+- [x] `P2-EV-03` Baseline 实现：纯向量 RAG 管线（同 LLM、同语料，保证公平对比）— `eval/baseline_rag.py` · `agr-run-baseline`- [ ] `P2-EV-04` 一键评测脚本：Accuracy / 证据 Recall / 延迟 / 成本，输出对比报告（FR-OP-04）
 - [ ] `P2-EV-05` 首轮全量评测 + badcase 归因分类（检索失败/分解失败/生成失败/图谱缺失）
 - [ ] `P2-EV-06` 针对 badcase 优化一轮，二轮评测，产出 G2 评审材料
 

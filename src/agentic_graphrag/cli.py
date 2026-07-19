@@ -311,7 +311,6 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     from agentic_graphrag.agent.loop import run_agentic_query
     from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
     from agentic_graphrag.knowledge.schema_check import Triple
-    from agentic_graphrag.llm.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
     from agentic_graphrag.retrieval.fulltext import FulltextRetriever
     from agentic_graphrag.retrieval.graph import GraphRetriever
@@ -409,11 +408,7 @@ def run_cases_main(argv: list[str] | None = None) -> None:
         llm=None if args.no_llm else llm,
         known_entities=known_entities,
     )
-    guard_cfg = GuardrailConfig(
-        max_hops=cfg.guardrails.max_hops,
-        max_llm_calls=cfg.guardrails.max_llm_calls,
-        max_tokens=cfg.guardrails.max_tokens_per_query,
-    )
+    guard_cfg = GuardrailConfig.from_app_config(cfg)
 
     cases = [
         json.loads(line)
@@ -424,10 +419,7 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     with report_path.open("w", encoding="utf-8") as out:
         for case in cases:
             q = case["question"]
-            budget = BudgetTracker(
-                max_llm_calls=guard_cfg.max_llm_calls,
-                max_tokens=guard_cfg.max_tokens,
-            )
+            budget = guard_cfg.budget_tracker()
             try:
                 chain = run_agentic_query(
                     q,
@@ -436,7 +428,6 @@ def run_cases_main(argv: list[str] | None = None) -> None:
                     guard_cfg=guard_cfg,
                     budget=budget,
                     allow_llm=not args.no_llm,
-                    recursion_limit=cfg.guardrails.recursion_limit,
                 )
                 cost = chain.cost.model_dump()
                 row = {
@@ -502,6 +493,88 @@ def score_main(argv: list[str] | None = None) -> None:
 
     acc = write_accuracy_summary(resolve_path(args.report), resolve_path(args.out))
     print(json.dumps(acc.to_dict(), ensure_ascii=False, indent=2))
+
+
+def run_baseline_main(argv: list[str] | None = None) -> None:
+    """P2-EV-03 — pure vector RAG baseline on interim / temp corpus."""
+    parser = argparse.ArgumentParser(
+        description="Run baseline vector RAG (no graph, single-shot retrieval)"
+    )
+    parser.add_argument("--cases", default=None, help="Eval cases JSONL")
+    parser.add_argument(
+        "--chunks",
+        default=None,
+        help="chunks.jsonl (default: data/processed/chunks.jsonl)",
+    )
+    parser.add_argument(
+        "--raw-docs",
+        default=None,
+        help="Fallback raw docs dir when chunks missing (default: data/raw)",
+    )
+    parser.add_argument(
+        "--embeddings",
+        default=None,
+        help="Optional embeddings.jsonl cache",
+    )
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--no-llm", action="store_true", help="Offline extractive baseline")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Report dir (writes baseline_run.jsonl + baseline_accuracy.json)",
+    )
+    args = parser.parse_args(argv)
+    cfg = get_config()
+    cases_path = resolve_path(args.cases or cfg.eval.cases_path)
+    report_dir = resolve_path(args.out or cfg.eval.report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    from agentic_graphrag.eval.baseline_rag import (
+        build_baseline_pipeline,
+        run_baseline_cases,
+        write_baseline_report,
+    )
+    from agentic_graphrag.eval.scoring import write_accuracy_summary
+
+    allow_llm = not args.no_llm
+    pipeline, chunks = build_baseline_pipeline(
+        cfg=cfg,
+        chunks_path=args.chunks,
+        raw_docs_dir=args.raw_docs,
+        embeddings_path=args.embeddings,
+        allow_llm=allow_llm,
+        top_k=args.top_k,
+    )
+    print(f"Baseline corpus: {len(chunks)} chunks (allow_llm={pipeline.allow_llm})")
+
+    cases = [
+        json.loads(line)
+        for line in cases_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    results = run_baseline_cases(cases, pipeline)
+    report_path = report_dir / "baseline_run.jsonl"
+    write_baseline_report(results, report_path)
+    print(f"Baseline report → {report_path}")
+
+    acc_path = report_dir / "baseline_accuracy.json"
+    acc = write_accuracy_summary(report_path, acc_path)
+    print(f"Baseline accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
+
+
+def export_reasoning_schema_main(argv: list[str] | None = None) -> None:
+    """P2-AG-06 — write reasoning_chain JSON Schema to configs/schema/."""
+    parser = argparse.ArgumentParser(description="Export ReasoningChain JSON Schema")
+    parser.add_argument(
+        "--out",
+        default="configs/schema/reasoning_chain_v1.json",
+        help="Output path",
+    )
+    args = parser.parse_args(argv)
+    from agentic_graphrag.generation.trace import export_reasoning_chain_schema
+
+    path = export_reasoning_chain_schema(resolve_path(args.out))
+    print(f"Wrote reasoning chain schema → {path}")
 
 
 def spotcheck_main(argv: list[str] | None = None) -> None:

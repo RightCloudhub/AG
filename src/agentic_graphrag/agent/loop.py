@@ -238,14 +238,16 @@ def run_agentic_query(
     guard_cfg: GuardrailConfig | None = None,
     budget: BudgetTracker | None = None,
     allow_llm: bool = True,
-    recursion_limit: int = 15,
+    recursion_limit: int | None = None,
 ) -> ReasoningChain:
-    """Run the full agentic loop and return a reasoning chain."""
-    guard_cfg = guard_cfg or GuardrailConfig()
-    budget = budget or BudgetTracker(
-        max_llm_calls=guard_cfg.max_llm_calls,
-        max_tokens=guard_cfg.max_tokens,
-    )
+    """Run the full agentic loop and return a reasoning chain.
+
+    When ``guard_cfg`` is omitted, limits are loaded from application config
+    (P2-AG-04). ``recursion_limit`` defaults to ``guard_cfg.recursion_limit``.
+    """
+    guard_cfg = guard_cfg or GuardrailConfig.from_app_config()
+    budget = budget or guard_cfg.budget_tracker()
+    rec_limit = recursion_limit if recursion_limit is not None else guard_cfg.recursion_limit
     graph = build_graph(executor, llm, guard_cfg, budget=budget)
     chain = ReasoningChain(question=question, route="agentic")
     t0 = time.perf_counter()
@@ -260,7 +262,7 @@ def run_agentic_query(
             "done": False,
             "allow_llm": allow_llm,
         },
-        config={"recursion_limit": recursion_limit},
+        config={"recursion_limit": rec_limit},
     )
     out = ReasoningChain.model_validate(result["chain"])
     out.cost.latency_ms = int((time.perf_counter() - t0) * 1000)

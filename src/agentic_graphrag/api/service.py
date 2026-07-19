@@ -63,25 +63,13 @@ class QueryService:
         self.bundle.close()
 
     def run_query(self, req: QueryRequest) -> QueryResultData:
-        max_hops = req.max_hops if req.max_hops is not None else self.cfg.guardrails.max_hops
-        # Hard cap against config hard ceiling
-        max_hops = min(max_hops, 20)
-        timeout_s = (
-            (req.timeout_ms / 1000.0)
-            if req.timeout_ms is not None
-            else float(self.cfg.guardrails.query_timeout_seconds)
+        timeout_override = int(req.timeout_ms / 1000) if req.timeout_ms is not None else None
+        guard_cfg = GuardrailConfig.from_app_config(
+            self.cfg,
+            max_hops=req.max_hops,
+            query_timeout_seconds=timeout_override,
         )
-        del timeout_s  # agent loop uses hop/token guards for MVP; wall-clock later
-
-        guard_cfg = GuardrailConfig(
-            max_hops=max_hops,
-            max_llm_calls=self.cfg.guardrails.max_llm_calls,
-            max_tokens=self.cfg.guardrails.max_tokens_per_query,
-        )
-        budget = BudgetTracker(
-            max_llm_calls=guard_cfg.max_llm_calls,
-            max_tokens=guard_cfg.max_tokens,
-        )
+        budget = guard_cfg.budget_tracker()
 
         with self._lock:
             executor = self._build_executor()
@@ -94,7 +82,6 @@ class QueryService:
                     guard_cfg=guard_cfg,
                     budget=budget,
                     allow_llm=self.allow_llm,
-                    recursion_limit=self.cfg.guardrails.recursion_limit,
                 )
             except BudgetExceeded as exc:
                 raise ApiError(

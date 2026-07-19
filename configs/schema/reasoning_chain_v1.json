@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "Claim": {
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "CostStats": {
+      "properties": {
+        "llm_calls": {
+          "default": 0,
+          "title": "Llm Calls",
+          "type": "integer"
+        },
+        "tokens": {
+          "default": 0,
+          "title": "Tokens",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "default": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "latency_ms": {
+          "default": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        }
+      },
+      "title": "CostStats",
+      "type": "object"
+    },
+    "QueryStatus": {
+      "enum": [
+        "answered",
+        "partial",
+        "no_answer"
+      ],
+      "title": "QueryStatus",
+      "type": "string"
+    },
+    "ReasoningStep": {
+      "properties": {
+        "hop": {
+          "description": "Hop index within the agentic loop",
+          "minimum": 0,
+          "title": "Hop",
+          "type": "integer"
+        },
+        "sub_question": {
+          "title": "Sub Question",
+          "type": "string"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/ToolCallTrace"
+          },
+          "title": "Tool Calls",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "conclusion": {
+          "default": "",
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "critic_action": {
+          "default": "",
+          "description": "sufficient|next_hop|rewrite|give_up (CriticAction value)",
+          "title": "Critic Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hop",
+        "sub_question"
+      ],
+      "title": "ReasoningStep",
+      "type": "object"
+    },
+    "ToolCallTrace": {
+      "properties": {
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "hits": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hits",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ToolCallTrace",
+      "type": "object"
+    }
+  },
+  "description": "Reasoning chain contract (FR-AN-02 / P2-AG-06): sub-questions, tool calls, evidence, claims with citations, status, and cost.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "query_id": {
+      "title": "Query Id",
+      "type": "string"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "route": {
+      "default": "agentic",
+      "description": "agentic|fast_path|baseline",
+      "title": "Route",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/ReasoningStep"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "answer": {
+      "default": "",
+      "title": "Answer",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/QueryStatus",
+      "default": "no_answer"
+    },
+    "cost": {
+      "$ref": "#/$defs/CostStats"
+    },
+    "explored_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Explored Paths",
+      "type": "array"
+    },
+    "missing_info": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Info",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "title": "AgenticGraphRAG ReasoningChain",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-graphrag.local/schemas/reasoning_chain_v1.json"
+}

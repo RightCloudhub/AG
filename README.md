@@ -129,7 +129,15 @@ curl -s -X POST http://127.0.0.1:8000/v1/query \
 
 默认离线：seed 三元组 + 内存图 + Mock LLM。配置 `LLM_API_KEY` 后可启用 live LLM 答案路径。
 
-### 7. 测试与 CI（P2-ARCH-04）
+### 7. Baseline 向量 RAG（P2-EV-03）
+
+```bash
+# 临时/interim 语料上跑纯向量基线（无图、无多跳）
+python -m agentic_graphrag run-baseline --no-llm
+# → reports/baseline_run.jsonl + baseline_accuracy.json
+```
+
+### 8. 测试与 CI（P2-ARCH-04）
 
 ```bash
 ruff check src tests scripts
@@ -139,6 +147,7 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 
 GitHub Actions：`.github/workflows/ci.yml`（lint + unit + coverage ≥80%）。
 
+推理链契约 Schema：`configs/schema/reasoning_chain_v1.json`（`export-reasoning-schema`）。
 ## 仓库布局
 
 见 [plan/engineering/repo-structure.md](./plan/engineering/repo-structure.md)。
