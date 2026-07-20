@@ -19,13 +19,15 @@ from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore
 
+_ALIAS_SCORE = 0.95
+_NGRAM_N = 3
+
 
 def normalize_name(name: str) -> str:
     """Rule-level name normalization."""
     s = unicodedata.normalize("NFKC", name or "")
     s = s.strip()
     s = re.sub(r"\s+", " ", s)
-    # Full/half width already via NFKC; fold case for key
     return s
 
 
@@ -44,7 +46,7 @@ def jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def char_ngram_sim(a: str, b: str, n: int = 3) -> float:
+def char_ngram_sim(a: str, b: str, n: int = _NGRAM_N) -> float:
     def grams(s: str) -> set[str]:
         s = normalize_key(s)
         if len(s) < n:
@@ -74,7 +76,7 @@ class ResolutionCandidate:
 
 @dataclass
 class ResolutionResult:
-    merges: list[tuple[str, str, str]] = field(default_factory=list)  # (from_id, to_id, name)
+    merges: list[tuple[str, str, str]] = field(default_factory=list)
     uncertain: list[ResolutionCandidate] = field(default_factory=list)
     skipped: int = 0
 
@@ -95,6 +97,14 @@ class ResolutionResult:
             ],
             "skipped": self.skipped,
         }
+
+
+@dataclass
+class MergeApply:
+    store: GraphStore
+    keep: EntityRecord
+    drop: EntityRecord
+    canonical: str
 
 
 class EntityResolver:
@@ -132,30 +142,34 @@ class EntityResolver:
 
         pairs: list[ResolutionCandidate] = []
         for group in by_type.values():
-            n = len(group)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    a, b = group[i], group[j]
-                    if normalize_key(a.name) == normalize_key(b.name):
-                        score = 1.0
-                        method = "exact_norm"
-                    else:
-                        score = max(
-                            jaccard(a.name, b.name),
-                            char_ngram_sim(a.name, b.name),
-                        )
-                        # Alias map boost
-                        if self.canonical_name(a.name) == self.canonical_name(b.name):
-                            score = max(score, 0.95)
-                            method = "alias"
-                        else:
-                            method = "similarity"
-                    if score >= self.similarity_threshold:
-                        pairs.append(
-                            ResolutionCandidate(left=a, right=b, score=score, method=method)
-                        )
+            pairs.extend(self._pairs_in_group(group))
         pairs.sort(key=lambda c: -c.score)
         return pairs
+
+    def _pairs_in_group(self, group: list[EntityRecord]) -> list[ResolutionCandidate]:
+        pairs: list[ResolutionCandidate] = []
+        n = len(group)
+        for i in range(n):
+            for j in range(i + 1, n):
+                cand = self._score_pair(group[i], group[j])
+                if cand is not None:
+                    pairs.append(cand)
+        return pairs
+
+    def _score_pair(
+        self, a: EntityRecord, b: EntityRecord
+    ) -> ResolutionCandidate | None:
+        if normalize_key(a.name) == normalize_key(b.name):
+            score, method = 1.0, "exact_norm"
+        else:
+            score = max(jaccard(a.name, b.name), char_ngram_sim(a.name, b.name))
+            method = "similarity"
+            if self.canonical_name(a.name) == self.canonical_name(b.name):
+                score = max(score, _ALIAS_SCORE)
+                method = "alias"
+        if score < self.similarity_threshold:
+            return None
+        return ResolutionCandidate(left=a, right=b, score=score, method=method)
 
     def resolve(
         self,
@@ -167,37 +181,73 @@ class EntityResolver:
     ) -> ResolutionResult:
         """Run resolution; optionally apply merges (when store supports alias update)."""
         if entities is None:
-            # GraphStore protocol has no list_entities — caller should pass
             entities = []
-            counts = store.counts()
-            if counts.get("entities", 0) == 0:
+            if store.counts().get("entities", 0) == 0:
                 return ResolutionResult()
 
-        candidates = self.find_candidates(entities)
         result = ResolutionResult()
-        for cand in candidates:
-            if cand.score >= self.auto_merge_threshold:
-                canonical = self.canonical_name(cand.left.name)
-                # Prefer longer / title-cased name as canonical surface
-                if len(cand.right.name) > len(canonical):
-                    canonical = normalize_name(cand.right.name)
-                result.merges.append((cand.right.id, cand.left.id, canonical))
-                if not dry_run:
-                    self._apply_merge(store, cand.left, cand.right, canonical)
-            elif allow_llm and self.llm is not None:
-                decision = self._llm_decide(cand)
-                if decision.action == "merge":
-                    name = decision.canonical_name or cand.left.name
-                    result.merges.append((cand.right.id, cand.left.id, name))
-                    if not dry_run:
-                        self._apply_merge(store, cand.left, cand.right, name)
-                elif decision.action == "uncertain":
-                    result.uncertain.append(cand)
-                else:
-                    result.skipped += 1
-            else:
-                result.uncertain.append(cand)
+        for cand in self.find_candidates(entities):
+            self._handle_candidate(
+                cand, store, result, allow_llm=allow_llm, dry_run=dry_run
+            )
         return result
+
+    def _handle_candidate(
+        self,
+        cand: ResolutionCandidate,
+        store: GraphStore,
+        result: ResolutionResult,
+        *,
+        allow_llm: bool,
+        dry_run: bool,
+    ) -> None:
+        if cand.score >= self.auto_merge_threshold:
+            self._record_merge(cand, store, result, dry_run=dry_run)
+            return
+        if allow_llm and self.llm is not None:
+            self._handle_llm(cand, store, result, dry_run=dry_run)
+            return
+        result.uncertain.append(cand)
+
+    def _record_merge(
+        self,
+        cand: ResolutionCandidate,
+        store: GraphStore,
+        result: ResolutionResult,
+        *,
+        dry_run: bool,
+        name: str | None = None,
+    ) -> None:
+        canonical = name or self.canonical_name(cand.left.name)
+        if name is None and len(cand.right.name) > len(canonical):
+            canonical = normalize_name(cand.right.name)
+        result.merges.append((cand.right.id, cand.left.id, canonical))
+        if not dry_run:
+            self._apply_merge(
+                MergeApply(store=store, keep=cand.left, drop=cand.right, canonical=canonical)
+            )
+
+    def _handle_llm(
+        self,
+        cand: ResolutionCandidate,
+        store: GraphStore,
+        result: ResolutionResult,
+        *,
+        dry_run: bool,
+    ) -> None:
+        decision = self._llm_decide(cand)
+        if decision.action == "merge":
+            self._record_merge(
+                cand,
+                store,
+                result,
+                dry_run=dry_run,
+                name=decision.canonical_name or cand.left.name,
+            )
+        elif decision.action == "uncertain":
+            result.uncertain.append(cand)
+        else:
+            result.skipped += 1
 
     def _llm_decide(self, cand: ResolutionCandidate) -> MergeDecision:
         try:
@@ -226,15 +276,11 @@ class EntityResolver:
         except Exception:
             return MergeDecision(action="uncertain", confidence=0.0, rationale="llm failed")
 
-    def _apply_merge(
-        self,
-        store: GraphStore,
-        keep: EntityRecord,
-        drop: EntityRecord,
-        canonical: str,
-    ) -> None:
+    def _apply_merge(self, req: MergeApply) -> None:
         """Best-effort: upsert keep with alias of drop. Full edge rewiring is store-specific."""
-        aliases = list(dict.fromkeys([*(keep.aliases or []), drop.name, drop.id]))
-        keep.name = canonical
-        keep.aliases = aliases
-        store.upsert_entities([keep])
+        aliases = list(
+            dict.fromkeys([*(req.keep.aliases or []), req.drop.name, req.drop.id])
+        )
+        req.keep.name = req.canonical
+        req.keep.aliases = aliases
+        req.store.upsert_entities([req.keep])

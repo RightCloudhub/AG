@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agentic_graphrag.config import AppConfig, get_config, get_settings, resolve_path
+from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.eval.baseline_corpus import ensure_embeddings, load_or_build_chunks
 from agentic_graphrag.generation.trace import (
     Claim,
     QueryStatus,
@@ -26,12 +27,25 @@ from agentic_graphrag.generation.trace import (
     ToolCallTrace,
     validate_reasoning_chain,
 )
-from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider, Message, MockLLMProvider, Tier
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.interfaces import ChunkRecord
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore
+
+_MAX_BASELINE_CALLS = 1000
+_MAX_BASELINE_TOKENS = 2_000_000
+_MOCK_EMBED_DIM = 32
+
+__all__ = [
+    "BaselineResult",
+    "BaselineVectorRAG",
+    "build_baseline_pipeline",
+    "ensure_embeddings",
+    "load_or_build_chunks",
+    "run_baseline_cases",
+    "write_baseline_report",
+]
 
 
 @dataclass
@@ -78,7 +92,17 @@ class BaselineVectorRAG:
         chain = ReasoningChain(question=question, route="baseline")
         candidates = self.retriever.search(question, top_k=self.top_k)
         hits = [c.id for c in candidates]
-        step = ReasoningStep(
+        chain.steps.append(self._retrieval_step(question, hits))
+        if not candidates:
+            chain.honest_fallback("vector baseline retrieved no chunks")
+        else:
+            self._fill_answer(chain, question, candidates)
+        chain.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
+        self._copy_budget(chain)
+        return validate_reasoning_chain(chain)
+
+    def _retrieval_step(self, question: str, hits: list[str]) -> ReasoningStep:
+        return ReasoningStep(
             hop=1,
             sub_question=question,
             tool_calls=[
@@ -93,44 +117,42 @@ class BaselineVectorRAG:
             conclusion="",
             critic_action="sufficient",
         )
-        chain.steps.append(step)
 
-        if not candidates:
-            chain.honest_fallback("vector baseline retrieved no chunks")
-            chain.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
-            return validate_reasoning_chain(chain)
-
-        if self.allow_llm and self.llm is not None and not isinstance(self.llm, MockLLMProvider):
+    def _fill_answer(self, chain: ReasoningChain, question: str, candidates: list) -> None:
+        hits = [c.id for c in candidates]
+        use_llm = (
+            self.allow_llm
+            and self.llm is not None
+            and not isinstance(self.llm, MockLLMProvider)
+        )
+        if use_llm:
             answer_text = self._llm_generate(question, candidates)
             chain.answer = answer_text
             chain.status = QueryStatus.ANSWERED
-            chain.claims = [
-                Claim(text=answer_text[:500], evidence_ids=hits[:5]),
-            ]
-        else:
-            # Extractive offline baseline: concatenate top chunks (no graph reasoning)
-            snippets = [c.content.strip() for c in candidates[: self.top_k] if c.content.strip()]
-            joined = "\n---\n".join(snippets[:5])
-            # Prefer short extract when gold-like entity names appear in first hit
-            chain.answer = (
-                f"Based on retrieved evidence:\n{joined}"
-                if joined
-                else "无法基于现有知识回答。原因: empty vector hits。"
-            )
-            chain.status = QueryStatus.PARTIAL if joined else QueryStatus.NO_ANSWER
-            chain.claims = [
-                Claim(text=c.content[:300], evidence_ids=[c.id]) for c in candidates[:5]
-            ]
-            chain.metadata["baseline_mode"] = "extractive_offline"
+            chain.claims = [Claim(text=answer_text[:500], evidence_ids=hits[:5])]
+            return
+        self._extractive_answer(chain, candidates)
 
-        chain.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
-        if self.llm is not None and getattr(self.llm, "budget", None):
-            snap = self.llm.budget.snapshot()  # type: ignore[union-attr]
-            chain.cost.llm_calls = snap["llm_calls"]
-            chain.cost.tokens = snap["total_tokens"]
-            chain.cost.prompt_tokens = snap["prompt_tokens"]
-            chain.cost.completion_tokens = snap["completion_tokens"]
-        return validate_reasoning_chain(chain)
+    def _extractive_answer(self, chain: ReasoningChain, candidates: list) -> None:
+        snippets = [c.content.strip() for c in candidates[: self.top_k] if c.content.strip()]
+        joined = "\n---\n".join(snippets[:5])
+        chain.answer = (
+            f"Based on retrieved evidence:\n{joined}"
+            if joined
+            else "无法基于现有知识回答。原因: empty vector hits。"
+        )
+        chain.status = QueryStatus.PARTIAL if joined else QueryStatus.NO_ANSWER
+        chain.claims = [Claim(text=c.content[:300], evidence_ids=[c.id]) for c in candidates[:5]]
+        chain.metadata["baseline_mode"] = "extractive_offline"
+
+    def _copy_budget(self, chain: ReasoningChain) -> None:
+        if self.llm is None or not getattr(self.llm, "budget", None):
+            return
+        snap = self.llm.budget.snapshot()  # type: ignore[union-attr]
+        chain.cost.llm_calls = snap["llm_calls"]
+        chain.cost.tokens = snap["total_tokens"]
+        chain.cost.prompt_tokens = snap["prompt_tokens"]
+        chain.cost.completion_tokens = snap["completion_tokens"]
 
     def _llm_generate(self, question: str, candidates: list) -> str:
         assert self.llm is not None
@@ -151,73 +173,6 @@ class BaselineVectorRAG:
         return self.llm.complete(messages, tier=Tier.STRONG)
 
 
-def load_or_build_chunks(
-    *,
-    chunks_path: Path | None,
-    raw_docs_dir: Path | None,
-    cfg: AppConfig,
-) -> list[ChunkRecord]:
-    """Load chunks.jsonl, or chunk interim raw docs when missing (temp data path)."""
-    if chunks_path and chunks_path.exists():
-        out: list[ChunkRecord] = []
-        for line in chunks_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            out.append(
-                ChunkRecord(
-                    chunk_id=item["chunk_id"],
-                    doc_id=item["doc_id"],
-                    text=item["text"],
-                    index=int(item.get("index", 0)),
-                    metadata=item.get("metadata") or {},
-                    embedding=item.get("embedding"),
-                )
-            )
-        return out
-
-    docs_dir = raw_docs_dir or resolve_path(cfg.paths.raw_docs_dir)
-    if not docs_dir.exists():
-        raise FileNotFoundError(f"No chunks at {chunks_path} and raw docs dir missing: {docs_dir}")
-    docs = load_documents_from_dir(docs_dir)
-    chunks: list[ChunkRecord] = []
-    for doc in docs:
-        chunks.extend(
-            chunk_document(
-                doc,
-                chunk_size=cfg.knowledge.chunk_size_chars,
-                overlap=cfg.knowledge.chunk_overlap_chars,
-            )
-        )
-    return chunks
-
-
-def ensure_embeddings(
-    chunks: list[ChunkRecord],
-    llm: LLMProvider | MockLLMProvider,
-    *,
-    embeddings_path: Path | None = None,
-) -> list[ChunkRecord]:
-    """Attach embeddings from cache file or compute via llm.embed."""
-    by_id: dict[str, list[float]] = {}
-    if embeddings_path and embeddings_path.exists():
-        for line in embeddings_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            if item.get("embedding"):
-                by_id[item["chunk_id"]] = list(item["embedding"])
-
-    for ch in chunks:
-        if ch.embedding:
-            continue
-        if ch.chunk_id in by_id:
-            ch.embedding = by_id[ch.chunk_id]
-        else:
-            ch.embedding = llm.embed(ch.text)
-    return chunks
-
-
 def build_baseline_pipeline(
     *,
     cfg: AppConfig | None = None,
@@ -233,25 +188,10 @@ def build_baseline_pipeline(
     cpath = resolve_path(chunks_path or f"{cfg.paths.processed_dir}/chunks.jsonl")
     rpath = resolve_path(raw_docs_dir) if raw_docs_dir else resolve_path(cfg.paths.raw_docs_dir)
     epath = resolve_path(embeddings_path or f"{cfg.paths.indexes_dir}/embeddings.jsonl")
-
     chunks = load_or_build_chunks(chunks_path=cpath, raw_docs_dir=rpath, cfg=cfg)
     if not chunks:
         raise RuntimeError("Baseline corpus is empty — provide chunks or raw docs")
-
-    budget = BudgetTracker(max_llm_calls=1000, max_tokens=2_000_000)
-    if allow_llm and settings.llm_api_key:
-        from agentic_graphrag.config import build_llm_provider
-
-        llm: LLMProvider | MockLLMProvider = build_llm_provider(
-            budget=budget,
-            cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
-            settings=settings,
-            cfg=cfg,
-        )
-    else:
-        llm = MockLLMProvider(embedding_dim=32, budget=budget)
-        allow_llm = False
-
+    llm, allow_llm = _baseline_llm(allow_llm, settings, cfg)
     chunks = ensure_embeddings(chunks, llm, embeddings_path=epath if epath.exists() else None)
     store = InMemoryVectorStore()
     if chunks[0].embedding:
@@ -259,8 +199,26 @@ def build_baseline_pipeline(
     store.upsert(chunks)
     k = top_k if top_k is not None else cfg.retrieval.vector_top_k
     retriever = VectorRetriever(store, llm, top_k=k)
-    pipeline = BaselineVectorRAG(retriever, llm, top_k=k, allow_llm=allow_llm)
-    return pipeline, chunks
+    return BaselineVectorRAG(retriever, llm, top_k=k, allow_llm=allow_llm), chunks
+
+
+def _baseline_llm(
+    allow_llm: bool, settings: Settings, cfg: AppConfig
+) -> tuple[LLMProvider | MockLLMProvider, bool]:
+    budget = BudgetTracker(max_llm_calls=_MAX_BASELINE_CALLS, max_tokens=_MAX_BASELINE_TOKENS)
+    if allow_llm and settings.llm_api_key:
+        from agentic_graphrag.config import build_llm_provider
+
+        return (
+            build_llm_provider(
+                budget=budget,
+                cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
+                settings=settings,
+                cfg=cfg,
+            ),
+            True,
+        )
+    return MockLLMProvider(embedding_dim=_MOCK_EMBED_DIM, budget=budget), False
 
 
 def run_baseline_cases(

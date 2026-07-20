@@ -23,50 +23,50 @@
 
 | 项 | 状态 |
 |----|------|
-| G1（POC 出口） | **Conditional-Go** 遗留项：过渡门禁已于 2026-07-20 **工程关闭** |
-| G1 → G2 门禁 | **PASS**（`reports/G1_to_G2_status.json`）— 见 `reports/G1_to_G2_closeout.md` |
-| P2-ENTRY-01 | **工程入场允许**（有条件：合成语料 + C2 live 配额 caveat） |
-| 阶段二 MVP 代码 | 多数 **P2-ARCH / KG / RT / AG** 已落地；**评测金标规模 + 全量跑**仍开着 |
-| 阶段三及以后 | 整体排在 G2 之后 |
-| 本环境基础设施 | 本地 tarball Neo4j + Temurin 17（`/tmp`）；LLM 经 gemai 网关（易 403 限流） |
+| G1（POC 出口） | **Conditional-Go**；过渡门禁工程 **PASS**（2026-07-20） |
+| G1 → G2 门禁 | **PASS**（`reports/G1_to_G2_status.json`）— 见 closeout |
+| P2-ENTRY-01 | **工程入场允许**（合成语料 + C2 live 配额 caveat） |
+| 阶段二 MVP 代码 | **P0 代码 + 金标 ≥200 + dev offline 评测** 已齐；**正式 G2 效果**仍 Conditional |
+| 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
+| 仍开 | live held-out AC、生产 P95、产品真域签字、G3/G4 正式验收 |
+| 本环境 | 本地 tarball Neo4j + Temurin 17；LLM 网关易 403 |
 
 ```bash
-# 刷新门禁快照
-./scripts/g1_to_g2_gate.sh              # → reports/G1_to_G2_status.json
-./scripts/g1_to_g2_gate.sh --with-llm   # 尽量带上 C2 自动化部分
+./scripts/g1_to_g2_gate.sh
+./scripts/g1_to_g2_gate.sh --with-llm
+PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + AC-5 smoke
+.venv/bin/python scripts/check_code_metrics.py
 ```
 
 ---
 
-## 1. 🔴 阻塞 — G1 → G2 过渡（必须关闭或书面豁免）
+## 1. 🟡 G1 → G2 过渡 — 工程已关 / 产品 caveat 仍开
 
 剧本：[`plan/phases/g1-to-g2-transition.md`](../plan/phases/g1-to-g2-transition.md)  
-状态产物：[`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json)
+状态：[`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) · closeout
 
-| ID | 任务 | 延期 / 缺口 | 通过判据 | 脚本 / 产物 |
-|----|------|-------------|----------|-------------|
-| **C1** | **P1-GOV-01** 真实试点语料 | 工程侧脚手架已有（合成 ≥100 篇），但 **产品域未锁定**；`domain_locked: false`、`product_signoff: false`，负责人 TBD | 产品签字的领域；≥100 篇授权文档；MANIFEST 完整；Schema 可适配 | `data/pilot/MANIFEST.yaml` · `scripts/validate_pilot_corpus.sh` · `reports/pilot_corpus_validation.json` |
-| **C2** | **P1-EV-04** 实时 LLM 重跑 | 尚无闭环 live 报告；LLM 抽检行仍 **pending_human** | 人工抽取抽检 ≥70%（`pending_human == 0`）；20 case live 跑通并出报告 | `scripts/llm_live_rerun.sh` · `spotcheck --mode llm` · `reports/triple_spotcheck_llm*` · `reports/llm_live_rerun.json` |
-| **C3** | **P1-EV-05** Neo4j 回归 | Docker/Neo4j 不可用时常 **SKIP**，不能算通过 | `build-graph` + `run-cases --neo4j` 绿（或失败可解释） | `scripts/neo4j_regression.sh` · `reports/neo4j_regression.json` |
-| 入场 | **P2-ENTRY-01** | 未书面豁免前不宜按阶段二全量计 | 门禁通过 **或** 豁免归档 + 风险更新 | 评审纪要 |
+| ID | 任务 | 状态 | 说明 |
+|----|------|------|------|
+| **C1** | P1-GOV-01 | 工程 PASS | 合成 226 篇；**产品真域未锁** |
+| **C2** | P1-EV-04 | 自动化 PASS | live 准确率 caveat（403） |
+| **C3** | P1-EV-05 | pass_partial | Neo4j offline 14/20 |
+| 入场 | P2-ENTRY-01 | ALLOWED | 效果门禁勿用合成 offline 冒充 |
 
-**G1 相关保留项**（见 `reports/G1_review.md`）：离线答案启发式 ≠ 生产 LLM 质量；seed 三元组抽检是 schema 合法基线，非人工 LLM 审计；interim/合成语料 ≠ 正式试点领域。
+**G1 保留项**：离线启发式 ≠ 生产 LLM；seed 抽检 ≠ 人工 LLM 审计；合成语料 ≠ 正式试点域。
 
 ---
 
-## 2. 🟠 阶段二 MVP — 仍未关闭
+## 2. 🟠 阶段二 MVP — 效果门禁仍 Conditional
 
-权威清单：[`plan/phases/phase-2-mvp.md`](../plan/phases/phase-2-mvp.md)
+权威：[`plan/phases/phase-2-mvp.md`](../plan/phases/phase-2-mvp.md)
 
-| ID | 事项 | 为何延期 / 缺口 | 如何解 |
-|----|------|-----------------|--------|
-| **P2-KG-04** | 图谱扩至试点全量语料 | **工程关闭**（合成 226 篇 + 519 确定性三元组 → Neo4j/memory） | 产品真域仍待 C1 产品签字后重抽 |
-| **P2-EV-02** | 金标 ≥200 条（含证据） | **工程关闭**：`g2_*.jsonl` + `ANNOTATION_SPEC.md` + dev/heldout/guardrail；**人工抽检签字 pending** | 评测负责人抽检后改 `annotation_status` |
-| **P2-EV-04** | 评测执行 | 脚本齐；dev offline 全量已跑（`g2_dev_eval`）；**live LLM / heldout 门禁仍 deferred** | heldout + live |
-| **P2-EV-05** | 首轮全量 + badcase | **工程关闭**（dev offline）：`reports/g2_dev_badcase.json` | live 对照 |
-| **P2-EV-06** | 二轮 + G2 材料 | **工程关闭**：`reports/G2_review.md`；正式 G2 Go 仍 Conditional | heldout 锁定 + 人工签字 |
+| ID | 状态 |
+|----|------|
+| P2-KG-04 / EV-02/05/06 | **工程关闭**（dev offline + 自动金标） |
+| 人工抽检签字 / heldout 正式锁定 / live | **仍开** |
+| heldout offline 脚手架 | **已补** `reports/g3_offline/`（P3-EV 脚本复用 heldout） |
 
-### G2 门禁清单（均未关闭）
+### G2 门禁清单
 
 来自 [`plan/roadmap.md`](../plan/roadmap.md)：
 

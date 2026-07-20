@@ -18,6 +18,17 @@ class BudgetLimits:
 
 
 @dataclass
+class LevelCheck:
+    level: str
+    key: str
+    usage: WindowUsage
+    limits: BudgetLimits
+    calls: int
+    tokens: int
+    cost: float
+
+
+@dataclass
 class WindowUsage:
     llm_calls: int = 0
     tokens: int = 0
@@ -79,22 +90,26 @@ class MultiLevelBudget:
             u_usage.reset_if_needed(self.window_seconds)
 
             self._assert_level(
-                "tenant",
-                tenant_id,
-                t_usage,
-                self.tenant_limits,
-                estimated_calls,
-                estimated_tokens,
-                estimated_cost,
+                LevelCheck(
+                    "tenant",
+                    tenant_id,
+                    t_usage,
+                    self.tenant_limits,
+                    estimated_calls,
+                    estimated_tokens,
+                    estimated_cost,
+                )
             )
             self._assert_level(
-                "user",
-                user_id,
-                u_usage,
-                self.user_limits,
-                estimated_calls,
-                estimated_tokens,
-                estimated_cost,
+                LevelCheck(
+                    "user",
+                    user_id,
+                    u_usage,
+                    self.user_limits,
+                    estimated_calls,
+                    estimated_tokens,
+                    estimated_cost,
+                )
             )
 
     def commit(
@@ -118,34 +133,24 @@ class MultiLevelBudget:
             u_usage.tokens += tokens
             u_usage.cost_units += cost_units
 
-    def _assert_level(
-        self,
-        level: str,
-        key: str,
-        usage: WindowUsage,
-        limits: BudgetLimits,
-        calls: int,
-        tokens: int,
-        cost: float,
-    ) -> None:
-        if usage.llm_calls + calls > limits.max_llm_calls:
-            self._trip(level, key, "max_llm_calls")
-            raise BudgetExceeded(
-                f"{level} budget exceeded: max_llm_calls ({key})",
-                BudgetTracker(max_llm_calls=limits.max_llm_calls, max_tokens=limits.max_tokens),
-            )
-        if usage.tokens + tokens > limits.max_tokens:
-            self._trip(level, key, "max_tokens")
-            raise BudgetExceeded(
-                f"{level} budget exceeded: max_tokens ({key})",
-                BudgetTracker(max_llm_calls=limits.max_llm_calls, max_tokens=limits.max_tokens),
-            )
-        if usage.cost_units + cost > limits.max_cost_units:
-            self._trip(level, key, "max_cost_units")
-            raise BudgetExceeded(
-                f"{level} budget exceeded: max_cost_units ({key})",
-                BudgetTracker(max_llm_calls=limits.max_llm_calls, max_tokens=limits.max_tokens),
-            )
+    def _assert_level(self, check: LevelCheck) -> None:
+        usage, limits = check.usage, check.limits
+        if usage.llm_calls + check.calls > limits.max_llm_calls:
+            self._raise_exceeded(check, "max_llm_calls")
+        if usage.tokens + check.tokens > limits.max_tokens:
+            self._raise_exceeded(check, "max_tokens")
+        if usage.cost_units + check.cost > limits.max_cost_units:
+            self._raise_exceeded(check, "max_cost_units")
+
+    def _raise_exceeded(self, check: LevelCheck, reason: str) -> None:
+        self._trip(check.level, check.key, reason)
+        raise BudgetExceeded(
+            f"{check.level} budget exceeded: {reason} ({check.key})",
+            BudgetTracker(
+                max_llm_calls=check.limits.max_llm_calls,
+                max_tokens=check.limits.max_tokens,
+            ),
+        )
 
     def _trip(self, level: str, key: str, reason: str) -> None:
         self.trips.append(

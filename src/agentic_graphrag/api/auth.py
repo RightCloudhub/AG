@@ -121,31 +121,37 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path in self.public_paths or path.startswith("/web"):
             return await call_next(request)
-
-        principal = Principal(tenant_id="default", api_key="", user_id="anonymous")
-        key = extract_api_key(request)
-        if self.require_auth:
-            if not key or key not in self.api_keys:
-                body = fail("UNAUTHORIZED", "Valid API key required")
-                return JSONResponse(status_code=401, content=body)
-            principal = Principal(
-                tenant_id=self.api_keys[key],
-                api_key=key,
-                user_id=request.headers.get("x-user-id") or "default",
-            )
-        elif key and key in self.api_keys:
-            principal = Principal(
-                tenant_id=self.api_keys[key],
-                api_key=key,
-                user_id=request.headers.get("x-user-id") or "default",
-            )
-
+        principal, err_resp = self._authenticate(request)
+        if err_resp is not None:
+            return err_resp
         request.state.principal = principal
         err = self.limiter.acquire(principal.tenant_id)
         if err:
-            body = fail(RATE_LIMITED, err)
-            return JSONResponse(status_code=429, content=body)
+            return JSONResponse(status_code=429, content=fail(RATE_LIMITED, err))
         try:
             return await call_next(request)
         finally:
             self.limiter.release(principal.tenant_id)
+
+    def _authenticate(self, request: Request) -> tuple[Principal, Response | None]:
+        key = extract_api_key(request)
+        if self.require_auth:
+            if not key or key not in self.api_keys:
+                return (
+                    Principal(tenant_id="default", api_key="", user_id="anonymous"),
+                    JSONResponse(
+                        status_code=401,
+                        content=fail("UNAUTHORIZED", "Valid API key required"),
+                    ),
+                )
+            return self._principal_for(key, request), None
+        if key and key in self.api_keys:
+            return self._principal_for(key, request), None
+        return Principal(tenant_id="default", api_key="", user_id="anonymous"), None
+
+    def _principal_for(self, key: str, request: Request) -> Principal:
+        return Principal(
+            tenant_id=self.api_keys[key],
+            api_key=key,
+            user_id=request.headers.get("x-user-id") or "default",
+        )

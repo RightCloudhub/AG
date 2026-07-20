@@ -2,7 +2,7 @@
 
 Per-chunk task loop with resume-by-journal and failure quarantine.
 Single-chunk extract logic lives in
-:mod:`agentic_graphrag.knowledge.extract_core`.
+:mod:`agentic_graphrag.knowledge.extract_chunk`.
 """
 
 from __future__ import annotations
@@ -10,100 +10,37 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
-from agentic_graphrag.knowledge.extract_core import llm_extract_raw, stamp_provenance
-from agentic_graphrag.knowledge.schema_check import (
-    ExtractResult,
-    SchemaDefinition,
-    Triple,
-    gate_triples,
+from agentic_graphrag.knowledge.extract_chunk import extract_chunk_with_retry
+from agentic_graphrag.knowledge.extract_types import (
+    ChunkExtractResult,
+    ExtractFn,
+    ExtractStatus,
+    PipelineResult,
+    RetryPolicy,
 )
+from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
 from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.stores.interfaces import ChunkRecord, DocStore
 
+__all__ = [
+    "ChunkExtractResult",
+    "ExtractFn",
+    "ExtractStatus",
+    "PipelineResult",
+    "RetryPolicy",
+    "extract_chunk_with_retry",
+    "load_completed_chunk_ids",
+    "persist_doc_provenance",
+    "run_extract_pipeline",
+]
 
-class ExtractStatus(StrEnum):
-    OK = "ok"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    EMPTY = "empty"
-
-
-@dataclass
-class RetryPolicy:
-    """Retry policy written as logic (P2-KG-01) — no live calls here."""
-
-    max_attempts: int = 3
-    base_delay_seconds: float = 0.0  # 0 in unit tests; set >0 for production backoff
-    retryable_exceptions: tuple[type[BaseException], ...] = (Exception,)
-
-    def should_retry(self, attempt: int, exc: BaseException | None) -> bool:
-        """``attempt`` is 1-based count of tries already performed."""
-        if attempt >= self.max_attempts:
-            return False
-        if exc is None:
-            return False
-        return isinstance(exc, self.retryable_exceptions)
-
-    def delay_before_attempt(self, attempt: int) -> float:
-        """Backoff before attempt N (1-based). First attempt → 0."""
-        if attempt <= 1 or self.base_delay_seconds <= 0:
-            return 0.0
-        return self.base_delay_seconds * (2 ** (attempt - 2))
-
-
-@dataclass
-class ChunkExtractResult:
-    chunk_id: str
-    doc_id: str
-    status: ExtractStatus
-    accepted: list[Triple] = field(default_factory=list)
-    rejected: list[tuple[Triple, str]] = field(default_factory=list)
-    attempts: int = 0
-    error: str | None = None
-    elapsed_ms: int = 0
-
-    def journal_row(self) -> dict[str, Any]:
-        return {
-            "chunk_id": self.chunk_id,
-            "doc_id": self.doc_id,
-            "status": self.status.value,
-            "attempts": self.attempts,
-            "n_accepted": len(self.accepted),
-            "n_rejected": len(self.rejected),
-            "error": self.error,
-            "elapsed_ms": self.elapsed_ms,
-            "ts": datetime.now(UTC).isoformat(),
-        }
-
-
-@dataclass
-class PipelineResult:
-    accepted: list[Triple]
-    rejected: list[tuple[Triple, str]]
-    chunk_results: list[ChunkExtractResult]
-    completed_chunk_ids: set[str]
-    failed_chunk_ids: set[str]
-
-    @property
-    def ok_count(self) -> int:
-        return sum(1 for r in self.chunk_results if r.status == ExtractStatus.OK)
-
-    @property
-    def failed_count(self) -> int:
-        return sum(1 for r in self.chunk_results if r.status == ExtractStatus.FAILED)
-
-    @property
-    def skipped_count(self) -> int:
-        return sum(1 for r in self.chunk_results if r.status == ExtractStatus.SKIPPED)
-
-
-ExtractFn = Callable[[ChunkRecord, SchemaDefinition], ExtractResult]
+_TEXT_PREVIEW = 300
+_HISTORY_KEEP = 20
 
 
 def load_completed_chunk_ids(journal_path: str | Path) -> set[str]:
@@ -123,6 +60,21 @@ def load_completed_chunk_ids(journal_path: str | Path) -> set[str]:
     return done
 
 
+@dataclass
+class _PipelineCtx:
+    schema: SchemaDefinition
+    extract_fn: ExtractFn | None
+    llm: LLMProvider | None
+    confidence_threshold: float
+    retry: RetryPolicy
+    sleep: Callable[[float], None]
+    batch: str
+    journal_f: TextIO | None
+    quarantine_f: TextIO | None
+    completed: set[str]
+    state: _PipelineState
+
+
 def run_extract_pipeline(
     chunks: list[ChunkRecord],
     schema: SchemaDefinition,
@@ -137,159 +89,120 @@ def run_extract_pipeline(
     sleep_fn: Callable[[float], None] | None = None,
     batch_id: str | None = None,
 ) -> PipelineResult:
-    """Taskized per-chunk extraction with journal, retry, quarantine, provenance.
-
-    ``extract_fn`` is injectable for offline unit tests (no live LLM).
-    When omitted, uses ``llm`` via structured completion.
-    """
+    """Taskized per-chunk extraction with journal, retry, quarantine, provenance."""
     if extract_fn is None and llm is None:
         raise ValueError("run_extract_pipeline requires llm or extract_fn")
-    retry = retry or RetryPolicy()
-    sleep = sleep_fn or time.sleep
-    batch = batch_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    completed = load_completed_chunk_ids(journal_path) if journal_path else set()
-
-    journal_f = None
-    quarantine_f = None
-    if journal_path:
-        jp = Path(journal_path)
-        jp.parent.mkdir(parents=True, exist_ok=True)
-        journal_f = jp.open("a", encoding="utf-8")
-    if quarantine_path:
-        qp = Path(quarantine_path)
-        qp.parent.mkdir(parents=True, exist_ok=True)
-        quarantine_f = qp.open("a", encoding="utf-8")
-
-    all_accepted: list[Triple] = []
-    all_rejected: list[tuple[Triple, str]] = []
-    chunk_results: list[ChunkExtractResult] = []
-    failed_ids: set[str] = set()
-    # provenance aggregation: doc_id → list of chunk outcomes
-    doc_provenance: dict[str, list[dict[str, Any]]] = {}
-
+    ctx = _make_ctx(
+        schema,
+        llm=llm,
+        extract_fn=extract_fn,
+        confidence_threshold=confidence_threshold,
+        retry=retry or RetryPolicy(),
+        journal_path=journal_path,
+        quarantine_path=quarantine_path,
+        sleep_fn=sleep_fn,
+        batch_id=batch_id,
+    )
     try:
         for chunk in chunks:
-            if chunk.chunk_id in completed:
-                cr = ChunkExtractResult(
-                    chunk_id=chunk.chunk_id,
-                    doc_id=chunk.doc_id,
-                    status=ExtractStatus.SKIPPED,
-                    attempts=0,
-                )
-                chunk_results.append(cr)
-                continue
-
-            cr = extract_chunk_with_retry(
-                chunk,
-                schema,
-                extract_fn=extract_fn,
-                llm=llm,
-                confidence_threshold=confidence_threshold,
-                retry=retry,
-                sleep=sleep,
-                batch_id=batch,
-            )
-            chunk_results.append(cr)
-            if journal_f is not None:
-                journal_f.write(json.dumps(cr.journal_row(), ensure_ascii=False) + "\n")
-                journal_f.flush()
-
-            doc_provenance.setdefault(chunk.doc_id, []).append(cr.journal_row())
-
-            if cr.status == ExtractStatus.FAILED:
-                failed_ids.add(chunk.chunk_id)
-                if quarantine_f is not None:
-                    quarantine_f.write(
-                        json.dumps(
-                            {
-                                "chunk_id": chunk.chunk_id,
-                                "doc_id": chunk.doc_id,
-                                "error": cr.error,
-                                "attempts": cr.attempts,
-                                "batch_id": batch,
-                                "text_preview": chunk.text[:300],
-                            },
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
-                    quarantine_f.flush()
-                continue
-
-            all_accepted.extend(cr.accepted)
-            all_rejected.extend(cr.rejected)
-            if cr.status in {ExtractStatus.OK, ExtractStatus.EMPTY}:
-                completed.add(chunk.chunk_id)
-
+            _process_chunk(chunk, ctx)
         if doc_store is not None:
-            persist_doc_provenance(doc_store, doc_provenance, batch_id=batch)
+            persist_doc_provenance(doc_store, ctx.state.doc_provenance, batch_id=ctx.batch)
     finally:
-        if journal_f is not None:
-            journal_f.close()
-        if quarantine_f is not None:
-            quarantine_f.close()
-
+        _close_quiet(ctx.journal_f)
+        _close_quiet(ctx.quarantine_f)
     return PipelineResult(
-        accepted=all_accepted,
-        rejected=all_rejected,
-        chunk_results=chunk_results,
-        completed_chunk_ids=completed,
-        failed_chunk_ids=failed_ids,
+        accepted=ctx.state.all_accepted,
+        rejected=ctx.state.all_rejected,
+        chunk_results=ctx.state.chunk_results,
+        completed_chunk_ids=ctx.completed,
+        failed_chunk_ids=ctx.state.failed_ids,
     )
 
 
-def extract_chunk_with_retry(
-    chunk: ChunkRecord,
+class _PipelineState:
+    def __init__(self) -> None:
+        self.all_accepted: list[Triple] = []
+        self.all_rejected: list[tuple[Triple, str]] = []
+        self.chunk_results: list[ChunkExtractResult] = []
+        self.failed_ids: set[str] = set()
+        self.doc_provenance: dict[str, list[dict[str, Any]]] = {}
+
+
+def _make_ctx(
     schema: SchemaDefinition,
     *,
-    extract_fn: ExtractFn | None,
     llm: LLMProvider | None,
+    extract_fn: ExtractFn | None,
     confidence_threshold: float,
     retry: RetryPolicy,
-    sleep: Callable[[float], None],
-    batch_id: str,
-) -> ChunkExtractResult:
-    t0 = time.perf_counter()
-    attempt = 0
-    while True:
-        attempt += 1
-        delay = retry.delay_before_attempt(attempt)
-        if delay > 0:
-            sleep(delay)
-        try:
-            if extract_fn is not None:
-                raw = extract_fn(chunk, schema)
-            else:
-                assert llm is not None
-                raw = llm_extract_raw(chunk, schema, llm)
-            for t in raw.triples:
-                t.source_doc_id = t.source_doc_id or chunk.doc_id
-                t.source_chunk_id = t.source_chunk_id or chunk.chunk_id
-                stamp_provenance(t, chunk, batch_id=batch_id)
-            gated = gate_triples(raw.triples, schema, confidence_threshold=confidence_threshold)
-            status = ExtractStatus.OK if gated.accepted or gated.rejected else ExtractStatus.EMPTY
-            if not raw.triples:
-                status = ExtractStatus.EMPTY
-            return ChunkExtractResult(
+    journal_path: str | Path | None,
+    quarantine_path: str | Path | None,
+    sleep_fn: Callable[[float], None] | None,
+    batch_id: str | None,
+) -> _PipelineCtx:
+    return _PipelineCtx(
+        schema=schema,
+        extract_fn=extract_fn,
+        llm=llm,
+        confidence_threshold=confidence_threshold,
+        retry=retry,
+        sleep=sleep_fn or time.sleep,
+        batch=batch_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
+        journal_f=_open_append(journal_path),
+        quarantine_f=_open_append(quarantine_path),
+        completed=load_completed_chunk_ids(journal_path) if journal_path else set(),
+        state=_PipelineState(),
+    )
+
+
+def _process_chunk(chunk: ChunkRecord, ctx: _PipelineCtx) -> None:
+    if chunk.chunk_id in ctx.completed:
+        ctx.state.chunk_results.append(
+            ChunkExtractResult(
                 chunk_id=chunk.chunk_id,
                 doc_id=chunk.doc_id,
-                status=status,
-                accepted=gated.accepted,
-                rejected=gated.rejected,
-                attempts=attempt,
-                elapsed_ms=int((time.perf_counter() - t0) * 1000),
+                status=ExtractStatus.SKIPPED,
             )
-        except Exception as exc:
-            if not retry.should_retry(attempt, exc):
-                return ChunkExtractResult(
-                    chunk_id=chunk.chunk_id,
-                    doc_id=chunk.doc_id,
-                    status=ExtractStatus.FAILED,
-                    attempts=attempt,
-                    error=f"{type(exc).__name__}: {exc}",
-                    elapsed_ms=int((time.perf_counter() - t0) * 1000),
-                )
-            # else loop
+        )
+        return
+    cr = extract_chunk_with_retry(
+        chunk,
+        ctx.schema,
+        extract_fn=ctx.extract_fn,
+        llm=ctx.llm,
+        confidence_threshold=ctx.confidence_threshold,
+        retry=ctx.retry,
+        sleep=ctx.sleep,
+        batch_id=ctx.batch,
+    )
+    _record_chunk_result(chunk, cr, ctx)
+
+
+def _record_chunk_result(
+    chunk: ChunkRecord, cr: ChunkExtractResult, ctx: _PipelineCtx
+) -> None:
+    ctx.state.chunk_results.append(cr)
+    _write_jsonl(ctx.journal_f, cr.journal_row())
+    ctx.state.doc_provenance.setdefault(chunk.doc_id, []).append(cr.journal_row())
+    if cr.status == ExtractStatus.FAILED:
+        ctx.state.failed_ids.add(chunk.chunk_id)
+        _write_jsonl(
+            ctx.quarantine_f,
+            {
+                "chunk_id": chunk.chunk_id,
+                "doc_id": chunk.doc_id,
+                "error": cr.error,
+                "attempts": cr.attempts,
+                "batch_id": ctx.batch,
+                "text_preview": chunk.text[:_TEXT_PREVIEW],
+            },
+        )
+        return
+    ctx.state.all_accepted.extend(cr.accepted)
+    ctx.state.all_rejected.extend(cr.rejected)
+    if cr.status in {ExtractStatus.OK, ExtractStatus.EMPTY}:
+        ctx.completed.add(chunk.chunk_id)
 
 
 def persist_doc_provenance(
@@ -301,26 +214,54 @@ def persist_doc_provenance(
     """Merge extract outcomes into document metadata when docs are loadable."""
     for doc_id, outcomes in by_doc.items():
         try:
-            # FileDocStore may only support save; optional load
-            load = getattr(doc_store, "load", None) or getattr(doc_store, "get", None)
-            if not callable(load):
-                continue
-            doc = load(doc_id)
-            if doc is None:
-                continue
-            meta = dict(doc.metadata or {})
-            hist = list(meta.get("extract_history") or [])
-            hist.append(
-                {
-                    "batch_id": batch_id,
-                    "chunks": outcomes,
-                    "ts": datetime.now(UTC).isoformat(),
-                }
-            )
-            meta["extract_history"] = hist[-20:]  # keep last 20 batches
-            meta["last_extract_batch_id"] = batch_id
-            doc.metadata = meta
-            doc_store.save(doc)
+            _merge_one_doc(doc_store, doc_id, outcomes, batch_id=batch_id)
         except Exception:
-            # Provenance is best-effort; never fail the pipeline
             continue
+
+
+def _merge_one_doc(
+    doc_store: DocStore,
+    doc_id: str,
+    outcomes: list[dict[str, Any]],
+    *,
+    batch_id: str,
+) -> None:
+    load = getattr(doc_store, "load", None) or getattr(doc_store, "get", None)
+    if not callable(load):
+        return
+    doc = load(doc_id)
+    if doc is None:
+        return
+    meta = dict(doc.metadata or {})
+    hist = list(meta.get("extract_history") or [])
+    hist.append(
+        {
+            "batch_id": batch_id,
+            "chunks": outcomes,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+    )
+    meta["extract_history"] = hist[-_HISTORY_KEEP:]
+    meta["last_extract_batch_id"] = batch_id
+    doc.metadata = meta
+    doc_store.save(doc)
+
+
+def _open_append(path: str | Path | None) -> TextIO | None:
+    if path is None:
+        return None
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p.open("a", encoding="utf-8")
+
+
+def _write_jsonl(fh: TextIO | None, row: dict[str, Any]) -> None:
+    if fh is None:
+        return
+    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    fh.flush()
+
+
+def _close_quiet(fh: TextIO | None) -> None:
+    if fh is not None:
+        fh.close()

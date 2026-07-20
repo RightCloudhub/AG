@@ -119,37 +119,10 @@ def create_offline_bundle(
     vector, v_backend = create_vector_store(VectorBackend.MEMORY, settings=settings)
     fulltext = create_fulltext_store()
     docs = create_doc_store(cfg=cfg)
-
     if load_bm25:
-        ft_path = resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
-        load = getattr(fulltext, "load", None)
-        if callable(load) and ft_path.exists():
-            load(str(ft_path))
-
+        _try_load_bm25(fulltext, cfg)
     if load_embeddings:
-        emb_path = resolve_path(f"{cfg.paths.indexes_dir}/embeddings.jsonl")
-        if emb_path.exists():
-            import json
-
-            from agentic_graphrag.stores.interfaces import ChunkRecord
-
-            chunks: list[Any] = []
-            for line in emb_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                item = json.loads(line)
-                chunks.append(
-                    ChunkRecord(
-                        chunk_id=item["chunk_id"],
-                        doc_id=item["doc_id"],
-                        text=item["text"],
-                        index=item.get("index", 0),
-                        embedding=item.get("embedding"),
-                    )
-                )
-            if chunks:
-                vector.upsert(chunks)
-
+        _try_load_embeddings(vector, cfg)
     return StoreBundle(
         graph=graph,
         vector=vector,
@@ -158,6 +131,39 @@ def create_offline_bundle(
         graph_backend=g_backend,
         vector_backend=v_backend,
     )
+
+
+def _try_load_bm25(fulltext: FulltextStore, cfg: AppConfig) -> None:
+    ft_path = resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
+    load = getattr(fulltext, "load", None)
+    if callable(load) and ft_path.exists():
+        load(str(ft_path))
+
+
+def _try_load_embeddings(vector: VectorStore, cfg: AppConfig) -> None:
+    emb_path = resolve_path(f"{cfg.paths.indexes_dir}/embeddings.jsonl")
+    if not emb_path.exists():
+        return
+    import json
+
+    from agentic_graphrag.stores.interfaces import ChunkRecord
+
+    chunks: list[Any] = []
+    for line in emb_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        chunks.append(
+            ChunkRecord(
+                chunk_id=item["chunk_id"],
+                doc_id=item["doc_id"],
+                text=item["text"],
+                index=item.get("index", 0),
+                embedding=item.get("embedding"),
+            )
+        )
+    if chunks:
+        vector.upsert(chunks)
 
 
 def create_live_bundle(

@@ -57,17 +57,26 @@ def infer_relation_types(
     if not sub_question or not sub_question.strip():
         return None
     avail = {a.upper() for a in available} if available is not None else None
+    scored = _score_relation_cues(sub_question, avail, min_score)
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [r for _, r in scored]
+
+
+def _score_relation_cues(
+    sub_question: str,
+    avail: set[str] | None,
+    min_score: float,
+) -> list[tuple[float, str]]:
     scored: list[tuple[float, str]] = []
-    for rel, _cues in _RELATION_CUES.items():
+    for rel in _RELATION_CUES:
         if avail is not None and rel not in avail:
             continue
         s = relation_relevance(rel, sub_question)
         if s >= min_score:
             scored.append((s, rel))
-    if not scored:
-        return None
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [r for _, r in scored]
+    return scored
 
 
 def edge_score(rel: RelationRecord, sub_question: str | None) -> float:
@@ -176,36 +185,52 @@ class BeamExpander:
             BeamItem(score=1.0, node_name=entity_name, nodes=[start], rels=[], edges=[])
         ]
         all_frontier = list(beams)
-
         for _hop in range(max(1, max_hops)):
-            nxt: list[BeamItem] = []
-            for item in beams:
-                layer = self.layer_edges(
-                    item.node_name,
-                    preferred_relations=preferred_relations,
-                    sub_question=sub_question,
-                )
-                for sc, rel, ent in layer:
-                    # Avoid immediate cycles on node names
-                    if normalize_name(ent.name) in {normalize_name(n.name) for n in item.nodes}:
-                        continue
-                    new_score = item.score * max(sc, 1e-6)
-                    nxt.append(
-                        BeamItem(
-                            score=new_score,
-                            node_name=ent.name,
-                            nodes=item.nodes + [ent],
-                            rels=item.rels + [rel],
-                            edges=item.edges + [(rel, ent)],
-                        )
-                    )
+            nxt = self._expand_layer(beams, preferred_relations, sub_question)
             if not nxt:
                 break
             nxt.sort(key=lambda b: (-b.score, b.node_name))
-            # Cap fan-out per layer
             beams = nxt[: self.cfg.beam_width]
             all_frontier.extend(beams)
         return all_frontier
+
+    def _expand_layer(
+        self,
+        beams: list[BeamItem],
+        preferred_relations: list[str] | None,
+        sub_question: str | None,
+    ) -> list[BeamItem]:
+        nxt: list[BeamItem] = []
+        for item in beams:
+            nxt.extend(self._extend_item(item, preferred_relations, sub_question))
+        return nxt
+
+    def _extend_item(
+        self,
+        item: BeamItem,
+        preferred_relations: list[str] | None,
+        sub_question: str | None,
+    ) -> list[BeamItem]:
+        seen = {normalize_name(n.name) for n in item.nodes}
+        out: list[BeamItem] = []
+        layer = self.layer_edges(
+            item.node_name,
+            preferred_relations=preferred_relations,
+            sub_question=sub_question,
+        )
+        for sc, rel, ent in layer:
+            if normalize_name(ent.name) in seen:
+                continue
+            out.append(
+                BeamItem(
+                    score=item.score * max(sc, 1e-6),
+                    node_name=ent.name,
+                    nodes=item.nodes + [ent],
+                    rels=item.rels + [rel],
+                    edges=item.edges + [(rel, ent)],
+                )
+            )
+        return out
 
     def beam_paths(
         self,

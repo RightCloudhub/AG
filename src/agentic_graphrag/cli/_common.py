@@ -32,10 +32,17 @@ def _open_graph_store(
     - else try Neo4j; on failure optionally fall back to memory (seed / offline paths).
     """
     if memory:
-        from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
+        return _memory_graph()
+    return _try_neo4j(settings, allow_memory_fallback=allow_memory_fallback)
 
-        return InMemoryGraphStore(), "memory"
 
+def _memory_graph() -> tuple[Any, str]:
+    from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
+
+    return InMemoryGraphStore(), "memory"
+
+
+def _try_neo4j(settings: Any, *, allow_memory_fallback: bool) -> tuple[Any, str]:
     from agentic_graphrag.stores.neo4j_store import Neo4jGraphStore
 
     store: Any = None
@@ -44,20 +51,23 @@ def _open_graph_store(
         store.ping()
         return store, "neo4j"
     except Exception as exc:
-        if store is not None:
-            try:
-                store.close()
-            except Exception:
-                pass
+        _close_quiet(store)
         if allow_memory_fallback:
-            from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
-
             print(
                 f"Warning: Neo4j unavailable at {settings.neo4j_uri} ({exc}); "
                 "falling back to in-memory graph (process-local, not persisted).",
                 file=sys.stderr,
             )
-            return InMemoryGraphStore(), "memory"
+            return _memory_graph()
         print(_neo4j_unavailable_hint(settings.neo4j_uri, exc), file=sys.stderr)
         sys.exit(1)
+
+
+def _close_quiet(store: Any) -> None:
+    if store is None:
+        return
+    try:
+        store.close()
+    except Exception:
+        pass
 

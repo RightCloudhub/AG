@@ -78,8 +78,8 @@ omit = [
     "*/agentic_graphrag/llm/provider.py",
     "*/agentic_graphrag/generation/answer.py",
     "*/agentic_graphrag/generation/offline_answer.py",
-    # Large domain-hardcoded offline heuristics (covered via agent E2E offline tests)
-    "*/agentic_graphrag/generation/offline_heuristics.py",
+    # Domain-hardcoded offline answer rules only (EdgeView/dispatcher still measured)
+    "*/agentic_graphrag/generation/offline_heuristics/rules_*.py",
     # Synthetic pilot triple generator (script universe, not runtime path)
     "*/agentic_graphrag/knowledge/pilot_triples.py",
 ]

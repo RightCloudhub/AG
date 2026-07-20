@@ -38,33 +38,17 @@ def build_comparison_report(
     cases_path: Path | None = None,
 ) -> dict[str, Any]:
     cases_by_id = load_cases(cases_path) if cases_path else {}
-    agentic_rows = load_jsonl(agentic_path)
-    agentic = score_system_rows(agentic_rows, system="agentic", cases_by_id=cases_by_id)
-
+    agentic = score_system_rows(
+        load_jsonl(agentic_path), system="agentic", cases_by_id=cases_by_id
+    )
     systems: dict[str, Any] = {"agentic": agentic.to_dict()}
     delta: dict[str, Any] = {}
     if baseline_path and baseline_path.exists():
-        baseline_rows = load_jsonl(baseline_path)
-        baseline = score_system_rows(baseline_rows, system="baseline", cases_by_id=cases_by_id)
+        baseline = score_system_rows(
+            load_jsonl(baseline_path), system="baseline", cases_by_id=cases_by_id
+        )
         systems["baseline"] = baseline.to_dict()
-        delta = {
-            "accuracy_pp": round((agentic.accuracy - baseline.accuracy) * 100, 2),
-            "evidence_recall_pp": (
-                round((agentic.evidence_recall - baseline.evidence_recall) * 100, 2)
-                if agentic.evidence_recall is not None and baseline.evidence_recall is not None
-                else None
-            ),
-            "latency_p50_ms_delta": round(agentic.latency_p50_ms - baseline.latency_p50_ms, 2),
-            "latency_p95_ms_delta": round(agentic.latency_p95_ms - baseline.latency_p95_ms, 2),
-            "cost_tokens_mean_delta": round(
-                agentic.cost_tokens_mean - baseline.cost_tokens_mean, 2
-            ),
-            "cost_llm_calls_mean_delta": round(
-                agentic.cost_llm_calls_mean - baseline.cost_llm_calls_mean, 2
-            ),
-        }
-
-    badcases = [c for c in agentic.cases if not c["correct"]]
+        delta = _delta(agentic, baseline)
     return {
         "schema_version": "1.0.0",
         "task": "P2-EV-04",
@@ -75,19 +59,39 @@ def build_comparison_report(
         },
         "systems": systems,
         "delta_agentic_minus_baseline": delta,
-        "badcases": badcases,
-        "summary": {
-            "agentic_accuracy_pct": systems["agentic"]["accuracy_pct"],
-            "baseline_accuracy_pct": (
-                systems["baseline"]["accuracy_pct"] if "baseline" in systems else None
-            ),
-            "accuracy_pp": delta.get("accuracy_pp"),
-            "agentic_evidence_recall": systems["agentic"]["evidence_recall"],
-            "agentic_latency_p50_ms": systems["agentic"]["latency_p50_ms"],
-            "agentic_latency_p95_ms": systems["agentic"]["latency_p95_ms"],
-            "agentic_cost_tokens_mean": systems["agentic"]["cost_tokens_mean"],
-            "fabrication_rate": systems["agentic"]["fabrication_rate"],
-        },
+        "badcases": [c for c in agentic.cases if not c["correct"]],
+        "summary": _summary(systems, delta),
+    }
+
+
+def _delta(agentic: SystemMetrics, baseline: SystemMetrics) -> dict[str, Any]:
+    recall_pp = None
+    if agentic.evidence_recall is not None and baseline.evidence_recall is not None:
+        recall_pp = round((agentic.evidence_recall - baseline.evidence_recall) * 100, 2)
+    return {
+        "accuracy_pp": round((agentic.accuracy - baseline.accuracy) * 100, 2),
+        "evidence_recall_pp": recall_pp,
+        "latency_p50_ms_delta": round(agentic.latency_p50_ms - baseline.latency_p50_ms, 2),
+        "latency_p95_ms_delta": round(agentic.latency_p95_ms - baseline.latency_p95_ms, 2),
+        "cost_tokens_mean_delta": round(agentic.cost_tokens_mean - baseline.cost_tokens_mean, 2),
+        "cost_llm_calls_mean_delta": round(
+            agentic.cost_llm_calls_mean - baseline.cost_llm_calls_mean, 2
+        ),
+    }
+
+
+def _summary(systems: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "agentic_accuracy_pct": systems["agentic"]["accuracy_pct"],
+        "baseline_accuracy_pct": (
+            systems["baseline"]["accuracy_pct"] if "baseline" in systems else None
+        ),
+        "accuracy_pp": delta.get("accuracy_pp"),
+        "agentic_evidence_recall": systems["agentic"]["evidence_recall"],
+        "agentic_latency_p50_ms": systems["agentic"]["latency_p50_ms"],
+        "agentic_latency_p95_ms": systems["agentic"]["latency_p95_ms"],
+        "agentic_cost_tokens_mean": systems["agentic"]["cost_tokens_mean"],
+        "fabrication_rate": systems["agentic"]["fabrication_rate"],
     }
 
 

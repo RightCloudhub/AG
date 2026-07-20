@@ -185,55 +185,60 @@ class IncrementalUpdater:
         bid = batch_id or str(uuid.uuid4())
         t0 = time.perf_counter()
         result = BatchResult(batch_id=bid)
-
         with self._lock:
-            accepted = triples
-            if self.schema is not None:
-                gate = gate_triples(
-                    triples,
-                    self.schema,
-                    confidence_threshold=self.confidence_threshold,
-                )
-                accepted = gate.accepted
-                result.rejected = len(gate.rejected)
-
-            clean, conflicts = self.detect_conflicts(accepted)
-            to_write: list[Triple] = list(clean)
-            for c in conflicts:
-                if c.action == ConflictAction.AUTO_UPDATE:
-                    to_write.append(c.incoming)
-                    result.conflicts_auto += 1
-                elif c.action == ConflictAction.REVIEW:
-                    result.conflicts_review += 1
-                    item = c.to_dict()
-                    result.review_items.append(item)
-                    self._append_review(item)
-                # KEEP_OLD / SKIP: drop
-
-            # Upsert without clearing graph
-            stats = load_triples_into_graph(
-                self.store,
-                to_write,
-                clear_first=False,
-                schema=None,  # already gated
-            )
-            result.accepted = int(stats.get("relations", 0) or len(to_write))
-            # Refresh index with written records
-            ents, rels = triples_to_records(to_write)
-            del ents
-            for r in rels:
-                key = (
-                    (r.head_name or "").lower(),
-                    r.type,
-                    (r.tail_name or "").lower(),
-                )
-                self._rel_index[key] = r
-
-            if self.on_commit is not None:
-                self.on_commit()
-
+            self._apply_locked(triples, result)
         result.duration_ms = int((time.perf_counter() - t0) * 1000)
         return result
+
+    def _apply_locked(self, triples: list[Triple], result: BatchResult) -> None:
+        accepted = self._gate(triples, result)
+        clean, conflicts = self.detect_conflicts(accepted)
+        to_write = self._collect_writes(clean, conflicts, result)
+        stats = load_triples_into_graph(
+            self.store, to_write, clear_first=False, schema=None
+        )
+        result.accepted = int(stats.get("relations", 0) or len(to_write))
+        self._refresh_index(to_write)
+        if self.on_commit is not None:
+            self.on_commit()
+
+    def _gate(self, triples: list[Triple], result: BatchResult) -> list[Triple]:
+        if self.schema is None:
+            return triples
+        gate = gate_triples(
+            triples, self.schema, confidence_threshold=self.confidence_threshold
+        )
+        result.rejected = len(gate.rejected)
+        return gate.accepted
+
+    def _collect_writes(
+        self,
+        clean: list[Triple],
+        conflicts: list[Conflict],
+        result: BatchResult,
+    ) -> list[Triple]:
+        to_write: list[Triple] = list(clean)
+        for c in conflicts:
+            if c.action == ConflictAction.AUTO_UPDATE:
+                to_write.append(c.incoming)
+                result.conflicts_auto += 1
+            elif c.action == ConflictAction.REVIEW:
+                result.conflicts_review += 1
+                item = c.to_dict()
+                result.review_items.append(item)
+                self._append_review(item)
+        return to_write
+
+    def _refresh_index(self, to_write: list[Triple]) -> None:
+        _ents, rels = triples_to_records(to_write)
+        del _ents
+        for r in rels:
+            key = (
+                (r.head_name or "").lower(),
+                r.type,
+                (r.tail_name or "").lower(),
+            )
+            self._rel_index[key] = r
 
     def _append_review(self, item: dict[str, Any]) -> None:
         if not self.review_log:

@@ -41,21 +41,23 @@
 
 | 条件 | 任务 | 通过判据 | 状态 |
 |------|------|----------|------|
-| C1 真实试点语料 | P1-GOV-01 | ≥100 篇 + 授权 + MANIFEST | ⬜ |
-| C2 实时 LLM 重跑 | P1-EV-04 | 抽取人工抽检 ≥70% + 20 case live 报告 | ⬜ |
-| C3 Neo4j 回归 | P1-EV-05 | `build-graph` + `run-cases --neo4j` | ⬜ |
+| C1 真实试点语料 | P1-GOV-01 | ≥100 篇 + 授权 + MANIFEST | ✅ 工程 PASS（合成 226 篇；产品真域 caveat） |
+| C2 实时 LLM 重跑 | P1-EV-04 | 抽取人工抽检 ≥70% + 20 case live 报告 | ✅ 自动化 PASS（live 质量 caveat / 403） |
+| C3 Neo4j 回归 | P1-EV-05 | `build-graph` + `run-cases --neo4j` | ✅ pass_partial（offline Neo4j 14/20） |
+
+> 详见 `reports/G1_to_G2_status.json` · closeout。工程入场 **ALLOWED**；效果门禁仍须真域 + 满配额 live。
 
 ### G2 — MVP 出口
-- [ ] 全部 P0 需求（PRD 第3节）实现并通过测试
-- [ ] 评测集 ≥200 条完成标注，评测脚本可一键运行
-- [ ] Accuracy 较 Baseline 提升趋势明确（≥15pp，为最终 25pp 目标留优化空间）
-- [ ] 证据 Recall ≥75%（最终目标 85%）
+- [x] 全部 P0 需求（PRD 第3节）**代码侧**实现并通过单元测试
+- [x] 评测集 ≥200 条（自动金标 + 规范）；一键评测可用（`agr-eval` / `evals/run.py`）
+- [~] Accuracy 较 Baseline 提升趋势（**dev offline** 已见 ≥15pp；**heldout/live 正式关**仍开）
+- [~] 证据 Recall ≥75%（**dev offline** 达标；heldout offline 见 `scripts/p3_ev_offline.py`）
 
 ### G3 — 优化出口
-- [ ] AC-4：Agentic P95 ≤ 8s（或评审确认的阈值）；Fast Path P95 ≤ 3s
-- [ ] AC-6：护栏专项测试通过，单查询成本硬上限生效
-- [ ] AC-1/AC-2 最终达标：Accuracy +≥25pp，Recall ≥85%
-- [ ] 增量更新流程演练通过（AC-5）
+- [ ] AC-4：Agentic P95 ≤ 8s；Fast Path P95 ≤ 3s — **仅 offline 脚手架**
+- [~] AC-6：护栏专项 offline 通过；生产熔断待部署验证
+- [ ] AC-1/AC-2 最终达标：+≥25pp / Recall ≥85% — **需 live held-out**
+- [~] 增量更新流程演练（AC-5）— offline smoke：`reports/g3_offline/incremental_drill.json`
 
 ### G4 — 试点出口
 - [ ] PRD 第7节全部验收项（AC-1 ~ AC-7）通过

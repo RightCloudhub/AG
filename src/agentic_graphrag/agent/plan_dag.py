@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict, deque
+from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -69,31 +70,55 @@ def normalize_plan(sub_questions: list[SubQuestion]) -> list[SubQuestion]:
     return topological_sort(list(by_id.values()))
 
 
+@dataclass
+class _DepGraph:
+    indeg: dict[str, int]
+    children: dict[str, list[str]]
+
+
 def topological_sort(sub_questions: list[SubQuestion]) -> list[SubQuestion]:
     """Kahn topo-sort; on cycle, fall back to original order."""
     ids = [sq.id for sq in sub_questions]
-    id_set = set(ids)
     by_id = {sq.id: sq for sq in sub_questions}
-    indeg: dict[str, int] = {i: 0 for i in ids}
+    graph = _build_dep_graph(sub_questions, set(ids))
+    order = _kahn_order(ids, graph)
+    if len(order) != len(ids):
+        return sub_questions  # cycle — keep input order
+    return [by_id[i] for i in order]
+
+
+def _build_dep_graph(sub_questions: list[SubQuestion], id_set: set[str]) -> _DepGraph:
+    indeg: dict[str, int] = {sq.id: 0 for sq in sub_questions}
     children: dict[str, list[str]] = defaultdict(list)
+    graph = _DepGraph(indeg=indeg, children=children)
     for sq in sub_questions:
-        for d in sq.depends_on:
-            if d not in id_set:
-                continue
-            children[d].append(sq.id)
-            indeg[sq.id] += 1
-    q: deque[str] = deque([i for i in ids if indeg[i] == 0])
+        _link_deps(sq, id_set, graph)
+    return graph
+
+
+def _link_deps(sq: SubQuestion, id_set: set[str], graph: _DepGraph) -> None:
+    for d in sq.depends_on:
+        if d not in id_set:
+            continue
+        graph.children[d].append(sq.id)
+        graph.indeg[sq.id] += 1
+
+
+def _kahn_order(ids: list[str], graph: _DepGraph) -> list[str]:
+    q: deque[str] = deque([i for i in ids if graph.indeg[i] == 0])
     order: list[str] = []
     while q:
         n = q.popleft()
         order.append(n)
-        for c in children[n]:
-            indeg[c] -= 1
-            if indeg[c] == 0:
-                q.append(c)
-    if len(order) != len(ids):
-        return sub_questions  # cycle — keep input order
-    return [by_id[i] for i in order]
+        _release_children(n, graph, q)
+    return order
+
+
+def _release_children(node: str, graph: _DepGraph, q: deque[str]) -> None:
+    for c in graph.children[node]:
+        graph.indeg[c] -= 1
+        if graph.indeg[c] == 0:
+            q.append(c)
 
 
 def ready_subquestions(

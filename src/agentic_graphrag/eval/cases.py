@@ -139,9 +139,24 @@ def validate_stratification(
     """
     spec = spec or StratificationSpec()
     report = StratificationReport(total=len(cases))
+    counts = _count_categories(cases, report)
+    report.by_category = counts
+    if strict_total and report.total < spec.min_total:
+        report.errors.append(f"total {report.total} < min_total {spec.min_total}")
+    floors = {
+        CaseCategory.HOP2.value: spec.min_2hop,
+        CaseCategory.HOP3.value: spec.min_3hop,
+        CaseCategory.OPEN.value: spec.min_open,
+        CaseCategory.NO_ANSWER.value: spec.min_no_answer,
+    }
+    for key, minimum in floors.items():
+        _check_floor(report, counts.get(key, 0), key=key, minimum=minimum, strict=strict_total)
+    return report
+
+
+def _count_categories(cases: list[EvalCase], report: StratificationReport) -> dict[str, int]:
     counts: dict[str, int] = {c.value: 0 for c in CaseCategory}
     seen_ids: set[str] = set()
-
     for case in cases:
         if case.id in seen_ids:
             report.errors.append(f"duplicate id: {case.id}")
@@ -150,29 +165,22 @@ def validate_stratification(
             report.errors.append(f"{case.id}: empty question")
         cat = case.resolved_category()
         counts[cat.value] = counts.get(cat.value, 0) + 1
-        if cat == CaseCategory.NO_ANSWER:
-            continue
-        if not (case.gold_answer or "").strip():
+        if cat != CaseCategory.NO_ANSWER and not (case.gold_answer or "").strip():
             report.warnings.append(f"{case.id}: empty gold_answer for non-no_answer case")
+    return counts
 
-    report.by_category = counts
 
-    if strict_total and report.total < spec.min_total:
-        report.errors.append(f"total {report.total} < min_total {spec.min_total}")
-
-    def _need(key: str, minimum: int) -> None:
-        n = counts.get(key, 0)
-        if strict_total:
-            if n < minimum:
-                report.errors.append(f"{key} count {n} < {minimum}")
-        else:
-            # Soft: only warn on empty required buckets for small sets
-            if n == 0 and minimum > 0 and report.total >= 5:
-                report.warnings.append(f"{key} count is 0 (target ≥{minimum})")
-
-    _need(CaseCategory.HOP2.value, spec.min_2hop)
-    _need(CaseCategory.HOP3.value, spec.min_3hop)
-    _need(CaseCategory.OPEN.value, spec.min_open)
-    _need(CaseCategory.NO_ANSWER.value, spec.min_no_answer)
-
-    return report
+def _check_floor(
+    report: StratificationReport,
+    n: int,
+    *,
+    key: str,
+    minimum: int,
+    strict: bool,
+) -> None:
+    if strict:
+        if n < minimum:
+            report.errors.append(f"{key} count {n} < {minimum}")
+        return
+    if n == 0 and minimum > 0 and report.total >= 5:
+        report.warnings.append(f"{key} count is 0 (target ≥{minimum})")

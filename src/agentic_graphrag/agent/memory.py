@@ -21,6 +21,23 @@ def _normalize(text: str) -> str:
     return text
 
 
+def _near_duplicate_text(a: str, b: str) -> bool:
+    """True only for exact or near-equal strings (small length delta).
+
+    Prevents "Who is the CEO" from matching "Who is the CEO of Apex Holdings?"
+    via loose substring rules while still catching trivial rephrases.
+    """
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) < 12:
+        return False
+    if shorter not in longer:
+        return False
+    # Allow only tiny extensions (punctuation noise already stripped by normalize).
+    return (len(longer) - len(shorter)) <= max(4, len(shorter) // 10)
+
+
 class MemorySnapshot(TypedDict, total=False):
     """Serializable memory view for LangGraph typed state / checkpointer."""
 
@@ -64,9 +81,8 @@ class MemoryState:
         if key in self.explored_subquestions:
             return True
         for seen in self.explored_subquestions:
-            if key in seen or seen in key:
-                if min(len(key), len(seen)) >= 8:
-                    return True
+            if _near_duplicate_text(key, seen):
+                return True
         return False
 
     def mark_subquestion(self, text: str) -> None:
@@ -90,9 +106,8 @@ class MemoryState:
         if key in self.excluded_hypotheses:
             return True
         for ex in self.excluded_hypotheses:
-            if key in ex or ex in key:
-                if min(len(key), len(ex)) >= 8:
-                    return True
+            if _near_duplicate_text(key, ex):
+                return True
         return False
 
     def is_path_explored(self, path_text: str) -> bool:
@@ -142,17 +157,25 @@ class MemoryState:
     def from_snapshot(cls, snap: MemorySnapshot | dict[str, Any]) -> MemoryState:
         """Restore from LangGraph state / checkpointer payload."""
         mem = cls()
-        for raw in snap.get("evidence") or []:
-            c = Candidate.model_validate(raw)
-            mem.evidence[c.id] = c
-            if c.is_graph():
-                mem.explored_paths.add(_normalize(c.content))
-        mem.explored_paths |= {_normalize(p) for p in (snap.get("explored_paths") or [])}
-        mem.explored_subquestions = {
-            _normalize(s) for s in (snap.get("explored_subquestions") or [])
-        }
-        mem.excluded_hypotheses = {_normalize(h) for h in (snap.get("excluded_hypotheses") or [])}
-        mem.conclusions = list(snap.get("conclusions") or [])
-        mem.conclusions_by_subquestion = dict(snap.get("conclusions_by_subquestion") or {})
-        mem.done_subquestion_ids = set(snap.get("done_subquestion_ids") or [])
+        _restore_evidence(mem, snap.get("evidence") or [])
+        _restore_sets(mem, snap)
         return mem
+
+
+def _restore_evidence(mem: MemoryState, raw_list: list[Any]) -> None:
+    for raw in raw_list:
+        c = Candidate.model_validate(raw)
+        mem.evidence[c.id] = c
+        if c.is_graph():
+            mem.explored_paths.add(_normalize(c.content))
+
+
+def _restore_sets(mem: MemoryState, snap: MemorySnapshot | dict[str, Any]) -> None:
+    mem.explored_paths |= {_normalize(p) for p in (snap.get("explored_paths") or [])}
+    mem.explored_subquestions = {
+        _normalize(s) for s in (snap.get("explored_subquestions") or [])
+    }
+    mem.excluded_hypotheses = {_normalize(h) for h in (snap.get("excluded_hypotheses") or [])}
+    mem.conclusions = list(snap.get("conclusions") or [])
+    mem.conclusions_by_subquestion = dict(snap.get("conclusions_by_subquestion") or {})
+    mem.done_subquestion_ids = set(snap.get("done_subquestion_ids") or [])

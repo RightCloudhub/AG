@@ -127,14 +127,13 @@ class ReviewQueue:
     ) -> list[ReviewItem]:
         with self._lock:
             items = list(self._items.values())
-        if status:
-            items = [i for i in items if i.status == status]
-        if type:
-            items = [i for i in items if i.type == type]
-        if min_confidence is not None:
-            items = [i for i in items if i.confidence >= min_confidence]
-        if max_confidence is not None:
-            items = [i for i in items if i.confidence <= max_confidence]
+        items = _filter_items(
+            items,
+            status=status,
+            type=type,
+            min_confidence=min_confidence,
+            max_confidence=max_confidence,
+        )
         items.sort(key=lambda i: i.created_at)
         return items[offset : offset + limit]
 
@@ -170,3 +169,25 @@ class ReviewQueue:
                 out[item.status] = out.get(item.status, 0) + 1
             out["total"] = len(self._items)
             return out
+
+
+def _filter_items(
+    items: list[ReviewItem],
+    *,
+    status: str | None,
+    type: str | None,
+    min_confidence: float | None,
+    max_confidence: float | None,
+) -> list[ReviewItem]:
+    preds = []
+    if status:
+        preds.append(lambda i, s=status: i.status == s)
+    if type:
+        preds.append(lambda i, t=type: i.type == t)
+    if min_confidence is not None:
+        preds.append(lambda i, m=min_confidence: i.confidence >= m)
+    if max_confidence is not None:
+        preds.append(lambda i, m=max_confidence: i.confidence <= m)
+    if not preds:
+        return items
+    return [i for i in items if all(p(i) for p in preds)]

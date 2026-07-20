@@ -9,11 +9,29 @@ engineering pilot. When a product-authorized corpus arrives, replace with
 from __future__ import annotations
 
 import importlib.util
+import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.config import ROOT_DIR
 from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
+
+_DEFAULT_CONF = 0.95
+_CEO_TITLES = frozenset({"CEO", "MANAGING DIRECTOR"})
+
+
+@dataclass(frozen=True)
+class TripleSpec:
+    head: str
+    htype: str
+    rel: str
+    tail: str
+    ttype: str
+    conf: float = _DEFAULT_CONF
+    span: str = ""
+    doc_id: str = "pilot"
+    chunk_id: str = "pilot:0"
 
 
 def _load_pilot_module() -> Any:
@@ -26,198 +44,153 @@ def _load_pilot_module() -> Any:
     return mod
 
 
-def _t(
-    head: str,
-    htype: str,
-    rel: str,
-    tail: str,
-    ttype: str,
-    *,
-    conf: float = 0.95,
-    span: str = "",
-    doc_id: str = "pilot",
-    chunk_id: str = "pilot:0",
-) -> Triple:
+def _t(spec: TripleSpec) -> Triple:
     return Triple(
-        head=EntityMention(name=head, type=htype),
-        relation=rel,
-        tail=EntityMention(name=tail, type=ttype),
-        confidence=conf,
-        source_span=span or f"{head} {rel} {tail}",
-        source_doc_id=doc_id,
-        source_chunk_id=chunk_id,
+        head=EntityMention(name=spec.head, type=spec.htype),
+        relation=spec.rel,
+        tail=EntityMention(name=spec.tail, type=spec.ttype),
+        confidence=spec.conf,
+        source_span=spec.span or f"{spec.head} {spec.rel} {spec.tail}",
+        source_doc_id=spec.doc_id,
+        source_chunk_id=spec.chunk_id,
     )
+
+
+class _TripleBag:
+    def __init__(self) -> None:
+        self.triples: list[Triple] = []
+        self.seen: set[tuple[str, str, str]] = set()
+
+    def add(self, t: Triple) -> None:
+        key = (t.head.name.lower(), t.relation.upper(), t.tail.name.lower())
+        if key in self.seen:
+            return
+        self.seen.add(key)
+        self.triples.append(t)
+
+    def add_spec(self, spec: TripleSpec) -> None:
+        self.add(_t(spec))
 
 
 def build_pilot_triples() -> list[Triple]:
     """Emit schema-valid triples covering ownership, employment, products, supply, events."""
     mod = _load_pilot_module()
-    triples: list[Triple] = []
-    seen: set[tuple[str, str, str]] = set()
+    bag = _TripleBag()
+    _add_core_holdings(bag)
+    _add_expanded(bag, mod)
+    _add_people(bag, mod)
+    _add_products(bag, mod)
+    _add_events(bag, mod)
+    _add_seed_file(bag)
+    return bag.triples
 
-    def add(t: Triple) -> None:
-        key = (t.head.name.lower(), t.relation.upper(), t.tail.name.lower())
-        if key in seen:
-            return
-        seen.add(key)
-        triples.append(t)
 
-    # Core holdings (same narrative as interim seed / core docs)
-    add(_t("Apex Holdings", "Company", "PARENT_OF", "NovaTech Industries", "Company"))
-    add(_t("Apex Holdings", "Company", "PARENT_OF", "BrightLink Logistics", "Company"))
-    add(_t("NovaTech Industries", "Company", "SUBSIDIARY_OF", "Apex Holdings", "Company"))
-    add(_t("BrightLink Logistics", "Company", "SUBSIDIARY_OF", "Apex Holdings", "Company"))
-    add(_t("NovaTech Industries", "Company", "COMPETES_WITH", "Helix Compute", "Company"))
-    add(_t("Helix Compute", "Company", "COMPETES_WITH", "NovaTech Industries", "Company"))
-    add(_t("SiliconForge", "Company", "SUPPLIES", "NovaTech Industries", "Company"))
-    add(_t("SiliconForge", "Company", "SUPPLIES", "Helix Compute", "Company"))
-    add(_t("Harbor Components", "Company", "SUPPLIES", "NovaTech Industries", "Company"))
-    add(_t("BrightLink Logistics", "Company", "SUPPLIES", "Helix Compute", "Company"))
+def _add_core_holdings(bag: _TripleBag) -> None:
+    core = [
+        ("Apex Holdings", "PARENT_OF", "NovaTech Industries"),
+        ("Apex Holdings", "PARENT_OF", "BrightLink Logistics"),
+        ("NovaTech Industries", "SUBSIDIARY_OF", "Apex Holdings"),
+        ("BrightLink Logistics", "SUBSIDIARY_OF", "Apex Holdings"),
+        ("NovaTech Industries", "COMPETES_WITH", "Helix Compute"),
+        ("Helix Compute", "COMPETES_WITH", "NovaTech Industries"),
+        ("SiliconForge", "SUPPLIES", "NovaTech Industries"),
+        ("SiliconForge", "SUPPLIES", "Helix Compute"),
+        ("Harbor Components", "SUPPLIES", "NovaTech Industries"),
+        ("BrightLink Logistics", "SUPPLIES", "Helix Compute"),
+    ]
+    for head, rel, tail in core:
+        bag.add_spec(TripleSpec(head, "Company", rel, tail, "Company"))
 
-    # Expanded subsidiaries / parents / competitors
+
+def _add_expanded(bag: _TripleBag, mod: Any) -> None:
+    doc = "pilot_expanded"
     for name, _city, _ind, _year, parent, competitors, products in mod.EXPANDED:
         if parent:
-            add(_t(name, "Company", "SUBSIDIARY_OF", parent, "Company", doc_id="pilot_expanded"))
-            add(_t(parent, "Company", "PARENT_OF", name, "Company", doc_id="pilot_expanded"))
+            bag.add_spec(
+                TripleSpec(name, "Company", "SUBSIDIARY_OF", parent, "Company", doc_id=doc)
+            )
+            bag.add_spec(
+                TripleSpec(parent, "Company", "PARENT_OF", name, "Company", doc_id=doc)
+            )
         for comp in competitors:
-            add(
-                _t(
-                    name,
-                    "Company",
-                    "COMPETES_WITH",
-                    comp,
-                    "Company",
-                    doc_id="pilot_expanded",
-                )
-            )
-            add(
-                _t(
-                    comp,
-                    "Company",
-                    "COMPETES_WITH",
-                    name,
-                    "Company",
-                    doc_id="pilot_expanded",
-                )
-            )
+            bag.add_spec(TripleSpec(name, "Company", "COMPETES_WITH", comp, "Company", doc_id=doc))
+            bag.add_spec(TripleSpec(comp, "Company", "COMPETES_WITH", name, "Company", doc_id=doc))
         for prod in products:
-            add(
-                _t(
-                    name,
-                    "Company",
-                    "PRODUCES",
-                    prod,
-                    "Product",
-                    doc_id="pilot_expanded",
-                )
-            )
+            bag.add_spec(TripleSpec(name, "Company", "PRODUCES", prod, "Product", doc_id=doc))
 
-    # People: CEO_OF / WORKS_AT / WORKED_AT
+
+def _add_people(bag: _TripleBag, mod: Any) -> None:
+    doc = "pilot_people"
     for person, title, company, prior, _loc in mod.PEOPLE:
-        title_u = title.upper()
-        if title_u in {"CEO", "MANAGING DIRECTOR"}:
-            # Treat MD as top executive for multi-hop CEO templates (synthetic pilot).
-            add(
-                _t(
-                    person,
-                    "Person",
-                    "CEO_OF",
-                    company,
-                    "Company",
-                    doc_id="pilot_people",
-                    span=f"{person} is {title} of {company}",
-                )
+        rel = "CEO_OF" if title.upper() in _CEO_TITLES else "WORKS_AT"
+        bag.add_spec(
+            TripleSpec(
+                person,
+                "Person",
+                rel,
+                company,
+                "Company",
+                doc_id=doc,
+                span=f"{person} is {title} of {company}",
             )
-        else:
-            add(
-                _t(
-                    person,
-                    "Person",
-                    "WORKS_AT",
-                    company,
-                    "Company",
-                    doc_id="pilot_people",
-                    span=f"{person} is {title} of {company}",
-                )
-            )
+        )
         for prev in prior:
-            add(
-                _t(
+            bag.add_spec(
+                TripleSpec(
                     person,
                     "Person",
                     "WORKED_AT",
                     prev,
                     "Company",
-                    doc_id="pilot_people",
+                    doc_id=doc,
                     span=f"{person} previously worked at {prev}",
                 )
             )
 
-    # Products + suppliers
+
+def _add_products(bag: _TripleBag, mod: Any) -> None:
+    doc = "pilot_products"
     for product, producer, suppliers, _cat in mod.PRODUCTS_EXTRA:
-        add(
-            _t(
-                producer,
-                "Company",
-                "PRODUCES",
-                product,
-                "Product",
-                doc_id="pilot_products",
-            )
+        bag.add_spec(
+            TripleSpec(producer, "Company", "PRODUCES", product, "Product", doc_id=doc)
         )
         for sup in suppliers:
-            add(
-                _t(
-                    sup,
-                    "Company",
-                    "SUPPLIES_FOR",
-                    product,
-                    "Product",
-                    doc_id="pilot_products",
-                )
+            bag.add_spec(
+                TripleSpec(sup, "Company", "SUPPLIES_FOR", product, "Product", doc_id=doc)
             )
-            add(
-                _t(
-                    sup,
-                    "Company",
-                    "SUPPLIES",
-                    producer,
-                    "Company",
-                    doc_id="pilot_products",
-                )
+            bag.add_spec(
+                TripleSpec(sup, "Company", "SUPPLIES", producer, "Company", doc_id=doc)
             )
 
-    # Events
+
+def _add_events(bag: _TripleBag, mod: Any) -> None:
+    doc = "pilot_events"
     for ename, date, etype, orgs, desc in mod.EVENTS:
         for org in orgs:
-            add(
-                _t(
+            bag.add_spec(
+                TripleSpec(
                     org,
                     "Company",
                     "PARTICIPATED_IN",
                     ename,
                     "Event",
-                    doc_id="pilot_events",
+                    doc_id=doc,
                     span=f"{org} participated in {ename} ({date}, {etype}): {desc}",
                 )
             )
 
-    # Seed-file merge (interim narrative edges if not already present)
+
+def _add_seed_file(bag: _TripleBag) -> None:
     seed_path = ROOT_DIR / "data" / "processed" / "seed_triples.jsonl"
-    if seed_path.exists():
-        import json
-
-        for line in seed_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            add(Triple.model_validate(json.loads(line)))
-
-    return triples
+    if not seed_path.exists():
+        return
+    for line in seed_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        bag.add(Triple.model_validate(json.loads(line)))
 
 
 def write_pilot_triples(path: str | Path) -> list[Triple]:
-    import json
-
     triples = build_pilot_triples()
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)

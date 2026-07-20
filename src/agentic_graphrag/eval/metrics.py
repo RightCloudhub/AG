@@ -12,7 +12,32 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.eval.metrics_evidence import (
+    evidence_recall_for_row,
+    fabrication_rate,
+    gold_evidence_items,
+    predicted_evidence_blob,
+)
 from agentic_graphrag.eval.scoring import score_pair
+
+_P50 = 50.0
+_P95 = 95.0
+_PRED_PREVIEW = 300
+
+__all__ = [
+    "SystemMetrics",
+    "cost_calls",
+    "cost_tokens",
+    "evidence_recall_for_row",
+    "fabrication_rate",
+    "gold_evidence_items",
+    "latency_ms",
+    "load_cases",
+    "load_jsonl",
+    "percentile",
+    "predicted_evidence_blob",
+    "score_system_rows",
+]
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -54,96 +79,6 @@ def cost_tokens(row: dict[str, Any]) -> int:
 def cost_calls(row: dict[str, Any]) -> int:
     cost = row.get("cost") or {}
     return int(cost.get("llm_calls") or 0)
-
-
-def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
-    """Gold evidence tokens: gold_path nodes/relations or case gold_evidence."""
-    cid = row.get("case_id") or row.get("id")
-    case = cases_by_id.get(str(cid) if cid is not None else "", {})
-    items: list[str] = []
-    for key in ("gold_evidence", "gold_path"):
-        raw = case.get(key) or row.get(key)
-        if isinstance(raw, list):
-            items.extend(str(x) for x in raw if x)
-        elif isinstance(raw, str) and raw.strip():
-            items.append(raw.strip())
-    return items
-
-
-def predicted_evidence_blob(row: dict[str, Any]) -> str:
-    """Flatten prediction + chain evidence for recall matching."""
-    parts: list[str] = [str(row.get("prediction") or "")]
-    chain = row.get("chain") or {}
-    if isinstance(chain, dict):
-        for claim in chain.get("claims") or []:
-            if isinstance(claim, dict):
-                parts.append(str(claim.get("text") or ""))
-                parts.extend(str(x) for x in (claim.get("evidence_ids") or []))
-        for step in chain.get("steps") or []:
-            if isinstance(step, dict):
-                parts.append(str(step.get("conclusion") or ""))
-                parts.append(str(step.get("sub_question") or ""))
-                parts.extend(str(x) for x in (step.get("evidence_ids") or []))
-                for tc in step.get("tool_calls") or []:
-                    if isinstance(tc, dict):
-                        parts.extend(str(x) for x in (tc.get("hits") or []))
-        parts.extend(str(x) for x in (chain.get("explored_paths") or []))
-    parts.extend(str(x) for x in (row.get("explored_paths") or []))
-    return " ".join(parts).lower()
-
-
-def evidence_recall_for_row(
-    row: dict[str, Any],
-    cases_by_id: dict[str, dict],
-    *,
-    min_hops: int = 2,
-) -> float | None:
-    """Fraction of gold evidence items mentioned in the chain (AC-2 style).
-
-    Returns None when the case is skipped (e.g. hops < min_hops or no gold).
-    """
-    cid = str(row.get("case_id") or row.get("id") or "")
-    case = cases_by_id.get(cid, {})
-    hops = int(case.get("hops") or row.get("hop_count") or row.get("hops") or 0)
-    if hops and hops < min_hops:
-        return None
-    gold_items = gold_evidence_items(row, cases_by_id)
-    if not gold_items:
-        return None
-    blob = predicted_evidence_blob(row)
-    hits = 0
-    for item in gold_items:
-        token = str(item).lower().strip()
-        if not token:
-            continue
-        # Relation labels like SUBSIDIARY_OF/PARENT_OF — any segment counts
-        segments = [s.strip() for s in token.replace("/", " ").split() if s.strip()]
-        if any(seg.lower() in blob for seg in segments):
-            hits += 1
-    return hits / len(gold_items) if gold_items else None
-
-
-def fabrication_rate(rows: list[dict[str, Any]]) -> float:
-    """Share of rows with answered status but no cited claims (AC-7 proxy)."""
-    if not rows:
-        return 0.0
-    bad = 0
-    counted = 0
-    for row in rows:
-        status = str(row.get("status") or "").lower()
-        if status in {"no_answer", ""}:
-            continue
-        counted += 1
-        chain = row.get("chain") or {}
-        claims = chain.get("claims") if isinstance(chain, dict) else None
-        if not claims:
-            # baseline extractive may omit chain claims — treat unbound answer as risk
-            if status == "answered" and not (row.get("prediction") or "").startswith("无法"):
-                bad += 1
-            continue
-        if any(not (c.get("evidence_ids") if isinstance(c, dict) else True) for c in claims):
-            bad += 1
-    return (bad / counted) if counted else 0.0
 
 
 @dataclass
@@ -189,6 +124,15 @@ class SystemMetrics:
         }
 
 
+@dataclass
+class _ScoreAccum:
+    latencies: list[float] = field(default_factory=list)
+    tokens: list[int] = field(default_factory=list)
+    calls: list[int] = field(default_factory=list)
+    recalls: list[float] = field(default_factory=list)
+    hop_stats: dict[str, dict[str, int]] = field(default_factory=dict)
+
+
 def score_system_rows(
     rows: list[dict[str, Any]],
     *,
@@ -197,66 +141,84 @@ def score_system_rows(
 ) -> SystemMetrics:
     cases_by_id = cases_by_id or {}
     metrics = SystemMetrics(system=system)
-    latencies: list[float] = []
-    tokens: list[int] = []
-    calls: list[int] = []
-    recalls: list[float] = []
-    hop_stats: dict[str, dict[str, int]] = {}
-
+    acc = _ScoreAccum()
     for row in rows:
-        gold = row.get("gold") or row.get("gold_answer") or ""
-        pred = row.get("prediction") or ""
-        if row.get("error") and not pred:
-            s = {"correct": False, "score": 0.0, "method": "error"}
-        else:
-            s = score_pair(str(pred), str(gold))
-        metrics.total += 1
-        if s["correct"]:
-            metrics.correct += 1
+        _score_one_row(row, metrics, cases_by_id=cases_by_id, acc=acc)
+    _finalize_metrics(metrics, rows, acc)
+    return metrics
 
-        lat = latency_ms(row)
-        latencies.append(lat)
-        tok = cost_tokens(row)
-        cl = cost_calls(row)
-        tokens.append(tok)
-        calls.append(cl)
 
-        rec = evidence_recall_for_row(row, cases_by_id)
-        if rec is not None:
-            recalls.append(rec)
+def _score_one_row(
+    row: dict[str, Any],
+    metrics: SystemMetrics,
+    *,
+    cases_by_id: dict[str, dict],
+    acc: _ScoreAccum,
+) -> None:
+    gold = row.get("gold") or row.get("gold_answer") or ""
+    pred = row.get("prediction") or ""
+    s = _pair_score(row, pred, gold)
+    metrics.total += 1
+    if s["correct"]:
+        metrics.correct += 1
+    lat = latency_ms(row)
+    acc.latencies.append(lat)
+    acc.tokens.append(cost_tokens(row))
+    acc.calls.append(cost_calls(row))
+    rec = evidence_recall_for_row(row, cases_by_id)
+    if rec is not None:
+        acc.recalls.append(rec)
+    hops = _row_hops(row, cases_by_id)
+    _bump_hop(acc, hops, s["correct"])
+    metrics.cases.append(
+        {
+            "case_id": str(row.get("case_id") or row.get("id") or ""),
+            "correct": s["correct"],
+            "score": s["score"],
+            "method": s["method"],
+            "gold": gold,
+            "prediction": str(pred)[:_PRED_PREVIEW],
+            "latency_ms": lat,
+            "evidence_recall": rec,
+            "hops": hops,
+        }
+    )
 
-        cid = str(row.get("case_id") or row.get("id") or "")
-        case = cases_by_id.get(cid, {})
-        hops = str(case.get("hops") or row.get("hop_count") or row.get("hops") or "unknown")
-        bucket = hop_stats.setdefault(hops, {"total": 0, "correct": 0})
-        bucket["total"] += 1
-        if s["correct"]:
-            bucket["correct"] += 1
 
-        metrics.cases.append(
-            {
-                "case_id": cid,
-                "correct": s["correct"],
-                "score": s["score"],
-                "method": s["method"],
-                "gold": gold,
-                "prediction": str(pred)[:300],
-                "latency_ms": lat,
-                "evidence_recall": rec,
-                "hops": hops,
-            }
-        )
+def _pair_score(row: dict[str, Any], pred: Any, gold: Any) -> dict[str, Any]:
+    if row.get("error") and not pred:
+        return {"correct": False, "score": 0.0, "method": "error"}
+    return score_pair(str(pred), str(gold))
 
+
+def _row_hops(row: dict[str, Any], cases_by_id: dict[str, dict]) -> str:
+    cid = str(row.get("case_id") or row.get("id") or "")
+    case = cases_by_id.get(cid, {})
+    return str(case.get("hops") or row.get("hop_count") or row.get("hops") or "unknown")
+
+
+def _bump_hop(acc: _ScoreAccum, hops: str, correct: bool) -> None:
+    bucket = acc.hop_stats.setdefault(hops, {"total": 0, "correct": 0})
+    bucket["total"] += 1
+    if correct:
+        bucket["correct"] += 1
+
+
+def _finalize_metrics(
+    metrics: SystemMetrics,
+    rows: list[dict[str, Any]],
+    acc: _ScoreAccum,
+) -> None:
     metrics.accuracy = (metrics.correct / metrics.total) if metrics.total else 0.0
-    metrics.latency_p50_ms = percentile(latencies, 50)
-    metrics.latency_p95_ms = percentile(latencies, 95)
-    metrics.latency_mean_ms = statistics.fmean(latencies) if latencies else 0.0
-    metrics.cost_tokens_total = sum(tokens)
-    metrics.cost_tokens_mean = statistics.fmean(tokens) if tokens else 0.0
-    metrics.cost_llm_calls_total = sum(calls)
-    metrics.cost_llm_calls_mean = statistics.fmean(calls) if calls else 0.0
-    metrics.evidence_recall = statistics.fmean(recalls) if recalls else None
-    metrics.evidence_recall_n = len(recalls)
+    metrics.latency_p50_ms = percentile(acc.latencies, _P50)
+    metrics.latency_p95_ms = percentile(acc.latencies, _P95)
+    metrics.latency_mean_ms = statistics.fmean(acc.latencies) if acc.latencies else 0.0
+    metrics.cost_tokens_total = sum(acc.tokens)
+    metrics.cost_tokens_mean = statistics.fmean(acc.tokens) if acc.tokens else 0.0
+    metrics.cost_llm_calls_total = sum(acc.calls)
+    metrics.cost_llm_calls_mean = statistics.fmean(acc.calls) if acc.calls else 0.0
+    metrics.evidence_recall = statistics.fmean(acc.recalls) if acc.recalls else None
+    metrics.evidence_recall_n = len(acc.recalls)
     metrics.fabrication_rate = fabrication_rate(rows)
     metrics.by_hops = {
         h: {
@@ -264,9 +226,8 @@ def score_system_rows(
             "correct": v["correct"],
             "accuracy": round(v["correct"] / v["total"], 4) if v["total"] else 0.0,
         }
-        for h, v in sorted(hop_stats.items(), key=lambda kv: kv[0])
+        for h, v in sorted(acc.hop_stats.items(), key=lambda kv: kv[0])
     }
-    return metrics
 
 
 def load_cases(path: Path) -> dict[str, dict]:

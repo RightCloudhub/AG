@@ -7,16 +7,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-def _norm(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s\u4e00-\u9fff]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text
-
-
-def _tokens(text: str) -> set[str]:
-    stop = {
+_TOKEN_RATIO = 0.6
+_ALIAS_PARTIAL_RATIO = 0.4
+_PRED_PREVIEW = 300
+_STOP = frozenset(
+    {
         "the",
         "a",
         "an",
@@ -40,7 +35,18 @@ def _tokens(text: str) -> set[str]:
         "retrieved",
         "evidence",
     }
-    return {t for t in _norm(text).split() if t and t not in stop and len(t) > 1}
+)
+
+
+def _norm(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s\u4e00-\u9fff]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _tokens(text: str) -> set[str]:
+    return {t for t in _norm(text).split() if t and t not in _STOP and len(t) > 1}
 
 
 def score_pair(prediction: str, gold: str) -> dict:
@@ -48,45 +54,74 @@ def score_pair(prediction: str, gold: str) -> dict:
     pred = prediction or ""
     gold = gold or ""
     pn, gn = _norm(pred), _norm(gold)
+    early = _early_score(pn, gn)
+    if early is not None:
+        return early
+    # yes/no: word-boundary only (avoid "no" ⊂ "know", "yes" ⊂ "yesterday")
+    if gn in {"yes", "no"}:
+        if _token_boundary_match(pn, gn):
+            return {"correct": True, "score": 1.0, "method": "yes_no"}
+        return _overlap_score(gold=gold, pn=pn, gn=gn)
+    if _containment_match(pn, gn):
+        return {"correct": True, "score": 1.0, "method": "containment"}
+    return _overlap_score(gold=gold, pn=pn, gn=gn)
+
+
+def _token_boundary_match(haystack: str, needle: str) -> bool:
+    """True when needle appears as a whole token in haystack."""
+    if not needle or not haystack:
+        return False
+    return bool(re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack))
+
+
+def _containment_match(pn: str, gn: str) -> bool:
+    """Substring match with word boundaries for short gold answers."""
+    if not gn or not pn:
+        return False
+    # Short single-token golds: require token boundaries (blocks no⊂know).
+    gold_tokens = gn.split()
+    if len(gold_tokens) == 1 and len(gn) <= 4:
+        return _token_boundary_match(pn, gn) or _token_boundary_match(gn, pn)
+    if gn in pn or pn in gn:
+        return True
+    return False
+
+
+def _early_score(pn: str, gn: str) -> dict | None:
     if not gn:
         return {"correct": False, "score": 0.0, "method": "empty_gold"}
     if not pn:
         return {"correct": False, "score": 0.0, "method": "empty_pred"}
+    return None
 
-    # Exact / containment
-    if gn in pn or pn in gn:
-        return {"correct": True, "score": 1.0, "method": "containment"}
 
-    # All significant gold tokens present in prediction
-    gt, pt = _tokens(gold), _tokens(pred)
+def _overlap_score(*, gold: str, pn: str, gn: str) -> dict:
+    gt, pt = _tokens(gold), _tokens(pn)
     if not gt:
+        # Single-char / stopword golds (e.g. "no") may yield empty token sets.
+        if gn in {"yes", "no"} and _token_boundary_match(pn, gn):
+            return {"correct": True, "score": 1.0, "method": "yes_no"}
         return {"correct": False, "score": 0.0, "method": "no_tokens"}
     overlap = gt & pt
     ratio = len(overlap) / len(gt)
-    # Also check multi-word gold aliases split on ' and ' / ','
-    aliases = re.split(r"\s+and\s+|,\s*", gold, flags=re.I)
-    alias_hits = 0
-    for a in aliases:
-        an = _norm(a)
-        if an and an in pn:
-            alias_hits += 1
-    if len(aliases) > 1 and alias_hits == len(aliases):
+    alias_hits, n_aliases = _alias_hits(gold, pn)
+    if n_aliases > 1 and alias_hits == n_aliases:
         return {"correct": True, "score": 1.0, "method": "all_aliases"}
-    if len(aliases) > 1 and alias_hits >= max(1, len(aliases) - 0):
-        # require all for strict; partial aliases give partial credit
-        pass
-
-    correct = ratio >= 0.6 or (alias_hits >= 1 and ratio >= 0.4)
-    # Special: gold "Yes"
-    if gn in {"yes", "no"} and gn in pn.split():
-        correct = True
-        ratio = 1.0
+    correct = ratio >= _TOKEN_RATIO or (alias_hits >= 1 and ratio >= _ALIAS_PARTIAL_RATIO)
+    if gn in {"yes", "no"} and _token_boundary_match(pn, gn):
+        correct, ratio = True, 1.0
     return {
         "correct": correct,
         "score": round(ratio, 4),
         "method": "token_overlap",
         "overlap": sorted(overlap),
     }
+
+
+def _alias_hits(gold: str, pn: str) -> tuple[int, int]:
+    aliases = re.split(r"\s+and\s+|,\s*", gold, flags=re.I)
+    hits = sum(1 for a in aliases if (an := _norm(a)) and an in pn)
+    return hits, len(aliases)
 
 
 @dataclass
@@ -115,37 +150,40 @@ def score_report_file(report_path: str | Path) -> AccuracyReport:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
-        if row.get("error") and not row.get("prediction"):
-            report.total += 1
-            report.cases.append(
-                {
-                    "case_id": row.get("case_id"),
-                    "correct": False,
-                    "score": 0.0,
-                    "method": "error",
-                    "gold": row.get("gold"),
-                    "prediction": "",
-                }
-            )
-            continue
-        gold = row.get("gold") or ""
-        pred = row.get("prediction") or ""
-        s = score_pair(pred, gold)
+        _score_report_row(json.loads(line), report)
+    return report
+
+
+def _score_report_row(row: dict, report: AccuracyReport) -> None:
+    if row.get("error") and not row.get("prediction"):
         report.total += 1
-        if s["correct"]:
-            report.correct += 1
         report.cases.append(
             {
                 "case_id": row.get("case_id"),
-                "correct": s["correct"],
-                "score": s["score"],
-                "method": s["method"],
-                "gold": gold,
-                "prediction": pred[:300],
+                "correct": False,
+                "score": 0.0,
+                "method": "error",
+                "gold": row.get("gold"),
+                "prediction": "",
             }
         )
-    return report
+        return
+    gold = row.get("gold") or ""
+    pred = row.get("prediction") or ""
+    s = score_pair(pred, gold)
+    report.total += 1
+    if s["correct"]:
+        report.correct += 1
+    report.cases.append(
+        {
+            "case_id": row.get("case_id"),
+            "correct": s["correct"],
+            "score": s["score"],
+            "method": s["method"],
+            "gold": gold,
+            "prediction": pred[:_PRED_PREVIEW],
+        }
+    )
 
 
 def write_accuracy_summary(report_path: str | Path, out_path: str | Path) -> AccuracyReport:

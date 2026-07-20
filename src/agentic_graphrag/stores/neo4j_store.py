@@ -12,16 +12,35 @@ rebuilt (``agr-build-graph``); old edges lack the new attributes.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
 from neo4j import Driver, GraphDatabase
 
 from agentic_graphrag.stores.interfaces import EntityRecord, PathRecord, RelationRecord
+from agentic_graphrag.stores.neo4j_codec import (
+    attrs_for_neo4j,
+    attrs_from_neo4j,
+    node_to_entity,
+    rel_to_record,
+    sources_for_neo4j,
+    sources_from_neo4j,
+)
+
+# Back-compat aliases used by unit tests.
+_attrs_for_neo4j = attrs_for_neo4j
+_attrs_from_neo4j = attrs_from_neo4j
+_sources_for_neo4j = sources_for_neo4j
+_sources_from_neo4j = sources_from_neo4j
+_node_to_entity = node_to_entity
+_rel_to_record = rel_to_record
 
 _SAFE_LABEL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SAFE_REL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MAX_NEIGHBOR_HOPS = 5
+_MAX_NEIGHBOR_LIMIT = 200
+_MAX_PATH_HOPS = 6
+_MAX_PATH_LIMIT = 50
 
 
 def _validate_identifier(value: str, kind: str) -> str:
@@ -29,45 +48,6 @@ def _validate_identifier(value: str, kind: str) -> str:
     if not pattern.match(value):
         raise ValueError(f"Invalid {kind} identifier: {value!r}")
     return value
-
-
-def _attrs_for_neo4j(attributes: dict[str, Any] | None) -> str:
-    """Serialize attributes as JSON string (Neo4j forbids nested Map properties)."""
-    return json.dumps(attributes or {}, ensure_ascii=False, sort_keys=True)
-
-
-def _attrs_from_neo4j(raw: Any) -> dict[str, Any]:
-    if raw is None or raw == "":
-        return {}
-    if isinstance(raw, dict):
-        return dict(raw)
-    if isinstance(raw, str):
-        try:
-            val = json.loads(raw)
-            return dict(val) if isinstance(val, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-
-def _sources_for_neo4j(sources: list[dict[str, Any]] | None) -> str:
-    """Serialize sources list as JSON string (same nested-map constraint)."""
-    return json.dumps(list(sources or []), ensure_ascii=False, sort_keys=True)
-
-
-def _sources_from_neo4j(raw: Any) -> list[dict[str, Any]]:
-    if raw is None or raw == "":
-        return []
-    if isinstance(raw, list):
-        return [dict(x) for x in raw if isinstance(x, dict)]
-    if isinstance(raw, str):
-        try:
-            val = json.loads(raw)
-            if isinstance(val, list):
-                return [dict(x) for x in val if isinstance(x, dict)]
-        except json.JSONDecodeError:
-            return []
-    return []
 
 
 class Neo4jGraphStore:
@@ -92,70 +72,68 @@ class Neo4jGraphStore:
         count = 0
         with self._driver.session() as session:
             for ent in entities:
-                label = _validate_identifier(ent.type, "label")
-                # Label is validated; properties are parameterized.
-                query = (
-                    f"MERGE (e:`{label}` {{id: $id}}) "
-                    "SET e.name = $name, e.attributes = $attributes, e.aliases = $aliases "
-                    "RETURN e.id AS id"
-                )
-                result = session.run(
-                    query,
-                    id=ent.id,
-                    name=ent.name,
-                    attributes=_attrs_for_neo4j(ent.attributes),
-                    aliases=list(ent.aliases or []),
-                )
-                if result.single() is not None:
+                if self._upsert_one_entity(session, ent):
                     count += 1
         return count
 
-    def upsert_relations(self, relations: list[RelationRecord]) -> int:
-        """Upsert relations; return count of relationships actually merged.
+    def _upsert_one_entity(self, session: Any, ent: EntityRecord) -> bool:
+        label = _validate_identifier(ent.type, "label")
+        query = (
+            f"MERGE (e:`{label}` {{id: $id}}) "
+            "SET e.name = $name, e.attributes = $attributes, e.aliases = $aliases "
+            "RETURN e.id AS id"
+        )
+        result = session.run(
+            query,
+            id=ent.id,
+            name=ent.name,
+            attributes=attrs_for_neo4j(ent.attributes),
+            aliases=list(ent.aliases or []),
+        )
+        return result.single() is not None
 
-        Endpoints are ``MERGE``d as placeholders when missing (name + id only),
-        matching in-memory semantics where relation rows can exist without a
-        prior full entity upsert. Relation properties store semantic
-        head/tail and sources for direction-correct reads.
-        """
+    def upsert_relations(self, relations: list[RelationRecord]) -> int:
+        """Upsert relations; return count of relationships actually merged."""
         if not relations:
             return 0
         count = 0
         with self._driver.session() as session:
             for rel in relations:
-                rel_type = _validate_identifier(rel.type, "rel")
-                # MERGE endpoints by id (placeholder ON CREATE) then directed edge by id.
-                query = (
-                    "MERGE (h {id: $head_id}) "
-                    "ON CREATE SET h.name = $head_name "
-                    "SET h.name = coalesce(h.name, $head_name) "
-                    "MERGE (t {id: $tail_id}) "
-                    "ON CREATE SET t.name = $tail_name "
-                    "SET t.name = coalesce(t.name, $tail_name) "
-                    f"MERGE (h)-[r:`{rel_type}` {{id: $id}}]->(t) "
-                    "SET r.confidence = $confidence, "
-                    "    r.attributes = $attributes, "
-                    "    r.head_id = $head_id, "
-                    "    r.tail_id = $tail_id, "
-                    "    r.head_name = $head_name, "
-                    "    r.tail_name = $tail_name, "
-                    "    r.sources = $sources "
-                    "RETURN r.id AS id"
-                )
-                result = session.run(
-                    query,
-                    id=rel.id,
-                    head_id=rel.head_id,
-                    tail_id=rel.tail_id,
-                    head_name=rel.head_name or "",
-                    tail_name=rel.tail_name or "",
-                    confidence=rel.confidence,
-                    attributes=_attrs_for_neo4j(rel.attributes),
-                    sources=_sources_for_neo4j(rel.sources),
-                )
-                if result.single() is not None:
+                if self._upsert_one_relation(session, rel):
                     count += 1
         return count
+
+    def _upsert_one_relation(self, session: Any, rel: RelationRecord) -> bool:
+        rel_type = _validate_identifier(rel.type, "rel")
+        query = (
+            "MERGE (h {id: $head_id}) "
+            "ON CREATE SET h.name = $head_name "
+            "SET h.name = coalesce(h.name, $head_name) "
+            "MERGE (t {id: $tail_id}) "
+            "ON CREATE SET t.name = $tail_name "
+            "SET t.name = coalesce(t.name, $tail_name) "
+            f"MERGE (h)-[r:`{rel_type}` {{id: $id}}]->(t) "
+            "SET r.confidence = $confidence, "
+            "    r.attributes = $attributes, "
+            "    r.head_id = $head_id, "
+            "    r.tail_id = $tail_id, "
+            "    r.head_name = $head_name, "
+            "    r.tail_name = $tail_name, "
+            "    r.sources = $sources "
+            "RETURN r.id AS id"
+        )
+        result = session.run(
+            query,
+            id=rel.id,
+            head_id=rel.head_id,
+            tail_id=rel.tail_id,
+            head_name=rel.head_name or "",
+            tail_name=rel.tail_name or "",
+            confidence=rel.confidence,
+            attributes=attrs_for_neo4j(rel.attributes),
+            sources=sources_for_neo4j(rel.sources),
+        )
+        return result.single() is not None
 
     def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
         with self._driver.session() as session:
@@ -170,8 +148,7 @@ class Neo4jGraphStore:
             record = result.single()
             if not record:
                 return None
-            node = record["e"]
-            return _node_to_entity(node)
+            return node_to_entity(record["e"])
 
     def neighbors(
         self,
@@ -181,59 +158,24 @@ class Neo4jGraphStore:
         relation_types: list[str] | None = None,
         limit: int = 50,
     ) -> list[tuple[RelationRecord, EntityRecord]]:
-        max_hops = max(1, min(max_hops, 5))
-        limit = max(1, min(limit, 200))
+        max_hops = max(1, min(max_hops, _MAX_NEIGHBOR_HOPS))
+        limit = max(1, min(limit, _MAX_NEIGHBOR_LIMIT))
         params: dict[str, Any] = {"name": entity_name, "limit": limit, "max_hops": max_hops}
         if relation_types:
             for rt in relation_types:
                 _validate_identifier(rt, "rel")
             params["rel_types"] = relation_types
+        query = _neighbors_query(max_hops, relation_types)
+        return self._run_neighbors(query, params, entity_name)
 
-        # 1-hop: stable ORDER BY r.id
-        if max_hops == 1:
-            if relation_types:
-                query = """
-                MATCH (src)-[r]-(dst)
-                WHERE toLower(src.name) = toLower($name)
-                  AND type(r) IN $rel_types
-                  AND src <> dst
-                RETURN dst, r, 1 AS hops
-                ORDER BY coalesce(r.id, ''), dst.name
-                LIMIT $limit
-                """
-            else:
-                query = """
-                MATCH (src)-[r]-(dst)
-                WHERE toLower(src.name) = toLower($name) AND src <> dst
-                RETURN dst, r, 1 AS hops
-                ORDER BY coalesce(r.id, ''), dst.name
-                LIMIT $limit
-                """
-        else:
-            # Multi-hop: last edge of each simple path, de-dup by r, ORDER BY hops, r.id
-            last_rel_pred = (
-                "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
-            )
-            query = f"""
-            MATCH (src)
-            WHERE toLower(src.name) = toLower($name)
-            MATCH path = (src)-[*1..{max_hops}]-(dst)
-            WHERE src <> dst
-              AND ALL(n IN nodes(path) WHERE size([m IN nodes(path) WHERE id(m) = id(n)]) = 1)
-              {last_rel_pred}
-            WITH dst, last(relationships(path)) AS r, length(path) AS hops
-            WITH r, dst, min(hops) AS hops
-            ORDER BY hops ASC, coalesce(r.id, '') ASC, dst.name ASC
-            RETURN dst, r, hops
-            LIMIT $limit
-            """
-
+    def _run_neighbors(
+        self, query: str, params: dict[str, Any], entity_name: str
+    ) -> list[tuple[RelationRecord, EntityRecord]]:
         out: list[tuple[RelationRecord, EntityRecord]] = []
         with self._driver.session() as session:
             for record in session.run(query, **params):
-                dst = _node_to_entity(record["dst"])
-                # Prefer persisted semantic endpoints over undirected walk orientation.
-                rel = _rel_to_record(
+                dst = node_to_entity(record["dst"])
+                rel = rel_to_record(
                     record["r"],
                     walk_other_name=dst.name,
                     walk_from_name=entity_name,
@@ -250,9 +192,8 @@ class Neo4jGraphStore:
         limit: int = 20,
     ) -> list[PathRecord]:
         """Bounded enumeration of simple paths (all, not only one shortest)."""
-        max_hops = max(1, min(max_hops, 6))
-        limit = max(1, min(limit, 50))
-        # Variable-length bound is integer-inlined after validation (not user string).
+        max_hops = max(1, min(max_hops, _MAX_PATH_HOPS))
+        limit = max(1, min(limit, _MAX_PATH_LIMIT))
         query = f"""
         MATCH (src), (dst)
         WHERE toLower(src.name) = toLower($source)
@@ -264,27 +205,15 @@ class Neo4jGraphStore:
         ORDER BY length(path) ASC
         LIMIT $limit
         """
+        return self._run_paths(query, source=source_name, target=target_name, limit=limit)
+
+    def _run_paths(
+        self, query: str, *, source: str, target: str, limit: int
+    ) -> list[PathRecord]:
         results: list[PathRecord] = []
         with self._driver.session() as session:
-            for record in session.run(query, source=source_name, target=target_name, limit=limit):
-                path = record["path"]
-                nodes = [_node_to_entity(n) for n in path.nodes]
-                rels = [
-                    _rel_to_record(
-                        r,
-                        walk_from_name=nodes[i].name if i < len(nodes) else "",
-                        walk_other_name=nodes[i + 1].name if i + 1 < len(nodes) else "",
-                    )
-                    for i, r in enumerate(path.relationships)
-                ]
-                results.append(
-                    PathRecord(
-                        nodes=nodes,
-                        relations=rels,
-                        length=len(rels),
-                        score=1.0 / max(len(rels), 1),
-                    )
-                )
+            for record in session.run(query, source=source, target=target, limit=limit):
+                results.append(_path_record(record["path"]))
         return results
 
     def counts(self) -> dict[str, int]:
@@ -294,54 +223,60 @@ class Neo4jGraphStore:
         return {"nodes": int(nodes), "relationships": int(rels)}
 
 
-def _node_to_entity(node: Any) -> EntityRecord:
-    labels = list(node.labels) if hasattr(node, "labels") else []
-    etype = labels[0] if labels else "Entity"
-    props = dict(node)
-    return EntityRecord(
-        id=str(props.get("id", props.get("name", ""))),
-        name=str(props.get("name", "")),
-        type=etype,
-        attributes=_attrs_from_neo4j(props.get("attributes")),
-        aliases=list(props.get("aliases") or []),
+def _neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
+    if max_hops == 1:
+        return _one_hop_query(relation_types)
+    last_rel_pred = (
+        "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
     )
-
-
-def _rel_to_record(
-    rel: Any,
-    *,
-    walk_from_name: str = "",
-    walk_other_name: str = "",
-    head_name: str = "",
-    tail_name: str = "",
-) -> RelationRecord:
-    """Build RelationRecord with true head/tail when properties exist.
-
-    Legacy edges without ``head_name``/``tail_name`` fall back to walk
-    orientation (``walk_from`` → ``walk_other``) or explicit head/tail args.
+    return f"""
+    MATCH (src)
+    WHERE toLower(src.name) = toLower($name)
+    MATCH path = (src)-[*1..{max_hops}]-(dst)
+    WHERE src <> dst
+      AND ALL(n IN nodes(path) WHERE size([m IN nodes(path) WHERE id(m) = id(n)]) = 1)
+      {last_rel_pred}
+    WITH dst, last(relationships(path)) AS r, length(path) AS hops
+    WITH r, dst, min(hops) AS hops
+    ORDER BY hops ASC, coalesce(r.id, '') ASC, dst.name ASC
+    RETURN dst, r, hops
+    LIMIT $limit
     """
-    props = dict(rel)
-    stored_head = str(props.get("head_name") or "").strip()
-    stored_tail = str(props.get("tail_name") or "").strip()
-    if stored_head or stored_tail:
-        h_name = stored_head or head_name or walk_from_name
-        t_name = stored_tail or tail_name or walk_other_name
-    elif head_name or tail_name:
-        h_name = head_name
-        t_name = tail_name
-    else:
-        # Undirected walk: treat walk_from as head only when props missing (legacy).
-        h_name = walk_from_name
-        t_name = walk_other_name
 
-    return RelationRecord(
-        id=str(props.get("id", f"{rel.type}:{h_name}->{t_name}")),
-        type=rel.type,
-        head_id=str(props.get("head_id", "")),
-        tail_id=str(props.get("tail_id", "")),
-        head_name=h_name,
-        tail_name=t_name,
-        confidence=float(props.get("confidence", 1.0)),
-        attributes=_attrs_from_neo4j(props.get("attributes")),
-        sources=_sources_from_neo4j(props.get("sources")),
+
+def _one_hop_query(relation_types: list[str] | None) -> str:
+    if relation_types:
+        return """
+        MATCH (src)-[r]-(dst)
+        WHERE toLower(src.name) = toLower($name)
+          AND type(r) IN $rel_types
+          AND src <> dst
+        RETURN dst, r, 1 AS hops
+        ORDER BY coalesce(r.id, ''), dst.name
+        LIMIT $limit
+        """
+    return """
+    MATCH (src)-[r]-(dst)
+    WHERE toLower(src.name) = toLower($name) AND src <> dst
+    RETURN dst, r, 1 AS hops
+    ORDER BY coalesce(r.id, ''), dst.name
+    LIMIT $limit
+    """
+
+
+def _path_record(path: Any) -> PathRecord:
+    nodes = [node_to_entity(n) for n in path.nodes]
+    rels = [
+        rel_to_record(
+            r,
+            walk_from_name=nodes[i].name if i < len(nodes) else "",
+            walk_other_name=nodes[i + 1].name if i + 1 < len(nodes) else "",
+        )
+        for i, r in enumerate(path.relationships)
+    ]
+    return PathRecord(
+        nodes=nodes,
+        relations=rels,
+        length=len(rels),
+        score=1.0 / max(len(rels), 1),
     )

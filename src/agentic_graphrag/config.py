@@ -21,23 +21,35 @@ def _find_root() -> Path:
     env = os.environ.get("AGENTIC_GRAPHRAG_ROOT")
     if env:
         return Path(env).resolve()
+    for start in (Path.cwd(), Path(__file__).resolve().parent):
+        found = _root_from_start(start)
+        if found is not None:
+            return found
+    return _root_near_src() or Path.cwd().resolve()
 
-    starts = [Path.cwd(), Path(__file__).resolve().parent]
-    for start in starts:
-        for candidate in [start, *start.parents]:
-            if (candidate / "configs" / "default.yaml").exists() and (
-                (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
-            ):
-                return candidate.resolve()
-            # Lightweight marker check
-            if (candidate / "pyproject.toml").exists() and (candidate / "configs").exists():
-                return candidate.resolve()
-    # Last resort: walk up from this file looking for pyproject near src/
-    here = Path(__file__).resolve()
-    for parent in here.parents:
+
+def _root_from_start(start: Path) -> Path | None:
+    for candidate in [start, *start.parents]:
+        if _is_full_root(candidate) or _is_light_root(candidate):
+            return candidate.resolve()
+    return None
+
+
+def _is_full_root(candidate: Path) -> bool:
+    if not (candidate / "configs" / "default.yaml").exists():
+        return False
+    return (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
+
+
+def _is_light_root(candidate: Path) -> bool:
+    return (candidate / "pyproject.toml").exists() and (candidate / "configs").exists()
+
+
+def _root_near_src() -> Path | None:
+    for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").exists() and (parent / "src").exists():
             return parent
-    return Path.cwd().resolve()
+    return None
 
 
 ROOT_DIR = _find_root()
@@ -191,8 +203,12 @@ def get_config(config_path: str | None = None) -> AppConfig:
         path = ROOT_DIR / path
     raw = _load_yaml(path)
     cfg = AppConfig.model_validate(raw)
+    _apply_settings_overrides(cfg, get_settings())
+    _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
+    return cfg
 
-    settings = get_settings()
+
+def _apply_settings_overrides(cfg: AppConfig, settings: Settings) -> None:
     if settings.llm_strong_model:
         cfg.llm.strong_model = settings.llm_strong_model
     if settings.llm_light_model:
@@ -209,10 +225,6 @@ def get_config(config_path: str | None = None) -> AppConfig:
         cfg.guardrails.max_llm_calls = settings.max_llm_calls
     if settings.max_tokens_per_query is not None:
         cfg.guardrails.max_tokens_per_query = settings.max_tokens_per_query
-
-    # Silence unused import warning for os in some linters — used by dotenv load side-effect.
-    _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
-    return cfg
 
 
 def resolve_chat_base_url(settings: Settings | None = None) -> str:

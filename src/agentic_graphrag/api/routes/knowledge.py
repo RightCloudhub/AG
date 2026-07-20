@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request, UploadFile
+from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
@@ -85,21 +86,36 @@ def get_ingest_task(task_id: str) -> dict:
     return ok(task)
 
 
+@dataclass
+class ReviewQueueQuery:
+    status: str | None = "pending"
+    type: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+def _review_query(
+    *,
+    status: str | None = Query("pending"),
+    type: str | None = Query(None),
+    limit: int = Query(50),
+    offset: int = Query(0),
+) -> ReviewQueueQuery:
+    return ReviewQueueQuery(status=status, type=type, limit=limit, offset=offset)
+
+
 @router.get("/review-queue")
 def list_review_queue(
     request: Request,
-    status: str | None = "pending",
-    type: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    q: Annotated[ReviewQueueQuery, Depends(_review_query)],
 ) -> dict:
     svc = _service(request)
     if svc.review_queue is None:
-        return ok([], meta=MetaBody(total=0, limit=limit, page=1))
-    items = svc.review_queue.list(status=status, type=type, limit=limit, offset=offset)
+        return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
+    items = svc.review_queue.list(status=q.status, type=q.type, limit=q.limit, offset=q.offset)
     return ok(
         [i.to_dict() for i in items],
-        meta=MetaBody(total=len(items), limit=limit, page=offset // max(limit, 1) + 1),
+        meta=MetaBody(total=len(items), limit=q.limit, page=q.offset // max(q.limit, 1) + 1),
     )
 
 
@@ -203,18 +219,20 @@ def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
 
 
 def _entity_total(store: object, *, fallback: int | None) -> int:
-    counts = {}
+    counts = _safe_counts(store)
+    for key in ("entities", "entity_count", "nodes", "node_count"):
+        if key not in counts:
+            continue
+        try:
+            return int(counts[key])
+        except (TypeError, ValueError):
+            continue
+    return int(fallback) if fallback is not None else 0
+
+
+def _safe_counts(store: object) -> dict:
     try:
         counts = store.counts()  # type: ignore[attr-defined]
     except Exception:
-        counts = {}
-    if isinstance(counts, dict):
-        for key in ("entities", "entity_count", "nodes", "node_count"):
-            if key in counts:
-                try:
-                    return int(counts[key])
-                except (TypeError, ValueError):
-                    pass
-    if fallback is not None:
-        return int(fallback)
-    return 0
+        return {}
+    return counts if isinstance(counts, dict) else {}

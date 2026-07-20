@@ -16,6 +16,7 @@ from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
+from agentic_graphrag.agent.options import AgentDeps, AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.triage import Route, should_escalate_fast_path, triage
 from agentic_graphrag.generation.confidence import grade_confidence
 from agentic_graphrag.generation.trace import ReasoningChain
@@ -23,8 +24,13 @@ from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.retrieval.contracts import Candidate
 
+_MS_PER_SEC = 1000
+
 __all__ = [
+    "AgentDeps",
+    "AgentRunOptions",
     "AgentState",
+    "QueryOptions",
     "build_graph",
     "invoke_config",
     "run_agentic_query",
@@ -36,21 +42,18 @@ def build_graph(
     executor: Executor,
     llm: LLMProvider | None,
     guard_cfg: GuardrailConfig,
-    budget: BudgetTracker | None = None,
     *,
+    budget: BudgetTracker | None = None,
     checkpointer: Any | None = None,
+    deps: AgentDeps | None = None,
 ):
-    """Compile a LangGraph StateGraph for the agentic loop.
-
-    Always attaches a checkpointer so node state (including
-    ``memory_snapshot``) is durable across steps and recoverable via
-    ``get_state`` / ``get_state_history`` for the same ``thread_id``.
-    """
+    """Compile StateGraph with checkpointer for durable agent state."""
     from langgraph.graph import END, StateGraph
 
-    rt = AgentRuntime(executor, llm, guard_cfg, budget=budget)
+    if deps is None:
+        deps = AgentDeps(executor, llm, guard_cfg, budget=budget)
+    rt = AgentRuntime(deps.executor, deps.llm, deps.guard_cfg, budget=deps.budget)
     cp = checkpointer if checkpointer is not None else default_checkpointer()
-
     g = StateGraph(AgentState)
     g.add_node("planner", rt.node_planner)
     g.add_node("executor", rt.node_executor)
@@ -83,6 +86,7 @@ def run_agentic_query(
     executor: Executor,
     llm: LLMProvider | None,
     *,
+    options: AgentRunOptions | None = None,
     guard_cfg: GuardrailConfig | None = None,
     budget: BudgetTracker | None = None,
     allow_llm: bool = True,
@@ -90,56 +94,16 @@ def run_agentic_query(
     checkpointer: Any | None = None,
     thread_id: str | None = None,
 ) -> ReasoningChain:
-    """Run the full agentic loop and return a reasoning chain.
-
-    When ``guard_cfg`` is omitted, limits are loaded from application config
-    (P2-AG-04). ``recursion_limit`` defaults to ``guard_cfg.recursion_limit``.
-
-    ``thread_id`` keys the checkpointer (defaults to the chain ``query_id``)
-    so final state and history remain queryable after return.
-    """
-    guard_cfg = guard_cfg or GuardrailConfig.from_app_config()
-    budget = budget or guard_cfg.budget_tracker()
-    rec_limit = recursion_limit if recursion_limit is not None else guard_cfg.recursion_limit
-    chain = ReasoningChain(question=question, route="agentic")
-    tid = thread_id or chain.query_id or str(uuid4())
-    graph = build_graph(
-        executor, llm, guard_cfg, budget=budget, checkpointer=checkpointer
+    """Run the full agentic loop; keyword args or ``options`` are equivalent."""
+    opts = options or AgentRunOptions(
+        guard_cfg=guard_cfg,
+        budget=budget,
+        allow_llm=allow_llm,
+        recursion_limit=recursion_limit,
+        checkpointer=checkpointer,
+        thread_id=thread_id,
     )
-    t0 = time.perf_counter()
-    config = invoke_config(tid, recursion_limit=rec_limit)
-    result = graph.invoke(
-        {
-            "question": question,
-            "chain": chain.model_dump(),
-            "sub_questions": [],
-            "current_index": 0,
-            "hop": 0,
-            "evidence": [],
-            "done": False,
-            "allow_llm": allow_llm,
-        },
-        config=config,
-    )
-    out = ReasoningChain.model_validate(result["chain"])
-    out.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
-    if budget:
-        snap = budget.snapshot()
-        out.cost.llm_calls = snap["llm_calls"]
-        out.cost.tokens = snap["total_tokens"]
-        out.cost.prompt_tokens = snap["prompt_tokens"]
-        out.cost.completion_tokens = snap["completion_tokens"]
-    meta = dict(out.metadata or {})
-    meta["thread_id"] = tid
-    meta["checkpointer"] = True
-    # Surface final memory snapshot size for debugging / audit hooks
-    mem_snap = result.get("memory_snapshot") or {}
-    meta["memory_evidence_count"] = len(mem_snap.get("evidence") or [])
-    # Confidence grade (P5-CAP-03)
-    evidence = [Candidate.model_validate(e) for e in (result.get("evidence") or [])]
-    meta["confidence"] = grade_confidence(out, evidence)
-    out.metadata = meta
-    return out
+    return _run_agentic(question, executor, llm, opts=opts)
 
 
 def run_query(
@@ -147,6 +111,7 @@ def run_query(
     executor: Executor,
     llm: LLMProvider | None,
     *,
+    options: QueryOptions | None = None,
     guard_cfg: GuardrailConfig | None = None,
     budget: BudgetTracker | None = None,
     allow_llm: bool = True,
@@ -157,88 +122,167 @@ def run_query(
     enable_triage: bool = True,
     known_entities: list[str] | None = None,
 ) -> ReasoningChain:
-    """Entry with complexity triage (P3-PERF-01).
-
-    Simple questions take Fast Path; multi-hop / forced use Agentic.
-    Fast Path may escalate once when evidence is insufficient.
-    """
-    guard_cfg = guard_cfg or GuardrailConfig.from_app_config()
-    budget = budget or guard_cfg.budget_tracker()
-    known = known_entities if known_entities is not None else list(executor.known_entities or [])
-
-    if not enable_triage or force_agentic:
-        chain = run_agentic_query(
-            question,
-            executor,
-            llm,
-            guard_cfg=guard_cfg,
-            budget=budget,
-            allow_llm=allow_llm,
-            recursion_limit=recursion_limit,
-            checkpointer=checkpointer,
-            thread_id=thread_id,
-        )
-        if force_agentic:
-            chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
-        return chain
-
-    decision = triage(
-        question,
-        llm if allow_llm else None,
-        allow_llm=allow_llm and llm is not None,
-        force_agentic=False,
-        known_entities=known,
-    )
-    triage_meta = decision.model_dump(mode="json")
-
-    if decision.route == Route.FAST_PATH:
-        chain = run_fast_path(
-            question,
-            executor,
-            llm,
-            allow_llm=allow_llm,
-            budget=budget,
-            triage_meta=triage_meta,
-        )
-        # One-shot escalate when Fast Path is weak
-        ev_count = sum(len(s.evidence_ids) for s in chain.steps)
-        has_graph = any(
-            "graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls
-        )
-        if should_escalate_fast_path(
-            ev_count,
-            has_graph=has_graph,
-            answer_status=chain.status.value if chain.status else None,
-        ):
-            agentic = run_agentic_query(
-                question,
-                executor,
-                llm,
-                guard_cfg=guard_cfg,
-                budget=budget,
-                allow_llm=allow_llm,
-                recursion_limit=recursion_limit,
-                checkpointer=checkpointer,
-                thread_id=thread_id,
-            )
-            agentic.metadata = {
-                **(agentic.metadata or {}),
-                "triage": triage_meta,
-                "escalated_from_fast_path": True,
-            }
-            return agentic
-        return chain
-
-    chain = run_agentic_query(
-        question,
-        executor,
-        llm,
+    """Entry with complexity triage (Fast Path vs Agentic, P3-PERF-01)."""
+    opts = options or QueryOptions(
         guard_cfg=guard_cfg,
         budget=budget,
         allow_llm=allow_llm,
         recursion_limit=recursion_limit,
         checkpointer=checkpointer,
         thread_id=thread_id,
+        force_agentic=force_agentic,
+        enable_triage=enable_triage,
+        known_entities=known_entities,
     )
+    return _run_with_triage(question, executor, llm, opts=opts)
+
+
+def _run_agentic(
+    question: str,
+    executor: Executor,
+    llm: LLMProvider | None,
+    *,
+    opts: AgentRunOptions,
+) -> ReasoningChain:
+    guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
+    budget = opts.budget or guard_cfg.budget_tracker()
+    rec_limit = (
+        opts.recursion_limit
+        if opts.recursion_limit is not None
+        else guard_cfg.recursion_limit
+    )
+    chain = ReasoningChain(question=question, route="agentic")
+    tid = opts.thread_id or chain.query_id or str(uuid4())
+    graph = build_graph(
+        executor, llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
+    )
+    t0 = time.perf_counter()
+    result = graph.invoke(
+        {
+            "question": question,
+            "chain": chain.model_dump(),
+            "sub_questions": [],
+            "current_index": 0,
+            "hop": 0,
+            "evidence": [],
+            "done": False,
+            "allow_llm": opts.allow_llm,
+        },
+        config=invoke_config(tid, recursion_limit=rec_limit),
+    )
+    return _finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
+
+
+def _finalize_agentic_chain(
+    result: dict[str, Any],
+    *,
+    budget: BudgetTracker | None,
+    tid: str,
+    t0: float,
+) -> ReasoningChain:
+    out = ReasoningChain.model_validate(result["chain"])
+    out.cost.latency_ms = int((time.perf_counter() - t0) * _MS_PER_SEC)
+    if budget:
+        snap = budget.snapshot()
+        out.cost.llm_calls = snap["llm_calls"]
+        out.cost.tokens = snap["total_tokens"]
+        out.cost.prompt_tokens = snap["prompt_tokens"]
+        out.cost.completion_tokens = snap["completion_tokens"]
+    meta = dict(out.metadata or {})
+    meta["thread_id"] = tid
+    meta["checkpointer"] = True
+    mem_snap = result.get("memory_snapshot") or {}
+    meta["memory_evidence_count"] = len(mem_snap.get("evidence") or [])
+    evidence = [Candidate.model_validate(e) for e in (result.get("evidence") or [])]
+    meta["confidence"] = grade_confidence(out, evidence)
+    out.metadata = meta
+    return out
+
+
+def _run_with_triage(
+    question: str,
+    executor: Executor,
+    llm: LLMProvider | None,
+    *,
+    opts: QueryOptions,
+) -> ReasoningChain:
+    run_opts = _resolved_run_opts(opts)
+    known = (
+        opts.known_entities
+        if opts.known_entities is not None
+        else list(executor.known_entities or [])
+    )
+
+    if not opts.enable_triage or opts.force_agentic:
+        chain = _run_agentic(question, executor, llm, opts=run_opts)
+        if opts.force_agentic:
+            chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
+        return chain
+
+    decision = triage(
+        question,
+        llm if opts.allow_llm else None,
+        allow_llm=opts.allow_llm and llm is not None,
+        force_agentic=False,
+        known_entities=known,
+    )
+    triage_meta = decision.model_dump(mode="json")
+    if decision.route == Route.FAST_PATH:
+        return _fast_path_or_escalate(
+            question, executor, llm, opts=run_opts, triage_meta=triage_meta
+        )
+    chain = _run_agentic(question, executor, llm, opts=run_opts)
     chain.metadata = {**(chain.metadata or {}), "triage": triage_meta}
     return chain
+
+
+def _resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
+    guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
+    budget = opts.budget or guard_cfg.budget_tracker()
+    return AgentRunOptions(
+        guard_cfg=guard_cfg,
+        budget=budget,
+        allow_llm=opts.allow_llm,
+        recursion_limit=opts.recursion_limit,
+        checkpointer=opts.checkpointer,
+        thread_id=opts.thread_id,
+    )
+
+
+def _fast_path_or_escalate(
+    question: str,
+    executor: Executor,
+    llm: LLMProvider | None,
+    *,
+    opts: AgentRunOptions,
+    triage_meta: dict[str, Any],
+) -> ReasoningChain:
+    chain = run_fast_path(
+        question,
+        executor,
+        llm,
+        allow_llm=opts.allow_llm,
+        budget=opts.budget,
+        triage_meta=triage_meta,
+    )
+    if not _should_escalate_chain(chain):
+        return chain
+    agentic = _run_agentic(question, executor, llm, opts=opts)
+    agentic.metadata = {
+        **(agentic.metadata or {}),
+        "triage": triage_meta,
+        "escalated_from_fast_path": True,
+    }
+    return agentic
+
+
+def _should_escalate_chain(chain: ReasoningChain) -> bool:
+    ev_count = sum(len(s.evidence_ids) for s in chain.steps)
+    has_graph = any(
+        "graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls
+    )
+    return should_escalate_fast_path(
+        ev_count,
+        has_graph=has_graph,
+        answer_status=chain.status.value if chain.status else None,
+    )

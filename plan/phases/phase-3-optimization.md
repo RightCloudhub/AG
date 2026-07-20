@@ -40,9 +40,9 @@
 - [x] `P3-AN-02` 推理链可视化 — `web/` 步骤/证据展示（为 P4 复用）
 
 ### 回归与评审（EV）
-- [ ] `P3-EV-01` 优化后全量回归评测：确认 Accuracy +≥25pp、Recall ≥85% 最终达标（AC-1/2）— **需 held-out + live**
-- [ ] `P3-EV-02` 分诊开启前后对比：确认 Fast Path 不损伤整体效果 — **代码就绪，正式数字待跑**
-- [ ] `P3-EV-03` G3 评审材料：效果报告 + 压测报告 + 护栏测试报告 + 增量更新演练记录
+- [~] `P3-EV-01` held-out offline 回归脚手架 — `scripts/p3_ev_offline.py` → `reports/g3_offline/heldout_eval.json`；**live AC-1/2 正式关闭仍开**
+- [~] `P3-EV-02` 分诊 A/B（triage on vs force agentic）— 同上 `triage_ablation.json`；`run-cases --enable-triage`
+- [~] `P3-EV-03` G3 材料脚手架 — `reports/g3_offline/G3_review_scaffold.{json,md}` + 增量 drill；**formal_g3_go=false**
 
 ## 交付物
 

@@ -58,36 +58,31 @@ def fuse_candidates(
         return []
 
     method_l = (method or "rrf").lower().strip()
-    if method_l == "concat":
-        fused = concat_candidates(*lists)
-    else:
-        fused = rrf_fuse(*lists, k=k, limit=None)
-
+    fused = concat_candidates(*lists) if method_l == "concat" else rrf_fuse(*lists, k=k, limit=None)
     if reranker is not None:
         fused = reranker.rerank(query, fused)
     if limit is not None:
         fused = fused[:limit]
-
-    # Ensure fusion channel tag when multi-list
     if len(lists) > 1 and method_l != "concat":
-        out: list[Candidate] = []
-        for c in fused:
-            if c.source != CandidateSource.FUSION:
-                out.append(
-                    Candidate(
-                        id=c.id,
-                        source=CandidateSource.FUSION,
-                        content=c.content,
-                        score=c.score,
-                        structured={
-                            **c.structured,
-                            "origin_source": c.source.value,
-                        },
-                        citations=list(c.citations),
-                        metadata=dict(c.metadata),
-                    )
-                )
-            else:
-                out.append(c)
-        return out
+        return _tag_fusion(fused)
     return fused
+
+
+def _tag_fusion(fused: list[Candidate]) -> list[Candidate]:
+    out: list[Candidate] = []
+    for c in fused:
+        if c.source == CandidateSource.FUSION:
+            out.append(c)
+            continue
+        out.append(
+            Candidate(
+                id=c.id,
+                source=CandidateSource.FUSION,
+                content=c.content,
+                score=c.score,
+                structured={**c.structured, "origin_source": c.source.value},
+                citations=list(c.citations),
+                metadata=dict(c.metadata),
+            )
+        )
+    return out

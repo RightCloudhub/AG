@@ -30,6 +30,8 @@ __all__ = [
     "relation_relevance",
 ]
 
+_PATH_LENGTH_BONUS = 0.01
+
 
 class GraphRetriever:
     def __init__(
@@ -103,31 +105,40 @@ class GraphRetriever:
         preferred = relation_types or infer_relation_types(
             sub_question, min_score=self.relation_relevance_threshold
         )
-
         beams = self._beam.beam_expand(
             entity_name,
             max_hops=max(1, hops),
             preferred_relations=preferred,
             sub_question=sub_question,
         )
+        ranked = self._rank_neighbor_edges(beams, entity_name, sub_question)
+        return self._neighbor_candidates(ranked[:lim], entity_name, preferred)
 
-        # Flatten unique edges with best score; keep order by score desc
+    def _rank_neighbor_edges(
+        self,
+        beams: list,
+        entity_name: str,
+        sub_question: str | None,
+    ) -> list[tuple[float, RelationRecord, EntityRecord, str]]:
         best: dict[str, tuple[float, RelationRecord, EntityRecord, str]] = {}
         for item in beams:
             for rel, ent in item.edges:
-                head = rel.head_name or entity_name
-                tail = rel.tail_name or ent.name
-                if not rel.head_name and not rel.tail_name:
-                    head, tail = entity_name, ent.name
+                head, tail, content = _edge_labels(rel, ent, entity_name)
                 key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
                 sc = edge_score(rel, sub_question)
                 prev = best.get(key)
                 if prev is None or sc > prev[0]:
-                    best[key] = (sc, rel, ent, f"{head} -[{rel.type}]-> {tail} ({ent.type})")
+                    best[key] = (sc, rel, ent, content)
+        return sorted(best.values(), key=lambda t: (-t[0], t[3]))
 
-        ranked = sorted(best.values(), key=lambda t: (-t[0], t[3]))
+    def _neighbor_candidates(
+        self,
+        ranked: list[tuple[float, RelationRecord, EntityRecord, str]],
+        entity_name: str,
+        preferred: list[str] | None,
+    ) -> list[Candidate]:
         out: list[Candidate] = []
-        for i, (sc, rel, ent, content) in enumerate(ranked[:lim]):
+        for i, (sc, rel, ent, content) in enumerate(ranked):
             head = rel.head_name or entity_name
             tail = rel.tail_name or ent.name
             out.append(
@@ -147,13 +158,7 @@ class GraphRetriever:
                         "attributes": ent.attributes,
                         "preferred_relations": preferred,
                     },
-                    citations=[
-                        Citation(
-                            entity_id=ent.id,
-                            relation_id=rel.id,
-                            span=content,
-                        )
-                    ],
+                    citations=[Citation(entity_id=ent.id, relation_id=rel.id, span=content)],
                     metadata={"beam_rank": i},
                 )
             )
@@ -171,8 +176,6 @@ class GraphRetriever:
         hops = max_hops if max_hops is not None else self.default_path_hops
         lim = min(limit or self.max_paths, self.max_paths)
         preferred = infer_relation_types(sub_question, min_score=self.relation_relevance_threshold)
-
-        # Prefer store paths then re-score/dedup; fall back to beam join if empty
         path_rows = self.store.paths(source_name, target_name, max_hops=hops, limit=lim * 3)
         if not path_rows:
             path_rows = self._beam.beam_paths(
@@ -182,54 +185,8 @@ class GraphRetriever:
                 preferred_relations=preferred,
                 sub_question=sub_question,
             )
-
-        scored: list[tuple[float, PathRecord, str]] = []
-        seen: set[str] = set()
-        for path in path_rows:
-            sig = path_signature(path.nodes, path.relations)
-            if sig in seen:
-                continue
-            seen.add(sig)
-            # Path score: length-penalized mean edge score
-            if path.relations:
-                edge_scores = [edge_score(r, sub_question) for r in path.relations]
-                mean_e = sum(edge_scores) / len(edge_scores)
-            else:
-                mean_e = 0.0
-            sc = mean_e / max(path.length, 1)
-            # Prefer shorter paths when scores tie-ish
-            sc = sc + 0.01 / max(path.length, 1)
-            if path.score:
-                sc = max(sc, float(path.score) * mean_e if mean_e else float(path.score))
-            parts: list[str] = []
-            for j, node in enumerate(path.nodes):
-                parts.append(node.name)
-                if j < len(path.relations):
-                    parts.append(f"-[{path.relations[j].type}]->")
-            content = " ".join(parts)
-            scored.append((sc, path, content))
-
-        scored.sort(key=lambda t: (-t[0], t[2]))
-        out: list[Candidate] = []
-        for i, (sc, path, content) in enumerate(scored[:lim]):
-            out.append(
-                Candidate(
-                    id=f"path:{source_name}:{target_name}:{i}",
-                    source=CandidateSource.GRAPH_PATH,
-                    content=content,
-                    score=sc,
-                    structured={
-                        "kind": "path",
-                        "nodes": [n.name for n in path.nodes],
-                        "relations": [r.type for r in path.relations],
-                        "length": path.length,
-                        "signature": path_signature(path.nodes, path.relations),
-                    },
-                    citations=[Citation(entity_id=n.id, span=n.name) for n in path.nodes],
-                    metadata={"rank": i},
-                )
-            )
-        return out
+        scored = _score_paths(path_rows, sub_question)
+        return _path_candidates(scored[:lim], source_name, target_name)
 
     def subgraph(
         self,
@@ -243,23 +200,18 @@ class GraphRetriever:
         """Seed set + relation constraints → union of pruned neighbor expansions."""
         hops = max_hops if max_hops is not None else self.default_neighbor_hops
         per_seed = max(1, (limit or self.max_neighbors_per_layer) // max(len(seed_entities), 1))
-        groups: list[list[Candidate]] = []
+        seen: set[str] = set()
+        out: list[Candidate] = []
         for seed in seed_entities:
             if not seed.strip():
                 continue
-            groups.append(
-                self.neighbors(
-                    seed,
-                    max_hops=hops,
-                    relation_types=relation_types,
-                    limit=per_seed,
-                    sub_question=sub_question,
-                )
+            group = self.neighbors(
+                seed,
+                max_hops=hops,
+                relation_types=relation_types,
+                limit=per_seed,
+                sub_question=sub_question,
             )
-        # Dedup by content signature across seeds
-        seen: set[str] = set()
-        out: list[Candidate] = []
-        for group in groups:
             for c in group:
                 key = c.content.lower()
                 if key in seen:
@@ -269,3 +221,80 @@ class GraphRetriever:
         out.sort(key=lambda c: (-c.score, c.id))
         lim = limit or self.max_neighbors_per_layer
         return out[:lim]
+
+
+def _edge_labels(
+    rel: RelationRecord, ent: EntityRecord, entity_name: str
+) -> tuple[str, str, str]:
+    head = rel.head_name or entity_name
+    tail = rel.tail_name or ent.name
+    if not rel.head_name and not rel.tail_name:
+        head, tail = entity_name, ent.name
+    content = f"{head} -[{rel.type}]-> {tail} ({ent.type})"
+    return head, tail, content
+
+
+def _score_paths(
+    path_rows: list[PathRecord], sub_question: str | None
+) -> list[tuple[float, PathRecord, str]]:
+    scored: list[tuple[float, PathRecord, str]] = []
+    seen: set[str] = set()
+    for path in path_rows:
+        sig = path_signature(path.nodes, path.relations)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        sc = _path_score(path, sub_question)
+        content = _path_content(path)
+        scored.append((sc, path, content))
+    scored.sort(key=lambda t: (-t[0], t[2]))
+    return scored
+
+
+def _path_score(path: PathRecord, sub_question: str | None) -> float:
+    if path.relations:
+        edge_scores = [edge_score(r, sub_question) for r in path.relations]
+        mean_e = sum(edge_scores) / len(edge_scores)
+    else:
+        mean_e = 0.0
+    sc = mean_e / max(path.length, 1)
+    sc = sc + _PATH_LENGTH_BONUS / max(path.length, 1)
+    if path.score:
+        sc = max(sc, float(path.score) * mean_e if mean_e else float(path.score))
+    return sc
+
+
+def _path_content(path: PathRecord) -> str:
+    parts: list[str] = []
+    for j, node in enumerate(path.nodes):
+        parts.append(node.name)
+        if j < len(path.relations):
+            parts.append(f"-[{path.relations[j].type}]->")
+    return " ".join(parts)
+
+
+def _path_candidates(
+    scored: list[tuple[float, PathRecord, str]],
+    source_name: str,
+    target_name: str,
+) -> list[Candidate]:
+    out: list[Candidate] = []
+    for i, (sc, path, content) in enumerate(scored):
+        out.append(
+            Candidate(
+                id=f"path:{source_name}:{target_name}:{i}",
+                source=CandidateSource.GRAPH_PATH,
+                content=content,
+                score=sc,
+                structured={
+                    "kind": "path",
+                    "nodes": [n.name for n in path.nodes],
+                    "relations": [r.type for r in path.relations],
+                    "length": path.length,
+                    "signature": path_signature(path.nodes, path.relations),
+                },
+                citations=[Citation(entity_id=n.id, span=n.name) for n in path.nodes],
+                metadata={"rank": i},
+            )
+        )
+    return out
