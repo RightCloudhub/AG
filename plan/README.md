@@ -1,7 +1,7 @@
 # AgenticGraphRAG 实施计划总览
 
 **关联文档**：[../PRD.md](../PRD.md) · [../lixiang.md](../lixiang.md)
-**版本**：V1.0（2026-07）
+**版本**：V1.1（2026-07-20：新增 engineering/rules.md 硬性规则汇总；api-and-ui.md 补充实现现状与前端交付）
 
 本目录是项目实施计划的唯一入口，按"阶段（时间维度）× 工作流（能力维度）"双视角组织。
 
@@ -25,6 +25,7 @@ plan/
 │   ├── api-and-ui.md             # 服务接口与问答界面
 │   └── evaluation.md             # 评测体系：评测集、指标、回归
 ├── engineering/                  # 工程规范与基础设施
+│   ├── rules.md                  # 硬性规则汇总（代码指标/安全/架构边界/文档同步）
 │   ├── tech-stack.md             # 技术选型与决策记录
 │   ├── repo-structure.md         # 代码仓库结构
 │   ├── testing-strategy.md       # 测试策略（TDD、80% 覆盖率）
@@ -39,6 +40,7 @@ plan/
 - **看进度/排期** → [roadmap.md](./roadmap.md)，每阶段有明确的 Go/No-Go 门禁。
 - **领任务** → `phases/` 下对应阶段文件，任务带编号（如 `P1-KG-01`），编号规则：`P<阶段>-<工作流>-<序号>`。
 - **查技术方案** → `workstreams/` 下对应工作流文件，需求引用 PRD 编号（FR-*）。
+- **查硬性规则** → [engineering/rules.md](./engineering/rules.md)，代码指标、安全清单、架构边界、文档同步的强制约定及其强制机制（CI/脚本/评审）。
 - **改选型** → 先在 [engineering/tech-stack.md](./engineering/tech-stack.md) 追加决策记录（ADR），再动代码。
 - **报风险** → 更新 [governance/risk-register.md](./governance/risk-register.md)。
 

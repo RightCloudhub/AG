@@ -133,6 +133,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | ID | 状态 |
 |----|------|
 | P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
+| P4-UI 增强 | 🟡 **延期** — 内联引用角标、子问题分解树、图路径可视化；以折叠推理链 JSON + 步骤列表交付（`plan/workstreams/api-and-ui.md` §2.3） |
 | P4-REL-02…04 | **部分 [x]** — ops-runbook + metrics；生产部署/告警接部署侧 |
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
@@ -168,6 +169,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | 推理链 | Schema + 响应内 chain | 落库 + 按 query id 审计（P3-AN-01） |
 | BudgetTracker | 单次运行记账 / 熔断 | 租户与用户级硬上限 + 错误码（P3-OP-02） |
 | 图关系打分 | 仅词法 cue | Embedding 重排（P3） |
+| SSE 流式 | 查询**完成后**按 steps 回放事件（`service_query._stream_run`） | `astream_events` 真·增量流式（P3-PERF-06 设计口径，`api-and-ui.md` §1.3 ⚠） |
 | 接入格式 | 偏 MD/TXT | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本） |
 | 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
