@@ -19,6 +19,7 @@ from agentic_graphrag.generation.offline_heuristics.rules_org import (
     rule_logistics,
     rule_parent_of_producer,
     rule_parent_owns,
+    rule_subsidiary_yes_no,
 )
 from agentic_graphrag.generation.offline_heuristics.rules_people import (
     rule_both_orion,
@@ -38,6 +39,7 @@ RuleFn = Callable[..., str | None]
 # Same order as the original monolithic focused_extract (order matters).
 _RULES: tuple[RuleFn, ...] = (
     rule_both_orion,
+    rule_subsidiary_yes_no,
     rule_meridian_helix_ceo,
     rule_meridian_executives,
     rule_prior_employers,

@@ -196,7 +196,16 @@ def rule_ceo_of_company(
 
 
 def _ceo_of_entity(entity: str, view: EdgeView) -> str | None:
+    """CEO of *this* company only — require the company to match the edge tail.
+
+    Uses a strict-enough match so multi-hop neighbors (supplier CEOs) are not
+    returned for an unrelated seed company.
+    """
+    el = entity.lower().strip()
+    if not el:
+        return None
     for h, t in view.find_edges("CEO_OF"):
-        if view.related_to(entity, t):
+        tl = t.lower().strip()
+        if tl == el or el in tl or tl in el:
             return h
     return None

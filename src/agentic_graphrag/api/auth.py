@@ -75,7 +75,9 @@ class RateLimiter:
             hits = self._hits[tenant_id]
             while hits and now - hits[0] > self.window_seconds:
                 hits.popleft()
-            if len(hits) >= self.qps:
+            # Floor QPS so float configs (e.g. 2.5) never admit ceil(qps) free hits.
+            qps_limit = max(1, int(self.qps))
+            if len(hits) >= qps_limit:
                 return "rate limit: QPS exceeded"
             if self._inflight[tenant_id] >= self.concurrent:
                 return "rate limit: concurrent queries exceeded"

@@ -95,6 +95,41 @@ def test_neighbors_prefers_relevant_relations():
     assert any(r in top_rels for r in ("SUBSIDIARY_OF", "PARENT_OF", "CEO_OF", "PRODUCES"))
 
 
+def test_multi_hop_neighbors_prefer_seed_touching_edges():
+    """CEO edges of *other* companies must not outrank 1-hop seed edges."""
+    from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
+    from agentic_graphrag.knowledge.graph_builder import triples_to_records
+
+    triples = [
+        Triple(
+            head=EntityMention(name="BrightLink Logistics", type="Company"),
+            relation="SUPPLIES",
+            tail=EntityMention(name="NovaTech Industries", type="Company"),
+            confidence=0.9,
+        ),
+        Triple(
+            head=EntityMention(name="Marcus Chen", type="Person"),
+            relation="CEO_OF",
+            tail=EntityMention(name="NovaTech Industries", type="Company"),
+            confidence=0.99,
+        ),
+    ]
+    ents, rels = triples_to_records(triples)
+    store = InMemoryGraphStore()
+    store.upsert_entities(ents)
+    store.upsert_relations(rels)
+    ret = GraphRetriever.from_config(store, GraphRetrievalConfig(max_neighbors_per_layer=10))
+    hits = ret.neighbors(
+        "BrightLink Logistics",
+        max_hops=2,
+        sub_question="Who is the CEO of BrightLink Logistics?",
+    )
+    assert hits
+    # Seed SUPPLIES edge should rank above multi-hop CEO of NovaTech
+    assert hits[0].structured["relation"] == "SUPPLIES"
+    assert "BrightLink" in hits[0].content
+
+
 def test_path_dedup_and_topk():
     store = _seed_store()
     cfg = GraphRetrievalConfig(max_paths=5, max_path_hops=3)

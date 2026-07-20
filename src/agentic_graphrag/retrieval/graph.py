@@ -121,11 +121,19 @@ class GraphRetriever:
         sub_question: str | None,
     ) -> list[tuple[float, RelationRecord, EntityRecord, str]]:
         best: dict[str, tuple[float, RelationRecord, EntityRecord, str]] = {}
+        qn = normalize_name(entity_name)
         for item in beams:
             for rel, ent in item.edges:
                 head, tail, content = _edge_labels(rel, ent, entity_name)
                 key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
                 sc = edge_score(rel, sub_question)
+                # Multi-hop beams surface edges about *other* nodes (e.g. CEO of a
+                # supplier). Strongly prefer edges that touch the seed entity so
+                # "CEO of BrightLink" is not answered with "CEO of NovaTech".
+                if _edge_touches_seed(rel, head, tail, qn):
+                    sc += 1.0
+                else:
+                    sc *= 0.2
                 prev = best.get(key)
                 if prev is None or sc > prev[0]:
                     best[key] = (sc, rel, ent, content)
@@ -232,6 +240,19 @@ def _edge_labels(
         head, tail = entity_name, ent.name
     content = f"{head} -[{rel.type}]-> {tail} ({ent.type})"
     return head, tail, content
+
+
+def _edge_touches_seed(
+    rel: RelationRecord, head: str, tail: str, seed_norm: str
+) -> bool:
+    """True when the edge endpoints involve the beam seed entity."""
+    if not seed_norm:
+        return True
+    for name in (head, tail, rel.head_name or "", rel.tail_name or ""):
+        n = normalize_name(name)
+        if n and (n == seed_norm or seed_norm in n or n in seed_norm):
+            return True
+    return False
 
 
 def _score_paths(

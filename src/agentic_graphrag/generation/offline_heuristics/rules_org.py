@@ -6,6 +6,58 @@ from agentic_graphrag.generation.offline_heuristics.constants import PRODUCT_Q_K
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 
 
+def rule_subsidiary_yes_no(
+    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
+) -> str | None:
+    """Yes/no: is X a subsidiary of Y / is Y parent of X."""
+    del texts
+    if not _subsidiary_yes_no_q(q):
+        return None
+    if len(ents) < 1:
+        return None
+    if _pair_is_subsidiary(ents, view):
+        return "Yes"
+    if _pair_is_not_subsidiary(ents, view):
+        return "No"
+    return None
+
+
+def _subsidiary_yes_no_q(q: str) -> bool:
+    if not (q.strip().startswith("is ") or " is " in f" {q}"):
+        return False
+    return "subsidiary" in q or ("parent" in q and "who" not in q and "ceo" not in q)
+
+
+def _pair_is_subsidiary(ents: list[str], view: EdgeView) -> bool:
+    for h, t in view.find_edges("PARENT_OF"):
+        if _names_cover_pair(ents, child=t, parent=h):
+            return True
+    for h, t in view.find_edges("SUBSIDIARY_OF"):
+        if _names_cover_pair(ents, child=h, parent=t):
+            return True
+    return False
+
+
+def _pair_is_not_subsidiary(ents: list[str], view: EdgeView) -> bool:
+    """Only say No when we have parent edges for the child but not to the asked parent."""
+    if len(ents) < 2:
+        return False
+    # If any parent edge exists for first entity to a *different* parent, still unknown
+    # rather than hard No (data may be incomplete). Prefer None → honest/partial.
+    del view
+    return False
+
+
+def _names_cover_pair(ents: list[str], *, child: str, parent: str) -> bool:
+    child_hit = any(view_related(e, child) for e in ents)
+    parent_hit = any(view_related(e, parent) for e in ents)
+    return child_hit and parent_hit
+
+
+def view_related(a: str, b: str) -> bool:
+    return EdgeView.related_to(a, b)
+
+
 def rule_parent_of_producer(
     q: str, ents: list[str], view: EdgeView, *, texts: list[str]
 ) -> str | None:
