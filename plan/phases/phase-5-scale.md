@@ -16,6 +16,9 @@
 - [x] `P5-CAP-03` 答案置信度分级 — `generation/confidence.py` · metadata.confidence
 - [x] `P5-CAP-04` 学习型 Re-ranker 接口预留 — `retrieval/fusion.Reranker`（训练落地待数据）
 
+### 2b. 前端框架化（rules.md §8 预留的阶段五事项）
+- [~] `P5-UI-01` 试用 Web 前端框架化 — Vue 3 零构建重构 + 交互增强；**代码半落地，`web/` 暂不可用**；执行计划 / 逐文件注记 / 回滚：[p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)（ADR-006 待补入 tech-stack.md）
+
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表
 - [ ] `P5-GOV-02` 评测集持续扩充：badcase 与人工复核结论按季度回流评测集，防指标过拟合
