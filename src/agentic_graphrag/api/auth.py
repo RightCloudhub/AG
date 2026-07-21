@@ -29,6 +29,7 @@ class Principal:
     tenant_id: str
     api_key: str
     user_id: str = "default"
+    canary: bool = False
 
 
 def parse_api_keys(raw: str | None = None) -> dict[str, str]:
@@ -49,6 +50,20 @@ def parse_api_keys(raw: str | None = None) -> dict[str, str]:
 
 def require_auth_enabled() -> bool:
     return os.environ.get("AGR_REQUIRE_AUTH", "").lower() in {"1", "true", "yes"}
+
+
+def canary_tenants() -> frozenset[str]:
+    """Tenants in canary allowlist (AGR_CANARY_TENANTS=t1,t2)."""
+    raw = os.environ.get("AGR_CANARY_TENANTS", "")
+    return frozenset(p.strip() for p in raw.split(",") if p.strip())
+
+
+def degrade_to_fast_path_enabled() -> bool:
+    return os.environ.get("AGR_DEGRADE_TO_FAST_PATH", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 class RateLimiter:
@@ -152,8 +167,10 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
         return Principal(tenant_id="default", api_key="", user_id="anonymous"), None
 
     def _principal_for(self, key: str, request: Request) -> Principal:
+        tenant = self.api_keys[key]
         return Principal(
-            tenant_id=self.api_keys[key],
+            tenant_id=tenant,
             api_key=key,
             user_id=request.headers.get("x-user-id") or "default",
+            canary=tenant in canary_tenants(),
         )

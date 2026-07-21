@@ -80,8 +80,17 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
 def _register_routes(app: FastAPI) -> None:
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    def healthz(request: Request) -> dict[str, Any]:
+        svc = getattr(request.app.state, "query_service", None)
+        payload: dict[str, Any] = {"status": "ok"}
+        if svc is not None and getattr(svc, "bundle", None) is not None:
+            b = svc.bundle
+            payload["graph_backend"] = getattr(b.graph_backend, "value", str(b.graph_backend))
+            payload["vector_backend"] = getattr(
+                b.vector_backend, "value", str(b.vector_backend)
+            )
+            payload["allow_llm"] = bool(getattr(svc, "allow_llm", False))
+        return payload
 
     app.include_router(query_routes.router)
     app.include_router(knowledge_routes.router)

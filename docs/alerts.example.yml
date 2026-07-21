@@ -1,0 +1,36 @@
+# Example Prometheus alert rules for AgenticGraphRAG (P4-REL-03).
+# Scrape GET /v1/metrics/prometheus (or /metrics reverse-proxy).
+groups:
+  - name: agentic_graphrag
+    rules:
+      - alert: AgenticLatencyP95High
+        expr: agr_latency_p95_by_route_ms{route="agentic"} > 8000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agentic P95 latency above 8s (AC-4)"
+
+      - alert: FastPathLatencyP95High
+        expr: agr_latency_p95_by_route_ms{route="fast_path"} > 3000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fast Path P95 latency above 3s (AC-4)"
+
+      - alert: BudgetTripsSpike
+        expr: increase(agr_budget_trips_total[15m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Budget circuit trips spiking"
+
+      - alert: ErrorRateHigh
+        expr: agr_recent_error_rate > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recent error rate > 5%"

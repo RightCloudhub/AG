@@ -128,33 +128,50 @@ class RetrievalCache:
         self.embeddings = MemoryCache(max_entries=50_000)
         self.cache_dir = Path(cache_dir) if cache_dir else None
 
-    def retrieval_key(self, query: str, tools: str = "") -> str:
+    def retrieval_key(self, query: str, tools: str = "", *, tenant_id: str = "") -> str:
         v = self.index_version.current()
-        return f"ret:v{v}:{content_hash(normalize_query_key(query) + '|' + tools)}"
+        tenant = tenant_id or "default"
+        body = f"{tenant}|{normalize_query_key(query)}|{tools}"
+        return f"ret:v{v}:{content_hash(body)}"
 
-    def answer_key(self, question: str) -> str:
+    def answer_key(self, question: str, *, tenant_id: str = "") -> str:
         v = self.index_version.current()
-        return f"ans:v{v}:{content_hash(normalize_query_key(question))}"
+        tenant = tenant_id or "default"
+        body = f"{tenant}|{normalize_query_key(question)}"
+        return f"ans:v{v}:{content_hash(body)}"
 
     def embedding_key(self, text: str) -> str:
         return f"emb:{content_hash(text)}"
 
-    def get_retrieval(self, query: str, tools: str = "") -> list[Candidate] | None:
-        raw = self.retrieval.get(self.retrieval_key(query, tools))
+    def get_retrieval(
+        self, query: str, tools: str = "", *, tenant_id: str = ""
+    ) -> list[Candidate] | None:
+        raw = self.retrieval.get(self.retrieval_key(query, tools, tenant_id=tenant_id))
         if raw is None:
             return None
         return [Candidate.model_validate(c) for c in raw]
 
-    def set_retrieval(self, query: str, candidates: list[Candidate], tools: str = "") -> None:
+    def set_retrieval(
+        self,
+        query: str,
+        candidates: list[Candidate],
+        tools: str = "",
+        *,
+        tenant_id: str = "",
+    ) -> None:
         payload = [c.model_dump(mode="json") for c in candidates]
-        self.retrieval.set(self.retrieval_key(query, tools), payload)
+        self.retrieval.set(
+            self.retrieval_key(query, tools, tenant_id=tenant_id), payload
+        )
 
-    def get_answer(self, question: str) -> dict[str, Any] | None:
-        return self.answers.get(self.answer_key(question))
+    def get_answer(self, question: str, *, tenant_id: str = "") -> dict[str, Any] | None:
+        return self.answers.get(self.answer_key(question, tenant_id=tenant_id))
 
-    def set_answer(self, question: str, chain_payload: dict[str, Any]) -> None:
+    def set_answer(
+        self, question: str, chain_payload: dict[str, Any], *, tenant_id: str = ""
+    ) -> None:
         self.answers.set(
-            self.answer_key(question),
+            self.answer_key(question, tenant_id=tenant_id),
             chain_payload,
             ttl_seconds=self.answer_ttl_seconds,
         )

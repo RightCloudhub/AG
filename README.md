@@ -17,7 +17,8 @@
 | 阶段一～三（代码） | 大体落地：抽取 / 入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计 |
 | **试用 Web UI（P4-UI-01 + P5-UI-01）** | **已完成** — Vue 3 零构建重构（ADR-006），会话历史/逐 turn 反馈/流中中止/健康点等交互增强，挂载于 `/web` |
 | API 鉴权 / 限流（P4-UI-02） | **已完成** — `AGR_REQUIRE_AUTH` / `AGR_API_KEYS` |
-| 效果门禁（G2/G3/G4） | 仍开：held-out live 评测、生产部署与灰度流程 |
+| 效果门禁（G2/G3/G4） | 仍开：held-out **live** 评测、真域语料、生产 P95/灰度签字 |
+| 验收编排 | `./scripts/acceptance_gate.sh` → `reports/ACCEPTANCE_STATUS.json` |
 
 > 工程进度 ≠ 产品验收。真域语料、live 评测签字、生产部署仍见 [docs/IMPORTANT.md](./docs/IMPORTANT.md)。
 

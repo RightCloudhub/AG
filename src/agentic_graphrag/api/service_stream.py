@@ -49,7 +49,7 @@ def stream_query_events(
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Yield SSE (event, payload) pairs with live hop progress."""
-    cache_events = _stream_cache_hit(svc, req)
+    cache_events = _stream_cache_hit(svc, req, tenant_id=tenant_id)
     if cache_events is not None:
         yield from cache_events
         return

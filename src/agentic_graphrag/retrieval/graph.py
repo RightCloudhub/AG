@@ -76,6 +76,8 @@ class GraphRetriever:
         cls,
         store: GraphStore,
         cfg: GraphRetrievalConfig | AppConfig | None = None,
+        *,
+        relation_embed_sim: RelationEmbedSim | None = None,
     ) -> GraphRetriever:
         """Build from application / graph retrieval config (P2-RT-01 caps)."""
         from agentic_graphrag.config import AppConfig, get_config
@@ -95,6 +97,7 @@ class GraphRetriever:
             beam_width=g.beam_width,
             high_degree_threshold=g.high_degree_threshold,
             relation_relevance_threshold=g.relation_relevance_threshold,
+            relation_embed_sim=relation_embed_sim,
         )
 
     def neighbors(

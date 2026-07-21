@@ -68,13 +68,20 @@ def build_retrievers(
     VectorRetriever | None,
     LLMProvider | MockLLMProvider,
 ]:
-    graph_ret = GraphRetriever.from_config(graph_store, cfg)
     ft_store = BM25FulltextStore()
     ft_path = resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
     if ft_path.exists():
         ft_store.load(str(ft_path))
     fulltext_ret = FulltextRetriever(ft_store, top_k=cfg.retrieval.fulltext_top_k)
     vector_ret, llm = _vector_and_llm(cfg, settings, no_llm=no_llm)
+    rel_scorer = None
+    if not no_llm:
+        from agentic_graphrag.retrieval.relation_embed import make_relation_embed_sim
+
+        rel_scorer = make_relation_embed_sim(llm)
+    graph_ret = GraphRetriever.from_config(
+        graph_store, cfg, relation_embed_sim=rel_scorer
+    )
     return graph_ret, fulltext_ret, vector_ret, llm
 
 

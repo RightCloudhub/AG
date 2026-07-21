@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
@@ -16,6 +17,13 @@ from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
+
+
+def _tenant_id(request: Request) -> str:
+    principal = getattr(request.state, "principal", None)
+    if principal is not None and getattr(principal, "tenant_id", None):
+        return str(principal.tenant_id)
+    return "default"
 
 # In-process ingest task registry (pilot-scale)
 _TASKS: dict[str, dict[str, Any]] = {}
@@ -143,8 +151,10 @@ def get_audit_query(query_id: str, request: Request) -> dict:
     svc = _service(request)
     if svc.audit_store is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
-    row = svc.audit_store.get(query_id)
+    tenant_id = _tenant_id(request)
+    row = svc.get_audit_for_tenant(query_id, tenant_id=tenant_id)
     if row is None:
+        # Same 404 for missing and cross-tenant (no existence leak).
         raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
     return ok(row)
 
@@ -154,20 +164,34 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
     """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
     svc = _service(request)
     user_id = request.headers.get("x-user-id") or "anonymous"
-    result = svc.submit_feedback(
-        body.query_id,
-        accurate=body.accurate,
-        reason=body.reason,
-        user_id=user_id,
-    )
+    tenant_id = _tenant_id(request)
+    try:
+        result = svc.submit_feedback(
+            body.query_id,
+            accurate=body.accurate,
+            reason=body.reason,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+    except PermissionError as exc:
+        raise ApiError("FORBIDDEN", str(exc), status_code=403) from exc
     return ok(result)
 
 
 @router.get("/metrics")
-def get_metrics_summary() -> dict:
+def get_metrics_summary(request: Request) -> dict:
     from agentic_graphrag.observability.metrics import get_metrics
 
+    del request  # principal available via middleware when auth on
     return ok(get_metrics().summary())
+
+
+@router.get("/metrics/prometheus")
+def get_metrics_prometheus() -> PlainTextResponse:
+    """Prometheus text exposition for deploy-side alerts (P4-REL-03)."""
+    from agentic_graphrag.observability.metrics import get_metrics
+
+    return PlainTextResponse(get_metrics().prometheus_text(), media_type="text/plain")
 
 
 @router.get("/graph/entities")

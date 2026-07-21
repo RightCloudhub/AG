@@ -89,20 +89,73 @@ class MetricsRegistry:
         with self._lock:
             lat = list(self._latency)
             hops = list(self._hops)
+            events = list(self._events)
+            by_route = self._latency_by_route(events)
+            recent_err = self._recent_error_rate(events, window=50)
             return {
-                "count": len(self._events),
+                "count": len(events),
                 "latency_p50_ms": self.percentile(50, lat),
                 "latency_p95_ms": self.percentile(95, lat),
                 "latency_p99_ms": self.percentile(99, lat),
+                "latency_by_route": by_route,
                 "hops_avg": (sum(hops) / len(hops)) if hops else 0.0,
                 "route_counts": dict(self._route_counts),
                 "error_counts": dict(self._error_counts),
                 "budget_trips": self._budget_trips,
+                "recent_error_rate": recent_err,
             }
 
     def recent(self, n: int = 50) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._events[-n:])
+
+    def prometheus_text(self) -> str:
+        """Minimal Prometheus exposition for deploy-side scrapers."""
+        s = self.summary()
+        lines = [
+            "# HELP agr_queries_total Total recorded queries",
+            "# TYPE agr_queries_total counter",
+            f"agr_queries_total {s['count']}",
+            "# HELP agr_latency_p95_ms Query latency P95 milliseconds",
+            "# TYPE agr_latency_p95_ms gauge",
+            f"agr_latency_p95_ms {s['latency_p95_ms']}",
+            "# HELP agr_budget_trips_total Budget trip count",
+            "# TYPE agr_budget_trips_total counter",
+            f"agr_budget_trips_total {s['budget_trips']}",
+            "# HELP agr_recent_error_rate Recent error rate (0-1)",
+            "# TYPE agr_recent_error_rate gauge",
+            f"agr_recent_error_rate {s['recent_error_rate']}",
+        ]
+        for route, stats in (s.get("latency_by_route") or {}).items():
+            p95 = stats.get("p95_ms", 0.0)
+            lines.append(
+                f'agr_latency_p95_by_route_ms{{route="{route}"}} {p95}'
+            )
+        for code, n in (s.get("error_counts") or {}).items():
+            lines.append(f'agr_errors_total{{code="{code}"}} {n}')
+        return "\n".join(lines) + "\n"
+
+    def _latency_by_route(self, events: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+        buckets: dict[str, list[int]] = defaultdict(list)
+        for e in events:
+            buckets[str(e.get("route") or "unknown")].append(int(e.get("latency_ms") or 0))
+        out: dict[str, dict[str, float]] = {}
+        for route, vals in buckets.items():
+            out[route] = {
+                "p50_ms": self.percentile(50, vals),
+                "p95_ms": self.percentile(95, vals),
+                "p99_ms": self.percentile(99, vals),
+                "count": float(len(vals)),
+            }
+        return out
+
+    @staticmethod
+    def _recent_error_rate(events: list[dict[str, Any]], *, window: int) -> float:
+        slice_ = events[-window:] if events else []
+        if not slice_:
+            return 0.0
+        bad = sum(1 for e in slice_ if e.get("error_code") or e.get("status") == "error")
+        return bad / len(slice_)
 
 
 _GLOBAL = MetricsRegistry()

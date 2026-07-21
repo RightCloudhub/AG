@@ -60,9 +60,12 @@ def build_executor_for_service(
     retrieval_cache: object | None,
     enable_cache: bool,
 ) -> Executor:
-    graph_ret = GraphRetriever.from_config(bundle.graph, cfg)
-    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=cfg.retrieval.fulltext_top_k)
     llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
+    rel_scorer = _relation_embed_sim(allow_llm=allow_llm, llm=llm_for_embed)
+    graph_ret = GraphRetriever.from_config(
+        bundle.graph, cfg, relation_embed_sim=rel_scorer
+    )
+    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=cfg.retrieval.fulltext_top_k)
     vector_ret = VectorRetriever(
         bundle.vector, llm_for_embed, top_k=cfg.retrieval.vector_top_k
     )
@@ -106,6 +109,18 @@ def _embed_llm(
     if allow_llm and settings.llm_api_key:
         return build_llm_provider(settings=settings, cfg=cfg)
     return MockLLMProvider()
+
+
+def _relation_embed_sim(*, allow_llm: bool, llm: object):
+    """Wire production relation embed scorer only on live LLM paths."""
+    if not allow_llm:
+        return None
+    from agentic_graphrag.retrieval.relation_embed import make_relation_embed_sim
+
+    embed = getattr(llm, "embed", None)
+    if not callable(embed):
+        return None
+    return make_relation_embed_sim(llm)  # type: ignore[arg-type]
 
 
 def cost_units_for_chain(llm_calls: int) -> float:

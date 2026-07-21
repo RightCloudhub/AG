@@ -65,9 +65,9 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 # Coverage gate (P2-ARCH-04 / NFR-09).
-# Omitted: CLI entrypoints, LLM HTTP client, Neo4j/Qdrant live adapters, and the
-# large offline answer-heuristic module (covered via agent offline E2E-style unit
-# tests). Expand unit coverage before removing omit entries.
+# Omitted: CLI entrypoints (glue), Neo4j live adapter (integration), domain
+# offline rules + synthetic pilot generator. answer/offline_answer/provider
+# removed from omit after thin unit tests (2026-07 acceptance wave).
 [tool.coverage.run]
 branch = false
 source = ["agentic_graphrag"]
@@ -75,9 +75,6 @@ omit = [
     "*/agentic_graphrag/cli/*",
     "*/agentic_graphrag/__main__.py",
     "*/agentic_graphrag/stores/neo4j_store.py",
-    "*/agentic_graphrag/llm/provider.py",
-    "*/agentic_graphrag/generation/answer.py",
-    "*/agentic_graphrag/generation/offline_answer.py",
     # Domain-hardcoded offline answer rules only (EdgeView/dispatcher still measured)
     "*/agentic_graphrag/generation/offline_heuristics/rules_*.py",
     # Synthetic pilot triple generator (script universe, not runtime path)

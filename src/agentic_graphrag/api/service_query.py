@@ -39,7 +39,7 @@ def execute_run_query(
 ) -> QueryResultData:
     """Run a full query with cache, budget, audit, and metrics."""
     t0 = time.perf_counter()
-    cached = _try_answer_cache(svc, req)
+    cached = _try_answer_cache(svc, req, tenant_id=tenant_id)
     if cached is not None:
         return cached
     _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
@@ -67,10 +67,12 @@ def stream_query_events(
     yield from _live(svc, req, tenant_id=tenant_id, user_id=user_id)
 
 
-def _try_answer_cache(svc: QueryService, req: QueryRequest) -> QueryResultData | None:
+def _try_answer_cache(
+    svc: QueryService, req: QueryRequest, *, tenant_id: str = "default"
+) -> QueryResultData | None:
     if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
         return None
-    hit = svc.retrieval_cache.get_answer(req.question)
+    hit = svc.retrieval_cache.get_answer(req.question, tenant_id=tenant_id)
     if hit is None:
         return None
     data = QueryResultData.model_validate(hit)
@@ -200,7 +202,11 @@ def _persist_and_commit(
             pass
     if svc.enable_cache and svc.retrieval_cache is not None:
         try:
-            svc.retrieval_cache.set_answer(req.question, chain.model_dump(mode="json"))
+            svc.retrieval_cache.set_answer(
+                req.question,
+                chain.model_dump(mode="json"),
+                tenant_id=tenant_id,
+            )
         except Exception:
             pass
     if svc.multi_budget:
@@ -231,11 +237,14 @@ def _record_metrics(chain: ReasoningChain, *, tenant_id: str, user_id: str) -> N
 
 
 def _stream_cache_hit(
-    svc: QueryService, req: QueryRequest
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str = "default",
 ) -> list[tuple[str, dict[str, Any]]] | None:
     if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
         return None
-    hit = svc.retrieval_cache.get_answer(req.question)
+    hit = svc.retrieval_cache.get_answer(req.question, tenant_id=tenant_id)
     if hit is None:
         return None
     return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]

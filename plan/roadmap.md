@@ -50,19 +50,19 @@
 ### G2 — MVP 出口
 - [x] 全部 P0 需求（PRD 第3节）**代码侧**实现并通过单元测试
 - [x] 评测集 ≥200 条（自动金标 + 规范）；一键评测可用（`agr-eval` / `evals/run.py`）
-- [~] Accuracy 较 Baseline 提升趋势（**dev offline** 已见 ≥15pp；**heldout/live 正式关**仍开）
-- [~] 证据 Recall ≥75%（**dev offline** 达标；heldout offline 见 `scripts/p3_ev_offline.py`）
+- [~] Accuracy 较 Baseline 提升趋势（**dev offline** ≥15pp；**heldout offline** 见 `reports/g2_heldout/`；**live 正式关**仍开）
+- [~] 证据 Recall ≥75%（**dev offline** 达标；heldout offline 本轮 ~0.67，live 仍开）
 
 ### G3 — 优化出口
-- [ ] AC-4：Agentic P95 ≤ 8s；Fast Path P95 ≤ 3s — **仅 offline 脚手架**
-- [~] AC-6：护栏专项 offline 通过；生产熔断待部署验证
+- [~] AC-4：Agentic P95 ≤ 8s；Fast Path P95 ≤ 3s — offline load harness `scripts/p3_load_http.py`；**生产 live 压测仍开**
+- [~] AC-6：护栏专项 offline 通过；LLM circuit + 预算/限流代码有；**部署侧告警验证仍开**
 - [ ] AC-1/AC-2 最终达标：+≥25pp / Recall ≥85% — **需 live held-out**
 - [~] 增量更新流程演练（AC-5）— offline smoke：`reports/g3_offline/incremental_drill.json`
 
 ### G4 — 试点出口
 - [ ] PRD 第7节全部验收项（AC-1 ~ AC-7）通过
-- [ ] 灰度用户反馈收集 ≥2 周，badcase 库建立
-- [ ] 监控告警、预算熔断、审计回查在生产环境验证
+- [~] 灰度：`AGR_CANARY_TENANTS` + runbook；**≥2 周反馈流程仍开**
+- [~] 监控 Prometheus 文本 + `docs/alerts.example.yml`；审计 AuthZ + `sample_audit.py`；**生产环境验证仍开**
 
 ## 3. 关键依赖关系
 

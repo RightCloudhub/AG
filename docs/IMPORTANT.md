@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-07-21  
+**最近汇总：** 2026-07-22  
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
 **符号约定**
@@ -30,8 +30,10 @@
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
 | 仍开 | live held-out AC、生产 P95、产品真域签字、G3/G4 正式验收 |
 | 本环境 | 本地 tarball Neo4j + Temurin 17；LLM 网关易 403 |
+| 2026-07-22 工程波次 | relation embedder 接线、tenant 审计 AuthZ/cache 前缀、LLM circuit、prometheus metrics、live stores API 开关、acceptance/load/qdrant 脚本、omit 收紧（answer/provider/offline_answer） |
 
 ```bash
+./scripts/acceptance_gate.sh                 # 统一验收状态 → reports/ACCEPTANCE_STATUS.json
 ./scripts/g1_to_g2_gate.sh
 ./scripts/g1_to_g2_gate.sh --with-llm
 PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + AC-5 smoke
@@ -83,7 +85,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 |------|--------|--------|
 | P2-AG-03 Memory | typed state + `MemorySaver` checkpointer + 节点 hydrate | 磁盘 SQLite checkpointer 可选（需 `langgraph-checkpoint-sqlite`）；跨进程审计 API 仍在 P3-AN-01 |
 | P2-EV-01 | Case schema + 确定性金标生成器 | ≥200 人工/精选集（EV-02） |
-| P2-RT-01 图 beam | 词法 cue + beam 上限 + `blend_relation_score` 嵌入钩子 | 生产 embedder 接入（live cosine 相似度） |
+| P2-RT-01 图 beam | 词法 cue + beam 上限 + `make_relation_embed_sim` 已接线（allow_llm） | live 效果 A/B 与生产 embed 端点稳定性 |
 | P2-KG-01 抽取管线 | journal / retry / quarantine / 溯源 | 试点语料上的 live 抽取质量；人工隔离区审核 UX |
 | 覆盖率门禁 P2-ARCH-04 | fail_under 80% | 仍有模块 **omit**（见 §6） |
 
@@ -154,11 +156,13 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 
 | 省略路径 | 记录原因 | 延期动作 |
 |----------|----------|----------|
-| `cli/*`、`__main__.py` | 入口胶水 | 补薄测或保留 omit 并写清理由 |
-| `stores/neo4j_store.py` | 在线适配器 | Docker 可用时做集成测（挂钩 C3） |
-| `llm/provider.py` | 在线 HTTP 客户端 | 契约/mock 测；C2 下 live 冒烟 |
-| `generation/answer.py` | LLM 生成路径 | live 生成测试 |
-| `generation/offline_answer.py` | 大启发式；靠 agent 离线 E2E 覆盖 | 拆分后优先单测 heuristics 模块 |
+| `cli/*`、`__main__.py` | 入口胶水 | 保留 omit；必要时补 parser 薄测 |
+| `stores/neo4j_store.py` | 在线适配器 | Docker 可用时做集成测（挂钩 C3）；helpers 已有单测 |
+| ~~`llm/provider.py`~~ | **已移出 omit**（2026-07-22） | 补更多 httpx 路径覆盖 |
+| ~~`generation/answer.py`~~ | **已移出 omit** | — |
+| ~~`generation/offline_answer.py`~~ | **已移出 omit** | `rules_*.py` 仍 omit |
+| `offline_heuristics/rules_*.py` | 域硬编码规则 | 保持 omit |
+| `knowledge/pilot_triples.py` | 合成宇宙生成器 | 保持 omit |
 
 另延期：**分支覆盖**（`branch = false`）。
 
@@ -166,13 +170,15 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
-| `POST /v1/query` | 已有 + 鉴权/限流/SSE（P3/P4） | 租户**数据级**隔离（P4-REL-01 运维） |
-| 推理链 | Schema + 响应内 chain + audit store API | 生产抽样审计（P4-AC-02） |
-| BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
-| 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
-| SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |
-| 接入格式 | 偏 MD/TXT | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本） |
-| 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
+| `POST /v1/query` | 已有 + 鉴权/限流/SSE；`AGR_LIVE_STORES` | 图/向量 **namespace** 多租户分区（单租户试点可 waiver） |
+| 推理链 | Schema + audit + **tenant AuthZ** + `sample_audit.py` | 生产环境抽样签字（P4-AC-02） |
+| BudgetTracker | 单次 + 租户/用户三级；LLM **circuit breaker** | 部署侧告警实接 + 多副本共享预算 |
+| 图关系打分 | 词法 + **生产 embed scorer 接线**（allow_llm） | live A/B 数字 |
+| SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops | — |
+| 灰度 | `AGR_CANARY_TENANTS` + runbook | ≥2 周反馈流程执行 |
+| 压测 | `p3_load_http.py`（in-process + HTTP） | live staging P95 正式 AC-4 |
+| 接入格式 | 偏 MD/TXT | 若试点需要，PDF 文本作为一等路径 |
+| 评测集布局 | `dev` / `heldout` / `guardrail` 已有 | 人工抽检签字 + live heldout |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
 
 ### 规范 / 结构备注
@@ -245,12 +251,13 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ## 11. 优先下一步（建议顺序）
 
-1. **关闭或豁免 C1–C3** — 产品域签字、live LLM 审计、Neo4j 回归。  
-2. **P2-EV-02** — 金标扩到 ≥200 并带证据。  
-3. **P2-KG-04 + 全量抽取** — C1 后在试点语料上跑通。  
-4. **P2-EV-04/05/06** — 全量 agentic vs baseline、badcase 归因、G2 材料。  
-5. 然后才进入 **阶段三** PERF/OP/KG（分诊、融合、缓存、SSE、增量、可观测性）。  
-6. **阶段四** UI、鉴权、灰度、AC 全套在 G3 之后。  
+1. **产品真域签字（C1 产品）** — 授权语料 + MANIFEST；否则 G2 产品可验收保持 caveat。  
+2. **Live heldout** — `./scripts/g2_formal_eval.sh --with-llm`（稳定 `LLM_API_KEY`）；写正式 G2 addendum。  
+3. **人工金标抽检** — `scripts/sample_gold_for_review.py` → ANNOTATION_SPEC 签字。  
+4. **Neo4j + Qdrant 实机** — `neo4j_regression.sh` + `qdrant_regression.sh`；API `AGR_LIVE_STORES=1`。  
+5. **生产压测 P95** — `p3_load_http.py --target ...` + 部署侧接 `docs/alerts.example.yml`。  
+6. **AC-3 抽样审计签字** — `sample_audit.py` + 人工 checklist。  
+7. （可选）多租户图/向量 namespace；omit 中 neo4j_store 集成测。  
 
 ---
 
