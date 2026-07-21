@@ -15,7 +15,7 @@
 | 面 | 状态 |
 |----|------|
 | 阶段一～三（代码） | 大体落地：抽取 / 入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计 |
-| **试用 Web UI（P4-UI-01）** | **已完成** — Claude 风格对话壳，挂载于 `/web` |
+| **试用 Web UI（P4-UI-01 + P5-UI-01）** | **已完成** — Vue 3 零构建重构（ADR-006），会话历史/逐 turn 反馈/流中中止/健康点等交互增强，挂载于 `/web` |
 | API 鉴权 / 限流（P4-UI-02） | **已完成** — `AGR_REQUIRE_AUTH` / `AGR_API_KEYS` |
 | 效果门禁（G2/G3/G4） | 仍开：held-out live 评测、生产部署与灰度流程 |
 
@@ -32,13 +32,19 @@
 
 内部试用 SPA（功能优先），代码在 `web/`，由 `agr-api` 静态挂载。
 
+**架构（P5-UI-01 / ADR-006）**：Vue 3 钉版 3.5.13（ESM 运行时，vendor 优先 + CDN 兜底，零构建无 npm）；根组件持有 `turns[]`（每 turn 独立请求，历史仅前端展示）。
+
 | 能力 | 说明 |
 |------|------|
-| 提问区 | 输入框 + 高级选项（最大跳数、强制 Agentic、SSE 开关） |
-| 进度区 | 消费 `POST /v1/query/stream`：**真·增量**分诊 / 子问题 / hop 完成 |
-| 答案区 | 正文 + 论断引用角标 + 置信度 / 路由 / 状态 |
-| 推理链 | 子问题树 + 图路径 chips + 可折叠 JSON + 步骤与证据 |
-| 反馈 | 准确 / 不准确 + 可选原因 → `POST /v1/feedback` |
+| 提问区 | textarea 自适应 + 高级选项（最大跳数、强制 Agentic、SSE 开关）+ 建议 chips |
+| 会话历史 | 逐 turn 保留（仅展示，每次提问独立、无上下文携带） |
+| 进度区 | 每 turn 独立折叠卡：流中自动展开、完成自动收起，消费 `POST /v1/query/stream`（真·增量） |
+| 答案区 | 正文 + 论断引用角标（点击高亮）+ 置信度 / 路由 / 状态 |
+| 反馈 | 每 turn 独立准确 / 不准确 + 可选原因 → `POST /v1/feedback` |
+| 中止 + 重试 | 流中「停止」按钮（AbortController）+ 「强制 Agentic 重问」chip |
+| 复制 | 推理链 JSON 一键复制（clipboard API） |
+| 健康点 | 侧栏 `/healthz` 实时状态（ok/down/checking） |
+| 推理链 | 子问题树 + 图路径 chips（>40 条显式提示）+ 可折叠 JSON + 步骤与证据 |
 
 **明确不做（V1）**：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。
 
@@ -47,7 +53,7 @@ agr-api
 # 打开 http://localhost:8000/web
 ```
 
-相关任务：`P4-UI-01` / `P4-UI-02`（见 [plan/phases/phase-4-pilot.md](./plan/phases/phase-4-pilot.md)）。  
+相关任务：`P4-UI-01` / `P5-UI-01` / `P4-UI-02`（见 [plan/phases/phase-4-pilot.md](./plan/phases/phase-4-pilot.md) / [phase-5-scale.md](./plan/phases/phase-5-scale.md)）。  
 结构与冒烟测试：`tests/unit/test_web_claude_ui.py`。
 
 ## 快速开始
@@ -212,7 +218,7 @@ src/agentic_graphrag/
   llm/            # LLMClient Protocol + Provider + Budget
   stores/         # Repository 协议 + factory 组合根
   generation/     # 答案与推理链
-web/              # 试用 Web UI（P4-UI-01）：index.html + static/
+web/              # 试用 Web UI（P4-UI-01 + P5-UI-01）：Vue 3 零构建（ADR-006）
 data/raw/         # 示例语料
 evals/datasets/   # 评测 case（poc / g2 / heldout 等）
 tests/            # 单元测试（含 web UI 结构冒烟）
@@ -222,7 +228,7 @@ docs/             # 运维手册、延期总账
 
 ## 范围说明
 
-**已交付（代码）**：Schema V0、抽取/入图、三路检索 + RRF、Agent 循环、推理链 JSON、分诊 / Fast Path、SSE、试用 Web、鉴权限流、反馈回路、审计脚手架。
+**已交付（代码）**：Schema V0、抽取/入图、三路检索 + RRF、Agent 循环、推理链 JSON、分诊 / Fast Path、SSE、试用 Web（Vue 3 零构建，ADR-006）、鉴权限流、反馈回路、审计脚手架。
 
 **产品 / 流程仍开**：真实试点域语料签字、held-out live 达标、生产部署与灰度、G4 全套验收（AC-1~7）。
 

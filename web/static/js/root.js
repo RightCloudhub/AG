@@ -3,8 +3,7 @@
  * query/stream/feedback flows. Each turn is an independent question — no
  * multi-turn context is ever sent to the server (V1 boundary).
  *
- * P5-UI-01 (in progress): complete; mounts only after the component layer
- * lands (plan/phases/p5-ui-01-vue-refactor.md R1–R3).
+ * P5-UI-01 (ADR-006): mounted from web/static/app.js.
  */
 import { fetchHealth, friendlyError, postFeedback, postQuery, streamQuery } from "./api.js";
 import { describeStreamEvent } from "./chain-view.js";

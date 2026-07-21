@@ -1,9 +1,8 @@
 /* Pure view-model builders for the reasoning-chain UI. Framework-free:
  * every function maps API payloads to plain data that templates interpolate
- * via mustache/textContent (never v-html / innerHTML — see rules.md §8).
+ * via mustache/textContent — ADR-006 §8 injection safety.
  *
- * P5-UI-01 (in progress): pure-function port of the old render helpers;
- * consumed by components pending in plan/phases/p5-ui-01-vue-refactor.md R1–R3.
+ * P5-UI-01 (ADR-006): consumed by web/static/js/components/answer-turn.js.
  */
 export const MAX_PATH_ROWS = 40;
 

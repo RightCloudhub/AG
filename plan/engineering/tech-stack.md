@@ -11,7 +11,7 @@
 | 全文检索 | FulltextStore | POC：rank_bm25 进程内；规模化可换 ES/OpenSearch | Elasticsearch | 已采纳（POC） |
 | LLM | LLMProvider | 强/轻双档位，OpenAI 兼容网关，供应商可替换（NFR-10） | — | 已采纳（ADR-003） |
 | 服务框架 | API | Python（FastAPI）——LLM/检索生态最全；POC 先 CLI | Go/TS | 已采纳（ADR-004） |
-| 前端 | 试用界面 | 轻量 SPA（React/Vue 按团队熟悉度） | — | 待定 |
+| 前端 | 试用界面 | Vue 3（钉版 3.5.13，ESM 运行时，零构建） | — | 已采纳（ADR-006） |
 | 编排 | Agent 框架 | **LangGraph（StateGraph）+ 自研控制逻辑**（护栏/Memory去重/推理链） | AgentScope（仅深度绑定 Qwen/DashScope 生态时重议） | 已采纳（ADR-005） |
 | 可观测 | Trace/监控 | OpenTelemetry + 现有监控栈 | — | 待定 |
 
@@ -40,6 +40,16 @@
 - **决策**：Python ≥3.12 + FastAPI + Pydantic（schema 校验天然满足 NFR-07）。POC 阶段以 CLI/脚本驱动，API 路由预留。
 - **影响**：异步 IO 支撑检索并行化（FR-RT-05）。
 
+### ADR-006：试用前端选 Vue 3 ESM 运行时零构建（已采纳，2026-07-21）
+- **背景**：tech-stack.md §1 "前端"行长期待定；规则 §8 预留"阶段五引入框架需 ADR"通道。旧原生 JS 版（IIFE，433 行）在会话历史/逐 turn 反馈/流中中止/路径 chips 等状态交叉下维护成本超标。
+- **决策**：Vue 3（钉版 **3.5.13**，`vue.esm-browser.prod.js` 全量构建，含浏览器内模板编译），以**运行时 ESM 动态 import** 引入：本地 vendor 优先（`web/static/vendor/`，一次 vendor 即完全离线）→ 钉版 jsdelivr → 钉版 unpkg 兜底。Options API，组件模块零 Vue import（纯对象），框架面收敛在 `web/` 内。
+- **否决的备选**：
+  - **React**：无 JSX/构建链时人机工学差，违背零构建实质。
+  - **Preact + htm**：体积最小，但模板即标签字符串、生态/中文资料弱于 Vue。
+  - **Alpine.js**：指令式点缀适合开关，不适合引用角标切分、路径 chips 等列表密集渲染。
+  - **htmx**：服务端返回 HTML 片段范式；本项目 SSE 契约是 JSON 事件流，需重写服务端，否决。
+- **影响**：零构建实质保留（无 npm/打包器/Node 工具链）；只调 `/v1/*` envelope；SSE 全事件覆盖；V1 边界不变。升级流程三处同步（ADR-006、`app.js` VUE_VERSION、vendor 文件）。
+
 ### ADR-005：Agent 循环采用 LangGraph 运行时 + 自研控制逻辑（已采纳，2026-07 修订）
 - **背景**：原提议为全自研轻量循环。经 LangGraph vs AgentScope vs 组合方案评估后修订本决策。
 - **决策**：Agent 循环基于 LangGraph（≥1.0，API 已稳定）的 `StateGraph` 实现：分诊/Planner/Executor/Critic/生成为节点，Critic 动作枚举映射为条件边路由。护栏、Memory 去重、推理链构建、引用拦截等控制逻辑仍自研，作为节点/状态逻辑挂载。**不引入 LangChain 的检索与链抽象**——检索走本项目工具接口，LLM 调用仍走自研网关（ADR-003）。
@@ -57,6 +67,6 @@
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）
 - [x] 向量库具体产品：Qdrant（POC）
-- [ ] 前端技术栈（试点阶段前定即可）
+- [x] 前端技术栈 — Vue 3 ESM 运行时（ADR-006）
 - [ ] 部署形态：K8s / 单机 Docker Compose（试点规模决定）
 - [ ] 正式试点领域与语料替换当前 interim 公司关系语料（P1-GOV-01 / R5）— 见 [g1-to-g2-transition.md](../phases/g1-to-g2-transition.md) C1 · `data/pilot/`

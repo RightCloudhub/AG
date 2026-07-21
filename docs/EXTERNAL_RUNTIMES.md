@@ -72,10 +72,11 @@ rm -rf /tmp/jdk-17 /tmp/jdk17.tar.gz /tmp/neo4j-home /tmp/neo4j.tgz /tmp/binshim
 
 | 项 | 是否本项目下载 | 说明 |
 |----|----------------|------|
+| **Vue 3 运行时** | vendor 可选 | 浏览器加载 ESM 运行时，**非 npm 依赖**；见 `web/static/vendor/README.md`；CDN 兜底 |
 | **Docker / Docker Compose** | 否（环境自备） | 首选拉起 Neo4j/Qdrant；当前部分环境无 Docker、无 root 安装权限 |
 | **Java 17+** | 临时：§1 Temurin | 仅 tarball Neo4j 需要；用 Docker 镜像时 **不必** 本机装 JDK |
 | **curl** | 否（系统已有） | 下载 tarball / 健康检查 |
-| **Node / npm / pnpm** | **无** | 本 POC 无前端包管理；阶段四 Web 若引入再单列 |
+| **Node / npm / pnpm** | **无**（前端依赖白名单仅钉版 Vue 3，见 ADR-006） | 本 POC 无前端包管理；零构建，运行时 ESM 动态 import |
 | **系统包管理器装的 jdk-openjdk / neo4j** | 未使用 | Arch 上曾无 passwordless sudo，未走 `pacman` 安装 |
 
 ---
@@ -159,3 +160,4 @@ rm -f "$NEO4J_HOME/.password_set"
 |------|------|
 | 2026-07-20 | 首次记录：`/tmp` Temurin 17.0.19 + Neo4j 5.26.0 tarball；对照 `docker-compose.yml` 的 neo4j/qdrant 镜像 |
 | 2026-07-20 | 补充：tarball Neo4j 已能 start，但初始密码/已有 data 导致认证失败；增加重置步骤 |
+| 2026-07-21 | ADR-006：前端零构建 Vue 3 运行时（`web/static/vendor/`，**非 npm**）；Node/npm 行备注更新 |

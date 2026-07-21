@@ -2,8 +2,7 @@
  * parsing. SSE uses fetch + ReadableStream (not EventSource) because the
  * stream endpoint requires POST with a JSON body. Framework-free module.
  *
- * P5-UI-01 (in progress): complete but unwired until the component layer
- * lands — see plan/phases/p5-ui-01-vue-refactor.md §6 for per-file notes.
+ * P5-UI-01 (ADR-006): consumed by web/static/js/root.js.
  */
 const QUERY_URL = "/v1/query";
 const STREAM_URL = "/v1/query/stream";
