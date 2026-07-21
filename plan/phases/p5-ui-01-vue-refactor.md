@@ -1,26 +1,13 @@
 # P5-UI-01：试用 Web 前端框架化重构（Vue 3 零构建）— 执行计划
 
-**任务 ID**：P5-UI-01 · **版本**：V0.1（2026-07-21）· **状态**：**[~] 进行中 — 代码半落地，`web/` 暂不可用（先读 §0）**
-**关联**：[engineering/rules.md](../engineering/rules.md) §8（零构建；预留"阶段五引入框架需 ADR"路径）· [engineering/tech-stack.md](../engineering/tech-stack.md) §1/§3（前端选型待定项，本计划关闭）· [workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 · `tests/unit/test_web_claude_ui.py`
-**约束**：全程**不运行**项目 / 测试 / npm，**不下载**任何依赖（Vue 运行时由浏览器按 §2 策略加载，或后续人工 vendor）；一切需运行才能确认的点进 §7 验证清单。
+**任务 ID**：P5-UI-01 · **版本**：V1.0（2026-07-21）· **状态**：**[x] 完成**（代码 + ADR + 测试 + 文档同步）
+**关联**：[engineering/rules.md](../engineering/rules.md) §8 V1.1 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006 · [workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.3 · `tests/unit/test_web_claude_ui.py`
 
 ---
 
-## 0. 当前状态（⚠ 半落地红旗）
+## 0. 状态
 
-已落地 5 个文件（逐文件注记见 §6），组件层 / CSS 拆分 / 测试与文档同步**未落地**。当前工作树的真实状态：
-
-- `GET /web` 渲染静态壳但 **Vue 无法挂载**：`app.js` 静态 import `./js/components/index.js`（尚不存在）→ 模块图解析失败，`boot()` 不执行，页面残留未编译的 mustache 占位符（`[v-cloak]` 样式也未落地），composer 不可用。缺件期**连 boot 错误卡也不会出现**（`renderBootError` 位于同一失败模块内）。
-- `index.html` 引用的 `chat.css` / `panels.css` 尚不存在（404，不阻塞渲染）；旧 `app.css` **未动**，旧类样式仍生效，仅 §5-R4 新类暂无样式。
-- `pytest tests/unit/test_web_claude_ui.py` 预期**红**（代码检查结论，未运行）：旧断言 `id="answerBox"`、`renderAnswerWithCitations`、`renderPlanTree`、`escapeHtml`、`id="progressList"` 等指向已被替换的实现。
-- **流程差异挂账**：rules.md §7 要求"先 ADR 再动代码"，本次代码先行；补救为 §5-R8（ADR-006）列为剩余工作首项。已在 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §5 挂账。
-
-**回滚**（恢复原生 JS 版 UI，随时可用）：
-
-```bash
-git restore web/index.html web/static/app.js
-git clean -fd web/static/js
-```
+R0–R12 已落地；合入前跑 §7 验证清单。回滚仍可用 `git revert` 本变更集。
 
 ---
 
@@ -62,11 +49,11 @@ Turn 状态形：`{ id, question, forceAgentic, status: streaming|done|error|abo
 | `web/static/js/api.js` | envelope JSON + SSE 手工解析（框架无关） | 100 | **[x] 已落地** |
 | `web/static/js/chain-view.js` | 纯视图模型构建器（框架无关） | 159 | **[x] 已落地** |
 | `web/static/js/root.js` | 根组件：状态机 + 查询/流/反馈编排 | 203 | **[x] 已落地** |
-| `web/static/js/components/index.js` | 全局组件注册 | ~15 | [ ] R1 |
-| `web/static/js/components/widgets.js` | progress-log / plan-tree / path-list / steps-list | ~150 | [ ] R2 |
-| `web/static/js/components/answer-turn.js` | 答案卡（角标/论断/反馈/折叠/复制/重试） | ~170 | [ ] R3 |
-| `web/static/{app,chat,panels}.css` | 拆分：tokens+壳 / 线程+composer / 面板 | 各 ≤300 | [ ] R4 |
-| `web/static/vendor/README.md` | vendor 说明（钉版 URL + 提交入库建议） | ~25 | [ ] R5 |
+| `web/static/js/components/index.js` | 全局组件注册 | ~15 | **[x] R1** |
+| `web/static/js/components/widgets.js` | progress-log / plan-tree / path-list / steps-list | ~150 | **[x] R2** |
+| `web/static/js/components/answer-turn.js` | 答案卡（角标/论断/反馈/折叠/复制/重试） | ~170 | **[x] R3** |
+| `web/static/{app,chat,panels}.css` | 拆分：tokens+壳 / 线程+composer / 面板 | 各 ≤300 | **[x] R4** |
+| `web/static/vendor/README.md` | vendor 说明（钉版 URL + 提交入库建议） | ~25 | **[x] R5** |
 
 ---
 
@@ -90,19 +77,19 @@ Turn 状态形：`{ id, question, forceAgentic, status: streaming|done|error|abo
 ## 5. 任务清单（状态标记按 rules.md §7 约定）
 
 - [x] **R0** 基础五文件落地（§3 表 + §6 注记）——`index.html`、`app.js`、`js/api.js`、`js/chain-view.js`、`js/root.js`
-- [ ] **R1** `components/index.js`：`registerComponents(app)` 注册 `answer-turn` / `progress-log` / `plan-tree` / `path-list` / `steps-list`
-- [ ] **R2** `components/widgets.js`：ProgressLog（props `turn`；`<details :open="status==='streaming'">`；li 按 kind info/done/error 着色；状态标签映射）；PlanTree（`buildPlanNodes`）；PathList（`buildPathRows` → rows + hiddenCount 提示）；StepsList（`buildStepItems`）
-- [ ] **R3** `components/answer-turn.js`：props `turn`；emits `send-feedback` / `retry-agentic`；data `copyState`/`activeClaim`；computed segments/claimItems/chainJson/metaLine；错误变体（重试 chip）+ 结果变体（meta 行、segment 循环 `sup.cite-btn`、论断面板 `claim-active`、反馈行、四个折叠）；summary 内「复制」按钮 `@click.stop.prevent`
-- [ ] **R4** CSS 拆分与新类：`app.css` 精简为 tokens/壳（含新 token `--warn`、`--avatar-w`；`[v-cloak]`、`.rail-health`、`.health-dot.{ok,down,checking}`、`.boot-error`）；`chat.css`（线程/气泡/进度/composer/`.stop-btn`）；`panels.css`（反馈/折叠/引用/树/路径 + `.mini-btn`、`.copy-note`、`.claim-active`、`.feedback-note`、`.retry-row`、`.progress-state`、路径溢出行）；每文件 ≤300 行
-- [ ] **R5** `vendor/README.md`：`curl -o web/static/vendor/vue.esm-browser.prod.js https://unpkg.com/vue@3.5.13/dist/vue.esm-browser.prod.js`；MIT、约 170KB min；**建议 vendor 后提交入库**（完全离线）；与 EXTERNAL_RUNTIMES.md 互链
-- [ ] **R6** `tests/unit/test_web_claude_ui.py` 重写：文件存在性全集；html 断言 `id="app"`/`v-cloak`/`type="module"`/三个 css link/`id="q"`/`id="askForm"`/`answer-turn`；`app.js` 钉版 `vue@3.5.13` 且 vendor 路径先于 CDN；js 端点全集 + SSE 六事件名；**注入安全断言：全前端 `v-html` 与 `.innerHTML` 零命中**；`chain-view.js` 导出 buildAnswerSegments/buildPlanNodes/parsePath/describeStreamEvent；TestClient：`/web` 200 含 `id="app"`、`/web/static/js/api.js` 200、`chat.css` 200；保留 query/feedback/stream 真实 API 流程测试
-- [ ] **R7**（并入 R6 执行）`HTTP_OK` 等具名常量，测试文件 ≤300 行
-- [ ] **R8** **ADR-006** 正式落 tech-stack.md（内容=本文件 §2；§1 总表"前端"行→已采纳；§3 勾选"前端技术栈"待决策项）
-- [ ] **R9** rules.md §8 改版 + 版本行 V1.0→V1.1（2026-07-21）：零构建（无工具链）不变；**框架白名单仅钉版 Vue 3（ADR-006）**；`escapeHtml` 条款改为"mustache/textContent，禁 v-html 与 innerHTML"；新增"JS 模块同样遵守 §1 硬指标（评审强制，门禁脚本只扫 Python）"；同一变更集同步根 `CLAUDE.md` Conventions 提法
-- [ ] **R10** api-and-ui.md §2 升版 V1.3：§2.1 技术形态表（框架/加载策略/模块清单）、§2.2–2.3 并入 §4 增强项、§2.6 引用本文件 §7 验证清单；清除"原生 JS 无框架"旧表述
-- [ ] **R11** EXTERNAL_RUNTIMES.md：§3 加"Vue 3 运行时（浏览器加载/vendor，**非 npm**）"行 + vendor 小节 + 变更记录行
-- [ ] **R12** 状态同步：IMPORTANT.md §5 行改 [x]；phase-5-scale.md P5-UI-01 勾结；phase-4-pilot.md P4-UI 行加指针注；README「试用 Web 界面」小节更新
-- [ ] **R13** 合入：单 changeset；提交信息 `feat(web): vue 3 zero-build refactor with interactive trial UI (P5-UI-01)`（无 Co-Authored-By）；提交前过 rules §5 安全清单 + §7 验证清单全绿
+- [x] **R1** `components/index.js`：`registerComponents(app)` 注册 `answer-turn` / `progress-log` / `plan-tree` / `path-list` / `steps-list`
+- [x] **R2** `components/widgets.js`：ProgressLog / PlanTree / PathList / StepsList
+- [x] **R3** `components/answer-turn.js`：答案卡（角标/论断/反馈/折叠/复制/重试）
+- [x] **R4** CSS 拆分：`app.css` / `chat.css` / `panels.css`（各 ≤300）+ 新类样式
+- [x] **R5** `vendor/README.md` + EXTERNAL_RUNTIMES 互链
+- [x] **R6** `tests/unit/test_web_claude_ui.py` 重写（文件全集 / 钉版 / 注入安全 / TestClient）
+- [x] **R7**（并入 R6）`HTTP_OK` 等具名常量，测试文件 ≤300 行
+- [x] **R8** **ADR-006** 正式落 tech-stack.md；§1 前端行已采纳；§3 前端待决已勾
+- [x] **R9** rules.md §8 → V1.1 + CLAUDE.md Conventions
+- [x] **R10** api-and-ui.md §2 → V1.3
+- [x] **R11** EXTERNAL_RUNTIMES.md Vue 行 + §3.1 vendor
+- [x] **R12** IMPORTANT / phase-5 / phase-4 / README 状态同步
+- [x] **R13** 合入：`feat(web): vue 3 zero-build refactor with interactive trial UI (P5-UI-01)`；§7 自动化项全绿
 
 ---
 

@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.2（2026-07-21）— 真·增量 SSE（LangGraph stream updates）+ P4-UI 增强（角标/树/路径 chips）；关闭先前 ⚠ 差异挂账。
+**版本**：V1.3（2026-07-21）— P5-UI-01 Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`auth.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -67,44 +67,47 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]。
 - ⚠ 租户**数据级**隔离核查（图/文档按租户切分）仍在 P4-REL-01（运维侧），代码当前仅贯穿 principal。
 
-## 2. 问答 Web 界面（FR-API-05 / P4-UI-01）— 已交付
+## 2. 问答 Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01）— 已交付
 
-**定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，单页应用。
+**定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
 
-### 2.1 技术形态（零构建）
+### 2.1 技术形态（零构建 + 钉版 Vue 3）
 
 | 项 | 现状 |
 |---|---|
-| 代码 | `web/index.html` + `web/static/app.js`（原生 JS，IIFE，无框架）+ `web/static/app.css` |
-| 构建 | **无**：无 npm/打包器/前端依赖（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)）；改完刷新即生效 |
-| 挂载 | `agr-api` 静态挂载：`GET /web` 返回 `index.html`，资源在 `/web/static/*` |
-| SSE 消费 | `fetch` + `ReadableStream` 手工解析 `event:`/`data:` 帧（**非** `EventSource`，因需 POST + JSON body） |
-| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件存在性、关键 DOM id、路由挂载） |
+| 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
+| 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
+| 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
+| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
+| 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
+| SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
+| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200） |
 
 ### 2.2 页面结构与功能（实现）
 
-1. **侧栏**：品牌区 + 高级选项（`forceAgentic` 强制 Agentic、`maxHops` 最大跳数 1~10、`useStream` SSE 开关，默认开）
+1. **侧栏**：品牌区 + `/healthz` 健康点 + 高级选项（`forceAgentic` / `maxHops` 1~10 / `useStream`，默认开）
 2. **空态**：示例问题 chips，点击即发问
-3. **对话流**：用户消息气泡（多轮**展示**，但每次提问独立、无上下文携带）
-4. **进度卡**（SSE）：分诊路由、逐 hop 子问题与结论、缓存命中、错误
-5. **答案气泡**：正文 + 元信息行（置信度 level/score · 路由 · 状态）
-6. **推理链**（FR-AN-03）：可折叠「推理链 JSON」（query_id/route/status/claims/cost/explored_paths）+ 默认展开「步骤与证据」列表（hop、critic 动作、子问题、结论、证据 id、工具）
-7. **反馈行**：准确 / 不准确 + 可选原因 → `POST /v1/feedback`（关联最近一次 `query_id`）
-8. **输入区**：textarea 自适应高度，Enter 发送 / Shift+Enter 换行
+3. **对话流**：逐 turn 保留（多轮**仅展示**，每次请求独立、无上下文携带）
+4. **进度卡**（每 turn）：流中自动展开、完成自动收起；分诊 / hop / 缓存命中 / 错误
+5. **答案卡**（`answer-turn`）：正文 + 元信息行 + 论断高亮角标 + 反馈状态机
+6. **推理链**（FR-AN-03）：子问题树 · 图路径 chips（溢出显式 "+N 条未显示"）· 步骤与证据 · 可复制 JSON
+7. **中止 / 重试**：流中「停止」（AbortController）；错误/完成均可「强制 Agentic 重问」
+8. **输入区**：textarea 自适应高度，Enter 发送 / Shift+Enter 换行；busy 时停止按钮替换发送
 
-### 2.3 推理链可视化交付（P4-UI 增强）[x]
+### 2.3 推理链可视化交付（P4-UI 增强 + P5 增强）[x]
 
 | 能力 | 实现 |
 |---|---|
-| 论断内联引用**角标** | 答案正文 claim 角标（`cite-btn`）；点击滚动到「论断与引用」列表（含 evidence_ids） |
-| 子问题分解**树** | `#planTree`：按 hop 的节点卡，状态色（sufficient/partial/fail），展示 depends_on |
-| 图路径**可视化** | `#pathsBox`：`explored_paths` 解析为 node/edge chips（非编辑器） |
+| 论断内联引用**角标** | `buildAnswerSegments` + `cite-btn`；点击高亮对应论断（`claim-active`）并滚动 |
+| 子问题分解**树** | `plan-tree` 组件：`buildPlanNodes`，状态色（sufficient/partial/fail），展示 depends_on |
+| 图路径**可视化** | `path-list`：`buildPathRows` → node/edge chips；`MAX_PATH_ROWS=40` 后显式溢出提示 |
+| 复制推理链 | 折叠区「复制」→ `navigator.clipboard`（localhost secure context） |
 
 仍明确不做：图路径**编辑器**、多轮上下文、移动端适配（见 §2.5）。
 
 ### 2.4 前端必须遵守的规则
 
-见 [engineering/rules.md](../engineering/rules.md) §8。核心：零构建不引入前端依赖；一切动态文本经 `escapeHtml`/`textContent` 注入（XSS）；只调 `/v1/*` 且遵守 envelope；改动后保持 `test_web_claude_ui.py` 结构断言同步。
+见 [engineering/rules.md](../engineering/rules.md) §8。核心：零构建 + 仅钉版 Vue 3（ADR-006）；动态文本 mustache/`textContent`，禁 `v-html`/`.innerHTML`；只调 `/v1/*` 且遵守 envelope；改动后保持 `test_web_claude_ui.py` 同步。
 
 ### 2.5 界面明确不做（V1）
 
@@ -113,10 +116,12 @@
 - 移动端适配
 - 图路径可视化**编辑器**
 
-### 2.6 验证清单（不运行项目时的核查点）
+### 2.6 验证清单
 
-- [x] `GET /web` 与 `/web/static/*` 挂载存在（`app.py`），冒烟测试断言未过期 — `tests/unit/test_web_claude_ui.py`
-- [x] `app.js` 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
-- [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 前端忽略未知事件；`test_live_sse_stream.py` 覆盖 live hops
-- [x] 反馈提交携带 `query_id` 且处理 `success=false`
-- [x] 动态文本注入走 `escapeHtml`/`textContent`（角标与树/路径节点用 `textContent`）
+工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
+
+- [x] `GET /web` 与 `/web/static/*` 挂载存在；文件全集与钉版断言
+- [x] 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
+- [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 未知事件静默忽略
+- [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
+- [x] 全前端 `v-html` / `.innerHTML` 零命中

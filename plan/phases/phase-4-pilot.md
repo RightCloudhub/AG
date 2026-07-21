@@ -14,8 +14,8 @@
 ## 任务清单
 
 ### 界面与接入（UI）
-- [x] `P4-UI-01` 问答 Web 界面 — Claude 风格浅色对话布局（`web/`）；SSE 进度、推理链、反馈；`/web`
-- [x] `P4-UI-01b` UI 增强 — 内联引用角标、子问题分解树、图路径 chips（非编辑器）；见 `api-and-ui.md` §2.3
+- [x] `P4-UI-01` 问答 Web 界面 — Claude 风格浅色对话布局（`web/`）；SSE 进度、推理链、反馈；`/web`（**后续框架化见 P5-UI-01** / [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)）
+- [x] `P4-UI-01b` UI 增强 — 内联引用角标、子问题分解树、图路径 chips（非编辑器）；见 `api-and-ui.md` §2.3；实现已并入 P5-UI-01 组件层
 - [x] `P4-UI-02` API 鉴权 + 速率限制 — `api/auth.py`（`AGR_REQUIRE_AUTH` / `AGR_API_KEYS` / QPS+并发）
 
 ### 上线准备（REL）

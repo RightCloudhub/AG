@@ -15,7 +15,7 @@
 | 面 | 状态 |
 |----|------|
 | 阶段一～三（代码） | 大体落地：抽取 / 入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计 |
-| **试用 Web UI（P4-UI-01）** | **已完成** — Claude 风格对话壳，挂载于 `/web` |
+| **试用 Web UI（P4-UI-01 / P5-UI-01）** | **已完成** — Vue 3 零构建对话壳（ADR-006），挂载于 `/web` |
 | API 鉴权 / 限流（P4-UI-02） | **已完成** — `AGR_REQUIRE_AUTH` / `AGR_API_KEYS` |
 | 效果门禁（G2/G3/G4） | 仍开：held-out live 评测、生产部署与灰度流程 |
 
@@ -30,24 +30,27 @@
 
 ## 试用 Web 界面（已完成）
 
-内部试用 SPA（功能优先），代码在 `web/`，由 `agr-api` 静态挂载。
+内部试用 SPA（功能优先），**Vue 3 零构建**（钉版 3.5.13，无 npm；[ADR-006](./plan/engineering/tech-stack.md)），代码在 `web/`，由 `agr-api` 静态挂载。可选 vendor 见 [`web/static/vendor/README.md`](./web/static/vendor/README.md)。
 
 | 能力 | 说明 |
 |------|------|
-| 提问区 | 输入框 + 高级选项（最大跳数、强制 Agentic、SSE 开关） |
-| 进度区 | 消费 `POST /v1/query/stream`：**真·增量**分诊 / 子问题 / hop 完成 |
-| 答案区 | 正文 + 论断引用角标 + 置信度 / 路由 / 状态 |
-| 推理链 | 子问题树 + 图路径 chips + 可折叠 JSON + 步骤与证据 |
-| 反馈 | 准确 / 不准确 + 可选原因 → `POST /v1/feedback` |
+| 提问区 | 输入框 + 高级选项（最大跳数、强制 Agentic、SSE 开关）+ 侧栏健康点 |
+| 会话历史 | 逐 turn 保留（仅展示；每次请求仍独立、无上下文） |
+| 进度区 | 每 turn 消费 `POST /v1/query/stream`：**真·增量**分诊 / 子问题 / hop；流中可「停止」 |
+| 答案区 | 正文 + 论断引用角标（点击高亮）+ 置信度 / 路由 / 状态 |
+| 推理链 | 子问题树 + 图路径 chips（溢出提示）+ 可复制 JSON + 步骤与证据 |
+| 反馈 | 每 turn 准确 / 不准确 + 可选原因 → `POST /v1/feedback` |
+| 重试 | 「强制 Agentic 重问」chip（绕缓存） |
 
 **明确不做（V1）**：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。
 
 ```bash
 agr-api
 # 打开 http://localhost:8000/web
+# 完全离线：先 curl vendor（见 web/static/vendor/README.md）
 ```
 
-相关任务：`P4-UI-01` / `P4-UI-02`（见 [plan/phases/phase-4-pilot.md](./plan/phases/phase-4-pilot.md)）。  
+相关任务：`P4-UI-01` / `P4-UI-02` / `P5-UI-01`（[phase-4-pilot](./plan/phases/phase-4-pilot.md) · [p5-ui-01-vue-refactor](./plan/phases/p5-ui-01-vue-refactor.md)）。  
 结构与冒烟测试：`tests/unit/test_web_claude_ui.py`。
 
 ## 快速开始
@@ -212,7 +215,7 @@ src/agentic_graphrag/
   llm/            # LLMClient Protocol + Provider + Budget
   stores/         # Repository 协议 + factory 组合根
   generation/     # 答案与推理链
-web/              # 试用 Web UI（P4-UI-01）：index.html + static/
+web/              # 试用 Web UI（P4-UI-01 / P5-UI-01 Vue 3）：index.html + static/
 data/raw/         # 示例语料
 evals/datasets/   # 评测 case（poc / g2 / heldout 等）
 tests/            # 单元测试（含 web UI 结构冒烟）

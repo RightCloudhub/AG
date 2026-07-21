@@ -3,10 +3,6 @@
  * Zero-build: no npm / bundler. The pinned Vue 3 ESM runtime is loaded at
  * runtime — a locally vendored copy first (fully offline once vendored, see
  * web/static/vendor/README.md), then pinned CDN mirrors as fallback.
- *
- * ⚠ P5-UI-01 in progress (plan/phases/p5-ui-01-vue-refactor.md §0/§6): the
- * import of ./js/components/index.js below fails until plan task R1 lands,
- * which also makes renderBootError unreachable — boot is dead until then.
  */
 import { registerComponents } from "./js/components/index.js";
 import { rootComponent } from "./js/root.js";
@@ -31,10 +27,11 @@ async function loadVueRuntime() {
   throw new Error(failures.join("; "));
 }
 
-/* Boot failure notice built with DOM APIs + textContent only (no innerHTML). */
+/* Boot failure notice built with DOM APIs + textContent only. */
 function renderBootError(detail) {
   const mount = document.getElementById("app");
   if (!mount) return;
+  mount.removeAttribute("v-cloak");
   mount.replaceChildren();
   const card = document.createElement("div");
   card.className = "boot-error";

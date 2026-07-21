@@ -133,7 +133,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | ID | 状态 |
 |----|------|
 | P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
-| P4-UI 增强 | **代码 [x]** — 内联引用角标 + 论断列表、子问题分解树、图路径 chips（`web/static/app.js`；非路径编辑器） |
+| P4-UI 增强 | **代码 [x]** — 内联引用角标 + 论断列表、子问题分解树、图路径 chips（P5-UI-01 后见 `web/static/js/`；非路径编辑器） |
 | P4-REL-02…04 | **部分 [x]** — ops-runbook + metrics；生产部署/告警接部署侧 |
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
@@ -143,7 +143,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | ID | 状态 |
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
-| **P5-UI-01** | 🟠 **[~] 进行中** — Vue 3 零构建重构半落地：`web/` 当前**不可用**（缺组件层/CSS/测试同步，ADR-006 待补）；计划、逐文件注记与回滚见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
+| **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 
 ---

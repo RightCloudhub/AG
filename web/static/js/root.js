@@ -2,9 +2,6 @@
  * #app in web/index.html). Holds conversation state and orchestrates the
  * query/stream/feedback flows. Each turn is an independent question — no
  * multi-turn context is ever sent to the server (V1 boundary).
- *
- * P5-UI-01 (in progress): complete; mounts only after the component layer
- * lands (plan/phases/p5-ui-01-vue-refactor.md R1–R3).
  */
 import { fetchHealth, friendlyError, postFeedback, postQuery, streamQuery } from "./api.js";
 import { describeStreamEvent } from "./chain-view.js";
@@ -161,7 +158,8 @@ export const rootComponent = {
       const turn = this.turns[this.turns.length - 1];
       if (turn && turn.status === "streaming") {
         turn.status = "aborted";
-        this.addProgress(turn, "error", "已停止（该问题未完成，可重试）");
+        turn.error = "已停止（该问题未完成，可重试）";
+        this.addProgress(turn, "error", turn.error);
       }
       if (this._controller) this._controller.abort();
     },

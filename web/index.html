@@ -9,12 +9,9 @@
   <link rel="stylesheet" href="/web/static/panels.css" />
 </head>
 <body class="claude-app">
-  <!-- Vue 3 root; the markup below is the in-DOM root template (ADR-006 draft). -->
-  <!-- ⚠ P5-UI-01 IN PROGRESS (plan/phases/p5-ui-01-vue-refactor.md §0): chat.css /
-       panels.css / js/components/* referenced here do not exist yet, so Vue cannot
-       mount and this page is non-functional until plan tasks R1–R4 land. -->
+  <!-- Vue 3 root; the markup below is the in-DOM root template (ADR-006). -->
 
-  <div id="app">
+  <div id="app" v-cloak>
     <div class="shell">
       <aside class="rail" aria-label="Sidebar">
         <div class="brand">

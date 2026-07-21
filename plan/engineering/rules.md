@@ -1,7 +1,7 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.0（2026-07-20）
+**版本**：V1.1（2026-07-21）
 
 | 强制层级 | 机制 |
 |---|---|
@@ -49,7 +49,7 @@
 - 全部外部输入 schema 校验、fail fast（NFR-07）。
 - Cypher/SQL 一律参数化（实体名含引号/特殊字符不得拼串）。
 - 错误响应不泄露堆栈/内部路径（envelope 兜底只返回异常类型名）。
-- Web 注入点：动态文本经 `escapeHtml`/`textContent`，禁止未转义 `innerHTML` 拼接。
+- Web 注入点：动态文本经 mustache / `textContent` 插值，**禁止 `v-html` 与任何 `innerHTML`**（含未转义拼接）。
 - 鉴权/限流路径（`api/auth.py`）相关测试保持常绿。
 - Prompt 注入基础防护：用户输入与系统指令隔离，检索内容按不可信数据处理。
 - 发现安全问题：**立即停止**当前工作 → 全量安全审查 → 修完 CRITICAL 再继续 → 轮换可能暴露的密钥。
@@ -75,11 +75,12 @@
 
 ## 8. 前端（`web/`）规则
 
-- **零构建**：不引入 npm/打包器/框架/前端依赖（POC~试点阶段约束；若阶段五引入需 ADR + 更新 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)）。
+- **零构建（无工具链）**：不引入 npm / 打包器 / Node 工具链；改完刷新即生效。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
+- **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
 - SSE 消费必须覆盖全部事件类型（`cache_hit/triage/sub_question/hop_done/answer/error`），未知事件静默忽略。
-- 所有动态文本注入走 `escapeHtml`/`textContent`（§5 XSS 项）。
-- DOM 结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构断言。
+- 所有动态文本注入走 **mustache / `textContent`**；**禁止 `v-html` 与任何 `innerHTML`**（§5 XSS 项；boot 失败卡亦须 DOM API）。
+- DOM / 模块结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构与注入安全断言。
 - V1 明确不做（未改 PRD 不得实现）：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。
 
 ## 9. 规则变更流程
