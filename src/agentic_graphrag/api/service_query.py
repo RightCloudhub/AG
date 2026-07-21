@@ -17,7 +17,7 @@ from agentic_graphrag.api.service_helpers import (
     build_llm_for_service,
     cost_units_for_chain,
 )
-from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_CACHE_HIT, EVENT_ERROR, EVENT_TRIAGE
+from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_CACHE_HIT
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
 from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
@@ -57,13 +57,14 @@ def stream_query_events(
     tenant_id: str,
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Yield SSE (event, payload) pairs for progressive UI (P3-PERF-06)."""
-    cache_events = _stream_cache_hit(svc, req)
-    if cache_events is not None:
-        yield from cache_events
-        return
-    yield from _stream_triage(svc, req)
-    yield from _stream_run(svc, req, tenant_id=tenant_id, user_id=user_id)
+    """Yield SSE (event, payload) with live hop progress (P3-PERF-06).
+
+    Implementation lives in :mod:`agentic_graphrag.api.service_stream` so this
+    module stays under the code-metrics file-size budget.
+    """
+    from agentic_graphrag.api.service_stream import stream_query_events as _live
+
+    yield from _live(svc, req, tenant_id=tenant_id, user_id=user_id)
 
 
 def _try_answer_cache(svc: QueryService, req: QueryRequest) -> QueryResultData | None:
@@ -91,9 +92,7 @@ def _reserve_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
     if not svc.multi_budget:
         return
     try:
-        svc.multi_budget.check_and_reserve(
-            tenant_id=tenant_id, user_id=user_id, estimated_calls=1
-        )
+        svc.multi_budget.check_and_reserve(tenant_id=tenant_id, user_id=user_id, estimated_calls=1)
     except BudgetExceeded as exc:
         raise _budget_api_error(exc) from exc
 
@@ -107,16 +106,12 @@ def _invoke_agent(
 ) -> ReasoningChain:
     # ceil so sub-second timeouts (e.g. 500ms) become 1s, never 0 (0 disables).
     timeout_override = (
-        max(1, math.ceil(req.timeout_ms / MS_PER_SECOND))
-        if req.timeout_ms is not None
-        else None
+        max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
     )
     guard_cfg = GuardrailConfig.from_app_config(
         svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
     )
-    budget = (
-        svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
-    )
+    budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
     trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
     with svc._lock:
         executor = build_executor_for_service(
@@ -132,8 +127,13 @@ def _invoke_agent(
             allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
         )
         return _run_agent_locked(
-            svc, req, executor=executor, llm=llm,
-            guard_cfg=guard_cfg, budget=budget, trace_ctx=trace_ctx,
+            svc,
+            req,
+            executor=executor,
+            llm=llm,
+            guard_cfg=guard_cfg,
+            budget=budget,
+            trace_ctx=trace_ctx,
         )
 
 
@@ -239,34 +239,3 @@ def _stream_cache_hit(
     if hit is None:
         return None
     return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]
-
-
-def _stream_triage(
-    svc: QueryService, req: QueryRequest
-) -> Iterator[tuple[str, dict[str, Any]]]:
-    from agentic_graphrag.agent.triage import triage
-
-    decision = triage(
-        req.question, None, allow_llm=False,
-        force_agentic=req.force_agentic, known_entities=svc.known_entities,
-    )
-    yield EVENT_TRIAGE, decision.model_dump(mode="json")
-
-
-def _stream_run(
-    svc: QueryService, req: QueryRequest, *, tenant_id: str, user_id: str
-) -> Iterator[tuple[str, dict[str, Any]]]:
-    try:
-        data = execute_run_query(svc, req, tenant_id=tenant_id, user_id=user_id)
-        for step in data.steps:
-            yield "sub_question", {"hop": step.hop, "sub_question": step.sub_question}
-            yield "hop_done", {
-                "hop": step.hop,
-                "conclusion": step.conclusion,
-                "critic_action": step.critic_action,
-            }
-        yield EVENT_ANSWER, data.model_dump(mode="json")
-    except ApiError as exc:
-        yield EVENT_ERROR, {"code": exc.code, "message": exc.message}
-    except Exception as exc:  # noqa: BLE001
-        yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}

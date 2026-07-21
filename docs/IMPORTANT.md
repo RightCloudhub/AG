@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-07-20  
+**最近汇总：** 2026-07-21  
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
 **符号约定**
@@ -83,7 +83,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 |------|--------|--------|
 | P2-AG-03 Memory | typed state + `MemorySaver` checkpointer + 节点 hydrate | 磁盘 SQLite checkpointer 可选（需 `langgraph-checkpoint-sqlite`）；跨进程审计 API 仍在 P3-AN-01 |
 | P2-EV-01 | Case schema + 确定性金标生成器 | ≥200 人工/精选集（EV-02） |
-| P2-RT-01 图 beam | 词法 relation cue + beam 上限 | **Embedding 重排**（`graph_beam.py` 标明 P3） |
+| P2-RT-01 图 beam | 词法 cue + beam 上限 + `blend_relation_score` 嵌入钩子 | 生产 embedder 接入（live cosine 相似度） |
 | P2-KG-01 抽取管线 | journal / retry / quarantine / 溯源 | 试点语料上的 live 抽取质量；人工隔离区审核 UX |
 | 覆盖率门禁 P2-ARCH-04 | fail_under 80% | 仍有模块 **omit**（见 §6） |
 
@@ -105,7 +105,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | 合成试点语料（`scripts/generate_pilot_corpus.py`） | 工程 C1 规模冒烟 | 产品授权真实领域 |
 | Interim 6 篇 `data/raw/` | 早期 POC 叙事 | 试点重建 |
 | 无 live Qdrant 的 BM25 / 进程内向量 | 本地检索测试 | 试点部署 Qdrant（+ embedding） |
-| 非融合的多路候选拼接 | Executor 工具选择 | P3 RRF + re-ranker（`fusion.py` 未建） |
+| 非融合的多路候选拼接 | ~~Executor 工具选择~~ | **已关** — `retrieval/fusion.py` RRF + `Reranker` 协议 |
 
 ---
 
@@ -133,7 +133,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 | ID | 状态 |
 |----|------|
 | P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
-| P4-UI 增强 | 🟡 **延期** — 内联引用角标、子问题分解树、图路径可视化；以折叠推理链 JSON + 步骤列表交付（`plan/workstreams/api-and-ui.md` §2.3） |
+| P4-UI 增强 | **代码 [x]** — 内联引用角标 + 论断列表、子问题分解树、图路径 chips（`web/static/app.js`；非路径编辑器） |
 | P4-REL-02…04 | **部分 [x]** — ops-runbook + metrics；生产部署/告警接部署侧 |
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
@@ -165,11 +165,11 @@ PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + 
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
-| `POST /v1/query` | 已有（P2-ARCH-03） | 鉴权、限流、SSE、多租户（P3/P4） |
-| 推理链 | Schema + 响应内 chain | 落库 + 按 query id 审计（P3-AN-01） |
-| BudgetTracker | 单次运行记账 / 熔断 | 租户与用户级硬上限 + 错误码（P3-OP-02） |
-| 图关系打分 | 仅词法 cue | Embedding 重排（P3） |
-| SSE 流式 | 查询**完成后**按 steps 回放事件（`service_query._stream_run`） | `astream_events` 真·增量流式（P3-PERF-06 设计口径，`api-and-ui.md` §1.3 ⚠） |
+| `POST /v1/query` | 已有 + 鉴权/限流/SSE（P3/P4） | 租户**数据级**隔离（P4-REL-01 运维） |
+| 推理链 | Schema + 响应内 chain + audit store API | 生产抽样审计（P4-AC-02） |
+| BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
+| 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
+| SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |
 | 接入格式 | 偏 MD/TXT | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本） |
 | 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
@@ -236,7 +236,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | AC-2 证据 Recall | ≥85%（跳数 ≥2） | 离线 interim 约 0.96 / 20 | 同上 + 金标证据标注 |
 | AC-3 审计 | 可按查询 ID 回查链 | 响应内 / run JSONL 中有 chain | 落库 + API（P3-AN-01）；生产抽样（P4） |
 | AC-4 延迟 | Agentic P95 ≤8s；Fast Path ≤3s | 仅离线毫秒级 | 压测 P3-PERF-07 |
-| AC-5 增量 | 更新不中断查询 | 未实现 | P3-KG-01 演练 |
+| AC-5 增量 | 更新不中断查询 | offline smoke：`reports/g3_offline/incremental_drill.json` | 生产演练签字 |
 | AC-6 护栏/预算 | 硬上限 + 专项集 | 离线可配跳数/token 护栏 | P3-OP-02/04；生产告警 P4 |
 | AC-7 无引用不编造 | 编造率 0 | 离线引用绑定 + 报告字段 | live LLM + 人工抽样；灰度流量 |
 

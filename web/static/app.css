@@ -581,3 +581,160 @@ textarea {
     margin-top: 3vh;
   }
 }
+
+/* Citations / claims */
+.cite-badge {
+  margin-left: 0.12rem;
+}
+
+.cite-btn {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.28rem;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.1rem;
+  cursor: pointer;
+  vertical-align: super;
+}
+
+.cite-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.claims-panel {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.claims-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+}
+
+.claims-list li {
+  margin: 0.35rem 0;
+}
+
+.claim-text {
+  color: var(--text);
+}
+
+.claim-ev {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+/* Plan tree */
+.plan-tree {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.plan-node {
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-elevated);
+  font-size: 0.86rem;
+}
+
+.plan-node.status-ok {
+  border-left-color: var(--good);
+}
+
+.plan-node.status-partial {
+  border-left-color: #c9a227;
+}
+
+.plan-node.status-fail {
+  border-left-color: var(--bad);
+}
+
+.plan-node.status-open {
+  border-left-color: var(--border-strong);
+}
+
+.plan-head {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.plan-q {
+  color: var(--text);
+  margin-top: 0.15rem;
+}
+
+.plan-c {
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+}
+
+.plan-deps {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+
+/* Graph path chips */
+.path-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.path-node {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  color: var(--text);
+}
+
+.path-edge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0.1rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.path-arrow {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.86rem;
+}

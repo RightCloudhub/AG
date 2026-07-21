@@ -32,9 +32,12 @@ __all__ = [
     "AgentState",
     "QueryOptions",
     "build_graph",
+    "finalize_agentic_chain",
     "invoke_config",
+    "resolved_run_opts",
     "run_agentic_query",
     "run_query",
+    "should_escalate_chain",
 ]
 
 
@@ -147,15 +150,11 @@ def _run_agentic(
     guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
     budget = opts.budget or guard_cfg.budget_tracker()
     rec_limit = (
-        opts.recursion_limit
-        if opts.recursion_limit is not None
-        else guard_cfg.recursion_limit
+        opts.recursion_limit if opts.recursion_limit is not None else guard_cfg.recursion_limit
     )
     chain = ReasoningChain(question=question, route="agentic")
     tid = opts.thread_id or chain.query_id or str(uuid4())
-    graph = build_graph(
-        executor, llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
-    )
+    graph = build_graph(executor, llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer)
     t0 = time.perf_counter()
     result = graph.invoke(
         {
@@ -170,10 +169,10 @@ def _run_agentic(
         },
         config=invoke_config(tid, recursion_limit=rec_limit),
     )
-    return _finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
+    return finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
 
 
-def _finalize_agentic_chain(
+def finalize_agentic_chain(
     result: dict[str, Any],
     *,
     budget: BudgetTracker | None,
@@ -206,7 +205,7 @@ def _run_with_triage(
     *,
     opts: QueryOptions,
 ) -> ReasoningChain:
-    run_opts = _resolved_run_opts(opts)
+    run_opts = resolved_run_opts(opts)
     known = (
         opts.known_entities
         if opts.known_entities is not None
@@ -236,7 +235,7 @@ def _run_with_triage(
     return chain
 
 
-def _resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
+def resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
     guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
     budget = opts.budget or guard_cfg.budget_tracker()
     return AgentRunOptions(
@@ -265,7 +264,7 @@ def _fast_path_or_escalate(
         budget=opts.budget,
         triage_meta=triage_meta,
     )
-    if not _should_escalate_chain(chain):
+    if not should_escalate_chain(chain):
         return chain
     agentic = _run_agentic(question, executor, llm, opts=opts)
     agentic.metadata = {
@@ -276,11 +275,9 @@ def _fast_path_or_escalate(
     return agentic
 
 
-def _should_escalate_chain(chain: ReasoningChain) -> bool:
+def should_escalate_chain(chain: ReasoningChain) -> bool:
     ev_count = sum(len(s.evidence_ids) for s in chain.steps)
-    has_graph = any(
-        "graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls
-    )
+    has_graph = any("graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls)
     return should_escalate_fast_path(
         ev_count,
         has_graph=has_graph,

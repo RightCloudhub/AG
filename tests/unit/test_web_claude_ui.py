@@ -38,6 +38,9 @@ def test_html_chat_layout_structure():
     assert 'id="progressList"' in html
     assert 'id="chainBox"' in html
     assert 'id="stepsBox"' in html
+    assert 'id="planTree"' in html
+    assert 'id="pathsBox"' in html
+    assert 'id="claimsPanel"' in html
     assert 'id="fbReason"' in html
     assert 'data-acc="1"' in html
     assert 'data-acc="0"' in html
@@ -51,6 +54,10 @@ def test_js_calls_real_backend_endpoints():
     assert "/v1/query/stream" in js
     assert "/v1/feedback" in js
     assert "fetch(" in js
+    assert "renderAnswerWithCitations" in js
+    assert "renderPlanTree" in js
+    assert "renderPaths" in js
+    assert "escapeHtml" in js
 
 
 def test_get_web_returns_claude_html():

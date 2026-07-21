@@ -47,6 +47,10 @@
     $("confidence").textContent = "";
     $("chainBox").textContent = "—";
     $("stepsBox").innerHTML = "";
+    $("planTree").innerHTML = "";
+    $("pathsBox").innerHTML = "";
+    $("claimsList").innerHTML = "";
+    $("claimsPanel").hidden = true;
     document.querySelectorAll(".fb-btn").forEach((b) => b.classList.remove("active"));
   }
 
@@ -54,7 +58,9 @@
     lastQueryId = data.query_id;
     progressCard.hidden = true;
     answerTurn.hidden = false;
-    $("answerBox").textContent = data.answer || "(empty)";
+    const claims = data.claims || [];
+    renderAnswerWithCitations(data.answer || "(empty)", claims);
+    renderClaimsPanel(claims);
     const conf = (data.metadata && data.metadata.confidence) || {};
     $("confidence").textContent = conf.level
       ? `置信度 ${conf.level}${conf.score != null ? ` · ${conf.score}` : ""} · 路由 ${data.route} · ${data.status}`
@@ -72,6 +78,8 @@
       2
     );
     const steps = data.steps || [];
+    renderPlanTree(steps);
+    renderPaths(data.explored_paths || []);
     $("stepsBox").innerHTML = steps
       .map(
         (s) => `
@@ -87,6 +95,181 @@
       )
       .join("");
     answerTurn.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function renderAnswerWithCitations(answer, claims) {
+    const box = $("answerBox");
+    box.textContent = "";
+    if (!claims.length) {
+      box.textContent = answer;
+      return;
+    }
+    // Prefer claim-text markers in the answer; else append citation badges.
+    let remaining = answer;
+    const frag = document.createDocumentFragment();
+    let anyInline = false;
+    claims.forEach((c, i) => {
+      const text = (c && c.text) || "";
+      if (!text) return;
+      const idx = remaining.indexOf(text);
+      if (idx < 0) return;
+      anyInline = true;
+      if (idx > 0) frag.appendChild(document.createTextNode(remaining.slice(0, idx)));
+      frag.appendChild(document.createTextNode(text));
+      frag.appendChild(citeBadge(i + 1, c.evidence_ids || []));
+      remaining = remaining.slice(idx + text.length);
+    });
+    if (anyInline) {
+      if (remaining) frag.appendChild(document.createTextNode(remaining));
+      box.appendChild(frag);
+      return;
+    }
+    box.appendChild(document.createTextNode(answer + " "));
+    claims.forEach((c, i) => {
+      box.appendChild(citeBadge(i + 1, (c && c.evidence_ids) || []));
+      box.appendChild(document.createTextNode(" "));
+    });
+  }
+
+  function citeBadge(n, evidenceIds) {
+    const sup = document.createElement("sup");
+    sup.className = "cite-badge";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cite-btn";
+    btn.textContent = String(n);
+    btn.title = evidenceIds.length
+      ? "证据: " + evidenceIds.join(", ")
+      : "论断 " + n;
+    btn.addEventListener("click", () => {
+      const el = document.getElementById("claim-" + n);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    sup.appendChild(btn);
+    return sup;
+  }
+
+  function renderClaimsPanel(claims) {
+    const panel = $("claimsPanel");
+    const list = $("claimsList");
+    list.innerHTML = "";
+    if (!claims.length) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    claims.forEach((c, i) => {
+      const li = document.createElement("li");
+      li.id = "claim-" + (i + 1);
+      const title = document.createElement("div");
+      title.className = "claim-text";
+      title.textContent = (c && c.text) || "(empty claim)";
+      const ev = document.createElement("div");
+      ev.className = "claim-ev";
+      ev.textContent =
+        "证据: " + (((c && c.evidence_ids) || []).join(", ") || "—");
+      li.appendChild(title);
+      li.appendChild(ev);
+      list.appendChild(li);
+    });
+  }
+
+  function renderPlanTree(steps) {
+    const root = $("planTree");
+    root.innerHTML = "";
+    if (!steps.length) {
+      const li = document.createElement("li");
+      li.className = "muted";
+      li.textContent = "无子问题步骤";
+      root.appendChild(li);
+      return;
+    }
+    // Index by hop; edges via depends_on when present.
+    steps.forEach((s, i) => {
+      const li = document.createElement("li");
+      li.className = "plan-node status-" + statusClass(s.critic_action);
+      const head = document.createElement("div");
+      head.className = "plan-head";
+      head.textContent =
+        "Hop " +
+        (s.hop != null ? s.hop : i + 1) +
+        " · " +
+        (s.critic_action || "open");
+      const q = document.createElement("div");
+      q.className = "plan-q";
+      q.textContent = s.sub_question || "";
+      const conc = document.createElement("div");
+      conc.className = "plan-c";
+      conc.textContent = s.conclusion ? "→ " + s.conclusion : "";
+      const deps = (s.depends_on || []).join(", ");
+      if (deps) {
+        const d = document.createElement("div");
+        d.className = "plan-deps";
+        d.textContent = "depends: " + deps;
+        li.appendChild(d);
+      }
+      li.appendChild(head);
+      li.appendChild(q);
+      if (s.conclusion) li.appendChild(conc);
+      root.appendChild(li);
+    });
+  }
+
+  function statusClass(action) {
+    const a = String(action || "").toLowerCase();
+    if (a === "sufficient") return "ok";
+    if (a === "give_up") return "fail";
+    if (a === "rewrite" || a === "next_hop") return "partial";
+    return "open";
+  }
+
+  function renderPaths(paths) {
+    const box = $("pathsBox");
+    box.innerHTML = "";
+    if (!paths.length) {
+      const empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = "无探索路径";
+      box.appendChild(empty);
+      return;
+    }
+    paths.slice(0, 40).forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "path-row";
+      parsePath(p).forEach((seg, i) => {
+        if (i > 0) {
+          const arrow = document.createElement("span");
+          arrow.className = "path-arrow";
+          arrow.textContent = "→";
+          row.appendChild(arrow);
+        }
+        const chip = document.createElement("span");
+        chip.className = seg.kind === "edge" ? "path-edge" : "path-node";
+        chip.textContent = seg.text;
+        row.appendChild(chip);
+      });
+      box.appendChild(row);
+    });
+  }
+
+  function parsePath(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return [{ kind: "node", text: "(empty)" }];
+    // Common shapes: "A -[REL]-> B" or "A -> B -> C" or free text.
+    const edgeRe = /\s*-\[([^\]]+)\]->\s*|\s*->\s*|\s*→\s*/g;
+    const parts = [];
+    let last = 0;
+    let m;
+    while ((m = edgeRe.exec(s)) !== null) {
+      const node = s.slice(last, m.index).trim();
+      if (node) parts.push({ kind: "node", text: node });
+      const rel = m[1] ? m[1].trim() : "→";
+      parts.push({ kind: "edge", text: rel === "→" ? "rel" : rel });
+      last = m.index + m[0].length;
+    }
+    const tail = s.slice(last).trim();
+    if (tail) parts.push({ kind: "node", text: tail });
+    return parts.length ? parts : [{ kind: "node", text: s }];
   }
 
   function escapeHtml(s) {
@@ -235,7 +418,15 @@
         body: JSON.stringify({ query_id: lastQueryId, accurate, reason }),
       });
       const env = await res.json();
-      addProgress(env.success ? "反馈已提交，感谢" : "反馈失败");
+      if (env.success) {
+        addProgress("反馈已提交，感谢");
+      } else {
+        const msg =
+          (env.error && env.error.message) ||
+          (env.error && env.error.code) ||
+          "反馈失败";
+        addProgress("反馈失败: " + msg);
+      }
     });
   });
 })();

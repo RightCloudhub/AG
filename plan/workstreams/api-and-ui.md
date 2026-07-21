@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.1（2026-07-20）— 补充实现现状与前端交付说明；设计与实现的差异以「⚠ 差异」标注并同步挂账 [docs/IMPORTANT.md](../../docs/IMPORTANT.md)。
+**版本**：V1.2（2026-07-21）— 真·增量 SSE（LangGraph stream updates）+ P4-UI 增强（角标/树/路径 chips）；关闭先前 ⚠ 差异挂账。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`auth.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -31,20 +31,20 @@
 
 出参 `data` = [推理链契约 JSON](./agent-orchestration.md#3-推理链契约fr-an-02p2-ag-06-定稿)（含 answer、claims+引用、status、cost、`metadata.confidence`）。服务默认**离线**装配（内存图 + seed 三元组 + MockLLM，`service.build_default_service`）；`AGR_ALLOW_LLM=1` 且配置有效 `LLM_API_KEY` 时启用真实 LLM。
 
-### 1.3 流式响应（FR-API-02 / P3-PERF-06）[x] ⚠ 差异
+### 1.3 流式响应（FR-API-02 / P3-PERF-06）[x]
 
-`POST /v1/query/stream`（SSE，`sse.py` 逐帧编码，带自增 `id`）。事件序列（`service_query.py`）：
+`POST /v1/query/stream`（SSE，`sse.py` 逐帧编码）。事件序列（`service_stream.py` + `agent/loop_stream.py`）：
 
 | 事件 | 载荷 | 触发 |
 |---|---|---|
 | `cache_hit` | `{query_id}` | 命中答案缓存（随后直接发 `answer`；`force_agentic` 时绕过） |
-| `triage` | 分诊决策 JSON | 每次非缓存查询开头 |
-| `sub_question` | `{hop, sub_question}` | 每个推理步骤 |
-| `hop_done` | `{hop, conclusion, critic_action}` | 每个推理步骤 |
-| `answer` | 完整推理链 JSON | 结束 |
+| `triage` | 分诊决策 JSON | 非缓存查询开头；`force_agentic` 时发合成帧 `{route:agentic, rule_hit:force_agentic}` |
+| `sub_question` | `{hop, sub_question}` | Executor 节点完成时（LangGraph `stream(updates)` 实时） |
+| `hop_done` | `{hop, conclusion, critic_action}` | Critic 节点完成时 |
+| `answer` | 完整推理链 JSON | 结束（finalize + audit/cache/metrics 之后） |
 | `error` | `{code, message}` | 异常终止（`ApiError` 保留错误码；其余仅异常类型名） |
 
-> ⚠ **差异（挂账）**：原设计要求由 LangGraph `astream_events` 实时映射生成进度事件；当前实现为**查询执行完成后按 steps 回放**（`_stream_run` 先跑完 `execute_run_query` 再逐步 yield）。对短查询体验等价，长查询无真实时进度。真·增量流式仍延期，见 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §6。
+> **实现说明**：设计文档写的是 `astream_events`；同步 FastAPI 生成器用 LangGraph `graph.stream(..., stream_mode="updates")` 做节点级映射，语义等价（每个节点完成后立即 yield），见 `agent/loop_stream.py`。
 
 ### 1.4 知识管理 API（FR-API-03）[x]
 
@@ -92,13 +92,15 @@
 7. **反馈行**：准确 / 不准确 + 可选原因 → `POST /v1/feedback`（关联最近一次 `query_id`）
 8. **输入区**：textarea 自适应高度，Enter 发送 / Shift+Enter 换行
 
-### 2.3 设计 vs 实现差异（挂账，见 IMPORTANT.md §5/§6）
+### 2.3 推理链可视化交付（P4-UI 增强）[x]
 
-| 原设计 | 实现现状 |
+| 能力 | 实现 |
 |---|---|
-| 论断内联引用**角标**，点击展开原文片段 | 证据以 evidence_ids 列在步骤卡；无角标与原文展开 |
-| 子问题分解**树**（节点状态） | 扁平步骤列表 |
-| 图路径**可视化**（可点节点/边） | `explored_paths` 仅在折叠 JSON 中可见 |
+| 论断内联引用**角标** | 答案正文 claim 角标（`cite-btn`）；点击滚动到「论断与引用」列表（含 evidence_ids） |
+| 子问题分解**树** | `#planTree`：按 hop 的节点卡，状态色（sufficient/partial/fail），展示 depends_on |
+| 图路径**可视化** | `#pathsBox`：`explored_paths` 解析为 node/edge chips（非编辑器） |
+
+仍明确不做：图路径**编辑器**、多轮上下文、移动端适配（见 §2.5）。
 
 ### 2.4 前端必须遵守的规则
 
@@ -113,8 +115,8 @@
 
 ### 2.6 验证清单（不运行项目时的核查点）
 
-- [ ] `GET /web` 与 `/web/static/*` 挂载存在（`app.py`），冒烟测试断言未过期
-- [ ] `app.js` 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
-- [ ] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）
-- [ ] 反馈提交携带 `query_id` 且处理 `success=false`
-- [ ] 新增 DOM 注入点均走 `escapeHtml`/`textContent`
+- [x] `GET /web` 与 `/web/static/*` 挂载存在（`app.py`），冒烟测试断言未过期 — `tests/unit/test_web_claude_ui.py`
+- [x] `app.js` 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
+- [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 前端忽略未知事件；`test_live_sse_stream.py` 覆盖 live hops
+- [x] 反馈提交携带 `query_id` 且处理 `success=false`
+- [x] 动态文本注入走 `escapeHtml`/`textContent`（角标与树/路径节点用 `textContent`）

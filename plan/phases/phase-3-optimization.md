@@ -20,7 +20,7 @@
 - [x] `P3-PERF-03` RRF 融合排序，预留 Re-ranker 接口（FR-RT-04）— `retrieval/fusion.py` · Executor 默认 rrf
 - [x] `P3-PERF-04` 中间结果缓存：embedding / 子问题检索 / 热点答案 + index_version 失效 — `retrieval/cache.py`
 - [x] `P3-PERF-05` LLM 分级用模：Planner/Critic=STRONG，Executor/分诊=LIGHT（`Tier` 已接线）
-- [x] `P3-PERF-06` SSE 流式响应 — `POST /v1/query/stream` · `api/sse.py`
+- [x] `P3-PERF-06` SSE 流式响应 — `POST /v1/query/stream` · `api/sse.py` · **真·增量**：`agent/loop_stream.py`（LangGraph `stream(updates)`）+ `api/service_stream.py`
 - [x] `P3-PERF-07` 压测脚手架 — `scripts/p3_guardrail_and_load.py` → `reports/p3_perf_guardrails.json`（offline 毫秒级；live P95 仍待生产压测）
 
 ### 成本护栏与运营（OP）

@@ -13,6 +13,8 @@ from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Cit
 from agentic_graphrag.retrieval.graph_beam import (
     BeamConfig,
     BeamExpander,
+    RelationEmbedSim,
+    blend_relation_score,
     edge_score,
     infer_relation_types,
     normalize_name,
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GraphRetriever",
+    "blend_relation_score",
     "infer_relation_types",
     "relation_relevance",
 ]
@@ -45,6 +48,7 @@ class GraphRetriever:
         beam_width: int = 20,
         high_degree_threshold: int = 30,
         relation_relevance_threshold: float = 0.12,
+        relation_embed_sim: RelationEmbedSim | None = None,
     ) -> None:
         self.store = store
         self.max_neighbors_per_layer = max_neighbors_per_layer
@@ -54,6 +58,7 @@ class GraphRetriever:
         self.beam_width = beam_width
         self.high_degree_threshold = high_degree_threshold
         self.relation_relevance_threshold = relation_relevance_threshold
+        self.relation_embed_sim = relation_embed_sim
         self._beam = BeamExpander(
             store,
             BeamConfig(
@@ -62,6 +67,7 @@ class GraphRetriever:
                 beam_width=beam_width,
                 high_degree_threshold=high_degree_threshold,
                 relation_relevance_threshold=relation_relevance_threshold,
+                relation_embed_sim=relation_embed_sim,
             ),
         )
 
@@ -114,6 +120,16 @@ class GraphRetriever:
         ranked = self._rank_neighbor_edges(beams, entity_name, sub_question)
         return self._neighbor_candidates(ranked[:lim], entity_name, preferred)
 
+    def _score_edge(self, rel: RelationRecord, sub_question: str | None) -> float:
+        sim = None
+        scorer = self.relation_embed_sim
+        if scorer is not None:
+            try:
+                sim = scorer(rel.type, sub_question)
+            except Exception:  # noqa: BLE001 — lexical fallback
+                sim = None
+        return edge_score(rel, sub_question, embed_sim=sim)
+
     def _rank_neighbor_edges(
         self,
         beams: list,
@@ -126,7 +142,7 @@ class GraphRetriever:
             for rel, ent in item.edges:
                 head, tail, content = _edge_labels(rel, ent, entity_name)
                 key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
-                sc = edge_score(rel, sub_question)
+                sc = self._score_edge(rel, sub_question)
                 # Multi-hop beams surface edges about *other* nodes (e.g. CEO of a
                 # supplier). Strongly prefer edges that touch the seed entity so
                 # "CEO of BrightLink" is not answered with "CEO of NovaTech".
@@ -231,9 +247,7 @@ class GraphRetriever:
         return out[:lim]
 
 
-def _edge_labels(
-    rel: RelationRecord, ent: EntityRecord, entity_name: str
-) -> tuple[str, str, str]:
+def _edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tuple[str, str, str]:
     head = rel.head_name or entity_name
     tail = rel.tail_name or ent.name
     if not rel.head_name and not rel.tail_name:
@@ -242,9 +256,7 @@ def _edge_labels(
     return head, tail, content
 
 
-def _edge_touches_seed(
-    rel: RelationRecord, head: str, tail: str, seed_norm: str
-) -> bool:
+def _edge_touches_seed(rel: RelationRecord, head: str, tail: str, seed_norm: str) -> bool:
     """True when the edge endpoints involve the beam seed entity."""
     if not seed_norm:
         return True

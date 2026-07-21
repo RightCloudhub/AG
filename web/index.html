@@ -77,6 +77,10 @@
           <div class="bubble">
             <div class="bubble-meta" id="confidence"></div>
             <div class="answer-text" id="answerBox"></div>
+            <div class="claims-panel" id="claimsPanel" hidden>
+              <div class="card-label">论断与引用</div>
+              <ol id="claimsList" class="claims-list"></ol>
+            </div>
 
             <div class="feedback-row">
               <span class="feedback-label">这个回答准确吗？</span>
@@ -84,6 +88,16 @@
               <button type="button" class="fb-btn bad" data-acc="0" title="不准确">不准确</button>
               <input id="fbReason" class="fb-input" type="text" placeholder="可选原因…" />
             </div>
+
+            <details class="fold" id="planTreeFold" open>
+              <summary>子问题分解树</summary>
+              <ul id="planTree" class="plan-tree"></ul>
+            </details>
+
+            <details class="fold" id="pathsFold" open>
+              <summary>图路径</summary>
+              <div id="pathsBox" class="path-list"></div>
+            </details>
 
             <details class="fold" id="chainFold">
               <summary>推理链 JSON</summary>

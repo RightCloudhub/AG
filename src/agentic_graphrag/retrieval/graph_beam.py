@@ -1,18 +1,16 @@
-"""Beam traversal core for graph multi-hop retrieval (FR-RT-02 / P2-RT-01).
-
-Relation-cue scoring, edge/path signatures, and beam expansion. Candidate /
-citation assembly lives in :mod:`agentic_graphrag.retrieval.graph`.
-"""
+"""Beam traversal + relation scoring (FR-RT-02 / P2-RT-01)."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, PathRecord, RelationRecord
 
-# Lexical cues for offline relation relevance (pure logic; embedding re-rank is P3).
+RelationEmbedSim = Callable[[str, str | None], float | None]
+
+# Lexical relation cues; optional embed blend via blend_relation_score.
 _RELATION_CUES: dict[str, tuple[str, ...]] = {
     "CEO_OF": ("ceo", "chief executive", "leads", "leader", "headed by"),
     "WORKS_AT": ("work", "works", "worked", "employ", "job", "role", "title"),
@@ -28,6 +26,21 @@ _RELATION_CUES: dict[str, tuple[str, ...]] = {
     "LOCATED_IN": ("located", "based in", "headquarter", "hq"),
 }
 
+_EMBED_RERANK_WEIGHT = 0.35
+
+def blend_relation_score(
+    lexical: float,
+    embed_sim: float | None,
+    *,
+    embed_weight: float = _EMBED_RERANK_WEIGHT,
+) -> float:
+    """Blend lexical cue with optional embed sim in [0,1]; None embed keeps lexical."""
+    lex = max(0.0, min(1.0, lexical))
+    if embed_sim is None:
+        return lex
+    w = max(0.0, min(1.0, embed_weight))
+    emb = max(0.0, min(1.0, float(embed_sim)))
+    return (1.0 - w) * lex + w * emb
 
 def relation_relevance(relation_type: str, sub_question: str | None) -> float:
     """Score in [0, 1] how well a relation type matches the sub-question text."""
@@ -42,7 +55,6 @@ def relation_relevance(relation_type: str, sub_question: str | None) -> float:
     if hits == 0:
         return 0.08
     return min(1.0, 0.45 + 0.2 * hits)
-
 
 def infer_relation_types(
     sub_question: str | None,
@@ -63,7 +75,6 @@ def infer_relation_types(
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [r for _, r in scored]
 
-
 def _score_relation_cues(
     sub_question: str,
     avail: set[str] | None,
@@ -78,12 +89,16 @@ def _score_relation_cues(
             scored.append((s, rel))
     return scored
 
-
-def edge_score(rel: RelationRecord, sub_question: str | None) -> float:
+def edge_score(
+    rel: RelationRecord,
+    sub_question: str | None,
+    *,
+    embed_sim: float | None = None,
+) -> float:
     conf = float(rel.confidence) if rel.confidence is not None else 1.0
     conf = max(0.0, min(1.0, conf))
-    return conf * relation_relevance(rel.type, sub_question)
-
+    rel_score = blend_relation_score(relation_relevance(rel.type, sub_question), embed_sim)
+    return conf * rel_score
 
 def path_signature(nodes: list[EntityRecord], rels: list[RelationRecord]) -> str:
     parts: list[str] = []
@@ -93,10 +108,8 @@ def path_signature(nodes: list[EntityRecord], rels: list[RelationRecord]) -> str
             parts.append(rels[i].type.upper())
     return "|".join(parts)
 
-
 def normalize_name(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip().lower())
-
 
 @dataclass
 class BeamItem:
@@ -107,7 +120,6 @@ class BeamItem:
     # Edges collected along the beam for neighbor-candidate emission
     edges: list[tuple[RelationRecord, EntityRecord]]
 
-
 @dataclass(frozen=True)
 class BeamConfig:
     """Caps controlling layer fan-out and high-degree hard filters."""
@@ -117,7 +129,7 @@ class BeamConfig:
     beam_width: int = 20
     high_degree_threshold: int = 30
     relation_relevance_threshold: float = 0.12
-
+    relation_embed_sim: RelationEmbedSim | None = None
 
 class BeamExpander:
     """Store-backed beam expansion and path join (no Candidate assembly)."""
@@ -151,7 +163,7 @@ class BeamExpander:
 
         scored: list[tuple[float, RelationRecord, EntityRecord]] = []
         for rel, ent in rows:
-            sc = edge_score(rel, sub_question)
+            sc = edge_score(rel, sub_question, embed_sim=self._embed_sim(rel.type, sub_question))
             # Prune low-relevance when we have preferred types
             if preferred_relations and rel.type.upper() not in {
                 r.upper() for r in preferred_relations
@@ -162,6 +174,15 @@ class BeamExpander:
 
         scored.sort(key=lambda t: (-t[0], t[1].type, t[2].name))
         return scored[: self.cfg.max_neighbors_per_layer]
+
+    def _embed_sim(self, relation_type: str, sub_question: str | None) -> float | None:
+        scorer = self.cfg.relation_embed_sim
+        if scorer is None:
+            return None
+        try:
+            return scorer(relation_type, sub_question)
+        except Exception:  # noqa: BLE001 — never break retrieval on embed failure
+            return None
 
     def looks_high_degree(self, entity_name: str) -> bool:
         rows = self.store.neighbors(
@@ -269,3 +290,4 @@ class BeamExpander:
             )
         found.sort(key=lambda p: (-p.score, p.length))
         return found[: self.cfg.max_paths]
+
