@@ -39,6 +39,20 @@ def _format_evidence(evidence: list[Candidate]) -> str:
     return "\n".join(lines) if lines else "(no evidence)"
 
 
+def _attach_evidence_catalog(chain: ReasoningChain, evidence: list[Candidate]) -> None:
+    """Persist evidence id+content so API/UI can resolve citation clicks."""
+    catalog = [
+        {
+            "id": c.id,
+            "content": (c.content or "")[:800],
+            "source": c.source.value if hasattr(c.source, "value") else str(c.source),
+            "score": c.score,
+        }
+        for c in evidence[:50]
+    ]
+    chain.metadata = {**(chain.metadata or {}), "evidence": catalog}
+
+
 def _split(text: str) -> tuple[str, str]:
     if "# System" in text and "# User" in text:
         parts = text.split("# User", 1)
@@ -116,6 +130,7 @@ def generate_answer(
     tier: Tier = Tier.STRONG,
 ) -> ReasoningChain:
     """Generate final answer into the reasoning chain with citation intercept."""
+    _attach_evidence_catalog(chain, evidence)
     if not evidence:
         chain.honest_fallback("no evidence retrieved")
         return chain

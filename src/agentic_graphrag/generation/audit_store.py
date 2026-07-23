@@ -53,6 +53,18 @@ class AuditStore:
             row = self._index.get(query_id)
             return dict(row) if row else None
 
+    def get_for_tenant(self, query_id: str, tenant_id: str) -> dict[str, Any] | None:
+        """Return chain only if it belongs to ``tenant_id`` (multi-tenant isolation)."""
+        row = self.get(query_id)
+        if row is None:
+            return None
+        meta = row.get("metadata") or {}
+        owner = meta.get("tenant_id") if isinstance(meta, dict) else None
+        # Legacy rows without tenant metadata are only visible to "default".
+        if owner is None:
+            return row if tenant_id == "default" else None
+        return row if owner == tenant_id else None
+
     def list_ids(self, limit: int = 100) -> list[str]:
         with self._lock:
             return list(self._index.keys())[-limit:]

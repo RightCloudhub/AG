@@ -103,16 +103,9 @@ class IncrementalUpdater:
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        """Best-effort index from store if it exposes relations; else empty."""
+        """Best-effort index from store (memory list or Neo4j list_relations)."""
         self._rel_index.clear()
-        # InMemoryGraphStore uses ``_relations`` list; Protocol has no list API
-        rels = getattr(self.store, "relations", None) or getattr(self.store, "_relations", None)
-        if isinstance(rels, dict):
-            values = list(rels.values())
-        elif isinstance(rels, list):
-            values = rels
-        else:
-            values = []
+        values = self._iter_store_relations()
         for r in values:
             key = (
                 (r.head_name or "").lower(),
@@ -120,6 +113,20 @@ class IncrementalUpdater:
                 (r.tail_name or "").lower(),
             )
             self._rel_index[key] = r
+
+    def _iter_store_relations(self) -> list[RelationRecord]:
+        rels = getattr(self.store, "relations", None) or getattr(self.store, "_relations", None)
+        if isinstance(rels, dict):
+            return list(rels.values())
+        if isinstance(rels, list):
+            return list(rels)
+        lister = getattr(self.store, "list_relations", None)
+        if callable(lister):
+            try:
+                return list(lister(limit=50_000) or [])
+            except Exception:
+                return []
+        return []
 
     def detect_conflicts(self, triples: list[Triple]) -> tuple[list[Triple], list[Conflict]]:
         """Split into clean inserts vs conflicts against existing edges."""
@@ -153,7 +160,7 @@ class IncrementalUpdater:
                     clean.append(t)
                 continue
 
-            # Exact same edge — refresh sources if higher conf
+            # Exact same edge — only upgrade when confidence is meaningfully higher
             if t.confidence > existing.confidence + 1e-9:
                 action, reason = self._decide(existing.confidence, t.confidence)
                 conflicts.append(
@@ -165,8 +172,7 @@ class IncrementalUpdater:
                         reason=reason or "higher confidence refresh",
                     )
                 )
-            else:
-                clean.append(t)  # idempotent re-assert
+            # Equal or lower confidence: do not re-write (prevents low-conf overwrite)
         return clean, conflicts
 
     def _decide(self, old_conf: float, new_conf: float) -> tuple[ConflictAction, str]:
@@ -217,6 +223,7 @@ class IncrementalUpdater:
         to_write: list[Triple] = list(clean)
         for c in conflicts:
             if c.action == ConflictAction.AUTO_UPDATE:
+                self._retire_conflicting_edge(c)
                 to_write.append(c.incoming)
                 result.conflicts_auto += 1
             elif c.action == ConflictAction.REVIEW:
@@ -225,6 +232,28 @@ class IncrementalUpdater:
                 result.review_items.append(item)
                 self._append_review(item)
         return to_write
+
+    def _retire_conflicting_edge(self, conflict: Conflict) -> None:
+        """Remove/supersede the old edge so AUTO_UPDATE does not leave dual facts."""
+        old = conflict.existing
+        # Drop from in-process index (all backends).
+        old_key = (
+            (old.head_name or "").lower(),
+            old.type,
+            (old.tail_name or "").lower(),
+        )
+        self._rel_index.pop(old_key, None)
+        # Memory store: remove relation object.
+        rels = getattr(self.store, "_relations", None)
+        if isinstance(rels, list):
+            self.store._relations = [r for r in rels if r.id != old.id]  # type: ignore[attr-defined]
+            return
+        deleter = getattr(self.store, "delete_relation", None)
+        if callable(deleter):
+            try:
+                deleter(old.id)
+            except Exception:
+                pass
 
     def _refresh_index(self, to_write: list[Triple]) -> None:
         _ents, rels = triples_to_records(to_write)

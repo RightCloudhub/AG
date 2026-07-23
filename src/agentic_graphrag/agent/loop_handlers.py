@@ -214,6 +214,11 @@ def _append_dynamic_subquestion(
     ctx: CriticApplyCtx,
     sqs: list[dict[str, Any]],
 ) -> None:
+    """Insert critic follow-up after the current node so remaining plan nodes run.
+
+    Previously the dynamic SQ was appended at the end and ``current_index`` jumped
+    there, permanently skipping any planned nodes that had not yet executed.
+    """
     memory = ctx.memory
     new_sq = ctx.result.new_sub_question or ctx.sq_text
     if ctx.result.action == CriticAction.REWRITE:
@@ -222,16 +227,20 @@ def _append_dynamic_subquestion(
         new_state["done"] = True
         return
     new_id = f"sq_dyn_{len(sqs) + 1}"
-    sqs = list(sqs) + [
+    insert_at = min(ctx.idx + 1, len(sqs))
+    sqs = list(sqs)
+    sqs.insert(
+        insert_at,
         SubQuestion(
             id=new_id,
             text=new_sq,
             depends_on=[ctx.sq_id] if ctx.sq else [],
             rationale=ctx.result.rationale,
-        ).model_dump()
-    ]
+        ).model_dump(),
+    )
     new_state["sub_questions"] = sqs
-    new_state["current_index"] = len(sqs) - 1
+    # Next executor hop runs the inserted node; original tail still follows.
+    new_state["current_index"] = insert_at
 
 
 def load_evidence(state: AgentState) -> list[Candidate]:

@@ -32,7 +32,11 @@ export const AnswerTurn = {
       return buildAnswerSegments(this.payload.answer, this.payload.claims);
     },
     claimItems() {
-      return buildClaimItems(this.payload.claims);
+      const catalog =
+        this.payload.evidence ||
+        (this.payload.metadata && this.payload.metadata.evidence) ||
+        [];
+      return buildClaimItems(this.payload.claims, catalog);
     },
     chainJson() {
       if (!this.turn.result) return "";

@@ -43,6 +43,17 @@
               <input type="checkbox" id="useStream" v-model="settings.useStream" />
               <span>SSE 流式进度</span>
             </label>
+            <label class="field">
+              <span>API Key</span>
+              <input
+                type="password"
+                id="apiKey"
+                autocomplete="off"
+                placeholder="Bearer token（可选）"
+                v-model="settings.apiKey"
+                @change="saveApiKey"
+              />
+            </label>
           </div>
         </details>
       </aside>

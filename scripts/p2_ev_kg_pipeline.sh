@@ -94,7 +94,18 @@ echo "======== P2-EV-05 baseline (dev, offline) ========"
   2>&1 | tee reports/g2_dev_baseline.log
 
 BASELINE_RUN="$OUT_A/baseline_run.jsonl"
-AGENTIC_RUN="$OUT_A/poc_run.jsonl"
+# Prefer renamed agentic run; fall back to poc_run if rename was skipped.
+if [[ -f "$OUT_A/agentic_run.jsonl" ]]; then
+  AGENTIC_RUN="$OUT_A/agentic_run.jsonl"
+elif [[ -f "$OUT_A/poc_run.jsonl" ]]; then
+  AGENTIC_RUN="$OUT_A/poc_run.jsonl"
+else
+  AGENTIC_RUN="$(ls "$OUT_A"/*run*.jsonl 2>/dev/null | head -1 || true)"
+fi
+if [[ -z "${AGENTIC_RUN}" || ! -f "${AGENTIC_RUN}" ]]; then
+  echo "ERROR: agentic run jsonl not found under $OUT_A" >&2
+  exit 1
+fi
 
 echo "======== P2-EV-05 agr-eval comparison ========"
 "$PY" -m agentic_graphrag eval \

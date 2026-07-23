@@ -49,7 +49,7 @@ def stream_query_events(
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Yield SSE (event, payload) pairs with live hop progress."""
-    cache_events = stream_cache_hit_events(svc, req)
+    cache_events = stream_cache_hit_events(svc, req, tenant_id=tenant_id, user_id=user_id)
     if cache_events is not None:
         yield from cache_events
         return
@@ -86,23 +86,25 @@ def _stream_agent(
     user_id: str,
     t0: float,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Build deps and run agent under the same service lock as non-stream path."""
+    """Build deps and stream agent progress without holding a process-global lock.
+
+    Holding a lock across the full SSE lifetime blocked other queries when a
+    slow client drained events slowly. Build is cheap and stores are shared.
+    """
     guard_cfg, budget = _guard_and_budget(svc, req)
     trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
-    # Hold lock for prepare + agent stream (matches execute_run_query).
-    with svc._lock:
-        executor, llm, opts = _build_locked_deps(svc, req, (guard_cfg, budget))
-        with span(trace_ctx, "stream_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
-            yield from _consume_progress(
-                svc,
-                req,
-                executor=executor,
-                llm=llm,
-                opts=opts,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                t0=t0,
-            )
+    executor, llm, opts = _build_stream_deps(svc, req, (guard_cfg, budget))
+    with span(trace_ctx, "stream_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
+        yield from _consume_progress(
+            svc,
+            req,
+            executor=executor,
+            llm=llm,
+            opts=opts,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            t0=t0,
+        )
 
 
 def _guard_and_budget(svc: QueryService, req: QueryRequest) -> tuple[GuardrailConfig, Any]:
@@ -116,7 +118,7 @@ def _guard_and_budget(svc: QueryService, req: QueryRequest) -> tuple[GuardrailCo
     return guard_cfg, budget
 
 
-def _build_locked_deps(
+def _build_stream_deps(
     svc: QueryService,
     req: QueryRequest,
     guard_budget: tuple[GuardrailConfig, Any],

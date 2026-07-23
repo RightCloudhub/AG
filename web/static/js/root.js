@@ -3,7 +3,15 @@
  * query/stream/feedback flows. Each turn is an independent question — no
  * multi-turn context is ever sent to the server (V1 boundary).
  */
-import { fetchHealth, friendlyError, postFeedback, postQuery, streamQuery } from "./api.js";
+import {
+  fetchHealth,
+  friendlyError,
+  getApiKey,
+  postFeedback,
+  postQuery,
+  setApiKey,
+  streamQuery,
+} from "./api.js";
 import { describeStreamEvent } from "./chain-view.js";
 
 const DEFAULT_MAX_HOPS = 5;
@@ -27,7 +35,12 @@ export const rootComponent = {
       turnSeq: 0,
       turns: [],
       suggestions: SUGGESTED_QUESTIONS,
-      settings: { forceAgentic: false, maxHops: DEFAULT_MAX_HOPS, useStream: true },
+      settings: {
+        forceAgentic: false,
+        maxHops: DEFAULT_MAX_HOPS,
+        useStream: true,
+        apiKey: getApiKey(),
+      },
       health: { state: "checking", label: "检测服务中…" },
     };
   },
@@ -35,10 +48,15 @@ export const rootComponent = {
     this.checkHealth();
   },
   methods: {
+    saveApiKey() {
+      setApiKey((this.settings.apiKey || "").trim());
+    },
     async checkHealth() {
       try {
-        await fetchHealth();
-        this.health = { state: "ok", label: "服务正常" };
+        const h = await fetchHealth();
+        const status = (h && h.status) || "ok";
+        if (status === "ok") this.health = { state: "ok", label: "服务正常" };
+        else this.health = { state: "warn", label: `服务${status}` };
       } catch {
         this.health = { state: "down", label: "服务不可用" };
       }

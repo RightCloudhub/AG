@@ -51,23 +51,40 @@ async def upload_docs(
     request: Request,
     files: list[UploadFile] | None = None,
 ) -> dict:
-    """Batch document upload — creates an ingest task (FR-API-03)."""
+    """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
+    from agentic_graphrag.stores.interfaces import DocumentRecord
+
+    svc = _service(request)
     task_id = str(uuid.uuid4())
     saved: list[dict[str, str]] = []
     for f in files or []:
         content = await f.read()
         text = content.decode("utf-8", errors="replace")
         doc_id = f.filename or str(uuid.uuid4())
+        try:
+            svc.bundle.docs.save(
+                DocumentRecord(
+                    doc_id=doc_id,
+                    title=f.filename or doc_id,
+                    content=text,
+                    metadata={"task_id": task_id, "source": "upload", "bytes": len(text)},
+                )
+            )
+        except Exception:
+            # Still record the upload even if doc store write fails.
+            pass
         saved.append({"doc_id": doc_id, "bytes": str(len(text)), "name": f.filename or ""})
     _TASKS[task_id] = {
         "id": task_id,
         "status": "queued" if saved else "empty",
         "docs": saved,
         "created_at": time.time(),
-        "message": "Documents accepted; run extract pipeline offline or via worker",
+        "message": (
+            "Documents persisted to doc store; run extract pipeline offline or via worker"
+            if saved
+            else "No documents received"
+        ),
     }
-    # Optionally enqueue review spotcheck
-    svc = _service(request)
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
@@ -135,14 +152,23 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     return ok(item.to_dict())
 
 
+def _principal(request: Request) -> tuple[str, str]:
+    p = getattr(request.state, "principal", None)
+    if p is None:
+        return "default", request.headers.get("x-user-id") or "anonymous"
+    return p.tenant_id, p.user_id
+
+
 @router.get("/audit/queries/{query_id}")
 def get_audit_query(query_id: str, request: Request) -> dict:
-    """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01)."""
+    """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01) — tenant-scoped."""
     svc = _service(request)
     if svc.audit_store is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
-    row = svc.audit_store.get(query_id)
+    tenant_id, _user_id = _principal(request)
+    row = svc.audit_store.get_for_tenant(query_id, tenant_id)
     if row is None:
+        # 404 for both missing and cross-tenant (no existence leak).
         raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
     return ok(row)
 
@@ -151,7 +177,11 @@ def get_audit_query(query_id: str, request: Request) -> dict:
 def post_feedback(body: FeedbackBody, request: Request) -> dict:
     """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
     svc = _service(request)
-    user_id = request.headers.get("x-user-id") or "anonymous"
+    tenant_id, user_id = _principal(request)
+    if svc.audit_store is not None:
+        row = svc.audit_store.get_for_tenant(body.query_id, tenant_id)
+        if row is None and svc.audit_store.get(body.query_id) is not None:
+            raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
     result = svc.submit_feedback(
         body.query_id,
         accurate=body.accurate,

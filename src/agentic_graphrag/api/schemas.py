@@ -54,6 +54,15 @@ class StepOut(BaseModel):
     critic_action: str = ""
 
 
+class EvidenceOut(BaseModel):
+    """Evidence snippet for citation click-through in the trial UI."""
+
+    id: str
+    content: str = ""
+    source: str = ""
+    score: float = 0.0
+
+
 class QueryResultData(BaseModel):
     """Reasoning-chain payload returned in envelope.data."""
 
@@ -68,3 +77,4 @@ class QueryResultData(BaseModel):
     explored_paths: list[str] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceOut] = Field(default_factory=list)

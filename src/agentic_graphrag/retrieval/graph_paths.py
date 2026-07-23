@@ -41,12 +41,42 @@ def path_score(path: PathRecord, sub_question: str | None) -> float:
 
 
 def path_content(path: PathRecord) -> str:
+    """Render path with true edge direction (forward -> or reverse <-)."""
     parts: list[str] = []
     for j, node in enumerate(path.nodes):
         parts.append(node.name)
         if j < len(path.relations):
-            parts.append(f"-[{path.relations[j].type}]->")
+            parts.append(_edge_arrow(path, j))
     return " ".join(parts)
+
+
+def _edge_arrow(path: PathRecord, j: int) -> str:
+    rel = path.relations[j]
+    cur = path.nodes[j]
+    nxt = path.nodes[j + 1] if j + 1 < len(path.nodes) else None
+    label = rel.type
+    rid = f"#{rel.id}" if rel.id else ""
+    if nxt is not None and _is_forward(rel, cur, nxt):
+        return f"-[{label}{rid}]->"
+    if nxt is not None and _is_forward(rel, nxt, cur):
+        return f"<-[{label}{rid}]-"
+    # Name-based fallback when ids are missing/mismatched.
+    if (rel.head_name or "").lower() == cur.name.lower():
+        return f"-[{label}{rid}]->"
+    if (rel.tail_name or "").lower() == cur.name.lower():
+        return f"<-[{label}{rid}]-"
+    return f"-[{label}{rid}]->"
+
+
+def _is_forward(rel: object, head: object, tail: object) -> bool:
+    head_id = getattr(head, "id", None)
+    tail_id = getattr(tail, "id", None)
+    return bool(
+        head_id
+        and tail_id
+        and getattr(rel, "head_id", None) == head_id
+        and getattr(rel, "tail_id", None) == tail_id
+    )
 
 
 def path_candidates(
@@ -66,6 +96,7 @@ def path_candidates(
                     "kind": "path",
                     "nodes": [n.name for n in path.nodes],
                     "relations": [r.type for r in path.relations],
+                    "relation_ids": [r.id for r in path.relations if r.id],
                     "length": path.length,
                     "signature": path_signature(path.nodes, path.relations),
                 },

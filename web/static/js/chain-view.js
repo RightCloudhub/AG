@@ -87,13 +87,34 @@ function citeSegment(n, claim) {
   };
 }
 
-export function buildClaimItems(claims) {
+export function buildClaimItems(claims, evidenceCatalog) {
   const list = Array.isArray(claims) ? claims : [];
-  return list.map((claim, i) => ({
-    n: i + 1,
-    text: (claim && claim.text) || "(empty claim)",
-    evidence: `证据: ${(((claim && claim.evidence_ids) || []).join(", ")) || "—"}`,
-  }));
+  const byId = evidenceIndex(evidenceCatalog);
+  return list.map((claim, i) => {
+    const ids = (claim && claim.evidence_ids) || [];
+    const snippets = ids
+      .map((id) => {
+        const hit = byId[id];
+        if (!hit) return id;
+        const body = (hit.content || "").trim();
+        return body ? `[${id}] ${body}` : id;
+      })
+      .filter(Boolean);
+    return {
+      n: i + 1,
+      text: (claim && claim.text) || "(empty claim)",
+      evidence: snippets.length ? snippets.join(" · ") : `证据: ${ids.join(", ") || "—"}`,
+    };
+  });
+}
+
+function evidenceIndex(catalog) {
+  const out = {};
+  const list = Array.isArray(catalog) ? catalog : [];
+  for (const item of list) {
+    if (item && item.id) out[item.id] = item;
+  }
+  return out;
 }
 
 export function buildPlanNodes(steps) {

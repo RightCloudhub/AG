@@ -51,6 +51,12 @@ def _entities_from_triples(triples: list[Triple]) -> list[str]:
 
 def _chain_to_data(chain: ReasoningChain) -> QueryResultData:
     payload = chain.model_dump(mode="json")
+    # Promote metadata.evidence catalog to top-level for UI citation click-through.
+    meta = payload.get("metadata") or {}
+    if not payload.get("evidence") and isinstance(meta, dict):
+        catalog = meta.get("evidence") or []
+        if catalog:
+            payload["evidence"] = catalog
     return QueryResultData.model_validate(payload)
 
 
@@ -117,13 +123,26 @@ def cost_units_for_chain(llm_calls: int) -> float:
 def stream_cache_hit_events(
     svc: QueryService,
     req: QueryRequest,
+    *,
+    tenant_id: str = "default",
+    user_id: str = "anonymous",
 ) -> list[tuple[str, dict[str, Any]]] | None:
     """Return SSE events for a cached answer, or None on miss."""
     from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_CACHE_HIT
 
     if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
         return None
-    hit = svc.retrieval_cache.get_answer(req.question)
+    hit = svc.retrieval_cache.get_answer(
+        req.question,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        max_hops=req.max_hops,
+        force_agentic=req.force_agentic,
+        timeout_ms=req.timeout_ms,
+    )
     if hit is None:
+        return None
+    meta = hit.get("metadata") if isinstance(hit, dict) else None
+    if isinstance(meta, dict) and meta.get("tenant_id") not in (None, tenant_id):
         return None
     return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]

@@ -80,11 +80,46 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
 def _register_routes(app: FastAPI) -> None:
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    def healthz(request: Request) -> dict[str, Any]:
+        """Liveness + shallow dependency checks (graph/vector/doc store)."""
+        return _health_payload(request)
 
     app.include_router(query_routes.router)
     app.include_router(knowledge_routes.router)
+
+
+def _health_payload(request: Request) -> dict[str, Any]:
+    svc = getattr(request.app.state, "query_service", None)
+    if svc is None:
+        return {"status": "degraded", "checks": {"query_service": "missing"}}
+    checks: dict[str, str] = {"query_service": "ok"}
+    overall = "ok"
+    try:
+        counts = svc.bundle.graph.counts()
+        checks["graph"] = "ok"
+        checks["graph_entities"] = str(counts.get("entities") or counts.get("nodes") or 0)
+    except Exception as exc:  # noqa: BLE001
+        checks["graph"] = f"error:{type(exc).__name__}"
+        overall = "degraded"
+    try:
+        # Vector store may not expose counts; existence is enough for shallow check.
+        _ = svc.bundle.vector
+        checks["vector"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        checks["vector"] = f"error:{type(exc).__name__}"
+        overall = "degraded"
+    try:
+        ping = getattr(svc.bundle.graph, "ping", None)
+        if callable(ping):
+            ping()
+            checks["graph_ping"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        checks["graph_ping"] = f"error:{type(exc).__name__}"
+        overall = "degraded"
+    checks["allow_llm"] = "1" if svc.allow_llm else "0"
+    checks["graph_backend"] = str(getattr(svc.bundle, "graph_backend", "unknown"))
+    checks["vector_backend"] = str(getattr(svc.bundle, "vector_backend", "unknown"))
+    return {"status": overall, "checks": checks}
 
 
 def _mount_web_ui(app: FastAPI) -> None:

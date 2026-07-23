@@ -1,6 +1,9 @@
 /* Backend client for the trial UI: envelope-aware JSON calls + manual SSE
  * parsing. SSE uses fetch + ReadableStream (not EventSource) because the
  * stream endpoint requires POST with a JSON body. Framework-free module.
+ *
+ * Auth: optional API key from localStorage key `agr_api_key` (or window.AGR_API_KEY).
+ * When set, sent as Authorization: Bearer <key> so AGR_REQUIRE_AUTH=1 works.
  */
 const QUERY_URL = "/v1/query";
 const STREAM_URL = "/v1/query/stream";
@@ -9,6 +12,32 @@ const HEALTH_URL = "/healthz";
 const SSE_BLOCK_SEPARATOR = "\n\n";
 const SSE_EVENT_PREFIX = "event:";
 const SSE_DATA_PREFIX = "data:";
+const API_KEY_STORAGE = "agr_api_key";
+
+export function getApiKey() {
+  try {
+    if (typeof window !== "undefined" && window.AGR_API_KEY) return String(window.AGR_API_KEY);
+    return localStorage.getItem(API_KEY_STORAGE) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setApiKey(key) {
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch {
+    /* private mode */
+  }
+}
+
+function authHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const key = getApiKey();
+  if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
 
 export function friendlyError(err) {
   if (err && err.name === "AbortError") return "已中止";
@@ -20,7 +49,7 @@ export function friendlyError(err) {
 async function postEnvelope(url, body) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
   let env = null;
@@ -46,7 +75,7 @@ export function postFeedback(body) {
 }
 
 export async function fetchHealth() {
-  const res = await fetch(HEALTH_URL);
+  const res = await fetch(HEALTH_URL, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -55,7 +84,7 @@ export async function fetchHealth() {
 export async function streamQuery(opts) {
   const res = await fetch(STREAM_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify(opts.body),
     signal: opts.signal,
   });

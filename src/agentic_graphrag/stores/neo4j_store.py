@@ -1,13 +1,8 @@
-"""Neo4j GraphStore implementation with parameterized Cypher only (NFR-07).
+"""Neo4j GraphStore with parameterized Cypher only (NFR-07).
 
-Relation properties persist semantic endpoints (``head_id`` / ``tail_id`` /
-``head_name`` / ``tail_name``) and ``sources`` (JSON string) so undirected
-reads can rebuild true direction. Multi-hop neighbors use stable
-``ORDER BY hops, r.id`` + edge de-dup; paths use bounded simple-path
-enumeration (not ``shortestPath`` alone).
-
-**Migration:** graphs written before these relation properties must be
-rebuilt (``agr-build-graph``); old edges lack the new attributes.
+Relation props store semantic endpoints + sources JSON for true direction.
+Multi-hop neighbors ORDER BY hops/id; paths are bounded simple-path scans.
+Pre-property graphs must be rebuilt via ``agr-build-graph``.
 """
 
 from __future__ import annotations
@@ -219,6 +214,33 @@ class Neo4jGraphStore:
             nodes = session.run("MATCH (n) RETURN count(n) AS c").single()["c"]
             rels = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
         return {"nodes": int(nodes), "relationships": int(rels)}
+
+    def list_relations(self, limit: int = 50_000) -> list[RelationRecord]:
+        """Enumerate relations for incremental conflict indexing."""
+        lim = max(1, min(int(limit), 100_000))
+        q = "MATCH (h)-[r]->(t) RETURN r, h, t LIMIT $limit"
+        out: list[RelationRecord] = []
+        with self._driver.session() as session:
+            for rec in session.run(q, limit=lim):
+                out.append(
+                    rel_to_record(
+                        rec["r"],
+                        walk_other_name=rec["t"].get("name") or "",
+                        walk_from_name=rec["h"].get("name") or "",
+                    )
+                )
+        return out
+
+    def delete_relation(self, relation_id: str) -> bool:
+        """Delete a relationship by property id (conflict supersede)."""
+        if not relation_id:
+            return False
+        with self._driver.session() as session:
+            row = session.run(
+                "MATCH ()-[r]->() WHERE r.id = $id DELETE r RETURN count(*) AS c",
+                id=relation_id,
+            ).single()
+        return bool(row and int(row["c"]) > 0)
 
 
 def _neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:

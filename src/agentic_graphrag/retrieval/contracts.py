@@ -208,26 +208,23 @@ def rrf_fuse(
 
     Score is purely rank-based so heterogeneous channel scores never mix.
     Returns candidates with ``source=FUSION`` and original payload preserved
-    in ``structured["origins"]``.
+    in ``structured["origins"]``. Fuses by content id so vector+BM25 merge.
     """
     scores: dict[str, float] = {}
     best: dict[str, Candidate] = {}
     origins: dict[str, list[dict[str, Any]]] = {}
-
     for group in ranked_lists:
         for rank, c in enumerate(group):
-            key = f"{c.channel}:{c.id}"
+            key = c.id or f"{c.channel}:{id(c)}"
             scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
             if key not in best or c.score > best[key].score:
                 best[key] = c
             origins.setdefault(key, []).append(
-                {"source": c.source.value, "score": c.score, "rank": rank}
+                {"source": c.source.value, "channel": c.channel, "score": c.score, "rank": rank}
             )
-
     ordered = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     if limit is not None:
         ordered = ordered[:limit]
-
     fused: list[Candidate] = []
     for key, rrf_score in ordered:
         base = best[key]

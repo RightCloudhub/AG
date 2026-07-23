@@ -32,12 +32,14 @@
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
 | 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
+| 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
 PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 # 真域：docs/REAL_DOMAIN_PLAYBOOK.md · ./scripts/import_real_corpus.sh
 .venv/bin/python scripts/check_code_metrics.py
+# API 后端：默认 offline；AGR_ALLOW_LLM=1 仅开 LLM；AGR_USE_LIVE_STORES=1 才用 Neo4j/Qdrant
 ```
 
 ---
@@ -168,8 +170,12 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
-| `POST /v1/query` | 已有 + 鉴权/限流/SSE（P3/P4） | 租户**数据级**隔离（P4-REL-01 运维） |
-| 推理链 | Schema + 响应内 chain + audit store API | 生产抽样审计（P4-AC-02） |
+| `POST /v1/query` | 已有 + 鉴权/限流/SSE；答案缓存按 tenant/user/params；审计按 tenant 隔离 | 租户**数据级**图隔离（P4-REL-01 运维） |
+| 推理链 | Schema + 响应内 chain + audit store API + evidence 正文目录 | 生产抽样审计（P4-AC-02） |
+| 引用/Recall | 门禁含词法支撑；Recall 不含 prediction 文本；fabrication=ID+claim 存在性 proxy | 真 NLI 支撑判定；live heldout 重跑 |
+| 3-hop 效果 | 计划动态 SQ 不再跳过后续节点 | **须重跑 heldout**；历史 g2_dev 3-hop 2.44% 不可作门禁证据 |
+| CI | unit + coverage≥80%；omit 仍有 live 适配器 | integration/Neo4j/Qdrant job；勿用 omit 路径冒充覆盖 |
+
 | BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
 | 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
 | SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |

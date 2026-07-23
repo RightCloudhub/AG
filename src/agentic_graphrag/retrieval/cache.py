@@ -4,7 +4,7 @@
 |--------------------|------------------------------------------|---------------------------|
 | embedding          | text hash                                | content-addressed (none)  |
 | sub-query retrieval| norm(query) + index_version              | bump index_version        |
-| hot answers        | norm(question) + index_version           | bump + optional TTL       |
+| hot answers        | tenant+user+params+question+version      | bump + optional TTL       |
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.retrieval.contracts import Candidate
+
+_DEFAULT_TENANT = "default"
+_DEFAULT_USER = "anonymous"
 
 
 def normalize_query_key(text: str) -> str:
@@ -67,7 +70,6 @@ class MemoryCache:
     def set(self, key: str, value: Any, *, ttl_seconds: float | None = None) -> None:
         with self._lock:
             if len(self._data) >= self.max_entries and key not in self._data:
-                # Drop oldest
                 oldest = min(self._data.items(), key=lambda kv: kv[1].created_at)
                 del self._data[oldest[0]]
             self._data[key] = CacheEntry(
@@ -112,7 +114,7 @@ class IndexVersion:
 
 
 class RetrievalCache:
-    """Sub-query retrieval + answer cache keyed by index version."""
+    """Sub-query retrieval + answer cache keyed by index version + tenant scope."""
 
     def __init__(
         self,
@@ -132,9 +134,23 @@ class RetrievalCache:
         v = self.index_version.current()
         return f"ret:v{v}:{content_hash(normalize_query_key(query) + '|' + tools)}"
 
-    def answer_key(self, question: str) -> str:
+    def answer_key(
+        self,
+        question: str,
+        *,
+        tenant_id: str = _DEFAULT_TENANT,
+        user_id: str = _DEFAULT_USER,
+        max_hops: int | None = None,
+        force_agentic: bool = False,
+        timeout_ms: int | None = None,
+    ) -> str:
+        """Tenant/user/params scoped key — never share answers across tenants."""
         v = self.index_version.current()
-        return f"ans:v{v}:{content_hash(normalize_query_key(question))}"
+        scope = (
+            f"{tenant_id}|{user_id}|h={max_hops}|fa={int(force_agentic)}|t={timeout_ms}|"
+            f"{normalize_query_key(question)}"
+        )
+        return f"ans:v{v}:{content_hash(scope)}"
 
     def embedding_key(self, text: str) -> str:
         return f"emb:{content_hash(text)}"
@@ -149,12 +165,47 @@ class RetrievalCache:
         payload = [c.model_dump(mode="json") for c in candidates]
         self.retrieval.set(self.retrieval_key(query, tools), payload)
 
-    def get_answer(self, question: str) -> dict[str, Any] | None:
-        return self.answers.get(self.answer_key(question))
+    def get_answer(
+        self,
+        question: str,
+        *,
+        tenant_id: str = _DEFAULT_TENANT,
+        user_id: str = _DEFAULT_USER,
+        max_hops: int | None = None,
+        force_agentic: bool = False,
+        timeout_ms: int | None = None,
+    ) -> dict[str, Any] | None:
+        return self.answers.get(
+            self.answer_key(
+                question,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                max_hops=max_hops,
+                force_agentic=force_agentic,
+                timeout_ms=timeout_ms,
+            )
+        )
 
-    def set_answer(self, question: str, chain_payload: dict[str, Any]) -> None:
+    def set_answer(
+        self,
+        question: str,
+        chain_payload: dict[str, Any],
+        *,
+        tenant_id: str = _DEFAULT_TENANT,
+        user_id: str = _DEFAULT_USER,
+        max_hops: int | None = None,
+        force_agentic: bool = False,
+        timeout_ms: int | None = None,
+    ) -> None:
         self.answers.set(
-            self.answer_key(question),
+            self.answer_key(
+                question,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                max_hops=max_hops,
+                force_agentic=force_agentic,
+                timeout_ms=timeout_ms,
+            ),
             chain_payload,
             ttl_seconds=self.answer_ttl_seconds,
         )
@@ -169,7 +220,6 @@ class RetrievalCache:
     def on_index_update(self) -> int:
         """Bump version so retrieval/answer keys naturally miss."""
         v = self.index_version.bump()
-        # Optional: clear hot maps to free memory
         self.retrieval.clear()
         self.answers.clear()
         return v
@@ -179,6 +229,5 @@ class RetrievalCache:
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         path = self.cache_dir / "embeddings.json"
-        # Only dump a small snapshot of keys (values may be large)
         stats = self.embeddings.stats()
         path.write_text(json.dumps(stats), encoding="utf-8")

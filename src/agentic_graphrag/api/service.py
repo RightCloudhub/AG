@@ -32,7 +32,11 @@ from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.budget_policy import MultiLevelBudget
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
 from agentic_graphrag.retrieval.cache import RetrievalCache
-from agentic_graphrag.stores.factory import StoreBundle, create_offline_bundle
+from agentic_graphrag.stores.factory import (
+    StoreBundle,
+    create_live_bundle,
+    create_offline_bundle,
+)
 
 # Re-exports for tests / public helpers
 __all__ = [
@@ -42,6 +46,10 @@ __all__ = [
     "_entities_from_triples",
     "_load_triples",
 ]
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in {"1", "true", "yes"}
 
 
 @dataclass
@@ -59,6 +67,8 @@ class QueryService:
     review_queue: ReviewQueue | None = None
     retrieval_cache: RetrievalCache | None = None
     multi_budget: MultiLevelBudget | None = None
+    # Legacy field retained for tests that monkeypatch it; query paths no longer
+    # hold this lock across agent/SSE lifetimes (see service_query / service_stream).
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
@@ -73,15 +83,57 @@ class QueryService:
         cfg = cfg or get_config()
         settings = settings or get_settings()
         bundle = create_offline_bundle(cfg=cfg, settings=settings)
-        triples = _load_triples(resolve_path(seed_triples))
+        return cls._from_bundle(
+            bundle, cfg=cfg, settings=settings, seed_triples=seed_triples, allow_llm=False
+        )
+
+    @classmethod
+    def create_live(
+        cls,
+        *,
+        seed_triples: str | Path = "data/processed/seed_triples.jsonl",
+        cfg: AppConfig | None = None,
+        settings: Settings | None = None,
+        allow_memory_graph_fallback: bool = True,
+        load_seed: bool = False,
+    ) -> QueryService:
+        """Live Neo4j + Qdrant backends (opt-in via ``AGR_USE_LIVE_STORES=1``)."""
+        cfg = cfg or get_config()
+        settings = settings or get_settings()
+        bundle = create_live_bundle(
+            cfg=cfg,
+            settings=settings,
+            allow_memory_graph_fallback=allow_memory_graph_fallback,
+        )
+        return cls._from_bundle(
+            bundle,
+            cfg=cfg,
+            settings=settings,
+            seed_triples=seed_triples,
+            allow_llm=False,
+            load_seed=load_seed,
+        )
+
+    @classmethod
+    def _from_bundle(
+        cls,
+        bundle: StoreBundle,
+        *,
+        cfg: AppConfig,
+        settings: Settings,
+        seed_triples: str | Path,
+        allow_llm: bool,
+        load_seed: bool = True,
+    ) -> QueryService:
+        triples = _load_triples(resolve_path(seed_triples)) if load_seed else []
         if triples:
             load_triples_into_graph(bundle.graph, triples, clear_first=True)
         return cls(
             cfg=cfg,
             settings=settings,
             bundle=bundle,
-            allow_llm=False,
-            known_entities=_entities_from_triples(triples),
+            allow_llm=allow_llm,
+            known_entities=_entities_from_triples(triples) if triples else [],
             audit_store=AuditStore(resolve_path(cfg.paths.processed_dir) / "audit_chains.jsonl"),
             review_queue=ReviewQueue(resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl"),
             retrieval_cache=RetrievalCache(
@@ -175,13 +227,22 @@ def build_default_service() -> QueryService:
     """Factory used by FastAPI lifespan.
 
     Defaults to **offline** (memory graph + seed + MockLLM) so CI/local smoke
-    stays deterministic. Opt into live LLM with ``AGR_ALLOW_LLM=1`` when a real
-    ``LLM_API_KEY`` is configured (avoids 403/rate-limit flaking unit tests).
+    stays deterministic.
+
+    Env flags (independent):
+    - ``AGR_ALLOW_LLM=1`` — use real LLM when ``LLM_API_KEY`` is set (stores unchanged)
+    - ``AGR_USE_LIVE_STORES=1`` — Neo4j + Qdrant instead of in-memory seed graph
     """
     settings = get_settings()
     cfg = get_config()
-    svc = QueryService.create_offline(cfg=cfg, settings=settings)
-    allow = os.environ.get("AGR_ALLOW_LLM", "").lower() in {"1", "true", "yes"}
-    if allow and settings.llm_api_key and "your-key" not in settings.llm_api_key:
+    if _env_flag("AGR_USE_LIVE_STORES"):
+        svc = QueryService.create_live(cfg=cfg, settings=settings)
+    else:
+        svc = QueryService.create_offline(cfg=cfg, settings=settings)
+    if (
+        _env_flag("AGR_ALLOW_LLM")
+        and settings.llm_api_key
+        and "your-key" not in settings.llm_api_key
+    ):
         svc.allow_llm = True
     return svc

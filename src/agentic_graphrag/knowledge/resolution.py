@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore
@@ -95,14 +96,6 @@ class ResolutionResult:
             ],
             "skipped": self.skipped,
         }
-
-
-@dataclass
-class MergeApply:
-    store: GraphStore
-    keep: EntityRecord
-    drop: EntityRecord
-    canonical: str
 
 
 class EntityResolver:
@@ -271,8 +264,4 @@ class EntityResolver:
             return MergeDecision(action="uncertain", confidence=0.0, rationale="llm failed")
 
     def _apply_merge(self, req: MergeApply) -> None:
-        """Best-effort: upsert keep with alias of drop. Full edge rewiring is store-specific."""
-        aliases = list(dict.fromkeys([*(req.keep.aliases or []), req.drop.name, req.drop.id]))
-        req.keep.name = req.canonical
-        req.keep.aliases = aliases
-        req.store.upsert_entities([req.keep])
+        apply_entity_merge(req)

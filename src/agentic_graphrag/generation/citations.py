@@ -86,6 +86,7 @@ def validate_answered_claims(
     evidence: list[Candidate],
     *,
     require_claims: bool = True,
+    require_lexical_support: bool = True,
 ) -> str | None:
     """Return a failure reason, or None if claims pass the generation gate.
 
@@ -93,6 +94,8 @@ def validate_answered_claims(
     - ANSWERED/PARTIAL paths that assert facts must carry claims
     - every claim needs ≥1 evidence_id
     - every claim must reference a retrieved candidate id
+    - optional lexical support: claim tokens must overlap cited evidence text
+      (not a full NLI check — still better than ID-only fabrication=0)
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -100,4 +103,46 @@ def validate_answered_claims(
         return "claim missing evidence_ids"
     if not claims_bind_to_evidence(claims, evidence):
         return "claim evidence_ids not in retrieved set"
+    if require_lexical_support and not claims_lexically_supported(claims, evidence):
+        return "claim text not supported by cited evidence content"
     return None
+
+
+_STOPWORDS = frozenset(
+    "a an the of to in on for and or is are was were be by with from as at".split()
+)
+
+
+def claims_lexically_supported(
+    claims: list[Claim],
+    evidence: list[Candidate],
+    *,
+    min_overlap: int = 1,
+) -> bool:
+    """True if every claim shares ≥1 content token with at least one cited candidate."""
+    by_id = {c.id: c for c in evidence}
+    for claim in claims:
+        claim_toks = _content_tokens(claim.text)
+        if not claim_toks:
+            continue
+        supported = False
+        for eid in claim.evidence_ids:
+            cand = by_id.get(eid)
+            if cand is None:
+                continue
+            ev_toks = _content_tokens(cand.content)
+            if len(claim_toks & ev_toks) >= min_overlap:
+                supported = True
+                break
+        if not supported:
+            return False
+    return True
+
+
+def _content_tokens(text: str) -> set[str]:
+    toks = set()
+    for raw in (text or "").lower().replace("-", " ").split():
+        t = "".join(ch for ch in raw if ch.isalnum())
+        if len(t) >= 2 and t not in _STOPWORDS:
+            toks.add(t)
+    return toks
