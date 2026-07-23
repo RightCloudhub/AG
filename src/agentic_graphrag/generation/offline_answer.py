@@ -24,12 +24,15 @@ def offline_answer(
     """Deterministic multi-hop extractive answer from graph/text evidence."""
     graph = [c for c in evidence if c.is_graph()]
     preferred = graph if graph else evidence
+    # HQ / free-text facts often live only in fulltext chunks; keep them for rules.
     texts = [c.content for c in preferred]
-    edges = parse_edges(texts)
+    extra = [c.content for c in evidence if c not in preferred and c.content]
+    all_texts = texts + extra
+    edges = parse_edges(all_texts)
     hop_answer = _prefer_hop_conclusion(chain.question, conclusions)
     if hop_answer:
         return _apply_focused(chain, hop_answer, preferred)
-    focused = focused_extract(chain.question, edges, texts)
+    focused = focused_extract(chain.question, edges, all_texts)
     if focused:
         return _apply_focused(chain, focused, preferred)
     if _should_honest_no_answer(chain.question, edges, conclusions):
@@ -41,17 +44,40 @@ def offline_answer(
 
 def _prefer_hop_conclusion(question: str, conclusions: str) -> str | None:
     """Use the last multi-hop conclusion when the question asks for a person/CEO."""
-    ql = (question or "").lower()
-    if "ceo" not in ql and "who is" not in ql:
+    if _is_compound_ownership_q(question or "") or not _asks_person_q(question or ""):
         return None
     parts = [p.strip() for p in (conclusions or "").split(";") if p.strip()]
     if not parts:
         return None
-    last = parts[-1]
+    return _person_hop_or_none(parts[-1])
+
+
+def _person_hop_or_none(last: str) -> str | None:
     # Skip pure company/product fragments that are intermediate hops.
-    if any(k in last.lower() for k in ("fpga", "server", "chip", "product")):
-        return None
+    low = last.lower()
+    for k in ("fpga", "server", "chip", "product"):
+        if k in low:
+            return None
     return last
+
+
+def _asks_person_q(question: str) -> bool:
+    ql = question.lower()
+    return (
+        "ceo" in ql
+        or "who is" in ql
+        or "首席执行官" in question
+        or "总裁" in question
+        or "谁是" in question
+    )
+
+
+def _is_compound_ownership_q(question: str) -> bool:
+    """True for multi-part acquirer/HQ questions (need focused multi-hop rules)."""
+    ql = question.lower()
+    if any(k in ql for k in ("acquir", "headquarter", "city")):
+        return True
+    return any(k in question for k in ("收购", "总部", "哪个城市", "被收购"))
 
 
 def _apply_focused(
@@ -119,9 +145,13 @@ def _should_honest_no_answer(
 ) -> bool:
     """True for closed factoid questions that have no supporting edge."""
     q = (question or "").lower()
+    q_raw = question or ""
     if conclusions and conclusions.strip().lower() in {"yes", "no"}:
         return False
-    if "ceo" in q:
+    # Compound ownership/HQ: free-text + PARENT_OF may still ground the answer.
+    if _is_compound_ownership_q(q_raw):
+        return False
+    if _asks_person_q(q_raw):
         return not _has_ceo_for_question(q, edges)
     if _is_yes_no_subsidiary(q):
         return not _has_subsidiary_evidence(q, edges)

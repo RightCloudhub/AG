@@ -30,8 +30,24 @@ RELATION_CUES = (
     "participat",
     "partner",
     "acquir",
+    "收购",
+    "被收购",
+    "总部",
+    "控股",
+    "旗下",
+    "首席执行官",
 )
-LONG_HOP_CUES = ("parent", "ceo of", "supplier", "compet", "chain")
+LONG_HOP_CUES = (
+    "parent",
+    "ceo of",
+    "supplier",
+    "compet",
+    "chain",
+    "acquir",
+    "收购",
+    "总部",
+    "母公司",
+)
 DEFAULT_NEIGHBOR_HOPS = 2
 LONG_NEIGHBOR_HOPS = 3
 PATH_MAX_HOPS = 4

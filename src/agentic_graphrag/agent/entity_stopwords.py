@@ -92,6 +92,64 @@ STOPWORDS = frozenset(
         "corpus",
         "firm",
         "firms",
+        "acquired",
+        "acquire",
+        "acquisition",
+        "headquartered",
+        "headquarters",
+        "city",
+    }
+)
+
+# Chinese interrogative / function spans that must not become entity mentions.
+CJK_STOPWORDS = frozenset(
+    {
+        "的",
+        "了",
+        "吗",
+        "呢",
+        "哪",
+        "哪个",
+        "哪些",
+        "哪里",
+        "哪儿",
+        "什么",
+        "谁",
+        "何时",
+        "为何",
+        "为什么",
+        "怎么",
+        "如何",
+        "多少",
+        "是否",
+        "以及",
+        "或者",
+        "还是",
+        "后来",
+        "然后",
+        "所在",
+        "所在公司",
+        "公司",
+        "收购",
+        "收购了",
+        "被收购",
+        "被收购公司",
+        "哪家",
+        "哪家公司",
+        "后来收购了哪家公司",
+        "那家",
+        "那家被收购公司",
+        "那家被收购公司的总部在哪个城市",
+        "总部",
+        "总部在",
+        "总部位于",
+        "哪个城市",
+        "在哪个城市",
+        "城市",
+        "母公司",
+        "子公司",
+        "首席执行官",
+        "总裁",
     }
 )
 
@@ -100,7 +158,27 @@ def is_stopword_entity(name: str) -> bool:
     key = name.strip().lower()
     if not key or key in STOPWORDS:
         return True
+    raw = name.strip()
+    if raw in CJK_STOPWORDS:
+        return True
+    # Pure CJK spans that are entirely function words / question templates.
+    if _is_cjk_only(raw) and (raw in CJK_STOPWORDS or _cjk_is_function_span(raw)):
+        return True
     if " " not in key and key in STOPWORDS:
+        return True
+    return False
+
+
+def _is_cjk_only(text: str) -> bool:
+    return bool(text) and all("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _cjk_is_function_span(text: str) -> bool:
+    """Heuristic: long CJK spans with no Latin/digits and heavy question particles."""
+    if len(text) <= 1:
+        return True
+    particles = ("哪", "什么", "谁", "何", "怎", "吗", "呢", "哪家", "后来", "那家")
+    if any(p in text for p in particles) and len(text) <= 20:
         return True
     return False
 

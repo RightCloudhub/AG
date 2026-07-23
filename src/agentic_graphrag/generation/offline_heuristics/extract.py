@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 from agentic_graphrag.generation.offline_heuristics.mentions import mentions_in_question
+from agentic_graphrag.generation.offline_heuristics.rules_ma import rule_acquirer_ceo_and_hq
 from agentic_graphrag.generation.offline_heuristics.rules_market import (
     rule_ceo_of_competitor,
     rule_competitor,
@@ -37,12 +38,14 @@ from agentic_graphrag.generation.offline_heuristics.rules_supply import (
 RuleFn = Callable[..., str | None]
 
 # Same order as the original monolithic focused_extract (order matters).
+# M&A multi-hop runs before generic CEO-of-company to avoid partial answers.
 _RULES: tuple[RuleFn, ...] = (
     rule_both_orion,
     rule_subsidiary_yes_no,
     rule_meridian_helix_ceo,
     rule_meridian_executives,
     rule_prior_employers,
+    rule_acquirer_ceo_and_hq,
     rule_ceo_of_parent,
     rule_competitor,
     rule_ceo_of_competitor,

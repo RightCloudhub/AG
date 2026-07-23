@@ -159,14 +159,40 @@ def _canonicalize(found: list[str], lexicon: list[str], max_entities: int) -> li
     out: list[str] = []
     seen: set[str] = set()
     for name in found:
-        key = normalize_entity_key(name)
-        if key in seen or is_stopword_entity(name):
+        if is_stopword_entity(name):
+            continue
+        resolved = _resolve_to_lexicon(name, lexicon, canon_map)
+        key = normalize_entity_key(resolved)
+        if key in seen or is_stopword_entity(resolved):
             continue
         seen.add(key)
-        out.append(canon_map.get(key, name))
+        out.append(resolved)
         if len(out) >= max_entities:
             break
-    return [n for n in out if not is_stopword_entity(n)][:max_entities]
+    return out[:max_entities]
+
+
+def _resolve_to_lexicon(name: str, lexicon: list[str], canon_map: dict[str, str]) -> str:
+    """Map a surface form to a known entity (exact, then unique prefix expand).
+
+    ``NovaTech`` → ``NovaTech Industries`` when the prefix is unambiguous.
+    """
+    key = normalize_entity_key(name)
+    if key in canon_map:
+        return canon_map[key]
+    if not lexicon or not key:
+        return name.strip()
+    return _fuzzy_lexicon_hit(key, lexicon) or name.strip()
+
+
+def _fuzzy_lexicon_hit(key: str, lexicon: list[str]) -> str | None:
+    starts = [n for n in lexicon if normalize_entity_key(n).startswith(key)]
+    if starts:
+        return min(starts, key=lambda n: (len(n), n.lower()))
+    contains = [n for n in lexicon if key in normalize_entity_key(n)]
+    if len(contains) == 1:
+        return contains[0]
+    return None
 
 
 def _overlaps(start: int, end: int, spans: list[tuple[int, int]]) -> bool:

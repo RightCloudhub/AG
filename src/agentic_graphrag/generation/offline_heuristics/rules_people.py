@@ -5,11 +5,14 @@ from __future__ import annotations
 from agentic_graphrag.generation.offline_heuristics.constants import (
     APEX_HOLDINGS,
     CEO_LEAD_KEYS,
+    MULTI_HOP_EXTRA_KEYS,
     ORION_MIN_MATCHES,
     PERSON_NAME_HINTS,
     WORK_PHRASES,
 )
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
+
+_CEO_Q_KEYS = ("ceo", "首席执行官", "总裁")
 
 
 def rule_both_orion(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
@@ -162,7 +165,10 @@ def _matches_subjects(head: str, subjects: list[str], view: EdgeView) -> bool:
 def rule_ceo_of_parent(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """CEO of parent of X (answer is person)."""
     del texts
-    if "ceo" not in q or "parent" not in q:
+    if not _asks_ceo(q) or not _asks_parent_path(q):
+        return None
+    if _has_multi_hop_extra(q):
+        # Defer to rules_ma for acquirer+HQ compound questions.
         return None
     people = view.ceos_of(view.parents_of(ents))
     if people:
@@ -180,13 +186,25 @@ def _any_apex_ceo(view: EdgeView) -> str | None:
 def rule_ceo_of_company(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """CEO of named company (not parent path)."""
     del texts
-    if "ceo" not in q or "parent" in q:
+    if not _asks_ceo(q) or _asks_parent_path(q) or _has_multi_hop_extra(q):
         return None
     for e in ents:
         hit = _ceo_of_entity(e, view)
         if hit:
             return hit
     return None
+
+
+def _asks_ceo(q: str) -> bool:
+    return any(k in q for k in _CEO_Q_KEYS)
+
+
+def _asks_parent_path(q: str) -> bool:
+    return "parent" in q or "母公司" in q
+
+
+def _has_multi_hop_extra(q: str) -> bool:
+    return any(k in q for k in MULTI_HOP_EXTRA_KEYS)
 
 
 def _ceo_of_entity(entity: str, view: EdgeView) -> str | None:
