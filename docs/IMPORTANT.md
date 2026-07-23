@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-07-21  
+**最近汇总：** 2026-07-22  
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
 **符号约定**
@@ -28,13 +28,15 @@
 | P2-ENTRY-01 | **工程入场允许**（合成语料 + C2 live 配额 caveat） |
 | 阶段二 MVP 代码 | **P0 代码 + 金标 ≥200 + dev offline 评测** 已齐；**正式 G2 效果**仍 Conditional |
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
-| 仍开 | live held-out AC、生产 P95、产品真域签字、G3/G4 正式验收 |
-| 本环境 | 本地 tarball Neo4j + Temurin 17；LLM 网关易 403 |
+| 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
+| Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
+| 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
+| 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 
 ```bash
-./scripts/g1_to_g2_gate.sh
-./scripts/g1_to_g2_gate.sh --with-llm
-PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py   # heldout + triage + AC-5 smoke
+./scripts/g2_formal_eval.sh --with-llm
+PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
+# 真域：docs/REAL_DOMAIN_PLAYBOOK.md · ./scripts/import_real_corpus.sh
 .venv/bin/python scripts/check_code_metrics.py
 ```
 
@@ -245,12 +247,11 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ## 11. 优先下一步（建议顺序）
 
-1. **关闭或豁免 C1–C3** — 产品域签字、live LLM 审计、Neo4j 回归。  
-2. **P2-EV-02** — 金标扩到 ≥200 并带证据。  
-3. **P2-KG-04 + 全量抽取** — C1 后在试点语料上跑通。  
-4. **P2-EV-04/05/06** — 全量 agentic vs baseline、badcase 归因、G2 材料。  
-5. 然后才进入 **阶段三** PERF/OP/KG（分诊、融合、缓存、SSE、增量、可观测性）。  
-6. **阶段四** UI、鉴权、灰度、AC 全套在 G3 之后。  
+1. **产品真域** — 按 `docs/REAL_DOMAIN_PLAYBOOK.md` 授权语料 + MANIFEST 签字（工程无法代替）。  
+2. **配 `LLM_EMBEDDING_*`** — fair live baseline；消 OpenAI 401。  
+3. **Live 重跑 3 道 3-hop badcase**（验证 critic_guard）或全量 `--with-llm`。  
+4. **Staging P95** — `p3_load_http.py --target ...` + triage，目标 Agentic ≤8s。  
+5. 人工金标抽检 + G2 材料诚实标注合成/真域。  
 
 ---
 

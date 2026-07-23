@@ -44,4 +44,6 @@ checklist:
   docs_ge_100: false
   ingest_smoke_ok: false
   schema_aligned: false
-  product_signoff: false
+  product_signoff: false  # REQUIRED for product G2 close — see docs/REAL_DOMAIN_PLAYBOOK.md
+  gold_set_regenerated: false  # true after domain-specific ≥200 gold + heldout
+  live_extract_spotcheck_ge_70: false
