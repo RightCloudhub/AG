@@ -17,6 +17,17 @@ if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GuardrailsConfig
 
 
+def min_recursion_limit(max_hops: int) -> int:
+    """Minimum LangGraph ``recursion_limit`` for a given hop budget.
+
+    Worst-case node visits: planner + (max_hops+1)×(executor+critic) + answer.
+    LangGraph raises when the limit is reached without END, so the limit must be
+    strictly greater than that visit count → ``2 * max_hops + 5``.
+    """
+    hops = max(1, int(max_hops))
+    return 2 * hops + 5
+
+
 @dataclass(frozen=True)
 class GuardrailConfig:
     """Runtime guardrail limits (immutable snapshot for one query)."""
@@ -53,6 +64,9 @@ class GuardrailConfig:
         hard = 20
         hops = max_hops if max_hops is not None else g.max_hops
         hops = max(1, min(int(hops), hard))
+        rec = recursion_limit if recursion_limit is not None else int(g.recursion_limit)
+        # Never ship a recursion_limit that the hop budget can exhaust.
+        rec = max(int(rec), min_recursion_limit(hops))
 
         return cls(
             max_hops=hops,
@@ -63,9 +77,7 @@ class GuardrailConfig:
                 if query_timeout_seconds is not None
                 else int(g.query_timeout_seconds)
             ),
-            recursion_limit=(
-                recursion_limit if recursion_limit is not None else int(g.recursion_limit)
-            ),
+            recursion_limit=rec,
             hard_max_hops=hard,
         )
 
@@ -79,6 +91,8 @@ class GuardrailConfig:
         recursion_limit: int | None = None,
     ) -> GuardrailConfig:
         hops = self.max_hops if max_hops is None else max(1, min(int(max_hops), self.hard_max_hops))
+        rec = self.recursion_limit if recursion_limit is None else int(recursion_limit)
+        rec = max(rec, min_recursion_limit(hops))
         return replace(
             self,
             max_hops=hops,
@@ -89,9 +103,7 @@ class GuardrailConfig:
                 if query_timeout_seconds is None
                 else int(query_timeout_seconds)
             ),
-            recursion_limit=(
-                self.recursion_limit if recursion_limit is None else int(recursion_limit)
-            ),
+            recursion_limit=rec,
         )
 
     def budget_tracker(self) -> BudgetTracker:

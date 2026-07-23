@@ -60,13 +60,16 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
     """Return early state when sub-question is excluded/duplicate; else None."""
     sq, sqs, idx = ctx.sq, ctx.sqs, ctx.idx
     memory, guards, state = ctx.memory, ctx.guards, ctx.state
+    hop = guards.state.hop
+    hop_cap = hop >= guards.config.max_hops
     if memory.is_excluded(sq.text):
         memory.mark_subquestion_done(sq.id)
         return {
             **state,
             "sub_questions": sqs,
             "current_index": idx + 1,
-            "done": idx + 1 >= len(sqs),
+            "hop": hop,
+            "done": hop_cap or idx + 1 >= len(sqs),
             "guardrail_status": guards.status_text(),
             "memory_snapshot": memory.to_snapshot(),
         }
@@ -76,8 +79,9 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
             **state,
             "sub_questions": sqs,
             "current_index": idx + 1,
+            "hop": hop,
             "guardrail_status": guards.status_text(),
-            "done": idx + 1 >= len(sqs),
+            "done": hop_cap or idx + 1 >= len(sqs),
             "memory_snapshot": memory.to_snapshot(),
         }
     return None

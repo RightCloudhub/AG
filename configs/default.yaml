@@ -9,7 +9,9 @@ guardrails:
   max_llm_calls: 16    # P95: tighter budget vs 20
   max_tokens_per_query: 50000
   query_timeout_seconds: 45  # fail faster than 60s wall (AC-4 target 8s still needs live)
-  recursion_limit: 12  # max_hops * 3
+  # Worst case: planner + (max_hops+1)*(executor+critic) + answer; LangGraph needs
+  # limit > step count → 2*max_hops+5. Keep a little slack over the floor.
+  recursion_limit: 15
 
 retrieval:
   top_k: 10

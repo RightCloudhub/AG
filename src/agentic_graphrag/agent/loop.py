@@ -65,7 +65,12 @@ def build_graph(
     g.add_node("answer", rt.node_answer)
     g.set_entry_point("planner")
     g.add_edge("planner", "executor")
-    g.add_edge("executor", "critic")
+    # Skip critic when executor already finished (guardrail trip / empty plan).
+    g.add_conditional_edges(
+        "executor",
+        rt.route_after_executor,
+        {"critic": "critic", "answer": "answer"},
+    )
     g.add_conditional_edges(
         "critic", rt.route_after_critic, {"executor": "executor", "answer": "answer"}
     )
@@ -148,6 +153,8 @@ def _run_agentic(
     *,
     opts: AgentRunOptions,
 ) -> ReasoningChain:
+    from agentic_graphrag.agent.loop_recover import invoke_agentic_graph
+
     guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
     budget = opts.budget or guard_cfg.budget_tracker()
     rec_limit = (
@@ -157,20 +164,17 @@ def _run_agentic(
     tid = opts.thread_id or chain.query_id or str(uuid4())
     graph = build_graph(executor, llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer)
     t0 = time.perf_counter()
-    result = graph.invoke(
-        {
-            "question": question,
-            "chain": chain.model_dump(),
-            "sub_questions": [],
-            "current_index": 0,
-            "hop": 0,
-            "evidence": [],
-            "done": False,
-            "allow_llm": opts.allow_llm,
-        },
-        config=invoke_config(tid, recursion_limit=rec_limit),
+    return invoke_agentic_graph(
+        graph,
+        question=question,
+        chain=chain,
+        tid=tid,
+        rec_limit=rec_limit,
+        budget=budget,
+        t0=t0,
+        llm=llm,
+        allow_llm=opts.allow_llm,
     )
-    return finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
 
 
 def finalize_agentic_chain(

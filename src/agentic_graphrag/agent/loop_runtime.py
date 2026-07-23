@@ -107,17 +107,26 @@ class AgentRuntime:
     def node_executor(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
         self.guards.on_hop_start()
+        hop = self.guards.state.hop
         if self.guards.state.tripped:
             return {
                 **state,
+                "hop": hop,
                 "done": True,
                 "guardrail_status": self.guards.status_text(),
+                "memory_snapshot": self.memory.to_snapshot(),
             }
 
         sqs = list(state.get("sub_questions") or [])
         idx = int(state.get("current_index") or 0)
         if idx >= len(sqs):
-            return {**state, "done": True}
+            return {
+                **state,
+                "hop": hop,
+                "done": True,
+                "guardrail_status": self.guards.status_text(),
+                "memory_snapshot": self.memory.to_snapshot(),
+            }
 
         sq, sqs = materialize_current(sqs, idx, self.memory)
         ctx = ExecutorNodeCtx(
@@ -134,6 +143,14 @@ class AgentRuntime:
         if skipped is not None:
             return skipped
         return execute_subquestion(ctx)
+
+    def route_after_executor(self, state: AgentState) -> str:
+        """Skip critic when hop already terminal (saves recursion budget)."""
+        if state.get("done") or self.guards.state.tripped:
+            return "answer"
+        if int(state.get("hop") or 0) > self.guard_cfg.max_hops:
+            return "answer"
+        return "critic"
 
     def node_critic(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
@@ -215,5 +232,10 @@ class AgentRuntime:
 
     def route_after_critic(self, state: AgentState) -> str:
         if state.get("done") or self.guards.state.tripped:
+            return "answer"
+        # Belt-and-suspenders: hop cap must end the loop even if done was lost.
+        if int(state.get("hop") or 0) >= self.guard_cfg.max_hops:
+            return "answer"
+        if self.guards.state.hop >= self.guard_cfg.max_hops:
             return "answer"
         return "executor"

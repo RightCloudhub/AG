@@ -63,13 +63,16 @@ def iter_query_progress(
     opts = options or QueryOptions()
     chitchat = try_chitchat_answer(question)
     if chitchat is not None:
-        yield EVENT_TRIAGE, {
-            "route": "chitchat",
-            "rationale": "greeting_or_capability",
-            "estimated_hops": 0,
-            "confidence": 1.0,
-            "rule_hit": "chitchat",
-        }
+        yield (
+            EVENT_TRIAGE,
+            {
+                "route": "chitchat",
+                "rationale": "greeting_or_capability",
+                "estimated_hops": 0,
+                "confidence": 1.0,
+                "rule_hit": "chitchat",
+            },
+        )
         yield EVENT_FINAL_CHAIN, chitchat
         return
     ctx = _StreamCtx(
@@ -199,11 +202,27 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     t0 = time.perf_counter()
     initial = _initial_state(ctx.question, chain, opts.allow_llm)
     config = invoke_config(tid, recursion_limit=rec_limit)
-    final_state = yield from _stream_graph_updates(graph, initial, config)
+    try:
+        final_state = yield from _stream_graph_updates(graph, initial, config)
+    except Exception as exc:  # noqa: BLE001 — recursion backstop → partial answer
+        if type(exc).__name__ != "GraphRecursionError":
+            raise
+        from agentic_graphrag.agent.loop_recover import recover_chain_after_recursion
+
+        recovered = recover_chain_after_recursion(
+            graph,
+            thread_id=tid,
+            question=ctx.question,
+            budget=budget,
+            t0=t0,
+            llm=ctx.llm,
+            allow_llm=opts.allow_llm,
+        )
+        yield EVENT_FINAL_CHAIN, recovered
+        return
     if final_state is None:
         raise AgentStreamEmptyError("agent graph stream produced no state")
-    out = finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
-    yield EVENT_FINAL_CHAIN, out
+    yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
 
 
 def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dict[str, Any]:
