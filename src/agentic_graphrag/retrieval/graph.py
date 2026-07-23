@@ -1,8 +1,8 @@
 """Graph multi-hop retrieval: candidate / citation assembly (FR-RT-02 / P2-RT-01).
 
 Beam traversal and relation scoring live in
-:mod:`agentic_graphrag.retrieval.graph_beam`. This module assembles
-:class:`~agentic_graphrag.retrieval.contracts.Candidate` rows with citations.
+:mod:`agentic_graphrag.retrieval.graph_beam`. Path helpers in
+:mod:`agentic_graphrag.retrieval.graph_paths`.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from agentic_graphrag.retrieval.graph_beam import (
     edge_score,
     infer_relation_types,
     normalize_name,
-    path_signature,
     relation_relevance,
 )
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, PathRecord, RelationRecord
+from agentic_graphrag.retrieval.graph_paths import path_candidates, score_paths
+from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GraphRetrievalConfig
@@ -32,8 +32,6 @@ __all__ = [
     "infer_relation_types",
     "relation_relevance",
 ]
-
-_PATH_LENGTH_BONUS = 0.01
 
 
 class GraphRetriever:
@@ -136,24 +134,22 @@ class GraphRetriever:
         entity_name: str,
         sub_question: str | None,
     ) -> list[tuple[float, RelationRecord, EntityRecord, str]]:
-        best: dict[str, tuple[float, RelationRecord, EntityRecord, str]] = {}
+        best: dict[str, tuple[float, RelationRecord, EntityRecord, str, int]] = {}
         qn = normalize_name(entity_name)
-        for item in beams:
-            for rel, ent in item.edges:
-                head, tail, content = _edge_labels(rel, ent, entity_name)
-                key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
-                sc = self._score_edge(rel, sub_question)
-                # Multi-hop beams surface edges about *other* nodes (e.g. CEO of a
-                # supplier). Strongly prefer edges that touch the seed entity so
-                # "CEO of BrightLink" is not answered with "CEO of NovaTech".
-                if _edge_touches_seed(rel, head, tail, qn):
-                    sc += 1.0
-                else:
-                    sc *= 0.2
-                prev = best.get(key)
-                if prev is None or sc > prev[0]:
-                    best[key] = (sc, rel, ent, content)
-        return sorted(best.values(), key=lambda t: (-t[0], t[3]))
+        seen = 0
+        for rel, ent in _iter_beam_edges(beams):
+            head, tail, content = _edge_labels(rel, ent, entity_name)
+            key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
+            sc = self._score_edge(rel, sub_question)
+            sc = _apply_seed_boost(sc, rel, ends=(head, tail), seed_norm=qn)
+            prev = best.get(key)
+            if prev is None:
+                best[key] = (sc, rel, ent, content, seen)
+                seen += 1
+            elif sc > prev[0]:
+                best[key] = (sc, rel, ent, content, prev[4])
+        ranked = sorted(best.values(), key=lambda t: (-t[0], t[4]))
+        return [(sc, rel, ent, content) for sc, rel, ent, content, _ord in ranked]
 
     def _neighbor_candidates(
         self,
@@ -209,8 +205,8 @@ class GraphRetriever:
                 preferred_relations=preferred,
                 sub_question=sub_question,
             )
-        scored = _score_paths(path_rows, sub_question)
-        return _path_candidates(scored[:lim], source_name, target_name)
+        scored = score_paths(path_rows, sub_question)
+        return path_candidates(scored[:lim], source_name, target_name)
 
     def subgraph(
         self,
@@ -247,6 +243,11 @@ class GraphRetriever:
         return out[:lim]
 
 
+def _iter_beam_edges(beams: list):
+    for item in beams:
+        yield from item.edges
+
+
 def _edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tuple[str, str, str]:
     head = rel.head_name or entity_name
     tail = rel.tail_name or ent.name
@@ -256,78 +257,25 @@ def _edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tu
     return head, tail, content
 
 
-def _edge_touches_seed(rel: RelationRecord, head: str, tail: str, seed_norm: str) -> bool:
-    """True when the edge endpoints involve the beam seed entity."""
+def _apply_seed_boost(
+    score: float,
+    rel: RelationRecord,
+    *,
+    ends: tuple[str, str],
+    seed_norm: str,
+) -> float:
+    names = (*ends, rel.head_name or "", rel.tail_name or "")
+    if _names_touch_seed(names, seed_norm):
+        return score + 1.0
+    return score * 0.2
+
+
+def _names_touch_seed(names: tuple[str, ...], seed_norm: str) -> bool:
+    """True when any endpoint name involves the beam seed entity."""
     if not seed_norm:
         return True
-    for name in (head, tail, rel.head_name or "", rel.tail_name or ""):
+    for name in names:
         n = normalize_name(name)
         if n and (n == seed_norm or seed_norm in n or n in seed_norm):
             return True
     return False
-
-
-def _score_paths(
-    path_rows: list[PathRecord], sub_question: str | None
-) -> list[tuple[float, PathRecord, str]]:
-    scored: list[tuple[float, PathRecord, str]] = []
-    seen: set[str] = set()
-    for path in path_rows:
-        sig = path_signature(path.nodes, path.relations)
-        if sig in seen:
-            continue
-        seen.add(sig)
-        sc = _path_score(path, sub_question)
-        content = _path_content(path)
-        scored.append((sc, path, content))
-    scored.sort(key=lambda t: (-t[0], t[2]))
-    return scored
-
-
-def _path_score(path: PathRecord, sub_question: str | None) -> float:
-    if path.relations:
-        edge_scores = [edge_score(r, sub_question) for r in path.relations]
-        mean_e = sum(edge_scores) / len(edge_scores)
-    else:
-        mean_e = 0.0
-    sc = mean_e / max(path.length, 1)
-    sc = sc + _PATH_LENGTH_BONUS / max(path.length, 1)
-    if path.score:
-        sc = max(sc, float(path.score) * mean_e if mean_e else float(path.score))
-    return sc
-
-
-def _path_content(path: PathRecord) -> str:
-    parts: list[str] = []
-    for j, node in enumerate(path.nodes):
-        parts.append(node.name)
-        if j < len(path.relations):
-            parts.append(f"-[{path.relations[j].type}]->")
-    return " ".join(parts)
-
-
-def _path_candidates(
-    scored: list[tuple[float, PathRecord, str]],
-    source_name: str,
-    target_name: str,
-) -> list[Candidate]:
-    out: list[Candidate] = []
-    for i, (sc, path, content) in enumerate(scored):
-        out.append(
-            Candidate(
-                id=f"path:{source_name}:{target_name}:{i}",
-                source=CandidateSource.GRAPH_PATH,
-                content=content,
-                score=sc,
-                structured={
-                    "kind": "path",
-                    "nodes": [n.name for n in path.nodes],
-                    "relations": [r.type for r in path.relations],
-                    "length": path.length,
-                    "signature": path_signature(path.nodes, path.relations),
-                },
-                citations=[Citation(entity_id=n.id, span=n.name) for n in path.nodes],
-                metadata={"rank": i},
-            )
-        )
-    return out

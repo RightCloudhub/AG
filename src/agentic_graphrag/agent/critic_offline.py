@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentic_graphrag.agent.critic_offline_rel import (
+    asks_work,
+    conclusion_from_edge_parse,
+    conclusion_from_structured,
+    hit_relevance,
+)
 from agentic_graphrag.agent.options import CritiqueContext
 from agentic_graphrag.retrieval.contracts import Candidate
 
@@ -11,59 +17,34 @@ _EVIDENCE_ID_CAP = 8
 _PARTIAL_CONTENT_MAX_LEN = 80
 _MIN_TEXT_EVIDENCE = 3
 
-_PARENT_RELS = frozenset({"PARENT_OF", "OWNS"})
-_SUBSIDIARY_RELS = frozenset({"SUBSIDIARY_OF"})
-# Person as subject of the edge (CEO / employment subject).
-_PERSON_SUBJECT_RELS = frozenset({"CEO_OF", "WORKED_AT", "EMPLOYED_BY"})
-# Relations that answer "where does X work" with the company (tail).
-_WORK_RELS = frozenset({"WORKED_AT", "EMPLOYED_BY"})
-# Content-parse path: employment aliases kept separate from CEO-only shortcuts.
-_PERSON_RELS_PARSE = frozenset({"CEO_OF", "WORKED_AT"})
 
-
-# Late import of CriticResult types to avoid circulars at module load of critic.
 def _results():
     from agentic_graphrag.agent.critic import CriticAction, CriticResult, CriticScope
 
     return CriticAction, CriticResult, CriticScope
 
 
-@dataclass(frozen=True)
-class _Endpoints:
-    head: str
-    tail: str
-    rel: str
-    query_entity: str
-
-
 def extract_entity_conclusion(
     sub_question: str,
     evidence: list[Candidate],
 ) -> str | None:
-    """Clean entity name for placeholder materialization (not full edge text).
-
-    Scans all graph hits and prefers edges whose relation matches the
-    sub-question (so hop-1 PARENT_OF edges do not poison hop-2 CEO conclusions).
-    Work questions aggregate multiple employer companies when present.
-    """
+    """Clean entity name for placeholder materialization (not full edge text)."""
     graph_hits = [c for c in evidence if c.is_graph()]
     if not graph_hits:
         return None
-
+    # Prefer higher relevance; break ties by earlier retrieval rank (stable, deterministic).
     ranked = sorted(
         enumerate(graph_hits),
-        key=lambda it: (_hit_relevance(sub_question, it[1]), it[0]),
-        reverse=True,
+        key=lambda it: (-hit_relevance(sub_question, it[1]), it[0]),
     )
     ql = (sub_question or "").lower()
-    if _asks_work(ql):
+    if asks_work(ql):
         return _aggregate_workplaces(sub_question, ranked)
-
     for _idx, hit in ranked:
-        conclusion = _conclusion_from_structured(sub_question, hit)
+        conclusion = conclusion_from_structured(sub_question, hit)
         if conclusion is not None:
             return conclusion
-        conclusion = _conclusion_from_edge_parse(sub_question, hit)
+        conclusion = conclusion_from_edge_parse(sub_question, hit)
         if conclusion is not None:
             return conclusion
     return None
@@ -76,9 +57,9 @@ def _aggregate_workplaces(
     found: list[str] = []
     seen: set[str] = set()
     for _idx, hit in ranked:
-        if _hit_relevance(sub_question, hit) < 10:
+        if hit_relevance(sub_question, hit) < 10:
             continue
-        for fn in (_conclusion_from_structured, _conclusion_from_edge_parse):
+        for fn in (conclusion_from_structured, conclusion_from_edge_parse):
             val = fn(sub_question, hit)
             if not val:
                 continue
@@ -91,216 +72,6 @@ def _aggregate_workplaces(
     if not found:
         return None
     return " and ".join(found)
-
-
-def _hit_relevance(sub_question: str, c: Candidate) -> int:
-    """Higher = better match between graph edge and sub-question intent."""
-    ql = (sub_question or "").lower()
-    ep = _endpoints_from_candidate(c)
-    rel = ep.rel if ep else _rel_from_content(c.content)
-    score = 0
-    if _asks_parent(ql) and rel in _PARENT_RELS | _SUBSIDIARY_RELS:
-        score += 10
-    if _asks_ceo(ql) and rel == "CEO_OF":
-        score += 10
-        # Only boost when the CEO edge's company appears in the question
-        # (blocks multi-hop "CEO of supplier" from ranking first).
-        if ep and ep.tail and ep.tail.lower() in ql:
-            score += 15
-        elif ep and ep.tail:
-            score -= 8
-    if _asks_work(ql) and rel in _WORK_RELS:
-        score += 10
-        if ep and ep.head and ep.head.lower() in ql:
-            score += 10
-    if _asks_subsidiary(ql) and rel in _SUBSIDIARY_RELS | _PARENT_RELS:
-        score += 10
-    if ep is not None:
-        score += 2
-        qe = (ep.query_entity or "").lower()
-        if qe and (qe in ep.head.lower() or qe in ep.tail.lower()):
-            score += 3
-        # Prefer edges whose endpoints appear in the sub-question text.
-        for side in (ep.head, ep.tail):
-            if side and side.lower() in ql:
-                score += 2
-    return score
-
-
-def _rel_from_content(content: str) -> str:
-    # "A -[REL]-> B"
-    try:
-        left = content.split("-[", 1)[1]
-        return left.split("]->", 1)[0].strip().upper()
-    except (IndexError, AttributeError):
-        return ""
-
-
-def _endpoints_from_candidate(c: Candidate) -> _Endpoints | None:
-    st = c.structured or {}
-    head = str(st.get("head") or "")
-    tail = str(st.get("tail") or st.get("neighbor") or "")
-    if not head and not tail:
-        return None
-    return _Endpoints(
-        head=head,
-        tail=tail,
-        rel=str(st.get("relation") or "").upper(),
-        query_entity=str(st.get("query_entity") or ""),
-    )
-
-
-def _conclusion_from_structured(sub_question: str, c: Candidate) -> str | None:
-    ep = _endpoints_from_candidate(c)
-    if ep is None:
-        return None
-    ql = (sub_question or "").lower()
-    # Strong cues: mismatched relations return None so the caller tries next hit
-    # (do not fall back to arbitrary endpoint on a PARENT_OF edge for a CEO ask).
-    if _asks_parent(ql) or _asks_work(ql) or _asks_ceo(ql) or _asks_subsidiary(ql):
-        return _pick_by_question_cue(ql, ep)
-    return _prefer_non_query_side(ep)
-
-
-def _asks_parent(ql: str) -> bool:
-    return "parent" in ql
-
-
-def _asks_ceo(ql: str) -> bool:
-    return "ceo" in ql or "who is" in ql or ql.strip().startswith("who ")
-
-
-def _asks_work(ql: str) -> bool:
-    return any(
-        k in ql
-        for k in (
-            "work",
-            "worked",
-            "employ",
-            "previously work",
-            "companies did",
-            "where does",
-            "where did",
-        )
-    )
-
-
-def _asks_subsidiary(ql: str) -> bool:
-    return "subsidiary" in ql or "child" in ql
-
-
-def _pick_by_question_cue(ql: str, ep: _Endpoints) -> str | None:
-    if _asks_parent(ql):
-        return _pick_parent(ep)
-    if _asks_work(ql):
-        return _pick_workplace(ep)
-    if _asks_ceo(ql):
-        return _pick_person(ep, ql)
-    if _asks_subsidiary(ql):
-        return _pick_subsidiary_answer(ql, ep)
-    return None
-
-
-def _pick_subsidiary_answer(ql: str, ep: _Endpoints) -> str | None:
-    """Yes/no or company name for subsidiary questions."""
-    if ep.rel in _PARENT_RELS:
-        # Apex -[PARENT_OF]-> BrightLink
-        child = (ep.tail or "").lower()
-        parent = (ep.head or "").lower()
-        if child and parent and child.split()[0] in ql and parent.split()[0] in ql:
-            return "Yes"
-        return ep.head or ep.tail
-    if ep.rel in _SUBSIDIARY_RELS:
-        child = (ep.head or "").lower()
-        parent = (ep.tail or "").lower()
-        if child and parent and child.split()[0] in ql and parent.split()[0] in ql:
-            return "Yes"
-        return ep.tail or ep.head
-    return None
-
-
-def _pick_parent(ep: _Endpoints) -> str:
-    if ep.rel in _PARENT_RELS:
-        return ep.head or ep.tail
-    if ep.rel in _SUBSIDIARY_RELS:
-        return ep.tail or ep.head
-    return ep.head or ep.tail
-
-
-def _pick_person(ep: _Endpoints, ql: str = "") -> str | None:
-    """Pick person subject for CEO-style questions; skip mismatched relations."""
-    if ep.rel == "CEO_OF":
-        # Require the company (tail) to appear in the sub-question, or equal
-        # the beam query_entity, so multi-hop neighbor CEOs are rejected.
-        tail_l = (ep.tail or "").lower()
-        qe_l = (ep.query_entity or "").lower()
-        if ql and tail_l and tail_l not in ql:
-            if not qe_l or qe_l not in tail_l:
-                return None
-        if qe_l and tail_l and qe_l not in tail_l and tail_l not in qe_l:
-            # Seed was BrightLink but edge is CEO_OF NovaTech — reject.
-            if not (ql and tail_l in ql):
-                return None
-        return ep.head or ep.tail
-    # Generic "who is …" may still land on employment edges.
-    if ep.rel in _WORK_RELS:
-        return ep.head or ep.tail
-    # Mismatched relation (e.g. PARENT_OF while asking for CEO) — skip hit.
-    if ep.rel:
-        return None
-    return ep.head or ep.tail
-
-
-def _pick_workplace(ep: _Endpoints) -> str | None:
-    """Company/org side of employment edges."""
-    if ep.rel in _WORK_RELS:
-        return ep.tail or ep.head
-    if ep.rel == "CEO_OF":
-        # Wrong edge type for a workplace question.
-        return None
-    return ep.tail or ep.head
-
-
-def _prefer_non_query_side(ep: _Endpoints) -> str:
-    q = ep.query_entity
-    if q and ep.head and q.lower() in ep.head.lower():
-        return ep.tail or ep.head
-    if q and ep.tail and q.lower() in ep.tail.lower():
-        return ep.head or ep.tail
-    return ep.tail or ep.head
-
-
-def _conclusion_from_edge_parse(sub_question: str, c: Candidate) -> str | None:
-    try:
-        from agentic_graphrag.generation.offline_edges import parse_edges
-
-        edges = parse_edges([c.content])
-        if not edges:
-            return None
-        h, r, t = edges[0]
-        ql = (sub_question or "").lower()
-        if _asks_parent(ql):
-            return h if r in _PARENT_RELS else t
-        if _asks_work(ql):
-            if r in _WORK_RELS or r == "EMPLOYED_BY":
-                return t
-            if r == "CEO_OF":
-                return None
-            return t
-        if _asks_ceo(ql):
-            if r == "CEO_OF":
-                # Require company (tail) in the question text.
-                if t and t.lower() not in ql:
-                    return None
-                return h
-            if r in _PERSON_RELS_PARSE:
-                return h
-            return None
-        if r in _PERSON_RELS_PARSE and not _asks_work(ql):
-            return h
-        return t
-    except Exception:
-        return None
 
 
 def _offline_partial(sub_question: str, evidence: list[Candidate]) -> str | None:

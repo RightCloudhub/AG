@@ -97,8 +97,8 @@ def test_neighbors_prefers_relevant_relations():
 
 def test_multi_hop_neighbors_prefer_seed_touching_edges():
     """CEO edges of *other* companies must not outrank 1-hop seed edges."""
-    from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
     from agentic_graphrag.knowledge.graph_builder import triples_to_records
+    from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
 
     triples = [
         Triple(

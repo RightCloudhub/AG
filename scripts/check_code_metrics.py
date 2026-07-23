@@ -34,9 +34,7 @@ def main() -> int:
                 continue
             issue = _fn_issues(node, lines)
             if issue:
-                funcs_bad.append(
-                    f"{path.relative_to(ROOT)}:{node.lineno} {node.name} — {issue}"
-                )
+                funcs_bad.append(f"{path.relative_to(ROOT)}:{node.lineno} {node.name} — {issue}")
     if files_bad or funcs_bad:
         print("CODE METRICS FAILED", file=sys.stderr)
         for x in files_bad:
