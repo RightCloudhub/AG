@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
@@ -60,6 +61,17 @@ def iter_query_progress(
 ) -> Iterator[tuple[str, Any]]:
     """Yield (event, payload); terminal event is ``(EVENT_FINAL_CHAIN, chain)``."""
     opts = options or QueryOptions()
+    chitchat = try_chitchat_answer(question)
+    if chitchat is not None:
+        yield EVENT_TRIAGE, {
+            "route": "chitchat",
+            "rationale": "greeting_or_capability",
+            "estimated_hops": 0,
+            "confidence": 1.0,
+            "rule_hit": "chitchat",
+        }
+        yield EVENT_FINAL_CHAIN, chitchat
+        return
     ctx = _StreamCtx(
         question=question,
         executor=executor,

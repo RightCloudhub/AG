@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
+from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
@@ -205,6 +206,11 @@ def _run_with_triage(
     *,
     opts: QueryOptions,
 ) -> ReasoningChain:
+    # Greetings / capability meta — skip retrieval entirely (even if force_agentic).
+    chitchat = try_chitchat_answer(question)
+    if chitchat is not None:
+        return chitchat
+
     run_opts = resolved_run_opts(opts)
     known = (
         opts.known_entities
