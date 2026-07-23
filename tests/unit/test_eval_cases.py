@@ -32,9 +32,7 @@ def test_load_poc_cases_soft_stratification():
 
 
 def test_strict_stratification_fails_small_set():
-    cases = [
-        EvalCase(id="a", question="q", gold_answer="x", hops=2, category=CaseCategory.HOP2)
-    ]
+    cases = [EvalCase(id="a", question="q", gold_answer="x", hops=2, category=CaseCategory.HOP2)]
     report = validate_stratification(cases, StratificationSpec(min_total=200), strict_total=True)
     assert not report.ok
     assert any("min_total" in e for e in report.errors)
@@ -47,9 +45,7 @@ def test_gold_gen_from_seed_triples():
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    cases = generate_gold_cases(
-        triples, max_2hop=20, max_3hop=10, max_open=5, max_no_answer=20
-    )
+    cases = generate_gold_cases(triples, max_2hop=20, max_3hop=10, max_open=5, max_no_answer=20)
     cats = {}
     for c in cases:
         cats[c.resolved_category().value] = cats.get(c.resolved_category().value, 0) + 1

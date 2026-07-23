@@ -191,9 +191,7 @@ def _run_parallel(
     workers = min(MAX_PARALLEL_WORKERS, len(specs))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(
-                dispatch, executor, spec.tool, spec.args, sub_question=sub_question
-            ): spec
+            pool.submit(dispatch, executor, spec.tool, spec.args, sub_question=sub_question): spec
             for spec in specs
         }
         for fut in as_completed(futs):
@@ -217,9 +215,7 @@ def _safe_dispatch(
         return [], type(exc).__name__
 
 
-def _trace_for(
-    spec: ToolCallSpec, hits: list[Candidate], err: str | None
-) -> ToolCallTrace:
+def _trace_for(spec: ToolCallSpec, hits: list[Candidate], err: str | None) -> ToolCallTrace:
     reason = spec.reason
     if err:
         reason = f"{spec.reason} (degraded: {err})"

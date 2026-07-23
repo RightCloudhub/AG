@@ -26,8 +26,7 @@ def test_entity_resolver_finds_near_duplicates():
     res = EntityResolver(similarity_threshold=0.7, auto_merge_threshold=0.9)
     cands = res.find_candidates(ents)
     assert any(
-        {c.left.name.lower(), c.right.name.lower()} == {"apex holdings"}
-        or c.score >= 0.9
+        {c.left.name.lower(), c.right.name.lower()} == {"apex holdings"} or c.score >= 0.9
         for c in cands
     )
 

@@ -82,12 +82,8 @@ class QueryService:
             bundle=bundle,
             allow_llm=False,
             known_entities=_entities_from_triples(triples),
-            audit_store=AuditStore(
-                resolve_path(cfg.paths.processed_dir) / "audit_chains.jsonl"
-            ),
-            review_queue=ReviewQueue(
-                resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl"
-            ),
+            audit_store=AuditStore(resolve_path(cfg.paths.processed_dir) / "audit_chains.jsonl"),
+            review_queue=ReviewQueue(resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl"),
             retrieval_cache=RetrievalCache(
                 cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
                 answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,

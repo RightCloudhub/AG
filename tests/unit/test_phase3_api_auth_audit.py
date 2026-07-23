@@ -113,8 +113,6 @@ def test_critic_partial_is_clean_entity():
             "query_entity": "BrightLink Logistics",
         },
     )
-    name = extract_entity_conclusion(
-        "What is the parent company of BrightLink Logistics?", [c]
-    )
+    name = extract_entity_conclusion("What is the parent company of BrightLink Logistics?", [c])
     assert name == "Apex Holdings"
     assert "-[" not in (name or "")

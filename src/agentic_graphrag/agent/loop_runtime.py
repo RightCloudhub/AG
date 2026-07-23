@@ -192,9 +192,7 @@ class AgentRuntime:
                 evidence,
                 self.llm,
                 conclusions="; ".join(self.memory.conclusions),
-                guardrail_status=str(
-                    state.get("guardrail_status") or self.guards.status_text()
-                ),
+                guardrail_status=str(state.get("guardrail_status") or self.guards.status_text()),
                 allow_llm=allow_llm and self.llm is not None,
             )
 

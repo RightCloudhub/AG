@@ -141,10 +141,7 @@ def apply_critic_result(ctx: CriticApplyCtx) -> AgentState:
 
     # Planned remaining nodes: only advance on SUFFICIENT (sub-question done).
     # NEXT_HOP / REWRITE still go through terminal resolution so rewrites apply.
-    if (
-        ctx.remaining > 0
-        and ctx.result.action == CriticAction.SUFFICIENT
-    ):
+    if ctx.remaining > 0 and ctx.result.action == CriticAction.SUFFICIENT:
         new_state["current_index"] = ctx.idx + 1
         new_state["done"] = ctx.guards.state.hop >= ctx.guard_cfg.max_hops
         return _cap_hops(new_state, ctx.guards, ctx.guard_cfg)

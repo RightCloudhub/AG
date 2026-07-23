@@ -82,9 +82,7 @@ class ResolutionResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "merges": [
-                {"from_id": a, "to_id": b, "canonical": n} for a, b, n in self.merges
-            ],
+            "merges": [{"from_id": a, "to_id": b, "canonical": n} for a, b, n in self.merges],
             "uncertain": [
                 {
                     "left_id": c.left.id,
@@ -156,9 +154,7 @@ class EntityResolver:
                     pairs.append(cand)
         return pairs
 
-    def _score_pair(
-        self, a: EntityRecord, b: EntityRecord
-    ) -> ResolutionCandidate | None:
+    def _score_pair(self, a: EntityRecord, b: EntityRecord) -> ResolutionCandidate | None:
         if normalize_key(a.name) == normalize_key(b.name):
             score, method = 1.0, "exact_norm"
         else:
@@ -187,9 +183,7 @@ class EntityResolver:
 
         result = ResolutionResult()
         for cand in self.find_candidates(entities):
-            self._handle_candidate(
-                cand, store, result, allow_llm=allow_llm, dry_run=dry_run
-            )
+            self._handle_candidate(cand, store, result, allow_llm=allow_llm, dry_run=dry_run)
         return result
 
     def _handle_candidate(
@@ -278,9 +272,7 @@ class EntityResolver:
 
     def _apply_merge(self, req: MergeApply) -> None:
         """Best-effort: upsert keep with alias of drop. Full edge rewiring is store-specific."""
-        aliases = list(
-            dict.fromkeys([*(req.keep.aliases or []), req.drop.name, req.drop.id])
-        )
+        aliases = list(dict.fromkeys([*(req.keep.aliases or []), req.drop.name, req.drop.id]))
         req.keep.name = req.canonical
         req.keep.aliases = aliases
         req.store.upsert_entities([req.keep])

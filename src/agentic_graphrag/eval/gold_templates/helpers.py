@@ -86,9 +86,7 @@ def grandparents_of(
     """One hop up from parent via subsidiary/parent edges."""
     gps = [x.tail for x in out_adj.get(parent, []) if x.relation == REL_SUBSIDIARY_OF]
     gps += [
-        x.head
-        for x in in_adj.get(parent, [])
-        if x.relation == REL_PARENT_OF and x.tail == parent
+        x.head for x in in_adj.get(parent, []) if x.relation == REL_PARENT_OF and x.tail == parent
     ]
     return gps
 

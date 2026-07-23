@@ -109,9 +109,7 @@ def _add_expanded(bag: _TripleBag, mod: Any) -> None:
             bag.add_spec(
                 TripleSpec(name, "Company", "SUBSIDIARY_OF", parent, "Company", doc_id=doc)
             )
-            bag.add_spec(
-                TripleSpec(parent, "Company", "PARENT_OF", name, "Company", doc_id=doc)
-            )
+            bag.add_spec(TripleSpec(parent, "Company", "PARENT_OF", name, "Company", doc_id=doc))
         for comp in competitors:
             bag.add_spec(TripleSpec(name, "Company", "COMPETES_WITH", comp, "Company", doc_id=doc))
             bag.add_spec(TripleSpec(comp, "Company", "COMPETES_WITH", name, "Company", doc_id=doc))
@@ -151,16 +149,10 @@ def _add_people(bag: _TripleBag, mod: Any) -> None:
 def _add_products(bag: _TripleBag, mod: Any) -> None:
     doc = "pilot_products"
     for product, producer, suppliers, _cat in mod.PRODUCTS_EXTRA:
-        bag.add_spec(
-            TripleSpec(producer, "Company", "PRODUCES", product, "Product", doc_id=doc)
-        )
+        bag.add_spec(TripleSpec(producer, "Company", "PRODUCES", product, "Product", doc_id=doc))
         for sup in suppliers:
-            bag.add_spec(
-                TripleSpec(sup, "Company", "SUPPLIES_FOR", product, "Product", doc_id=doc)
-            )
-            bag.add_spec(
-                TripleSpec(sup, "Company", "SUPPLIES", producer, "Company", doc_id=doc)
-            )
+            bag.add_spec(TripleSpec(sup, "Company", "SUPPLIES_FOR", product, "Product", doc_id=doc))
+            bag.add_spec(TripleSpec(sup, "Company", "SUPPLIES", producer, "Company", doc_id=doc))
 
 
 def _add_events(bag: _TripleBag, mod: Any) -> None:

@@ -153,9 +153,7 @@ class MultiLevelBudget:
         )
 
     def _trip(self, level: str, key: str, reason: str) -> None:
-        self.trips.append(
-            {"level": level, "key": key, "reason": reason, "ts": time.time()}
-        )
+        self.trips.append({"level": level, "key": key, "reason": reason, "ts": time.time()})
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:

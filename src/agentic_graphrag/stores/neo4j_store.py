@@ -207,9 +207,7 @@ class Neo4jGraphStore:
         """
         return self._run_paths(query, source=source_name, target=target_name, limit=limit)
 
-    def _run_paths(
-        self, query: str, *, source: str, target: str, limit: int
-    ) -> list[PathRecord]:
+    def _run_paths(self, query: str, *, source: str, target: str, limit: int) -> list[PathRecord]:
         results: list[PathRecord] = []
         with self._driver.session() as session:
             for record in session.run(query, source=source, target=target, limit=limit):
@@ -226,9 +224,7 @@ class Neo4jGraphStore:
 def _neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
     if max_hops == 1:
         return _one_hop_query(relation_types)
-    last_rel_pred = (
-        "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
-    )
+    last_rel_pred = "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
     return f"""
     MATCH (src)
     WHERE toLower(src.name) = toLower($name)

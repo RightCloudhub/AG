@@ -52,4 +52,3 @@ def ingest_main(argv: list[str] | None = None) -> None:
                 + "\n"
             )
     print(f"Ingested {len(docs)} docs → {len(chunks)} chunks → {out_path}")
-

@@ -249,6 +249,4 @@ def test_interrupt_resume_preserves_memory_via_checkpointer():
     assert final.get("done") is True
     assert final.get("answer") == "ok"
     st = app.get_state(cfg)
-    assert "who is ceo" in (st.values.get("memory_snapshot") or {}).get(
-        "explored_subquestions", []
-    )
+    assert "who is ceo" in (st.values.get("memory_snapshot") or {}).get("explored_subquestions", [])

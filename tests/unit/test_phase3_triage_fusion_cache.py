@@ -53,9 +53,7 @@ def test_rrf_fuse_ranks_multi_channel():
 
 def test_retrieval_cache_version_invalidation():
     cache = RetrievalCache()
-    cands = [
-        Candidate(id="x", source=CandidateSource.VECTOR_CHUNK, content="hi", score=1.0)
-    ]
+    cands = [Candidate(id="x", source=CandidateSource.VECTOR_CHUNK, content="hi", score=1.0)]
     cache.set_retrieval("who is ceo", cands)
     assert cache.get_retrieval("who is ceo") is not None
     cache.on_index_update()

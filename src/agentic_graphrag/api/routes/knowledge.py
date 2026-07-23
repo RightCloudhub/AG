@@ -129,9 +129,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
     try:
-        item = svc.review_queue.decide(
-            item_id, dec, reviewer=body.reviewer, note=body.note
-        )
+        item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
     except KeyError as exc:
         raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
     return ok(item.to_dict())

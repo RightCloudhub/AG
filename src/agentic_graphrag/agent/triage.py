@@ -210,9 +210,7 @@ def _llm_triage(q: str, llm: LLMProvider) -> TriageResult | None:
             _LlmTriage,
             tier=Tier.LIGHT,
         )
-        route = (
-            Route.FAST_PATH if raw.route.lower().startswith("fast") else Route.AGENTIC
-        )
+        route = Route.FAST_PATH if raw.route.lower().startswith("fast") else Route.AGENTIC
         hops = max(
             _HOP_CLAMP_MIN,
             min(_HOP_CLAMP_MAX, int(raw.estimated_hops or _DEFAULT_AGENTIC_HOPS)),

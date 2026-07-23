@@ -12,6 +12,7 @@ def _ensure_dirs(cfg) -> None:
     for key in ("data_dir", "raw_docs_dir", "processed_dir", "cache_dir", "indexes_dir"):
         resolve_path(getattr(cfg.paths, key)).mkdir(parents=True, exist_ok=True)
 
+
 def _neo4j_unavailable_hint(uri: str, exc: BaseException) -> str:
     return (
         f"Neo4j unavailable at {uri}: {exc}\n"
@@ -19,6 +20,7 @@ def _neo4j_unavailable_hint(uri: str, exc: BaseException) -> str:
         "  Start Neo4j:      docker compose up -d\n"
         "  Offline eval:     agr-run-cases --no-llm  (loads seed triples itself)"
     )
+
 
 def _open_graph_store(
     settings: Any,
@@ -70,4 +72,3 @@ def _close_quiet(store: Any) -> None:
         store.close()
     except Exception:
         pass
-

@@ -20,4 +20,3 @@ def export_reasoning_schema_main(argv: list[str] | None = None) -> None:
 
     path = export_reasoning_chain_schema(resolve_path(args.out))
     print(f"Wrote reasoning chain schema → {path}")
-

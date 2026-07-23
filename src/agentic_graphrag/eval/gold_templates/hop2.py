@@ -158,9 +158,7 @@ def _emit_dual_supplier(ctx: EmitContext) -> None:
             continue
         case = EvalCase(
             id=ctx.case_id(_ID_SUPPLIER_DUAL),
-            question=(
-                f"Which supplier for {product} also supplies {company_supplies[0]}?"
-            ),
+            question=(f"Which supplier for {product} also supplies {company_supplies[0]}?"),
             gold_answer=supplier,
             hops=HOPS_2,
             category=CaseCategory.HOP2,

@@ -91,9 +91,7 @@ def test_build_comparison_report(tmp_path: Path):
         + "\n",
         encoding="utf-8",
     )
-    report = build_comparison_report(
-        agentic_path=agentic, baseline_path=baseline, cases_path=cases
-    )
+    report = build_comparison_report(agentic_path=agentic, baseline_path=baseline, cases_path=cases)
     assert "summary" in report
     assert report["systems"]["agentic"]["accuracy"] == 1.0
     paths = write_comparison_report(report, tmp_path / "out")

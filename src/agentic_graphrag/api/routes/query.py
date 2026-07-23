@@ -50,9 +50,7 @@ def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse
     svc = _service(request)
 
     def gen():
-        for etype, payload in svc.stream_query_events(
-            body, tenant_id=tenant_id, user_id=user_id
-        ):
+        for etype, payload in svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id):
             yield format_sse(etype, payload)
 
     return StreamingResponse(

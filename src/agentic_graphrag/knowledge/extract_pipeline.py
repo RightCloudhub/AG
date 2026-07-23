@@ -179,9 +179,7 @@ def _process_chunk(chunk: ChunkRecord, ctx: _PipelineCtx) -> None:
     _record_chunk_result(chunk, cr, ctx)
 
 
-def _record_chunk_result(
-    chunk: ChunkRecord, cr: ChunkExtractResult, ctx: _PipelineCtx
-) -> None:
+def _record_chunk_result(chunk: ChunkRecord, cr: ChunkExtractResult, ctx: _PipelineCtx) -> None:
     ctx.state.chunk_results.append(cr)
     _write_jsonl(ctx.journal_f, cr.journal_row())
     ctx.state.doc_provenance.setdefault(chunk.doc_id, []).append(cr.journal_row())

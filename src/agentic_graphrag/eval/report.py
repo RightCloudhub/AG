@@ -38,9 +38,7 @@ def build_comparison_report(
     cases_path: Path | None = None,
 ) -> dict[str, Any]:
     cases_by_id = load_cases(cases_path) if cases_path else {}
-    agentic = score_system_rows(
-        load_jsonl(agentic_path), system="agentic", cases_by_id=cases_by_id
-    )
+    agentic = score_system_rows(load_jsonl(agentic_path), system="agentic", cases_by_id=cases_by_id)
     systems: dict[str, Any] = {"agentic": agentic.to_dict()}
     delta: dict[str, Any] = {}
     if baseline_path and baseline_path.exists():

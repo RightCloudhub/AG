@@ -121,9 +121,7 @@ class BaselineVectorRAG:
     def _fill_answer(self, chain: ReasoningChain, question: str, candidates: list) -> None:
         hits = [c.id for c in candidates]
         use_llm = (
-            self.allow_llm
-            and self.llm is not None
-            and not isinstance(self.llm, MockLLMProvider)
+            self.allow_llm and self.llm is not None and not isinstance(self.llm, MockLLMProvider)
         )
         if use_llm:
             answer_text = self._llm_generate(question, candidates)

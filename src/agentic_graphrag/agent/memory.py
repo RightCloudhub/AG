@@ -172,9 +172,7 @@ def _restore_evidence(mem: MemoryState, raw_list: list[Any]) -> None:
 
 def _restore_sets(mem: MemoryState, snap: MemorySnapshot | dict[str, Any]) -> None:
     mem.explored_paths |= {_normalize(p) for p in (snap.get("explored_paths") or [])}
-    mem.explored_subquestions = {
-        _normalize(s) for s in (snap.get("explored_subquestions") or [])
-    }
+    mem.explored_subquestions = {_normalize(s) for s in (snap.get("explored_subquestions") or [])}
     mem.excluded_hypotheses = {_normalize(h) for h in (snap.get("excluded_hypotheses") or [])}
     mem.conclusions = list(snap.get("conclusions") or [])
     mem.conclusions_by_subquestion = dict(snap.get("conclusions_by_subquestion") or {})

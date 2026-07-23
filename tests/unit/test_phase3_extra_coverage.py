@@ -71,9 +71,7 @@ def test_tool_registry():
         called["x"] = x
         return x + 1
 
-    reg.register(
-        ExternalToolSpec(name="echo", description="e", handler=h, permissions=["x"])
-    )
+    reg.register(ExternalToolSpec(name="echo", description="e", handler=h, permissions=["x"]))
     assert reg.invoke("echo", x=2) == 3
 
 
@@ -163,9 +161,7 @@ def test_auth_rate_limiter():
 
 def test_fast_path_and_run_query_offline():
     store = InMemoryGraphStore()
-    store.upsert_entities(
-        [EntityRecord(id="1", name="Apex Holdings", type="Company")]
-    )
+    store.upsert_entities([EntityRecord(id="1", name="Apex Holdings", type="Company")])
     store.upsert_relations(
         [
             RelationRecord(

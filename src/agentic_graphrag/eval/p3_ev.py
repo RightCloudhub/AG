@@ -67,9 +67,7 @@ def build_heldout_report(
     delta_pp = None
     if baseline is not None:
         delta_pp = round((agentic.accuracy - baseline.accuracy) * 100, 2)
-    recall_ok = (
-        agentic.evidence_recall is not None and agentic.evidence_recall >= RECALL_TARGET
-    )
+    recall_ok = agentic.evidence_recall is not None and agentic.evidence_recall >= RECALL_TARGET
     acc_ok = delta_pp is not None and delta_pp >= ACCURACY_PP_TARGET
     return {
         "schema_version": SCHEMA_VERSION,

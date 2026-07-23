@@ -203,10 +203,7 @@ def _success_row(case: dict[str, Any], q: str, chain: Any) -> dict[str, Any]:
         "latency_ms": cost.get("latency_ms", 0),
         "cost": cost,
         "graph_evidence": sum(
-            1
-            for s in chain.steps
-            for tc in s.tool_calls
-            if tc.tool.startswith("graph") and tc.hits
+            1 for s in chain.steps for tc in s.tool_calls if tc.tool.startswith("graph") and tc.hits
         ),
         "explored_paths": chain.explored_paths[:20],
         "metadata": meta,

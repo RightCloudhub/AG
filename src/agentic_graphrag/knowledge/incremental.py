@@ -133,7 +133,8 @@ class IncrementalUpdater:
                 value_conflicts = [
                     r
                     for (h, rel, _), r in self._rel_index.items()
-                    if h == t.head.name.lower() and rel == t.relation
+                    if h == t.head.name.lower()
+                    and rel == t.relation
                     and r.tail_name.lower() != t.tail.name.lower()
                 ]
                 if value_conflicts:
@@ -194,9 +195,7 @@ class IncrementalUpdater:
         accepted = self._gate(triples, result)
         clean, conflicts = self.detect_conflicts(accepted)
         to_write = self._collect_writes(clean, conflicts, result)
-        stats = load_triples_into_graph(
-            self.store, to_write, clear_first=False, schema=None
-        )
+        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=None)
         result.accepted = int(stats.get("relations", 0) or len(to_write))
         self._refresh_index(to_write)
         if self.on_commit is not None:
@@ -205,9 +204,7 @@ class IncrementalUpdater:
     def _gate(self, triples: list[Triple], result: BatchResult) -> list[Triple]:
         if self.schema is None:
             return triples
-        gate = gate_triples(
-            triples, self.schema, confidence_threshold=self.confidence_threshold
-        )
+        gate = gate_triples(triples, self.schema, confidence_threshold=self.confidence_threshold)
         result.rejected = len(gate.rejected)
         return gate.accepted
 

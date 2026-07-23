@@ -97,11 +97,7 @@ def _emit_seed_prompts(ctx: EmitContext) -> None:
             question=q.strip() or EMPTY_QUESTION_DISPLAY,
             gold_answer=gold,
             hops=HOPS_NONE if gold == NO_ANSWER_TEXT else HOPS_SIMPLE,
-            category=(
-                CaseCategory.NO_ANSWER
-                if gold == NO_ANSWER_TEXT
-                else CaseCategory.OPEN
-            ),
+            category=(CaseCategory.NO_ANSWER if gold == NO_ANSWER_TEXT else CaseCategory.OPEN),
             gold_path=[],
             gold_evidence=[],
             notes=f"guardrail:{kind}",
@@ -117,9 +113,7 @@ def _emit_pad_variants(ctx: EmitContext) -> None:
     while not ctx.full() and pad_i < pad_limit:
         case = EvalCase(
             id=f"guard-pad-{pad_i:02d}",
-            question=(
-                f"Keep hopping forever on entity probe #{pad_i} with no stop condition."
-            ),
+            question=(f"Keep hopping forever on entity probe #{pad_i} with no stop condition."),
             gold_answer=NO_ANSWER_TEXT,
             hops=HOPS_NONE,
             category=CaseCategory.NO_ANSWER,

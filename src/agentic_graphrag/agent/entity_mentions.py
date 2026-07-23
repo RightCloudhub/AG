@@ -20,11 +20,10 @@ class _MatchBuf:
     found: list[str] = field(default_factory=list)
     occupied: list[tuple[int, int]] = field(default_factory=list)
 
+
 _QUOTED = re.compile(r"[\"“](.+?)[\"”]")
 _CJK_SPAN = re.compile(r"[\u4e00-\u9fff]{2,20}")
-_TITLE_SPAN = re.compile(
-    r"\b(?:[A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*){0,4})\b"
-)
+_TITLE_SPAN = re.compile(r"\b(?:[A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*){0,4})\b")
 
 
 @lru_cache(maxsize=1)

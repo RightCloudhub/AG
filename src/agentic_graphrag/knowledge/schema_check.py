@@ -74,8 +74,7 @@ class ValidationResult:
     def to_reject_records(self) -> list[dict[str, Any]]:
         """Serializable reject-table rows for analysis / audit."""
         return [
-            {"triple": t.model_dump(mode="json"), "reason": reason}
-            for t, reason in self.rejected
+            {"triple": t.model_dump(mode="json"), "reason": reason} for t, reason in self.rejected
         ]
 
 

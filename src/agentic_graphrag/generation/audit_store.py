@@ -35,9 +35,7 @@ class AuditStore:
 
     def save(self, chain: ReasoningChain | dict[str, Any]) -> str:
         payload = (
-            chain.model_dump(mode="json")
-            if isinstance(chain, ReasoningChain)
-            else dict(chain)
+            chain.model_dump(mode="json") if isinstance(chain, ReasoningChain) else dict(chain)
         )
         qid = str(payload.get("query_id") or "")
         if not qid:

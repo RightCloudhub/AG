@@ -127,8 +127,7 @@ class Guardrails:
             if elapsed > self.config.query_timeout_seconds:
                 self.state.tripped = True
                 self.state.reason = (
-                    f"query_timeout exceeded "
-                    f"({elapsed:.1f}s/{self.config.query_timeout_seconds}s)"
+                    f"query_timeout exceeded ({elapsed:.1f}s/{self.config.query_timeout_seconds}s)"
                 )
                 return
         try:
