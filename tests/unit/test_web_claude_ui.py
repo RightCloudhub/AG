@@ -81,6 +81,16 @@ def test_html_vue_shell_structure():
     assert 'id="useStream"' in html
 
 
+def test_answer_turn_retry_label_depends_on_force_agentic():
+    """Unforced turns offer force-agentic retry; forced turns only show re-ask."""
+    src = _read(STATIC / "js" / "components" / "answer-turn.js")
+    assert 'RETRY_FORCE_LABEL = "强制 Agentic 重问"' in src
+    assert 'RETRY_AGAIN_LABEL = "再问一次"' in src
+    assert "alreadyForceAgentic" in src
+    assert "retryLabel" in src
+    assert "{{ retryLabel }}" in src
+
+
 def test_app_js_pins_vue_vendor_first():
     js = _read(STATIC / "app.js")
     assert 'VUE_VERSION = "3.5.13"' in js

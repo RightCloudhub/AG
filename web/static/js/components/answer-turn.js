@@ -12,6 +12,10 @@ const COPY_IDLE = "复制";
 const COPY_OK = "已复制";
 const COPY_FAIL = "复制失败";
 const COPY_RESET_MS = 1600;
+/** Shown only when this turn was NOT already force_agentic. */
+const RETRY_FORCE_LABEL = "强制 Agentic 重问";
+/** Shown when this turn already used force_agentic (re-run without the force cue). */
+const RETRY_AGAIN_LABEL = "再问一次";
 
 export const AnswerTurn = {
   name: "AnswerTurn",
@@ -23,6 +27,17 @@ export const AnswerTurn = {
   computed: {
     isError() {
       return Boolean(this.turn.error) && !this.turn.result;
+    },
+    /** This turn already requested force_agentic (sidebar and/or prior retry). */
+    alreadyForceAgentic() {
+      return Boolean(this.turn.forceAgentic);
+    },
+    /**
+     * Unforced → 「强制 Agentic 重问」; already forced → 「再问一次」
+     * (hides the force-agentic chip label when force was already applied).
+     */
+    retryLabel() {
+      return this.alreadyForceAgentic ? RETRY_AGAIN_LABEL : RETRY_FORCE_LABEL;
     },
     payload() {
       return this.turn.result || {};
@@ -93,7 +108,7 @@ export const AnswerTurn = {
         <template v-if="isError">
           <div class="answer-text">{{ turn.error }}</div>
           <div class="retry-row">
-            <button type="button" class="chip" @click="retry">强制 Agentic 重问</button>
+            <button type="button" class="chip" @click="retry">{{ retryLabel }}</button>
           </div>
         </template>
         <template v-else>
@@ -186,7 +201,7 @@ export const AnswerTurn = {
           </details>
 
           <div class="retry-row">
-            <button type="button" class="chip" @click="retry">强制 Agentic 重问</button>
+            <button type="button" class="chip" @click="retry">{{ retryLabel }}</button>
           </div>
         </template>
       </div>
