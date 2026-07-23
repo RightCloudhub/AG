@@ -195,9 +195,7 @@ def test_extract_conclusion_prefers_ceo_over_parent_edge() -> None:
             "query_entity": "Apex Holdings",
         },
     )
-    out = extract_entity_conclusion(
-        "Who is the CEO of Apex Holdings?", [parent, ceo]
-    )
+    out = extract_entity_conclusion("Who is the CEO of Apex Holdings?", [parent, ceo])
     assert out == "Elena Varga"
 
 
@@ -237,9 +235,7 @@ def test_memory_short_prefix_not_duplicate() -> None:
     m.mark_subquestion("Who is the CEO of Apex Holdings?")
     assert m.is_duplicate_subquestion("Who is the CEO of Apex Holdings?")
     assert not m.is_duplicate_subquestion("Who is the CEO")
-    assert not m.is_duplicate_subquestion(
-        "Who is the CEO of BrightLink Logistics?"
-    )
+    assert not m.is_duplicate_subquestion("Who is the CEO of BrightLink Logistics?")
 
 
 def test_ceo_conclusion_rejects_unrelated_company_edge() -> None:
@@ -256,9 +252,7 @@ def test_ceo_conclusion_rejects_unrelated_company_edge() -> None:
             "query_entity": "BrightLink Logistics",
         },
     )
-    out = extract_entity_conclusion(
-        "Who is the CEO of BrightLink Logistics?", [foreign]
-    )
+    out = extract_entity_conclusion("Who is the CEO of BrightLink Logistics?", [foreign])
     assert out is None
 
 
@@ -287,9 +281,7 @@ def test_work_conclusion_aggregates_employers() -> None:
             "query_entity": "Elena Varga",
         },
     )
-    out = extract_entity_conclusion(
-        "Which companies did Elena Varga previously work at?", [e1, e2]
-    )
+    out = extract_entity_conclusion("Which companies did Elena Varga previously work at?", [e1, e2])
     assert out is not None
     assert "Meridian Capital" in out
     assert "Orion Systems" in out
@@ -297,7 +289,7 @@ def test_work_conclusion_aggregates_employers() -> None:
 
 def test_offline_brightlink_ceo_honest_no_answer() -> None:
     from agentic_graphrag.generation.offline_answer import offline_answer
-    from agentic_graphrag.generation.trace import ReasoningChain, QueryStatus
+    from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 
     chain = ReasoningChain(question="Who is the CEO of BrightLink Logistics?")
     evidence = [

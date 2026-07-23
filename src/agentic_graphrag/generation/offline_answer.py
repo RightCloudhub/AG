@@ -24,34 +24,62 @@ def offline_answer(
     """Deterministic multi-hop extractive answer from graph/text evidence."""
     graph = [c for c in evidence if c.is_graph()]
     preferred = graph if graph else evidence
-    # Use full evidence for focused multi-hop rules (parent→CEO needs both edges).
     texts = [c.content for c in preferred]
     edges = parse_edges(texts)
+    hop_answer = _prefer_hop_conclusion(chain.question, conclusions)
+    if hop_answer:
+        return _apply_focused(chain, hop_answer, preferred)
     focused = focused_extract(chain.question, edges, texts)
-
     if focused:
-        chain.answer = focused
-        chain.status = QueryStatus.ANSWERED if graph else QueryStatus.PARTIAL
-        chain.claims = bind_claims_to_evidence(
-            [Claim(text=focused, evidence_ids=[c.id for c in preferred[:5]])],
-            preferred,
-            fallback_text=focused,
-        )
-        chain.metadata["offline_answerer"] = "focused"
-        return chain
-
-    # Factoid CEO / subsidiary: honest no_answer instead of dumping unrelated edges.
+        return _apply_focused(chain, focused, preferred)
     if _should_honest_no_answer(chain.question, edges, conclusions):
         chain.honest_fallback("no matching relation for the asked entity")
         chain.metadata["offline_answerer"] = "honest_no_match"
         return chain
+    return _apply_extractive(chain, preferred, conclusions)
 
-    # Extractive dump: prefer candidates that mention question tokens (noise cut).
+
+def _prefer_hop_conclusion(question: str, conclusions: str) -> str | None:
+    """Use the last multi-hop conclusion when the question asks for a person/CEO."""
+    ql = (question or "").lower()
+    if "ceo" not in ql and "who is" not in ql:
+        return None
+    parts = [p.strip() for p in (conclusions or "").split(";") if p.strip()]
+    if not parts:
+        return None
+    last = parts[-1]
+    # Skip pure company/product fragments that are intermediate hops.
+    if any(k in last.lower() for k in ("fpga", "server", "chip", "product")):
+        return None
+    return last
+
+
+def _apply_focused(
+    chain: ReasoningChain,
+    focused: str,
+    preferred: list[Candidate],
+) -> ReasoningChain:
+    has_graph = any(c.is_graph() for c in preferred)
+    chain.answer = focused
+    chain.status = QueryStatus.ANSWERED if has_graph else QueryStatus.PARTIAL
+    chain.claims = bind_claims_to_evidence(
+        [Claim(text=focused, evidence_ids=[c.id for c in preferred[:5]])],
+        preferred,
+        fallback_text=focused,
+    )
+    chain.metadata["offline_answerer"] = "focused"
+    return chain
+
+
+def _apply_extractive(
+    chain: ReasoningChain,
+    preferred: list[Candidate],
+    conclusions: str,
+) -> ReasoningChain:
     dump_src = _prefer_question_aligned(chain.question, preferred) or preferred
-    dump_texts = [c.content for c in dump_src]
-    facts = dump_texts[:6]
+    facts = [c.content for c in dump_src][:6]
     if conclusions:
-        facts = [conclusions] + facts
+        facts = [conclusions, *facts]
     chain.answer = " | ".join(facts)
     chain.status = QueryStatus.PARTIAL
     chain.claims = bind_claims_to_evidence(
@@ -62,9 +90,7 @@ def offline_answer(
     return chain
 
 
-def _prefer_question_aligned(
-    question: str, candidates: list[Candidate]
-) -> list[Candidate]:
+def _prefer_question_aligned(question: str, candidates: list[Candidate]) -> list[Candidate]:
     ql = (question or "").lower()
     if not ql or not candidates:
         return candidates
@@ -102,23 +128,31 @@ def _should_honest_no_answer(
     return False
 
 
+def _parent_names_for_question(q: str, edges: list[tuple[str, str, str]]) -> set[str]:
+    parents: set[str] = set()
+    for head, rel, tail in edges:
+        if rel == "PARENT_OF" and tail.lower() in q:
+            parents.add(head.lower())
+        if rel == "SUBSIDIARY_OF" and head.lower() in q:
+            parents.add(tail.lower())
+    return parents
+
+
 def _has_ceo_for_question(q: str, edges: list[tuple[str, str, str]]) -> bool:
     # Multi-hop "CEO of parent of X": CEO of parent company also counts.
-    parent_names: set[str] = set()
-    for h, r, t in edges:
-        if r == "PARENT_OF" and t.lower() in q:
-            parent_names.add(h.lower())
-        if r == "SUBSIDIARY_OF" and h.lower() in q:
-            parent_names.add(t.lower())
-    for h, r, t in edges:
-        if r != "CEO_OF":
+    parent_names = _parent_names_for_question(q, edges)
+    for _head, rel, tail in edges:
+        if rel != "CEO_OF":
             continue
-        tl = t.lower()
-        if tl in q or tl in parent_names:
-            return True
-        if any(p in tl or tl in p for p in parent_names):
+        if _ceo_edge_matches(tail.lower(), q, parent_names):
             return True
     return False
+
+
+def _ceo_edge_matches(tail_l: str, q: str, parent_names: set[str]) -> bool:
+    if tail_l in q or tail_l in parent_names:
+        return True
+    return any(p in tail_l or tail_l in p for p in parent_names)
 
 
 def _is_yes_no_subsidiary(q: str) -> bool:
@@ -127,15 +161,31 @@ def _is_yes_no_subsidiary(q: str) -> bool:
     return q.strip().startswith("is ") or " is " in q
 
 
+def _tokens_gt4(q: str) -> list[str]:
+    return [tok for tok in q.split() if len(tok) > 4]
+
+
+def _edge_mentions_q_tokens(name: str, tokens: list[str]) -> bool:
+    low = name.lower()
+    return any(tok in low for tok in tokens)
+
+
 def _has_subsidiary_evidence(q: str, edges: list[tuple[str, str, str]]) -> bool:
-    for h, r, t in edges:
-        if r == "PARENT_OF" and h.lower() in q and t.lower() in q:
+    tokens = _tokens_gt4(q)
+    for edge in edges:
+        if _direct_subsidiary_pair(q, edge):
             return True
-        if r == "SUBSIDIARY_OF" and h.lower() in q and t.lower() in q:
+        head, rel, tail = edge
+        if rel not in {"PARENT_OF", "SUBSIDIARY_OF"} or not tokens:
+            continue
+        if _edge_mentions_q_tokens(head, tokens) and _edge_mentions_q_tokens(tail, tokens):
             return True
-        if r in {"PARENT_OF", "SUBSIDIARY_OF"}:
-            if any(tok in h.lower() for tok in q.split() if len(tok) > 4) and any(
-                tok in t.lower() for tok in q.split() if len(tok) > 4
-            ):
-                return True
     return False
+
+
+def _direct_subsidiary_pair(q: str, edge: tuple[str, str, str]) -> bool:
+    head, rel, tail = edge
+    hl, tl = head.lower(), tail.lower()
+    if rel == "PARENT_OF" and hl in q and tl in q:
+        return True
+    return rel == "SUBSIDIARY_OF" and hl in q and tl in q

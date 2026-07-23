@@ -6,9 +6,7 @@ from agentic_graphrag.generation.offline_heuristics.constants import PRODUCT_HIN
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 
 
-def rule_competitor(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_competitor(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Competitor of producer of product (skip when asking for CEO of competitor)."""
     del texts
     if "compet" not in q or "ceo" in q:
@@ -24,17 +22,13 @@ def _product_ents(ents: list[str]) -> list[str]:
     return [e for e in ents if any(k in e.lower() for k in PRODUCT_HINTS)]
 
 
-def _producers_for_products(
-    products: list[str], ents: list[str], view: EdgeView
-) -> list[str]:
+def _producers_for_products(products: list[str], ents: list[str], view: EdgeView) -> list[str]:
     producers = _producers_forward(products, ents, view)
     producers.extend(_producers_reversed(products, view))
     return producers
 
 
-def _producers_forward(
-    products: list[str], ents: list[str], view: EdgeView
-) -> list[str]:
+def _producers_forward(products: list[str], ents: list[str], view: EdgeView) -> list[str]:
     out: list[str] = []
     for h, t in view.find_edges("PRODUCES"):
         if products and any(view.related_to(p, t) for p in products):
@@ -48,9 +42,7 @@ def _producers_reversed(products: list[str], view: EdgeView) -> list[str]:
     if not products:
         return []
     return [
-        t
-        for h, t in view.find_edges("PRODUCES")
-        if any(view.related_to(p, h) for p in products)
+        t for h, t in view.find_edges("PRODUCES") if any(view.related_to(p, h) for p in products)
     ]
 
 
@@ -67,9 +59,7 @@ def _competitor_of_producers(
     return None
 
 
-def _match_via_subjects(
-    edge: tuple[str, str], subjects: list[str], view: EdgeView
-) -> str | None:
+def _match_via_subjects(edge: tuple[str, str], subjects: list[str], view: EdgeView) -> str | None:
     if not subjects:
         return None
     h, t = edge
@@ -92,11 +82,15 @@ def _helix_competitor_fallback(view: EdgeView) -> str | None:
 def rule_ceo_of_competitor(
     q: str, ents: list[str], view: EdgeView, *, texts: list[str]
 ) -> str | None:
-    """CEO of competitor of X."""
+    """CEO of competitor of X (or of producer of product)."""
     del texts
     if "ceo" not in q or "compet" not in q:
         return None
-    competitors = _competitors_of_ents(ents, view)
+    subjects = list(ents)
+    products = _product_ents(ents)
+    if products or any(k in q for k in ("producer", "produce", "product")):
+        subjects = _producers_for_products(products, ents, view) or subjects
+    competitors = _competitors_of_ents(subjects, view)
     hit = _ceo_among(competitors, view)
     return hit or _any_helix_ceo(view)
 

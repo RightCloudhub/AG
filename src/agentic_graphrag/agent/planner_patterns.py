@@ -57,6 +57,30 @@ def _two_hop(spec: _TwoHop) -> list[SubQuestion]:
     ]
 
 
+def _three_hop(
+    sq1: tuple[str, str],
+    sq2: tuple[str, str],
+    sq3: tuple[str, str],
+) -> list[SubQuestion]:
+    return [
+        SubQuestion(id="sq1", text=sq1[0], rationale=sq1[1]),
+        SubQuestion(
+            id="sq2",
+            text=sq2[0],
+            depends_on=["sq1"],
+            rationale=sq2[1],
+            is_placeholder=True,
+        ),
+        SubQuestion(
+            id="sq3",
+            text=sq3[0],
+            depends_on=["sq2"],
+            rationale=sq3[1],
+            is_placeholder=True,
+        ),
+    ]
+
+
 def match_ceo_of_parent(ctx: PlanContext) -> list[SubQuestion] | None:
     if not ctx.primary or not _CEO_PARENT_RE.search(ctx.ql):
         return None
@@ -85,8 +109,24 @@ def match_ceo_previous_work(ctx: PlanContext) -> list[SubQuestion] | None:
     )
 
 
+def match_ceo_of_competitor_of_producer(ctx: PlanContext) -> list[SubQuestion] | None:
+    """CEO of competitor of producer of product (3-hop)."""
+    if not ctx.primary or _COMPET not in ctx.ql or _CEO not in ctx.ql:
+        return None
+    if not any(k in ctx.ql for k in _PRODUCT_CUES):
+        return None
+    return _three_hop(
+        (f"Which company produces {ctx.primary}?", "find producer"),
+        ("Which company competes with {from:sq1}?", "find competitor of producer"),
+        ("Who is the CEO of {from:sq2}?", "CEO of resolved competitor"),
+    )
+
+
 def match_ceo_of_competitor(ctx: PlanContext) -> list[SubQuestion] | None:
     if not ctx.primary or _COMPET not in ctx.ql or _CEO not in ctx.ql:
+        return None
+    # Product→producer chain handled by match_ceo_of_competitor_of_producer.
+    if any(k in ctx.ql for k in _PRODUCT_CUES):
         return None
     return _two_hop(
         _TwoHop(
@@ -200,6 +240,7 @@ def match_single_hop_primary(ctx: PlanContext) -> list[SubQuestion] | None:
 OFFLINE_MATCHERS: tuple[Matcher, ...] = (
     match_ceo_of_parent,
     match_ceo_previous_work,
+    match_ceo_of_competitor_of_producer,
     match_ceo_of_competitor,
     match_parent_of_producer,
     match_suppliers_intersect,

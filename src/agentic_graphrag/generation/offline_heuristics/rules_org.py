@@ -71,9 +71,7 @@ def rule_parent_of_producer(
 
 def _producers_of(products: list[str], view: EdgeView) -> list[str]:
     return [
-        h
-        for h, t in view.find_edges("PRODUCES")
-        if any(view.related_to(p, t) for p in products)
+        h for h, t in view.find_edges("PRODUCES") if any(view.related_to(p, t) for p in products)
     ]
 
 
@@ -89,9 +87,7 @@ def _parent_of_any(producers: list[str], view: EdgeView) -> str | None:
     return None
 
 
-def rule_parent_owns(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_parent_owns(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Parent company / owns (excluding logistics-specific questions)."""
     del texts
     if not _parent_owns_q(q):
@@ -119,9 +115,7 @@ def _parent_of_entity(entity: str, view: EdgeView) -> str | None:
     return None
 
 
-def rule_logistics(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_logistics(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Logistics firm owned by Apex that supplies Helix."""
     del ents, texts
     if "logistics" not in q:

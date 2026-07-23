@@ -6,9 +6,7 @@ from agentic_graphrag.generation.offline_heuristics.constants import SUPPLY_SHAR
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 
 
-def rule_suppliers(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_suppliers(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Suppliers for product; shared/also branch when requested."""
     del ents, texts
     if not _supply_q(q):
@@ -33,9 +31,7 @@ def _shared_suppliers(view: EdgeView) -> list[str]:
     return dual
 
 
-def _dual_from_company(
-    company_sup: list[tuple[str, str]], prod_sup: set[str]
-) -> list[str]:
+def _dual_from_company(company_sup: list[tuple[str, str]], prod_sup: set[str]) -> list[str]:
     dual: list[str] = []
     for h, _t in company_sup:
         if h in prod_sup or "silicon" in h.lower():
@@ -43,9 +39,7 @@ def _dual_from_company(
     return dual
 
 
-def _dual_helix_overlap(
-    view: EdgeView, company_sup: list[tuple[str, str]]
-) -> list[str]:
+def _dual_helix_overlap(view: EdgeView, company_sup: list[tuple[str, str]]) -> list[str]:
     dual: list[str] = []
     for h, _t in view.find_edges("SUPPLIES_FOR"):
         if _supplies_helix(h, company_sup):
@@ -67,9 +61,7 @@ def _all_suppliers(view: EdgeView) -> list[str]:
     return [h for h, _t in view.find_edges("SUPPLIES")]
 
 
-def rule_products(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_products(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Products produced by a named company."""
     del texts
     if "produc" not in q and "product" not in q:

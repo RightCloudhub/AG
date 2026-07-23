@@ -167,11 +167,15 @@ def _critique_impl(
     *,
     allow_llm: bool,
 ) -> CriticResult:
+    from agentic_graphrag.agent.critic_guard import force_incomplete_multihop
+
     if not ctx.evidence:
         return _critique_no_evidence(ctx)
     if not allow_llm or llm is None:
-        return offline_critique(ctx)
-    return _llm_critique(ctx, llm)
+        result = offline_critique(ctx)
+    else:
+        result = _llm_critique(ctx, llm)
+    return force_incomplete_multihop(ctx, result)
 
 
 def _critique_no_evidence(ctx: CritiqueContext) -> CriticResult:
@@ -200,23 +204,22 @@ def _llm_critique(ctx: CritiqueContext, llm: LLMProvider) -> CriticResult:
             question=ctx.question,
             sub_question=ctx.sub_question,
             evidence_list=evidence_list or "(none)",
-            explored_paths="; ".join(ctx.explored_paths[:_EVIDENCE_PROMPT_CAP])
-            or "(none)",
+            explored_paths="; ".join(ctx.explored_paths[:_EVIDENCE_PROMPT_CAP]) or "(none)",
         )
     )
     user = (
-        user
-        + "\n\nJudge BOTH levels: set sub_answered if the sub-question is covered; "
+        user + "\n\nJudge BOTH levels: set sub_answered if the sub-question is covered; "
         "set global_answered only if the original question can be fully answered. "
         "If sub is done but global is not, action=next_hop with a new sub-question "
         "(or rewrite the current one). Prefer rewrite when the sub-question wording "
         "is the bottleneck."
     )
+    # LIGHT tier for critic: large latency win on live multi-hop (P95 path).
     raw = complete_structured(
         llm,
         [Message(role="system", content=system), Message(role="user", content=user)],
         CriticResult,
-        tier=Tier.STRONG,
+        tier=Tier.LIGHT,
     )
     return _normalize_scope(raw, remaining_subquestions=ctx.remaining_subquestions)
 

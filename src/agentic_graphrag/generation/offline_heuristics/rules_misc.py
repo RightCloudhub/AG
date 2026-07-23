@@ -13,9 +13,7 @@ from agentic_graphrag.generation.offline_heuristics.constants import (
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 
 
-def rule_event(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_event(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Event both parties participated in (prefer most common)."""
     del ents
     harbor_in_texts = "harbor" in " ".join(texts).lower()

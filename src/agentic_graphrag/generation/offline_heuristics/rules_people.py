@@ -12,9 +12,7 @@ from agentic_graphrag.generation.offline_heuristics.constants import (
 from agentic_graphrag.generation.offline_heuristics.graph_ops import EdgeView
 
 
-def rule_both_orion(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_both_orion(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """Yes/no: both named people worked at Orion (before generic work filters)."""
     if not _is_both_work_q(q):
         return None
@@ -161,9 +159,7 @@ def _matches_subjects(head: str, subjects: list[str], view: EdgeView) -> bool:
     return any(view.related_to(s, head) for s in subjects)
 
 
-def rule_ceo_of_parent(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_ceo_of_parent(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """CEO of parent of X (answer is person)."""
     del texts
     if "ceo" not in q or "parent" not in q:
@@ -181,9 +177,7 @@ def _any_apex_ceo(view: EdgeView) -> str | None:
     return None
 
 
-def rule_ceo_of_company(
-    q: str, ents: list[str], view: EdgeView, *, texts: list[str]
-) -> str | None:
+def rule_ceo_of_company(q: str, ents: list[str], view: EdgeView, *, texts: list[str]) -> str | None:
     """CEO of named company (not parent path)."""
     del texts
     if "ceo" not in q or "parent" in q:
