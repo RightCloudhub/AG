@@ -19,6 +19,7 @@ from agentic_graphrag.api.schemas import QueryRequest
 from agentic_graphrag.api.service_helpers import (
     build_executor_for_service,
     build_llm_for_service,
+    stream_cache_hit_events,
 )
 from agentic_graphrag.api.service_query import (
     MS_PER_SECOND,
@@ -28,7 +29,6 @@ from agentic_graphrag.api.service_query import (
     _persist_and_commit,
     _record_metrics,
     _reserve_budget,
-    _stream_cache_hit,
 )
 from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_ERROR
 from agentic_graphrag.generation.trace import ReasoningChain
@@ -49,7 +49,7 @@ def stream_query_events(
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Yield SSE (event, payload) pairs with live hop progress."""
-    cache_events = _stream_cache_hit(svc, req)
+    cache_events = stream_cache_hit_events(svc, req)
     if cache_events is not None:
         yield from cache_events
         return

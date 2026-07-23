@@ -78,6 +78,7 @@ def _llm_answer(
     conclusions: str,
     guardrail_status: str,
     regenerate: bool = False,
+    tier: Tier = Tier.STRONG,
 ) -> AnswerPayload:
     prompt = load_prompt("answer")
     extra = ""
@@ -99,7 +100,8 @@ def _llm_answer(
         llm,
         [Message(role="system", content=system), Message(role="user", content=user)],
         AnswerPayload,
-        tier=Tier.STRONG,
+        tier=tier,
+        max_retries=1,  # P95: one repair pass max (was 2 → up to 3 LLM calls)
     )
 
 
@@ -111,6 +113,7 @@ def generate_answer(
     conclusions: str = "",
     guardrail_status: str = "ok",
     allow_llm: bool = True,
+    tier: Tier = Tier.STRONG,
 ) -> ReasoningChain:
     """Generate final answer into the reasoning chain with citation intercept."""
     if not evidence:
@@ -120,12 +123,57 @@ def generate_answer(
     if not allow_llm or llm is None:
         return offline_answer(chain, evidence, conclusions)
 
+    # Skip remote call entirely when circuit is already open (P95: avoid 3s connect).
+    circuit = getattr(llm, "circuit", None)
+    if circuit is not None and not circuit.allow():
+        chain.metadata = {
+            **(chain.metadata or {}),
+            "llm_degraded": True,
+            "llm_error": "CircuitOpen",
+            "llm_error_msg": "LLM circuit open; offline answer",
+        }
+        return offline_answer(chain, evidence, conclusions)
+
+    try:
+        return _generate_with_llm(
+            chain,
+            evidence,
+            llm,
+            conclusions=conclusions,
+            guardrail_status=guardrail_status,
+            tier=tier,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade, do not 500 the API
+        # Upstream LLM timeouts / 5xx / circuit open: still answer extractively.
+        from agentic_graphrag.llm.budget import BudgetExceeded
+
+        if isinstance(exc, BudgetExceeded):
+            raise
+        chain.metadata = {
+            **(chain.metadata or {}),
+            "llm_degraded": True,
+            "llm_error": type(exc).__name__,
+            "llm_error_msg": str(exc)[:200],
+        }
+        return offline_answer(chain, evidence, conclusions)
+
+
+def _generate_with_llm(
+    chain: ReasoningChain,
+    evidence: list[Candidate],
+    llm: LLMProvider,
+    *,
+    conclusions: str,
+    guardrail_status: str,
+    tier: Tier,
+) -> ReasoningChain:
     payload = _llm_answer(
         chain,
         evidence,
         llm,
         conclusions=conclusions,
         guardrail_status=guardrail_status,
+        tier=tier,
     )
     applied = _apply_payload(chain, payload, evidence)
     if applied is not None:
@@ -133,11 +181,14 @@ def generate_answer(
 
     # One regenerate attempt (P2-AG-05)
     chain.metadata["citation_intercept"] = True
-    chain.metadata["citation_intercept_reason"] = validate_answered_claims(
-        filter_claim_evidence_ids(payload.claims, evidence),
-        evidence,
-        require_claims=True,
-    ) or "citation gate failed"
+    chain.metadata["citation_intercept_reason"] = (
+        validate_answered_claims(
+            filter_claim_evidence_ids(payload.claims, evidence),
+            evidence,
+            require_claims=True,
+        )
+        or "citation gate failed"
+    )
     retry = _llm_answer(
         chain,
         evidence,
@@ -145,6 +196,7 @@ def generate_answer(
         conclusions=conclusions,
         guardrail_status=guardrail_status,
         regenerate=True,
+        tier=tier,
     )
     applied = _apply_payload(chain, retry, evidence)
     if applied is not None:

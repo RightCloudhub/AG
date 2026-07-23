@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.llm.circuit import CircuitBreaker
 
 
 class Tier(StrEnum):
@@ -40,6 +41,7 @@ class LLMProvider:
         timeout_seconds: float = 60.0,
         budget: BudgetTracker | None = None,
         cache_dir: str | Path | None = None,
+        circuit: CircuitBreaker | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -55,6 +57,7 @@ class LLMProvider:
         self.timeout_seconds = timeout_seconds
         self.budget = budget
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.circuit = circuit or CircuitBreaker()
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -156,14 +159,30 @@ class LLMProvider:
             raise RuntimeError(
                 f"{key_env} is not set. Configure .env or use MockLLMProvider in tests."
             )
+        if not self.circuit.allow():
+            raise RuntimeError("LLM circuit open: too many consecutive failures")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(base_url=base_url, timeout=self.timeout_seconds) as client:
-            resp = client.post(path, headers=headers, json=payload)
-            resp.raise_for_status()
-            return resp.json()
+        # Connect must fail fast: SSL hang otherwise dominates Fast Path P95.
+        connect_s = min(3.0, float(self.timeout_seconds))
+        timeout = httpx.Timeout(
+            connect=connect_s,
+            read=float(self.timeout_seconds),
+            write=min(30.0, float(self.timeout_seconds)),
+            pool=connect_s,
+        )
+        try:
+            with httpx.Client(base_url=base_url, timeout=timeout) as client:
+                resp = client.post(path, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            self.circuit.record_failure()
+            raise
+        self.circuit.record_success()
+        return data
 
     def _cache_key(self, kind: str, payload: dict[str, Any]) -> str:
         raw = json.dumps({"kind": kind, "payload": payload}, sort_keys=True, ensure_ascii=False)

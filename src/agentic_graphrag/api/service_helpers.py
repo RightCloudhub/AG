@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.agent.executor import Executor, ExecutorConfig, ExecutorDeps
-from agentic_graphrag.api.schemas import QueryResultData
+from agentic_graphrag.api.schemas import QueryRequest, QueryResultData
 from agentic_graphrag.config import (
     AppConfig,
     Settings,
@@ -21,6 +22,9 @@ from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.factory import StoreBundle
+
+if TYPE_CHECKING:
+    from agentic_graphrag.api.service import QueryService
 
 ANSWER_CACHE_TTL_SECONDS = 3600.0
 DEFAULT_FUSION_METHOD = "rrf"
@@ -63,9 +67,7 @@ def build_executor_for_service(
     graph_ret = GraphRetriever.from_config(bundle.graph, cfg)
     fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=cfg.retrieval.fulltext_top_k)
     llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
-    vector_ret = VectorRetriever(
-        bundle.vector, llm_for_embed, top_k=cfg.retrieval.vector_top_k
-    )
+    vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=cfg.retrieval.vector_top_k)
     deps = ExecutorDeps(
         vector=vector_ret,
         fulltext=fulltext_ret,
@@ -110,3 +112,18 @@ def _embed_llm(
 
 def cost_units_for_chain(llm_calls: int) -> float:
     return max(MIN_COST_UNITS, llm_calls * COST_UNITS_PER_LLM_CALL)
+
+
+def stream_cache_hit_events(
+    svc: QueryService,
+    req: QueryRequest,
+) -> list[tuple[str, dict[str, Any]]] | None:
+    """Return SSE events for a cached answer, or None on miss."""
+    from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_CACHE_HIT
+
+    if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
+        return None
+    hit = svc.retrieval_cache.get_answer(req.question)
+    if hit is None:
+        return None
+    return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]

@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import run_query as agent_run_query
-from agentic_graphrag.api.errors import BUDGET_EXCEEDED, INTERNAL_ERROR, ApiError
+from agentic_graphrag.api.errors import (
+    BUDGET_EXCEEDED,
+    INTERNAL_ERROR,
+    SERVICE_UNAVAILABLE,
+    ApiError,
+)
 from agentic_graphrag.api.schemas import QueryRequest, QueryResultData
 from agentic_graphrag.api.service_helpers import (
     _chain_to_data,
@@ -17,7 +22,6 @@ from agentic_graphrag.api.service_helpers import (
     build_llm_for_service,
     cost_units_for_chain,
 )
-from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_CACHE_HIT
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
 from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
@@ -163,12 +167,46 @@ def _run_agent_locked(
     except BudgetExceeded as exc:
         raise _budget_api_error(exc) from exc
     except Exception as exc:  # noqa: BLE001 — map to safe envelope
-        raise ApiError(
-            INTERNAL_ERROR,
-            "Query failed",
-            status_code=500,
-            details={"type": type(exc).__name__},
-        ) from exc
+        raise _map_query_exception(exc) from exc
+
+
+def _map_query_exception(exc: BaseException) -> ApiError:
+    """Prefer 503 for upstream LLM transport failures over opaque 500."""
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    transport = (
+        name
+        in {
+            "ConnectTimeout",
+            "ReadTimeout",
+            "WriteTimeout",
+            "PoolTimeout",
+            "ConnectError",
+            "TimeoutException",
+            "RemoteProtocolError",
+        }
+        or "timeout" in name.lower()
+    )
+    if transport or "handshake operation timed out" in msg:
+        return ApiError(
+            SERVICE_UNAVAILABLE,
+            "LLM upstream unavailable or timed out",
+            status_code=503,
+            details={"type": name},
+        )
+    if name == "RuntimeError" and "circuit open" in msg:
+        return ApiError(
+            SERVICE_UNAVAILABLE,
+            "LLM circuit open",
+            status_code=503,
+            details={"type": name},
+        )
+    return ApiError(
+        INTERNAL_ERROR,
+        "Query failed",
+        status_code=500,
+        details={"type": name},
+    )
 
 
 def _finalize_chain(
@@ -185,6 +223,30 @@ def _finalize_chain(
     }
 
 
+def _maybe_cache_answer(
+    svc: QueryService,
+    req: QueryRequest,
+    chain: ReasoningChain,
+    *,
+    tenant_id: str,
+) -> None:
+    """Cache successful answers only (skip LLM-degraded offline fallbacks)."""
+    meta = chain.metadata or {}
+    if meta.get("llm_degraded"):
+        return
+    assert svc.retrieval_cache is not None
+    payload = chain.model_dump(mode="json")
+    try:
+        svc.retrieval_cache.set_answer(req.question, payload, tenant_id=tenant_id)
+    except TypeError:
+        try:
+            svc.retrieval_cache.set_answer(req.question, payload)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _persist_and_commit(
     svc: QueryService,
     req: QueryRequest,
@@ -199,10 +261,7 @@ def _persist_and_commit(
         except Exception:
             pass
     if svc.enable_cache and svc.retrieval_cache is not None:
-        try:
-            svc.retrieval_cache.set_answer(req.question, chain.model_dump(mode="json"))
-        except Exception:
-            pass
+        _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id)
     if svc.multi_budget:
         svc.multi_budget.commit(
             tenant_id=tenant_id,
@@ -228,14 +287,3 @@ def _record_metrics(chain: ReasoningChain, *, tenant_id: str, user_id: str) -> N
             user_id=user_id,
         )
     )
-
-
-def _stream_cache_hit(
-    svc: QueryService, req: QueryRequest
-) -> list[tuple[str, dict[str, Any]]] | None:
-    if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
-        return None
-    hit = svc.retrieval_cache.get_answer(req.question)
-    if hit is None:
-        return None
-    return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]
