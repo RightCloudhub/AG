@@ -10,6 +10,30 @@ from pathlib import Path
 _TOKEN_RATIO = 0.6
 _ALIAS_PARTIAL_RATIO = 0.4
 _PRED_PREVIEW = 300
+_NO_ANSWER_GOLDS = frozenset(
+    {
+        "no answer",
+        "n/a",
+        "none",
+        "unknown",
+        "无法回答",
+        "no_answer",
+    }
+)
+# Honest abstention phrases (EN + system Chinese fallback from ReasoningChain.honest_fallback)
+_ABSTAIN_MARKERS = (
+    "无法基于现有知识回答",
+    "无法回答",
+    "no evidence retrieved",
+    "cannot answer",
+    "can't answer",
+    "unable to answer",
+    "insufficient evidence",
+    "no matching relation",
+    "not available in the provided evidence",
+    "not provided in the available evidence",
+    "no information available",
+)
 _STOP = frozenset(
     {
         "the",
@@ -54,7 +78,7 @@ def score_pair(prediction: str, gold: str) -> dict:
     pred = prediction or ""
     gold = gold or ""
     pn, gn = _norm(pred), _norm(gold)
-    early = _early_score(pn, gn)
+    early = _early_score(pn, gn, pred=pred, gold=gold)
     if early is not None:
         return early
     # yes/no: word-boundary only (avoid "no" ⊂ "know", "yes" ⊂ "yesterday")
@@ -65,6 +89,21 @@ def score_pair(prediction: str, gold: str) -> dict:
     if _containment_match(pn, gn):
         return {"correct": True, "score": 1.0, "method": "containment"}
     return _overlap_score(gold=gold, pn=pn, gn=gn)
+
+
+def is_no_answer_gold(gold: str) -> bool:
+    return _norm(gold or "") in _NO_ANSWER_GOLDS
+
+
+def is_honest_abstention(prediction: str) -> bool:
+    """True when the system abstained rather than inventing an answer."""
+    raw = (prediction or "").strip()
+    if not raw:
+        return False
+    low = raw.lower()
+    if low in _NO_ANSWER_GOLDS:
+        return True
+    return any(m.lower() in low or m in raw for m in _ABSTAIN_MARKERS)
 
 
 def _token_boundary_match(haystack: str, needle: str) -> bool:
@@ -87,9 +126,11 @@ def _containment_match(pn: str, gn: str) -> bool:
     return False
 
 
-def _early_score(pn: str, gn: str) -> dict | None:
+def _early_score(pn: str, gn: str, *, pred: str = "", gold: str = "") -> dict | None:
     if not gn:
         return {"correct": False, "score": 0.0, "method": "empty_gold"}
+    if is_no_answer_gold(gold or gn) and is_honest_abstention(pred or pn):
+        return {"correct": True, "score": 1.0, "method": "no_answer_abstain"}
     if not pn:
         return {"correct": False, "score": 0.0, "method": "empty_pred"}
     return None

@@ -90,10 +90,25 @@ def _skip_for_hops(row: dict[str, Any], cases_by_id: dict[str, dict], *, min_hop
     return bool(hops and hops < min_hops)
 
 
+# Inverse / alias relation types count as the same evidence for recall.
+_RELATION_ALIASES: dict[str, frozenset[str]] = {
+    "parent_of": frozenset({"parent_of", "subsidiary_of", "owns"}),
+    "subsidiary_of": frozenset({"subsidiary_of", "parent_of", "owns"}),
+    "works_at": frozenset({"works_at", "worked_at", "employed_by"}),
+    "worked_at": frozenset({"worked_at", "works_at", "employed_by"}),
+    "employed_by": frozenset({"employed_by", "worked_at", "works_at"}),
+    "supplies": frozenset({"supplies", "supplies_for"}),
+    "supplies_for": frozenset({"supplies_for", "supplies"}),
+}
+
+
 def _item_in_blob(item: str, blob: str) -> bool:
     token = str(item).lower().strip()
     if not token:
         return False
+    aliases = _RELATION_ALIASES.get(token)
+    if aliases and any(a in blob for a in aliases):
+        return True
     segments = [s.strip() for s in token.replace("/", " ").split() if s.strip()]
     return any(seg.lower() in blob for seg in segments)
 
