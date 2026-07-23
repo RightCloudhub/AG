@@ -46,8 +46,16 @@ def choose_tools(
     *,
     allow_llm: bool,
 ) -> list[ToolCallSpec]:
+    """Pick tools. Prefer heuristic when graph already targets entities (P95).
+
+    Remote LLM tool-planning is expensive (seconds–tens of seconds). Use it only
+    when heuristics have no graph/path handle — not on every Fast Path hop.
+    """
     heuristic = build_heuristic(executor, sub_question, entities_hint)
     if not allow_llm or executor.llm is None:
+        return heuristic
+    # Strong signal already: graph expand / path — skip extra LLM plan call.
+    if any(s.tool in {"graph_neighbors", "graph_path", "graph_subgraph"} for s in heuristic):
         return heuristic
     llm_plan = _try_llm_plan(executor, sub_question, entities_hint)
     if llm_plan:
@@ -66,13 +74,13 @@ def build_heuristic(
     specs.extend(_relation_specs(q, names))
     if not specs and names:
         specs.extend(_default_neighbor_specs(names))
-    specs.extend(_lexical_backup_specs(sub_question))
+    # Skip remote embedding when graph already expanded (AC-4 latency).
+    has_graph = any(s.tool.startswith("graph_") for s in specs)
+    specs.extend(_lexical_backup_specs(sub_question, skip_vector=has_graph))
     return specs
 
 
-def sanitize_spec(
-    executor: Executor, spec: ToolCallSpec, sub_question: str
-) -> ToolCallSpec:
+def sanitize_spec(executor: Executor, spec: ToolCallSpec, sub_question: str) -> ToolCallSpec:
     from agentic_graphrag.agent.executor import ToolCallSpec
 
     args = dict(spec.args)
@@ -118,11 +126,7 @@ def _relation_specs(q: str, names: list[str]) -> list[Any]:
 
     if not any(k in q for k in RELATION_CUES):
         return []
-    hops = (
-        LONG_NEIGHBOR_HOPS
-        if any(k in q for k in LONG_HOP_CUES)
-        else DEFAULT_NEIGHBOR_HOPS
-    )
+    hops = LONG_NEIGHBOR_HOPS if any(k in q for k in LONG_HOP_CUES) else DEFAULT_NEIGHBOR_HOPS
     return [
         ToolCallSpec(
             tool="graph_neighbors",
@@ -146,17 +150,23 @@ def _default_neighbor_specs(names: list[str]) -> list[Any]:
     ]
 
 
-def _lexical_backup_specs(sub_question: str) -> list[Any]:
+def _lexical_backup_specs(sub_question: str, *, skip_vector: bool = False) -> list[Any]:
+    """Fulltext always; vector optional (remote embed is a major live P95 cost)."""
     from agentic_graphrag.agent.executor import ToolCallSpec
 
-    return [
-        ToolCallSpec(
-            tool="vector_search", args={"query": sub_question}, reason="semantic recall"
-        ),
-        ToolCallSpec(
-            tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"
-        ),
+    specs: list[Any] = [
+        ToolCallSpec(tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"),
     ]
+    if not skip_vector:
+        specs.insert(
+            0,
+            ToolCallSpec(
+                tool="vector_search",
+                args={"query": sub_question},
+                reason="semantic recall",
+            ),
+        )
+    return specs
 
 
 def _try_llm_plan(
