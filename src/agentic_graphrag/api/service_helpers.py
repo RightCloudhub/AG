@@ -80,9 +80,11 @@ def build_executor_for_service(
         llm=llm_for_embed if allow_llm else None,
         known_entities=known_entities,
     )
+    ret = cfg.retrieval
     config = ExecutorConfig(
-        parallel=True,
-        fusion_method=DEFAULT_FUSION_METHOD,
+        parallel=bool(ret.parallel),
+        fusion_method=(ret.fusion_method or DEFAULT_FUSION_METHOD),
+        fusion_k=int(ret.fusion_k),
         cache=retrieval_cache if enable_cache else None,  # type: ignore[arg-type]
     )
     return Executor(graph=graph_ret, deps=deps, config=config)

@@ -17,7 +17,7 @@ from agentic_graphrag.api.service_helpers import (
     build_llm_for_service,
     cost_units_for_chain,
 )
-from agentic_graphrag.generation.trace import ReasoningChain
+from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
 from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
 from agentic_graphrag.observability.trace import get_tracer
@@ -26,8 +26,22 @@ if TYPE_CHECKING:
     from agentic_graphrag.api.service import QueryService
 
 MS_PER_SECOND = 1000
+# Must match MultiLevelBudget.check_and_reserve defaults used by the API path.
+RESERVE_CALLS = 1
+RESERVE_TOKENS = 0
+RESERVE_COST = 0.01
 # Re-export for service_stream / tests.
-__all__ = ["MS_PER_SECOND", "QUESTION_SPAN_PREVIEW", "execute_run_query", "stream_query_events"]
+__all__ = [
+    "MS_PER_SECOND",
+    "QUESTION_SPAN_PREVIEW",
+    "RESERVE_CALLS",
+    "RESERVE_COST",
+    "RESERVE_TOKENS",
+    "execute_run_query",
+    "stream_query_events",
+    "_release_budget",
+    "_reserve_budget",
+]
 
 
 def execute_run_query(
@@ -43,11 +57,18 @@ def execute_run_query(
     if cached is not None:
         return cached
     _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
-    chain = _invoke_agent(svc, req, tenant_id=tenant_id, user_id=user_id)
-    _finalize_chain(chain, t0=t0, req=req, tenant_id=tenant_id, user_id=user_id)
-    _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
-    _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
-    return _chain_to_data(chain)
+    settled = False
+    try:
+        chain = _invoke_agent(svc, req, tenant_id=tenant_id, user_id=user_id)
+        _finalize_chain(chain, t0=t0, req=req, tenant_id=tenant_id, user_id=user_id)
+        _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
+        settled = True
+        _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
+        return _chain_to_data(chain)
+    except Exception:
+        if not settled:
+            _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
+        raise
 
 
 def stream_query_events(
@@ -109,9 +130,27 @@ def _reserve_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
     if not svc.multi_budget:
         return
     try:
-        svc.multi_budget.check_and_reserve(tenant_id=tenant_id, user_id=user_id, estimated_calls=1)
+        svc.multi_budget.check_and_reserve(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            estimated_calls=RESERVE_CALLS,
+            estimated_tokens=RESERVE_TOKENS,
+            estimated_cost=RESERVE_COST,
+        )
     except BudgetExceeded as exc:
         raise _budget_api_error(exc) from exc
+
+
+def _release_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
+    if not svc.multi_budget:
+        return
+    svc.multi_budget.release(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        reserved_calls=RESERVE_CALLS,
+        reserved_tokens=RESERVE_TOKENS,
+        reserved_cost=RESERVE_COST,
+    )
 
 
 def _invoke_agent(
@@ -169,6 +208,18 @@ def _finalize_chain(
     }
 
 
+def _is_cacheable_answer(chain: ReasoningChain) -> bool:
+    """Only fully answered, non-degraded results may enter the answer cache."""
+    if chain.status != QueryStatus.ANSWERED:
+        return False
+    if not (chain.answer or "").strip():
+        return False
+    meta = chain.metadata or {}
+    if meta.get("llm_degraded"):
+        return False
+    return True
+
+
 def _maybe_cache_answer(
     svc: QueryService,
     req: QueryRequest,
@@ -177,9 +228,8 @@ def _maybe_cache_answer(
     tenant_id: str,
     user_id: str,
 ) -> None:
-    """Cache successful answers only (skip LLM-degraded offline fallbacks)."""
-    meta = chain.metadata or {}
-    if meta.get("llm_degraded"):
+    """Cache successful answers only (skip no/partial/degraded answers)."""
+    if not _is_cacheable_answer(chain):
         return
     assert svc.retrieval_cache is not None
     payload = chain.model_dump(mode="json")
@@ -219,6 +269,9 @@ def _persist_and_commit(
             llm_calls=chain.cost.llm_calls,
             tokens=chain.cost.tokens,
             cost_units=cost_units_for_chain(chain.cost.llm_calls),
+            reserved_calls=RESERVE_CALLS,
+            reserved_tokens=RESERVE_TOKENS,
+            reserved_cost=RESERVE_COST,
         )
 
 

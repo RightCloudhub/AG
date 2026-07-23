@@ -5,10 +5,12 @@ Enable with env:
   AGR_REQUIRE_AUTH=1
   AGR_RATE_LIMIT_QPS=10
   AGR_RATE_LIMIT_CONCURRENT=5
+  AGR_TRUST_X_USER_ID=1   # optional; default off — X-User-Id is not budget identity
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -22,6 +24,8 @@ from starlette.responses import JSONResponse, Response
 
 from agentic_graphrag.api.envelope import fail
 from agentic_graphrag.api.errors import RATE_LIMITED
+
+_USER_ID_DIGEST_LEN = 16
 
 
 @dataclass
@@ -49,6 +53,17 @@ def parse_api_keys(raw: str | None = None) -> dict[str, str]:
 
 def require_auth_enabled() -> bool:
     return os.environ.get("AGR_REQUIRE_AUTH", "").lower() in {"1", "true", "yes"}
+
+
+def trust_x_user_id_enabled() -> bool:
+    """When false (default), client X-User-Id cannot mint new user budget buckets."""
+    return os.environ.get("AGR_TRUST_X_USER_ID", "").lower() in {"1", "true", "yes"}
+
+
+def user_id_for_api_key(api_key: str) -> str:
+    """Stable, non-spoofable user budget key derived from the API key."""
+    digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:_USER_ID_DIGEST_LEN]
+    return f"key:{digest}"
 
 
 class RateLimiter:
@@ -152,8 +167,16 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
         return Principal(tenant_id="default", api_key="", user_id="anonymous"), None
 
     def _principal_for(self, key: str, request: Request) -> Principal:
+        # Default: bind user-level budget to the API key so callers cannot
+        # bypass limits by rotating X-User-Id. Opt-in trust via env for
+        # deployments that map users out-of-band (one key, many real users).
+        if trust_x_user_id_enabled():
+            raw = (request.headers.get("x-user-id") or "").strip()
+            user_id = raw or "default"
+        else:
+            user_id = user_id_for_api_key(key)
         return Principal(
             tenant_id=self.api_keys[key],
             api_key=key,
-            user_id=request.headers.get("x-user-id") or "default",
+            user_id=user_id,
         )

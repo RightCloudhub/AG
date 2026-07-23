@@ -26,7 +26,8 @@ def _service(request: Request) -> QueryService:
 def _principal(request: Request) -> tuple[str, str]:
     p = getattr(request.state, "principal", None)
     if p is None:
-        return "default", request.headers.get("x-user-id") or "anonymous"
+        # Never trust client-supplied X-User-Id for budget identity.
+        return "default", "anonymous"
     return p.tenant_id, p.user_id
 
 

@@ -77,10 +77,62 @@ def test_multi_level_budget_trips_user():
         query_limits=BudgetLimits(max_llm_calls=20, max_tokens=50_000, max_cost_units=1),
     )
     mb.check_and_reserve(tenant_id="t", user_id="u", estimated_calls=1)
-    mb.commit(tenant_id="t", user_id="u", llm_calls=2, tokens=10, cost_units=0.1)
+    mb.commit(
+        tenant_id="t",
+        user_id="u",
+        llm_calls=2,
+        tokens=10,
+        cost_units=0.1,
+        reserved_calls=1,
+        reserved_cost=0.01,
+    )
     try:
         mb.check_and_reserve(tenant_id="t", user_id="u", estimated_calls=1)
         raised = False
     except BudgetExceeded:
         raised = True
     assert raised
+
+
+def test_multi_level_budget_reserve_is_atomic():
+    """Concurrent check_and_reserve must not both pass a one-slot limit."""
+    import threading
+
+    mb = MultiLevelBudget(
+        user_limits=BudgetLimits(max_llm_calls=1, max_tokens=10_000, max_cost_units=100),
+        tenant_limits=BudgetLimits(max_llm_calls=100, max_tokens=1_000_000, max_cost_units=100),
+    )
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            mb.check_and_reserve(tenant_id="t", user_id="u", estimated_calls=1)
+            result = "ok"
+        except BudgetExceeded:
+            result = "exceeded"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes.count("ok") == 1
+    assert outcomes.count("exceeded") == 1
+    snap = mb.snapshot()
+    assert snap["users"]["t:u"]["llm_calls"] == 1
+
+
+def test_multi_level_budget_release_restores_slot():
+    mb = MultiLevelBudget(
+        user_limits=BudgetLimits(max_llm_calls=1, max_tokens=1000, max_cost_units=10),
+        tenant_limits=BudgetLimits(max_llm_calls=100, max_tokens=1_000_000, max_cost_units=100),
+    )
+    mb.check_and_reserve(tenant_id="t", user_id="u", estimated_calls=1, estimated_cost=0.01)
+    mb.release(tenant_id="t", user_id="u", reserved_calls=1, reserved_cost=0.01)
+    # Slot free again after failed request release.
+    mb.check_and_reserve(tenant_id="t", user_id="u", estimated_calls=1, estimated_cost=0.01)

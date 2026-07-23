@@ -82,13 +82,14 @@ class MultiLevelBudget:
         estimated_tokens: int = 0,
         estimated_cost: float = 0.01,
     ) -> None:
-        """Raise BudgetExceeded if any level would be breached."""
-        with self._lock:
-            t_usage = self._tenant.setdefault(tenant_id, WindowUsage())
-            u_usage = self._user.setdefault(f"{tenant_id}:{user_id}", WindowUsage())
-            t_usage.reset_if_needed(self.window_seconds)
-            u_usage.reset_if_needed(self.window_seconds)
+        """Atomically check limits and reserve estimated budget.
 
+        Concurrent callers cannot both pass a check that only one may hold:
+        the reservation is applied under the same lock as the limit check.
+        Pair with :meth:`commit` (settle actual) or :meth:`release` (drop).
+        """
+        with self._lock:
+            t_usage, u_usage = self._usages(tenant_id, user_id)
             self._assert_level(
                 LevelCheck(
                     "tenant",
@@ -111,6 +112,12 @@ class MultiLevelBudget:
                     estimated_cost,
                 )
             )
+            self._apply(
+                t_usage, calls=estimated_calls, tokens=estimated_tokens, cost=estimated_cost
+            )
+            self._apply(
+                u_usage, calls=estimated_calls, tokens=estimated_tokens, cost=estimated_cost
+            )
 
     def commit(
         self,
@@ -120,18 +127,52 @@ class MultiLevelBudget:
         llm_calls: int = 0,
         tokens: int = 0,
         cost_units: float = 0.0,
+        reserved_calls: int = 0,
+        reserved_tokens: int = 0,
+        reserved_cost: float = 0.0,
     ) -> None:
+        """Record actual usage, replacing any prior reservation (``reserved_*``)."""
         with self._lock:
-            t_usage = self._tenant.setdefault(tenant_id, WindowUsage())
-            u_usage = self._user.setdefault(f"{tenant_id}:{user_id}", WindowUsage())
-            t_usage.reset_if_needed(self.window_seconds)
-            u_usage.reset_if_needed(self.window_seconds)
-            t_usage.llm_calls += llm_calls
-            t_usage.tokens += tokens
-            t_usage.cost_units += cost_units
-            u_usage.llm_calls += llm_calls
-            u_usage.tokens += tokens
-            u_usage.cost_units += cost_units
+            t_usage, u_usage = self._usages(tenant_id, user_id)
+            delta_calls = llm_calls - reserved_calls
+            delta_tokens = tokens - reserved_tokens
+            delta_cost = cost_units - reserved_cost
+            self._apply(t_usage, calls=delta_calls, tokens=delta_tokens, cost=delta_cost)
+            self._apply(u_usage, calls=delta_calls, tokens=delta_tokens, cost=delta_cost)
+
+    def release(
+        self,
+        *,
+        tenant_id: str = "default",
+        user_id: str = "anonymous",
+        reserved_calls: int = 1,
+        reserved_tokens: int = 0,
+        reserved_cost: float = 0.01,
+    ) -> None:
+        """Drop a prior reservation without recording actual usage."""
+        self.commit(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            llm_calls=0,
+            tokens=0,
+            cost_units=0.0,
+            reserved_calls=reserved_calls,
+            reserved_tokens=reserved_tokens,
+            reserved_cost=reserved_cost,
+        )
+
+    def _usages(self, tenant_id: str, user_id: str) -> tuple[WindowUsage, WindowUsage]:
+        t_usage = self._tenant.setdefault(tenant_id, WindowUsage())
+        u_usage = self._user.setdefault(f"{tenant_id}:{user_id}", WindowUsage())
+        t_usage.reset_if_needed(self.window_seconds)
+        u_usage.reset_if_needed(self.window_seconds)
+        return t_usage, u_usage
+
+    @staticmethod
+    def _apply(usage: WindowUsage, *, calls: int, tokens: int, cost: float) -> None:
+        usage.llm_calls = max(0, usage.llm_calls + calls)
+        usage.tokens = max(0, usage.tokens + tokens)
+        usage.cost_units = max(0.0, usage.cost_units + cost)
 
     def _assert_level(self, check: LevelCheck) -> None:
         usage, limits = check.usage, check.limits

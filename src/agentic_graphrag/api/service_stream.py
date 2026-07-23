@@ -28,6 +28,7 @@ from agentic_graphrag.api.service_query import (
     _finalize_chain,
     _persist_and_commit,
     _record_metrics,
+    _release_budget,
     _reserve_budget,
 )
 from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_ERROR
@@ -64,9 +65,15 @@ def _stream_live(
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
     t0 = time.perf_counter()
+    reserved = False
     try:
         _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
-        yield from _stream_agent(svc, req, tenant_id=tenant_id, user_id=user_id, t0=t0)
+        reserved = True
+        for etype, payload in _stream_agent(svc, req, tenant_id=tenant_id, user_id=user_id, t0=t0):
+            if etype == EVENT_ANSWER:
+                # _finish_answer settled the reservation via commit.
+                reserved = False
+            yield etype, payload
     except ApiError as exc:
         yield EVENT_ERROR, {"code": exc.code, "message": exc.message}
     except BudgetExceeded as exc:
@@ -76,6 +83,9 @@ def _stream_live(
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
     except Exception as exc:  # noqa: BLE001
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
+    finally:
+        if reserved:
+            _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
 
 
 def _stream_agent(
