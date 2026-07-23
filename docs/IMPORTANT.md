@@ -33,6 +33,7 @@
 | 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
+| 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -186,7 +187,8 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 ### 规范 / 结构备注
 
 - 超大文件合规拆分（2026-07-20）**已完成**；新模块保持约 200–400 行（`plan/engineering/repo-structure.md`）。  
-- 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。
+- 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。  
+- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。
 
 ---
 
@@ -272,6 +274,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 风险 | [`plan/governance/risk-register.md`](../plan/governance/risk-register.md) |
 | PRD / AC / 开放问题 | [`PRD.md`](../PRD.md) |
 | 目标目录树 | [`plan/engineering/repo-structure.md`](../plan/engineering/repo-structure.md) |
+| 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
 
