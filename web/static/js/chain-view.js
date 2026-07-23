@@ -12,6 +12,10 @@ const STREAM_NOTES = {
     kind: "info",
     text: `分诊 → ${p.route}${p.rationale ? ` (${p.rationale})` : ""}`,
   }),
+  thinking: (p) => ({
+    kind: "live",
+    text: p.text || "思考中…",
+  }),
   sub_question: (p) => ({ kind: "info", text: `子问题 hop=${p.hop}: ${p.sub_question}` }),
   hop_done: (p) => ({
     kind: "info",
@@ -22,6 +26,17 @@ const STREAM_NOTES = {
 export function describeStreamEvent(evt) {
   const format = STREAM_NOTES[evt.type];
   return format ? format(evt.payload || {}) : null;
+}
+
+/* Thinking panel lines (stage + optional detail). */
+export function describeThinkingEvent(evt) {
+  if (evt.type !== "thinking") return null;
+  const p = evt.payload || {};
+  return {
+    stage: p.stage || "think",
+    text: p.text || "思考中…",
+    detail: p.detail || "",
+  };
 }
 
 export function confidenceLine(data) {

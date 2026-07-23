@@ -80,7 +80,9 @@ export async function fetchHealth() {
   return res.json();
 }
 
-/* Consume the SSE stream; calls opts.onEvent({type, payload}) per frame. */
+/* Consume the SSE stream; calls opts.onEvent({type, payload}) per frame.
+ * onEvent may be async — we await it so the UI can paint between frames
+ * even when multiple events arrive in one TCP chunk. */
 export async function streamQuery(opts) {
   const res = await fetch(STREAM_URL, {
     method: "POST",
@@ -96,16 +98,16 @@ export async function streamQuery(opts) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    buffer = emitCompleteBlocks(buffer, opts.onEvent);
+    buffer = await emitCompleteBlocks(buffer, opts.onEvent);
   }
 }
 
-function emitCompleteBlocks(buffer, onEvent) {
+async function emitCompleteBlocks(buffer, onEvent) {
   const parts = buffer.split(SSE_BLOCK_SEPARATOR);
   const rest = parts.pop() || "";
   for (const block of parts) {
     const evt = parseSseBlock(block);
-    if (evt) onEvent(evt);
+    if (evt) await onEvent(evt);
   }
   return rest;
 }

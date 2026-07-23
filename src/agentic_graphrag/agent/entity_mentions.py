@@ -186,9 +186,17 @@ def _resolve_to_lexicon(name: str, lexicon: list[str], canon_map: dict[str, str]
 
 
 def _fuzzy_lexicon_hit(key: str, lexicon: list[str]) -> str | None:
+    """Unique prefix expand, else unique contains; ambiguous matches return None.
+
+    Collisions in the seed lexicon (``Helix`` → Helix Compute vs HelixCore Server;
+    ``Harbor`` → Harbor Components vs Harbor Partnership 2024) must not silently
+    pick the shortest match.
+    """
     starts = [n for n in lexicon if normalize_entity_key(n).startswith(key)]
-    if starts:
-        return min(starts, key=lambda n: (len(n), n.lower()))
+    if len(starts) == 1:
+        return starts[0]
+    if len(starts) > 1:
+        return None
     contains = [n for n in lexicon if key in normalize_entity_key(n)]
     if len(contains) == 1:
         return contains[0]

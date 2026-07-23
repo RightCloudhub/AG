@@ -12,7 +12,7 @@ import {
   setApiKey,
   streamQuery,
 } from "./api.js";
-import { describeStreamEvent } from "./chain-view.js";
+import { describeStreamEvent, describeThinkingEvent } from "./chain-view.js";
 
 const DEFAULT_MAX_HOPS = 5;
 const MIN_HOPS = 1;
@@ -106,6 +106,7 @@ export const rootComponent = {
         forceAgentic: Boolean(opts.forceAgentic) || this.settings.forceAgentic,
         status: "streaming",
         progress: [],
+        thinking: [],
         result: null,
         error: "",
         feedback: { state: "idle", message: "" },
@@ -140,18 +141,25 @@ export const rootComponent = {
       }
     },
 
-    handleStreamEvent(turn, evt) {
+    async handleStreamEvent(turn, evt) {
       if (evt.type === "answer") {
         this.finishWithResult(turn, evt.payload);
+        await this.$nextTick();
         return;
       }
       if (evt.type === "error") {
         const payload = evt.payload || {};
         this.finishWithError(turn, new Error(payload.message || payload.code || "流式错误"));
+        await this.$nextTick();
         return;
       }
+      const thought = describeThinkingEvent(evt);
+      if (thought) this.addThinking(turn, thought);
       const note = describeStreamEvent(evt);
       if (note) this.addProgress(turn, note.kind, note.text);
+      // Paint between frames so batched TCP chunks still look incremental.
+      await this.$nextTick();
+      await new Promise((r) => requestAnimationFrame(r));
     },
 
     finishWithResult(turn, data) {
@@ -169,6 +177,16 @@ export const rootComponent = {
 
     addProgress(turn, kind, text) {
       turn.progress.push({ key: turn.progress.length, kind, text });
+      this.scrollThreadSoon();
+    },
+
+    addThinking(turn, thought) {
+      turn.thinking.push({
+        key: turn.thinking.length,
+        stage: thought.stage,
+        text: thought.text,
+        detail: thought.detail || "",
+      });
       this.scrollThreadSoon();
     },
 

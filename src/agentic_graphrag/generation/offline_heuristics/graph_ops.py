@@ -27,17 +27,6 @@ class EdgeView:
                 parents.add(t)
         return parents
 
-    def children_of(self, company_hints: list[str]) -> set[str]:
-        """Subsidiaries / owned companies of the given parents."""
-        kids: set[str] = set()
-        for h, t in self.find_edges("PARENT_OF"):
-            if any(self.related_to(c, h) for c in company_hints):
-                kids.add(t)
-        for h, t in self.find_edges("SUBSIDIARY_OF"):
-            if any(self.related_to(c, t) for c in company_hints):
-                kids.add(h)
-        return kids
-
     def ceos_of(self, companies: set[str] | list[str]) -> list[str]:
         out: list[str] = []
         for h, t in self.find_edges("CEO_OF"):

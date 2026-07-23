@@ -78,7 +78,7 @@
 - **零构建（无工具链）**：不引入 npm / 打包器 / Node 工具链；改完刷新即生效。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
-- SSE 消费必须覆盖全部事件类型（`cache_hit/triage/sub_question/hop_done/answer/error`），未知事件静默忽略。
+- SSE 消费必须覆盖全部事件类型（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`），未知事件静默忽略。
 - 所有动态文本注入走 **mustache / `textContent`**；**禁止 `v-html` 与任何 `innerHTML`**（§5 XSS 项；boot 失败卡亦须 DOM API）。
 - DOM / 模块结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构与注入安全断言。
 - V1 明确不做（未改 PRD 不得实现）：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。

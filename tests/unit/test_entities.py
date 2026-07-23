@@ -5,6 +5,7 @@ from agentic_graphrag.agent.entities import (
     is_stopword_entity,
     primary_entity,
 )
+from agentic_graphrag.agent.entity_mentions import _fuzzy_lexicon_hit
 
 LEXICON = [
     "NovaTech Industries",
@@ -12,12 +13,14 @@ LEXICON = [
     "Elena Varga",
     "Marcus Chen",
     "Helix Compute",
+    "HelixCore Server",
     "QuantumEdge Server",
     "BrightLink Logistics",
     "Meridian Capital",
     "Orion Systems",
     "SiliconForge",
     "Harbor Components",
+    "Harbor Partnership 2024",
     "Priya Nair",
 ]
 
@@ -27,6 +30,23 @@ def test_stopwords_who_which():
     assert is_stopword_entity("Which")
     assert is_stopword_entity("CEO")
     assert not is_stopword_entity("NovaTech Industries")
+
+
+def test_cjk_surname_he_not_function_span():
+    """Bare 何 is a common surname — must not be treated as a question particle."""
+    assert not is_stopword_entity("何强")
+    assert not is_stopword_entity("何氏集团")
+    assert is_stopword_entity("什么")
+    assert is_stopword_entity("哪家公司")
+    assert is_stopword_entity("如何")
+
+
+def test_unique_prefix_expand_only():
+    """Ambiguous prefixes must not silently pick the shortest lexicon hit."""
+    assert _fuzzy_lexicon_hit("novatech", LEXICON) == "NovaTech Industries"
+    assert _fuzzy_lexicon_hit("helix", LEXICON) is None
+    assert _fuzzy_lexicon_hit("harbor", LEXICON) is None
+    assert _fuzzy_lexicon_hit("helix compute", LEXICON) == "Helix Compute"
 
 
 def test_primary_entity_not_who():

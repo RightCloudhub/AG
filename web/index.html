@@ -87,6 +87,7 @@
                 <div class="bubble"><div class="user-text">{{ turn.question }}</div></div>
               </article>
               <progress-log :turn="turn"></progress-log>
+              <thinking-panel :turn="turn"></thinking-panel>
               <answer-turn
                 v-if="turn.result || turn.error"
                 :turn="turn"

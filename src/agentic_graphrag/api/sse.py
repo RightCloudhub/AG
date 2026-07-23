@@ -30,6 +30,7 @@ def iter_query_events(events: list[tuple[str, dict[str, Any]]]) -> Iterator[str]
 EVENT_TRIAGE = "triage"
 EVENT_SUB_QUESTION = "sub_question"
 EVENT_HOP_DONE = "hop_done"
+EVENT_THINKING = "thinking"
 EVENT_ANSWER = "answer"
 EVENT_ERROR = "error"
 EVENT_CACHE_HIT = "cache_hit"

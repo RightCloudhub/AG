@@ -39,6 +39,7 @@
 |---|---|---|
 | `cache_hit` | `{query_id}` | 命中答案缓存（随后直接发 `answer`；`force_agentic` 时绕过） |
 | `triage` | 分诊决策 JSON | 非缓存查询开头；`force_agentic` 时发合成帧 `{route:agentic, rule_hit:force_agentic}` |
+| `thinking` | `{stage, text, detail?}` | Planner 拆解完成（`stage=plan`）或 Executor 检索工具（`stage=retrieve`）；Fast Path 亦发 plan 帧 |
 | `sub_question` | `{hop, sub_question}` | Executor 节点完成时（LangGraph `stream(updates)` 实时） |
 | `hop_done` | `{hop, conclusion, critic_action}` | Critic 节点完成时 |
 | `answer` | 完整推理链 JSON | 结束（finalize + audit/cache/metrics 之后） |

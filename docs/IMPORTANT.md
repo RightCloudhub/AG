@@ -184,11 +184,21 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
 
+### 离线启发式诚实项（demo 可接受；勿混入 live / 门禁）
+
+| 项 | 位置 | 说明 | 延期动作 |
+|----|------|------|----------|
+| 收购/母公司 ↔ PARENT_OF 语义 | `offline_heuristics/rules_ma*.py` only | 语料无独立 ACQUIRED 边；**已从** `configs/prompts/answer.md` **撤回**（避免弱化 live AC-7 abstain） | 真域 schema 若有 ACQUIRED，再决定 live prompt 域规则 |
+| `DEMO_HQ` 无条件种子 | `constants.DEMO_HQ` → `hq_from_texts` | 即便检索正文未提 Austin/Singapore，仍可产出 HQ 句；事实对 demo 正确但证据无关 | 试点域改为仅从 evidence 抽取；删 DEMO_HQ 或 require-mention |
+| ZH 问 EN 答 | `rules_ma` format helpers | 中文多跳问句答案仍是英文专名串；parity 是事实级非语言级（单测期望如此） | 需要产品化 i18n 时再做语言对齐 |
+| agent 层 CJK/前缀消歧 | `entity_stopwords` / `entity_mentions` | 共享 live 路径；已收紧（禁单字「何」姓误杀；前缀扩展须唯一） | 真域实体消歧 UI / 更强 NER 在阶段三+ |
+
 ### 规范 / 结构备注
 
 - 超大文件合规拆分（2026-07-20）**已完成**；新模块保持约 200–400 行（`plan/engineering/repo-structure.md`）。  
 - 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。  
-- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。
+- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。  
+- **offline/live 边界：** `configs/prompts/*` 仅服务 live LLM；demo 语料假设只应落在 `generation/offline_heuristics/`（omit + 上表诚实项）。
 
 ---
 

@@ -14,6 +14,12 @@ const STATUS_LABELS = Object.freeze({
   aborted: "已停止",
 });
 
+const STAGE_LABELS = Object.freeze({
+  plan: "规划",
+  retrieve: "检索",
+  think: "思考",
+});
+
 export const ProgressLog = {
   name: "ProgressLog",
   props: { turn: { type: Object, required: true } },
@@ -21,8 +27,15 @@ export const ProgressLog = {
     statusLabel() {
       return STATUS_LABELS[this.turn.status] || this.turn.status || "";
     },
+    /* Stay open while streaming; after done keep open so the trail is visible
+     * (auto-collapse made offline/batched streams look like "no live progress"). */
     isOpen() {
-      return this.turn.status === "streaming";
+      return this.turn.status === "streaming" || this.turn.status === "done";
+    },
+    liveLine() {
+      const list = this.turn.progress || [];
+      if (!list.length) return this.turn.status === "streaming" ? "等待事件…" : "";
+      return list[list.length - 1].text || "";
     },
   },
   template: `
@@ -31,6 +44,7 @@ export const ProgressLog = {
         <span class="card-label">推理进度</span>
         <span class="progress-state" :data-status="turn.status">{{ statusLabel }}</span>
       </summary>
+      <p v-if="turn.status === 'streaming' && liveLine" class="progress-live">{{ liveLine }}</p>
       <ul class="progress-list">
         <li
           v-for="item in turn.progress"
@@ -38,6 +52,55 @@ export const ProgressLog = {
           :class="item.kind"
         >{{ item.text }}</li>
       </ul>
+    </details>
+  `,
+};
+
+export const ThinkingPanel = {
+  name: "ThinkingPanel",
+  props: { turn: { type: Object, required: true } },
+  computed: {
+    items() {
+      return this.turn.thinking || [];
+    },
+    visible() {
+      return this.items.length > 0 || this.turn.status === "streaming";
+    },
+    isOpen() {
+      return this.turn.status === "streaming" || this.turn.status === "done";
+    },
+    statusLabel() {
+      if (this.turn.status === "streaming") return "思考中…";
+      if (this.turn.status === "done") return "已完成";
+      return STATUS_LABELS[this.turn.status] || "";
+    },
+  },
+  methods: {
+    stageLabel(stage) {
+      return STAGE_LABELS[stage] || stage || "思考";
+    },
+  },
+  template: `
+    <details v-if="visible" class="thinking-card" :open="isOpen">
+      <summary class="thinking-summary">
+        <span class="card-label">思考过程</span>
+        <span class="thinking-state" :data-status="turn.status">{{ statusLabel }}</span>
+      </summary>
+      <div class="thinking-body">
+        <p v-if="!items.length" class="thinking-placeholder muted">正在组织推理…</p>
+        <div
+          v-for="item in items"
+          :key="item.key"
+          class="thinking-item"
+          :data-stage="item.stage"
+        >
+          <div class="thinking-head">
+            <span class="thinking-stage">{{ stageLabel(item.stage) }}</span>
+            <span class="thinking-text">{{ item.text }}</span>
+          </div>
+          <pre v-if="item.detail" class="thinking-detail">{{ item.detail }}</pre>
+        </div>
+      </div>
     </details>
   `,
 };

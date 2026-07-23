@@ -7,13 +7,6 @@ name an organization, answer with the person from a CEO_OF (or role) edge if pre
 If multiple competitor organizations appear, prefer the competitor that has an
 explicit CEO/role edge in evidence; if several do, list person + company briefly.
 For gold-style factoids, prefer a short proper-name answer over long explanations.
-Treat PARENT_OF / SUBSIDIARY_OF / ownership edges as answering "acquired / owns /
-收购 / 母公司" questions in this domain (no separate ACQUIRED edge required).
-Headquarters / city facts may appear only in free-text evidence ("headquartered in",
-"总部"). Answer bilingual (EN/ZH) questions with the same facts; do not abstain
-when ownership edges clearly support the acquisition/parent hop.
-For multi-part questions (acquirer CEO + HQ city), answer every asked part when
-evidence supports it.
 Output JSON only.
 
 # User

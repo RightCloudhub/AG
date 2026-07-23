@@ -24,6 +24,7 @@ RELATIONSHIP_KEYS = ("relationship", "chain", "path", "connect")
 SHARED_EDGE_MARKERS = ("COMPETES_WITH", "SUPPLIES", "SUPPLIES_FOR")
 
 # Multi-part ownership / HQ questions must not be answered as CEO-only.
+# Prefer HQ-framed city phrases over bare "city" (too broad for non-HQ questions).
 MULTI_HOP_EXTRA_KEYS = (
     "acquir",
     "acquired",
@@ -32,7 +33,9 @@ MULTI_HOP_EXTRA_KEYS = (
     "headquarter",
     "headquarters",
     "hq",
-    "city",
+    "which city",
+    "what city",
+    "hq city",
     "收购",
     "被收购",
     "总部",

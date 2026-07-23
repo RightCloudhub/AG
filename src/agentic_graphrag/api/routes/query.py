@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -45,20 +46,24 @@ def post_query(body: QueryRequest, request: Request) -> dict:
 
 
 @router.post("/query/stream")
-def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse:
-    """SSE stream: triage → sub_question → hop_done → answer (P3-PERF-06)."""
+async def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse:
+    """SSE stream: triage → thinking → sub_question → hop_done → answer."""
     tenant_id, user_id = _principal(request)
     svc = _service(request)
 
-    def gen():
+    async def gen():
+        # Async generator + sleep(0) lets ASGI flush each frame before the next
+        # agent hop blocks (sync iterators often buffer until the whole run ends).
         for etype, payload in svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id):
             yield format_sse(etype, payload)
+            await asyncio.sleep(0)
 
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
     )

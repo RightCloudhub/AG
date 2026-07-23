@@ -30,12 +30,21 @@ REQUIRED_FILES = (
     STATIC / "vendor" / "README.md",
 )
 
-SSE_EVENTS = ("cache_hit", "triage", "sub_question", "hop_done", "answer", "error")
+SSE_EVENTS = (
+    "cache_hit",
+    "triage",
+    "thinking",
+    "sub_question",
+    "hop_done",
+    "answer",
+    "error",
+)
 CHAIN_EXPORTS = (
     "buildAnswerSegments",
     "buildPlanNodes",
     "parsePath",
     "describeStreamEvent",
+    "describeThinkingEvent",
 )
 
 
@@ -76,6 +85,7 @@ def test_html_vue_shell_structure():
     assert 'id="askForm"' in html
     assert "answer-turn" in html
     assert "progress-log" in html
+    assert "thinking-panel" in html
     assert 'id="forceAgentic"' in html
     assert 'id="maxHops"' in html
     assert 'id="useStream"' in html
@@ -143,6 +153,9 @@ def test_css_tokens_and_new_classes():
     assert ".boot-error" in app_css
     assert ".stop-btn" in chat_css
     assert ".progress-state" in chat_css
+    assert ".progress-live" in chat_css
+    assert ".thinking-card" in chat_css
+    assert ".thinking-detail" in chat_css
     assert ".claim-active" in panels_css
     assert ".mini-btn" in panels_css
     assert ".feedback-note" in panels_css

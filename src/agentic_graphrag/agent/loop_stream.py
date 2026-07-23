@@ -24,15 +24,29 @@ from agentic_graphrag.agent.loop import (
     resolved_run_opts,
     should_escalate_chain,
 )
+from agentic_graphrag.agent.loop_stream_events import (
+    EVENT_FINAL_CHAIN,
+    EVENT_HOP_DONE,
+    EVENT_SUB_QUESTION,
+    EVENT_THINKING,
+    EVENT_TRIAGE,
+    events_for_node,
+)
 from agentic_graphrag.agent.options import AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.triage import Route, TriageResult, triage
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.provider import LLMProvider
 
-EVENT_FINAL_CHAIN = "__final_chain__"
-EVENT_SUB_QUESTION = "sub_question"
-EVENT_HOP_DONE = "hop_done"
-EVENT_TRIAGE = "triage"
+# Re-export SSE event names for callers that import from this module.
+__all__ = [
+    "EVENT_FINAL_CHAIN",
+    "EVENT_HOP_DONE",
+    "EVENT_SUB_QUESTION",
+    "EVENT_THINKING",
+    "EVENT_TRIAGE",
+    "AgentStreamEmptyError",
+    "iter_query_progress",
+]
 
 _STREAM_MODES = ["updates", "values"]
 
@@ -168,14 +182,19 @@ def _iter_fast_or_escalate(
 
 
 def _emit_steps_then_chain(chain: ReasoningChain) -> Iterator[tuple[str, Any]]:
-    for step in chain.steps:
+    if chain.steps:
         yield (
-            EVENT_SUB_QUESTION,
+            EVENT_THINKING,
             {
-                "hop": step.hop,
-                "sub_question": step.sub_question,
+                "stage": "plan",
+                "text": f"Fast Path：处理 {len(chain.steps)} 个步骤",
+                "detail": "\n".join(
+                    f"{i}. {s.sub_question}" for i, s in enumerate(chain.steps, 1) if s.sub_question
+                ),
             },
         )
+    for step in chain.steps:
+        yield EVENT_SUB_QUESTION, {"hop": step.hop, "sub_question": step.sub_question}
         yield (
             EVENT_HOP_DONE,
             {
@@ -254,7 +273,7 @@ def _stream_graph_updates(
             continue
         for node_name, delta in chunk.items():
             if isinstance(delta, dict):
-                yield from _events_for_node(node_name, delta)
+                yield from events_for_node(node_name, delta)
     return final_state  # type: ignore[misc]
 
 
@@ -264,36 +283,3 @@ def _unpack_stream_item(item: Any) -> tuple[str, Any]:
         return str(item[0]), item[1]
     # Single-mode fallback: treat bare dict as updates
     return "updates", item
-
-
-def _events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
-    last = _last_step(delta.get("chain"))
-    if last is None:
-        return
-    hop = last.get("hop", 0)
-    if node_name == "executor":
-        yield (
-            EVENT_SUB_QUESTION,
-            {
-                "hop": hop,
-                "sub_question": last.get("sub_question") or "",
-            },
-        )
-    elif node_name == "critic":
-        yield (
-            EVENT_HOP_DONE,
-            {
-                "hop": hop,
-                "conclusion": last.get("conclusion") or "",
-                "critic_action": last.get("critic_action") or "",
-            },
-        )
-
-
-def _last_step(chain_data: Any) -> dict[str, Any] | None:
-    if not isinstance(chain_data, dict):
-        return None
-    steps = chain_data.get("steps") or []
-    if not steps or not isinstance(steps[-1], dict):
-        return None
-    return steps[-1]

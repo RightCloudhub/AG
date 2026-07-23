@@ -72,6 +72,7 @@ def ceos_from_texts(texts: list[str]) -> dict[str, str]:
 
 
 def hq_from_texts(texts: list[str]) -> dict[str, str]:
+    # DEMO_HQ is evidence-independent seed for the demo corpus (see docs/IMPORTANT.md).
     out: dict[str, str] = dict(DEMO_HQ)
     blob = "\n".join(texts or [])
     for rx in (_HQ_DIRECT, _HQ_COMMA):
@@ -79,13 +80,6 @@ def hq_from_texts(texts: list[str]) -> dict[str, str]:
             company, city = m.group(1).strip(), m.group(2).strip()
             if looks_like_name(company) and city and city.lower() not in {"and", "the", "a"}:
                 out[company.lower()] = city
-    return out
-
-
-def merge_ownership(left: dict[str, set[str]], right: dict[str, set[str]]) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {k: set(v) for k, v in left.items()}
-    for parent, kids in right.items():
-        out.setdefault(parent, set()).update(kids)
     return out
 
 

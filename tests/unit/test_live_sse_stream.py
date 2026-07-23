@@ -32,6 +32,9 @@ def test_stream_emits_hops_before_answer_multihop() -> None:
     assert "answer" in types
     assert types[-1] == "answer"
     progress = types[: types.index("answer")]
+    assert "thinking" in progress  # planner (or retrieve) thinking frames
+    think_payloads = [p for t, p in events if t == "thinking"]
+    assert any(p.get("stage") == "plan" for p in think_payloads)
     assert progress.count("sub_question") >= 2
     assert progress.count("hop_done") >= 2
     assert progress.index("sub_question") < progress.index("hop_done")

@@ -73,9 +73,13 @@ def _asks_person_q(question: str) -> bool:
 
 
 def _is_compound_ownership_q(question: str) -> bool:
-    """True for multi-part acquirer/HQ questions (need focused multi-hop rules)."""
+    """True for multi-part acquirer/HQ questions (need focused multi-hop rules).
+
+    Avoid bare ``city`` — too broad for future non-HQ questions; require HQ /
+    acquisition framing (EN) or ownership/HQ markers (ZH).
+    """
     ql = question.lower()
-    if any(k in ql for k in ("acquir", "headquarter", "city")):
+    if any(k in ql for k in ("acquir", "headquarter", "which city", "what city", "hq city")):
         return True
     return any(k in question for k in ("收购", "总部", "哪个城市", "被收购"))
 

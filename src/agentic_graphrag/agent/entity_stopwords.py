@@ -173,14 +173,37 @@ def _is_cjk_only(text: str) -> bool:
     return bool(text) and all("\u4e00" <= ch <= "\u9fff" for ch in text)
 
 
+# Interrogative / discourse fragments only — never bare surname-capable chars (e.g. 何).
+_CJK_FUNCTION_PARTICLES = (
+    "哪",
+    "什么",
+    "谁",
+    "如何",
+    "为何",
+    "何时",
+    "怎么",
+    "怎样",
+    "怎",
+    "吗",
+    "呢",
+    "哪家",
+    "后来",
+    "那家",
+)
+_CJK_FUNCTION_SPAN_MAX_LEN = 20
+
+
 def _cjk_is_function_span(text: str) -> bool:
-    """Heuristic: long CJK spans with no Latin/digits and heavy question particles."""
+    """Heuristic: pure-CJK spans that look like question templates / function phrases.
+
+    Bare ``何`` is intentionally omitted: it is a common surname (何强, 何氏集团).
+    Multi-char interrogatives (如何 / 为何 / 何时) cover the same question patterns.
+    """
     if len(text) <= 1:
         return True
-    particles = ("哪", "什么", "谁", "何", "怎", "吗", "呢", "哪家", "后来", "那家")
-    if any(p in text for p in particles) and len(text) <= 20:
-        return True
-    return False
+    if len(text) > _CJK_FUNCTION_SPAN_MAX_LEN:
+        return False
+    return any(p in text for p in _CJK_FUNCTION_PARTICLES)
 
 
 def normalize_entity_key(name: str) -> str:
