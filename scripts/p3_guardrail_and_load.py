@@ -12,13 +12,9 @@ import argparse
 import json
 import statistics
 import time
-from pathlib import Path
 
-from agentic_graphrag.agent.guardrails import GuardrailConfig
-from agentic_graphrag.agent.loop import run_query
 from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.config import resolve_path
-
 
 GUARDRAIL_CASES = [
     {"id": "g_diverge", "q": "Tell me everything about everything in the universe forever"},

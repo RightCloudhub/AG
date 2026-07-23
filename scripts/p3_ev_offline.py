@@ -35,13 +35,18 @@ def main() -> None:
 
 def _parse() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="P3-EV offline heldout/triage/incremental")
-    p.add_argument("--skip-runs", action="store_true", help="Only assemble scores from existing runs")
+    p.add_argument(
+        "--skip-runs", action="store_true", help="Only assemble scores from existing run artifacts"
+    )
     return p.parse_args()
 
 
 def _run(cmd: list[str]) -> None:
     print("+", " ".join(cmd), flush=True)
-    env = {**dict(**{k: v for k, v in __import__("os").environ.items()}), "PYTHONPATH": str(ROOT / "src")}
+    env = {
+        **dict(**{k: v for k, v in __import__("os").environ.items()}),
+        "PYTHONPATH": str(ROOT / "src"),
+    }
     subprocess.check_call(cmd, cwd=ROOT, env=env)
 
 
@@ -190,9 +195,7 @@ def _write_g3_md(
     ]
     if heldout:
         a = heldout["agentic"]
-        lines.append(
-            f"- Agentic accuracy: **{a['accuracy_pct']}%** (n={a['n']})"
-        )
+        lines.append(f"- Agentic accuracy: **{a['accuracy_pct']}%** (n={a['n']})")
         lines.append(f"- Evidence recall: **{a.get('evidence_recall')}**")
         lines.append(f"- Δ vs baseline: **{heldout.get('delta_accuracy_pp')} pp**")
         lines.append(f"- gates: `{heldout['gates']}`")
