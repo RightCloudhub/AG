@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.api.env_flags import env_flag as _env_flag
 from agentic_graphrag.api.schemas import QueryRequest, QueryResultData
 from agentic_graphrag.api.service_helpers import (
     ANSWER_CACHE_TTL_SECONDS,
@@ -46,10 +46,6 @@ __all__ = [
     "_entities_from_triples",
     "_load_triples",
 ]
-
-
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").lower() in {"1", "true", "yes"}
 
 
 @dataclass

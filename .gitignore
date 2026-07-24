@@ -21,6 +21,8 @@ venv/
 data/cache/
 data/indexes/
 data/processed/docs/
+data/processed/review_queue.jsonl
+data/processed/audit_chains.jsonl
 data/processed/chunks.jsonl
 data/processed/triples.jsonl
 data/processed/rejected_triples.jsonl

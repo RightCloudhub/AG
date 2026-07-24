@@ -22,10 +22,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from agentic_graphrag.api.env_flags import env_flag
 from agentic_graphrag.api.envelope import fail
 from agentic_graphrag.api.errors import RATE_LIMITED
 
 _USER_ID_DIGEST_LEN = 16
+_DEFAULT_RATE_LIMIT_QPS = 20.0
+_DEFAULT_RATE_LIMIT_CONCURRENT = 10
 
 
 @dataclass
@@ -52,12 +55,12 @@ def parse_api_keys(raw: str | None = None) -> dict[str, str]:
 
 
 def require_auth_enabled() -> bool:
-    return os.environ.get("AGR_REQUIRE_AUTH", "").lower() in {"1", "true", "yes"}
+    return env_flag("AGR_REQUIRE_AUTH")
 
 
 def trust_x_user_id_enabled() -> bool:
     """When false (default), client X-User-Id cannot mint new user budget buckets."""
-    return os.environ.get("AGR_TRUST_X_USER_ID", "").lower() in {"1", "true", "yes"}
+    return env_flag("AGR_TRUST_X_USER_ID")
 
 
 def user_id_for_api_key(api_key: str) -> str:
@@ -127,8 +130,8 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.api_keys = api_keys if api_keys is not None else parse_api_keys()
         self.require_auth = require_auth if require_auth is not None else require_auth_enabled()
-        qps = float(os.environ.get("AGR_RATE_LIMIT_QPS", "20"))
-        conc = int(os.environ.get("AGR_RATE_LIMIT_CONCURRENT", "10"))
+        qps = float(os.environ.get("AGR_RATE_LIMIT_QPS", str(_DEFAULT_RATE_LIMIT_QPS)))
+        conc = int(os.environ.get("AGR_RATE_LIMIT_CONCURRENT", str(_DEFAULT_RATE_LIMIT_CONCURRENT)))
         self.limiter = rate_limiter or RateLimiter(qps=qps, concurrent=conc)
         self.public_paths = public_paths or frozenset(
             {"/healthz", "/docs", "/openapi.json", "/redoc"}

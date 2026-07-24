@@ -33,7 +33,8 @@
 | 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
-| 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
+| 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 + 验证清单） |
+| 2026-07-24 | 架构优化 P-A1/P-A2 已实施：`api/env_flags.py` 归并 truthy env 习语；限流/host/port 默认值提取具名常量；P-A3（neo4j_store 拆分）/P-A4/P-A5 仍开 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm

@@ -12,12 +12,16 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agentic_graphrag.api.auth import AuthRateLimitMiddleware
+from agentic_graphrag.api.env_flags import env_flag
 from agentic_graphrag.api.envelope import MetaBody, fail
 from agentic_graphrag.api.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.api.routes import knowledge as knowledge_routes
 from agentic_graphrag.api.routes import query as query_routes
 from agentic_graphrag.api.service import QueryService, build_default_service
 from agentic_graphrag.config import ROOT_DIR
+
+_DEFAULT_API_HOST = "0.0.0.0"
+_DEFAULT_API_PORT = 8000
 
 
 @asynccontextmanager
@@ -158,12 +162,12 @@ def run_server() -> None:
 
     import uvicorn
 
-    host = os.environ.get("AGR_API_HOST", "0.0.0.0")
-    port = int(os.environ.get("AGR_API_PORT", "8000"))
+    host = os.environ.get("AGR_API_HOST", _DEFAULT_API_HOST)
+    port = int(os.environ.get("AGR_API_PORT", str(_DEFAULT_API_PORT)))
     uvicorn.run(
         "agentic_graphrag.api.app:create_app",
         factory=True,
         host=host,
         port=port,
-        reload=os.environ.get("AGR_API_RELOAD", "").lower() in {"1", "true", "yes"},
+        reload=env_flag("AGR_API_RELOAD"),
     )
