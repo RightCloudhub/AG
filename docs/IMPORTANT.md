@@ -34,6 +34,7 @@
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
 | 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
+| 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -150,6 +151,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
+| **P5-ENT-01…08** | **⚪ 仅规划** — 企业级管控轨道（日志基座/审计事件/RBAC/调度升级/数据隔离/RPA 集成/监控外送）；权威文档 [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)；其中 ENT-01/03/06 为 **G4 前置** |
 
 ---
 
@@ -285,6 +287,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | PRD / AC / 开放问题 | [`PRD.md`](../PRD.md) |
 | 目标目录树 | [`plan/engineering/repo-structure.md`](../plan/engineering/repo-structure.md) |
 | 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
+| 企业级管控审计 / ENT 规划 | [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
 
