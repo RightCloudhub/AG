@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -241,11 +242,24 @@ def _public_validation_errors(errors: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
+class _DropInvalidHttpWarnings(logging.Filter):
+    """Silence uvicorn's 'Invalid HTTP request received' noise.
+
+    Triggered by port scanners or TLS-to-plain-HTTP clients; harmless to
+    the server but floods logs when bound to a public interface.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Invalid HTTP request received" not in record.getMessage()
+
+
 def run_server() -> None:
     """Console entry ``agr-api`` — serve POST /v1/query."""
     import os
 
     import uvicorn
+
+    logging.getLogger("uvicorn.error").addFilter(_DropInvalidHttpWarnings())
 
     host = os.environ.get("AGR_API_HOST", "0.0.0.0")
     port = int(os.environ.get("AGR_API_PORT", "8000"))
