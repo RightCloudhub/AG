@@ -16,13 +16,13 @@
 ### 界面与接入（UI）
 - [x] `P4-UI-01` 问答 Web 界面 — Claude 风格浅色对话布局（`web/`）；SSE 进度、推理链、反馈；`/web`（**后续框架化见 P5-UI-01** / [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)）
 - [x] `P4-UI-01b` UI 增强 — 内联引用角标、子问题分解树、图路径 chips（非编辑器）；见 `api-and-ui.md` §2.3；实现已并入 P5-UI-01 组件层
-- [x] `P4-UI-02` API 鉴权 + 速率限制 — `api/auth.py`（`AGR_REQUIRE_AUTH` / `AGR_API_KEYS` / QPS+并发）
+- [x] `P4-UI-02` API 鉴权 + 速率限制 — `api/auth.py`（`AGR_REQUIRE_AUTH` / `AGR_API_KEYS` / QPS+并发）；**ENT-04 增补（2026-07-25）**：三角色 RBAC（`api/rbac.py`，key 三段式 `tenant:key:role`）+ `require_role()` 路由守卫 + key 过期
 
 ### 上线准备（REL）
-- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）— **运维侧，代码支持租户 principal**
-- [x] `P4-REL-02` 安全基础：鉴权中间件、参数化 Cypher、envelope 不泄栈；完整 security-reviewer 生产签发仍待
-- [x] `P4-REL-03` 监控指标 API — `GET /v1/metrics`（告警规则由部署侧接）；见 ops-runbook
-- [x] `P4-REL-04` 运维手册 — `docs/ops-runbook.md`
+- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）— **代码侧已由 ENT-06 承接**（`tenant_id` 贯穿 stores/检索/agent，跨租户零命中单测）；**运维侧仍开**：物理分库/标签隔离、真实 Neo4j/Qdrant 跨租户回归
+- [x] `P4-REL-02` 安全基础：鉴权中间件、参数化 Cypher、envelope 不泄栈；**ENT-06 增补**：应用层上传治理（5MB/20/白名单/413）+ PII 脱敏开关 + live 凭据启动 fail-fast；完整 security-reviewer 生产签发仍待
+- [x] `P4-REL-03` 监控指标 API — `GET /v1/metrics`（admin）+ `GET /metrics-prom` Prometheus 抓取（ENT-08）；告警规则示例已入 ops-runbook，部署侧落地仍待
+- [x] `P4-REL-04` 运维手册 — `docs/ops-runbook.md`（**ENT 全量增补 2026-07-25**：错误码对照 / 日志字段字典 / 四点回查 / worker / 保留清理 / 告警规则）
 
 ### 灰度与反馈（OPS)
 - [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组 — **流程项，非代码**

@@ -2,9 +2,9 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.3（2026-07-21）— P5-UI-01 Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006。
+**版本**：V1.4（2026-07-25）— ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离。前版 V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
-实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`auth.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
+实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
 ## 1. API 设计与实现现状
 
@@ -16,7 +16,7 @@
 
 错误时 `success=false`，`error` 含 `code`（机器可读枚举）与 `message`（用户友好，不泄露内部细节，NFR-06）。实现：`envelope.py` + `app.py` 三级异常处理器（`ApiError` / 入参校验 / 兜底 500，兜底仅返回异常类型名，不含堆栈）。
 
-错误码全集（`errors.py`）：`INVALID_INPUT`、`BUDGET_EXCEEDED`、`TIMEOUT_PARTIAL`、`RATE_LIMITED`、`UNAUTHORIZED`、`INTERNAL_ERROR`、`SERVICE_UNAVAILABLE`。
+错误码全集（`errors.py`）：`INVALID_INPUT`、`BUDGET_EXCEEDED`、`TIMEOUT_PARTIAL`、`RATE_LIMITED`、`UNAUTHORIZED`、`FORBIDDEN`（ENT-04 角色不足）、`INTERNAL_ERROR`、`SERVICE_UNAVAILABLE`。
 
 ### 1.2 查询 API（FR-API-01）[x]
 
@@ -58,15 +58,17 @@
 | `GET /review-queue` · `POST /review-queue/{item_id}/decision` | 审核队列（P3-KG-03） |
 | `GET /audit/queries/{query_id}` | 推理链审计回查（FR-AN-04 / P3-AN-01） |
 | `POST /feedback` | 反馈回路（FR-OP-03）：负反馈入 ReviewQueue 并写回 audit metadata |
-| `GET /metrics` | 监控指标（P4-REL-03） |
+| `GET /metrics`（admin） | 监控指标（P4-REL-03；ENT-04 收权 admin-only） |
 | `GET /graph/entities` | 图实体浏览脚手架（P5-CAP） |
+
+**ENT 增补（2026-07-25）**：`routes/admin.py`（前缀 `/v1`，均 admin）— `GET /traces/{query_id}`（trace 回查）、`GET /budget/snapshot`（三级预算快照）、`GET /audit-events`（安全事件，支持 since/until/tenant_id/action 过滤）；app 级 `GET /metrics-prom`（Prometheus 文本，免鉴权，ENT-08）。上传治理（ENT-06）：`POST /docs` 收权 operator+，单文件 ≤5MB、单批 ≤20、白名单 md/txt/pdf，超限 413；任务落盘 `IngestTaskStore`（worker 独立运行，见 runbook §6）。
 
 ### 1.5 横切要求 [x]（部分）
 
-- 鉴权 + 速率限制（P4-UI-02，`auth.py` 中间件）：`AGR_REQUIRE_AUTH=1` 强制 API Key；`AGR_API_KEYS=tenant:key,...`；租户级 `AGR_RATE_LIMIT_QPS`（默认 20）与并发 `AGR_RATE_LIMIT_CONCURRENT`（默认 10）。
+- 鉴权 + 速率限制（P4-UI-02，`auth.py` 中间件）：`AGR_REQUIRE_AUTH=1` 强制 API Key；`AGR_API_KEYS=tenant:key:role,...`（ENT-04 三角色 admin/operator/reader，缺省 reader，兼容旧两段式）+ `require_role()` 路由守卫 + key 过期；租户级 `AGR_RATE_LIMIT_QPS`（默认 20）与并发 `AGR_RATE_LIMIT_CONCURRENT`（默认 10），per-tenant 覆盖走 `configs/default.yaml` `tenants:` 段（ENT-05）。
 - 全部入参 schema 校验，fail fast（NFR-07）[x]。
-- 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]。
-- ⚠ 租户**数据级**隔离核查（图/文档按租户切分）仍在 P4-REL-01（运维侧），代码当前仅贯穿 principal。
+- 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
+- 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
 ## 2. 问答 Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01）— 已交付
 

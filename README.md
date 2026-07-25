@@ -30,7 +30,8 @@
 递归上限；LLM 熔断器、`GraphRecursionError` 自动恢复、Neo4j 不可达回退内存图
 - 🔗 **可审计推理链** — 每次问答输出带引用绑定的 `ReasoningChain`（JSON Schema 契约 [`configs/schema/reasoning_chain_v1.json`](./configs/schema/reasoning_chain_v1.json)），入审计存储、可按 query ID 回查；`/v1/feedback` 反馈闭环接人工复核队列
 - 📡 **真·增量 SSE** — 基于 LangGraph `stream(updates)` 逐 hop 推送分诊 / 子问题 / 思考 过程，流中可中止
-- 🔐 **多租户接入** — API Key → 租户映射、QPS 与并发限流、租户级预算与审计 / 缓存隔离
+- 🔐 **多租户与 RBAC** — API Key → 租户映射 + 三角色（admin/operator/reader）路由守卫与 key 过期、QPS 与并发限流（per-tenant 可配 `tenants:`）、三级预算与审计 / 缓存隔离、`tenant_id` 数据级隔离贯穿存储 / 检索 / Agent
+- 🏢 **企业级可观测与治理** — 结构化 JSON 日志（request/query/tenant/user 上下文贯穿）、安全事件审计流、admin 排障端点（trace / 预算快照 / 审计事件）、Prometheus `/metrics-prom`、可选 OTel OTLP + W3C traceparent、PII 脱敏与保留期清理
 - 🖥 **零构建试用 UI** — Vue 3 ESM（钉版 3.5.13、无 npm，ADR-006）对话界面：引用角标、推
 理链树、图路径 chips、逐 turn 反馈
 
@@ -117,9 +118,11 @@ AGR_ALLOW_LLM=1 AGR_USE_LIVE_STORES=1 agr-api
 | `AGR_ALLOW_LLM=1` | API 启用真实 LLM 答案路径 |
 | `AGR_USE_LIVE_STORES=1` | API 使用 Neo4j / Qdrant（否则始终离线存储） |
 | `AGR_REQUIRE_AUTH=1` | 强制 API Key 鉴权 |
-| `AGR_API_KEYS=tenant:key,...` | 租户密钥表 |
-| `AGR_RATE_LIMIT_QPS` / `AGR_RATE_LIMIT_CONCURRENT` | 租户 QPS / 并发上限 |
+| `AGR_API_KEYS=tenant:key:role,...` | 租户密钥表（role ∈ admin/operator/reader，缺省 reader；兼容旧 `tenant:key`） |
+| `AGR_RATE_LIMIT_QPS` / `AGR_RATE_LIMIT_CONCURRENT` | 租户 QPS / 并发上限（per-tenant 覆盖见 `configs/default.yaml` `tenants:`） |
 | `AGR_TRUST_X_USER_ID=1` | 显式信任客户端 `X-User-Id`（默认绑定 key 摘要） |
+| `AGR_LOG_LEVEL` / `AGR_LOG_FILE` | 结构化 JSON 日志级别 / 落盘（ENT-01） |
+| `AGR_REDACTION_ENABLED` / `AGR_OTEL_*` | PII 脱敏、OTel OTLP 导出（ENT-06/08，需 `.[otel]` extra） |
 
 完整清单见 [docs/ops-runbook.md](./docs/ops-runbook.md)；无 Docker 环境的 Neo4j 裸机方案见 [docs/EXTERNAL_RUNTIMES.md](./docs/EXTERNAL_RUNTIMES.md)。
 
@@ -156,12 +159,13 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE 真·增量，流中可中止） |
-| `POST /v1/docs` · `GET /v1/ingest-tasks/{task_id}` | 文档接入与任务查询 |
-| `GET /v1/audit/queries/{query_id}` | 推理链审计回查（AC-3） |
+| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt/pdf）与任务查询 |
+| `GET /v1/audit/queries/{query_id}` | 推理链审计回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环 → 不准确项入复核队列 |
-| `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision` | 人工复核 |
-| `GET /v1/metrics` · `GET /v1/graph/entities` | 观测指标 / 图实体 |
-| `GET /healthz` · `GET /web` | 健康检查（免鉴权）/ 试用 UI |
+| `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision`（operator） | 人工复核（列表自租户） |
+| `GET /v1/metrics` · `GET /v1/traces/{id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events`（均 admin） | 观测指标 / trace 回查 / 预算快照 / 安全事件（ENT-02/03） |
+| `GET /v1/graph/entities` | 图实体浏览 |
+| `GET /healthz` · `GET /metrics-prom` · `GET /web` | 健康检查 / Prometheus 抓取 / 试用 UI（均免鉴权） |
 
 ## 🖥 试用 Web UI
 
@@ -193,7 +197,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20   # HTTP 压测�
 | [docs/IMPORTANT.md](./docs/IMPORTANT.md) | **债务 / 延期 / 不做事项总账（必读）** |
 | [docs/ops-runbook.md](./docs/ops-runbook.md) | 运维手册（环境变量、故障、告警建议） |
 | [docs/REAL_DOMAIN_PLAYBOOK.md](./docs/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入剧本 |
-| [docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) | 企业级管控审计与 P5-ENT 建设规划 |
+| [docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) | 企业级管控审计、ENT-01…08 实施状态与剩余部署验证 |
 | [docs/EXTERNAL_RUNTIMES.md](./docs/EXTERNAL_RUNTIMES.md) | 无 Docker 环境的外部运行时 （JDK / Neo4j） |
 
 ## 🗺 路线图
@@ -203,7 +207,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20   # HTTP 压测�
 - [ ] **G2 MVP 出口** — ≥200 条金标 held-out、真实试点条件下 Accuracy ≥ +15pp、证据 Recall ≥ 75%
 - [ ] **G3 优化出口** — live held-out 达标 + 生产级压测（Agentic P95 ≤ 8s / Fast Path ≤ 3s）
 - [ ] **G4 试点出口** — 灰度流程 + AC-1~7 全套验收
-- [ ] **P5 规模化** — 企业级管控轨道 P5-ENT-01…08（日志基座 / RBAC / 数据隔离 / RPA 集成，仅规划）
+- [ ] **P5 规模化** — 企业级管控轨道 P5-ENT-01…06/08 **工程交付**（2026-07-25：日志基座 / 排障闭环 / 审计事件 / RBAC / 调度配置化 / 数据隔离 / Prometheus+OTel；ENT-07 RPA 明确不做）；Redis 多副本、真后端回归、OTLP collector 部署验证仍开；其余规模化方向按试点效果另行立项
 
 **V1 明确不做**：开放域全网问答、多模态、面向消费者的开放注册、NebulaGraph 多集群（见 [docs/IMPORTANT.md](./docs/IMPORTANT.md) §9）。
 
@@ -219,7 +223,7 @@ src/agentic_graphrag/
   llm/              # LLMClient 协议 + Provider + 三级预算 + 熔断
   stores/           # Repository 协议 + factory 组合根（唯一入口）
   generation/       # 答案生成 + ReasoningChain（offline_heuristics 仅演示）
-  observability/    # trace + metrics
+  observability/    # trace·metrics·JSON 日志·安全审计流·PII 脱敏·OTel 桥接
   eval/ · cli/      # 金标 / 评分 / badcase · agr-* 入口
 web/                # 试用 Web UI（Vue 3 零构建）
 data/ · evals/      # 语料与 seed 三元组 · 评测数据集
@@ -246,5 +250,5 @@ python scripts/check_code_metrics.py    # 硬指标：文件≤300行 · 函数�
 | G1 → G2 过渡门禁 | ✅ 工程 PASS（2026-07-20，[`reports/G1_to_G2_status.json`](./reports/G1_to_G2_status.json)）；真域 / live 配额 caveat 仍开 |
 | 试用 Web UI + 鉴权限流 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01）— `/web` 挂载 |
 | Live held-out（合成语料） | 🟡 agentic rescored **93.6%** / 相对基线 **+70pp** / 证据 recall **0.94**；但 **P95 ~92s 未达 AC-4（≤8s）**，且语料为合成 |
-| 企业级管控（P5-ENT-01…08） | ⚪ 仅规划 — 审计与建设方案见 [docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) |
+| 企业级管控（P5-ENT-01…08） | 🟢 工程交付（2026-07-25，ENT-07/RPA 除外）— JSON 日志、admin 排障端点、安全审计流、RBAC、租户配置化限额与摄取任务状态机、数据隔离 / 脱敏 / 保留清理、Prometheus + 可选 OTel；**Redis 多副本 / 真后端跨租户回归 / OTLP collector 仍待部署验证**（[docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) §3.5） |
 | 效果门禁 G2 / G3 / G4 | ⏳ 仍开：真域语料签字、live held-out 正式达标、生产 P95、灰度 与全套验收 |

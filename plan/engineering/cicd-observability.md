@@ -27,12 +27,16 @@ PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容
 
 ## 3. 可观测性
 
-### 3.1 全链路 Trace（NFR-08）
+> **实现状态（2026-07-25，ENT-01/02/08 落地）：** 本节原为设计稿；除标注外均已有工程实现。
+> 状态权威与剩余待办见 [`docs/ENTERPRISE_READINESS.md`](../../docs/ENTERPRISE_READINESS.md) §3.5。
+
+### 3.1 全链路 Trace（NFR-08）— 🟢 工程实现（collector 联调待部署验证）
 - OpenTelemetry：`query_id` 为根 span，子 span 覆盖 分诊→每跳（Planner/Executor/Critic）→每次工具调用→每次 LLM 调用。
 - LLM span 属性：模型档位、token in/out、成本、重试次数。
 - 检索 span 属性：工具类型、候选数、剪枝丢弃数。
+- **实现：** 进程内 tracer（`observability/trace.py`）+ 可选 OTel 桥接（`otel_bridge.py`，`otel` extra + `AGR_OTEL_*`），trace 重键为公开 `query_id`，入向 W3C attach / 出向 inject；span 集合以现有 trace 埋点为准，上列属性明细未逐项对齐（差距随部署联调收口）。
 
-### 3.2 指标（FR-OP-01）
+### 3.2 指标（FR-OP-01）— 🟡 部分实现
 
 | 类别 | 指标 |
 |---|---|
@@ -43,7 +47,12 @@ PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容
 | 知识 | 抽取任务积压、审核队列长度与时效、入图三元组数/日 |
 | 反馈 | 负反馈率（试点起） |
 
-### 3.3 告警（P4-REL-03）
+> **实现：** `MetricsRegistry`（查询计数、P50/95/99、路由分布、错误码计数、budget_trips）+
+> `GET /v1/metrics`（admin）+ `GET /metrics-prom` Prometheus 文本（ENT-08）。**未覆盖：**
+> 检索各路耗时/缓存命中率、知识类指标（抽取积压/审核时效仅 healthz `review_queue_pending`）、
+> per-tenant 聚合（ENT-04 待办）。
+
+### 3.3 告警（P4-REL-03）— 🟡 规则示例已入 runbook，部署落地待办
 
 | 告警 | 阈值（初始） | 级别 |
 |---|---|---|
@@ -54,6 +63,10 @@ PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容
 | 兜底率 | 突增 >2 倍基线 | 中（疑似图谱/检索故障） |
 | 审核队列 | 积压 > 阈值 | 低 |
 
-### 3.4 日志
+> **实现：** 前四项对应的 Prometheus rules YAML 示例已入 `docs/ops-runbook.md`（2026-07-25）；
+> 兜底率/审核队列告警需先补对应指标外送。实际告警部署与验证归部署侧（G4 门禁第 3 条）。
+
+### 3.4 日志 — 🟢 工程实现（ENT-01/06）
 - 结构化 JSON 日志，全部携带 `query_id`/`tenant_id`；服务端记录详细错误上下文，面向用户的错误消息保持友好且不泄露内部细节。
 - 推理链落库（FR-AN-04）即审计日志，保留策略与合规要求对齐（评审确认保留期）。
+- **实现：** `observability/logging_setup.py`（JSONFormatter + contextvars：request_id/query_id/tenant_id/user_id；`AGR_LOG_LEVEL/FILE` + 轮转）；PII 脱敏钩子 `redaction.py`（默认关）；保留期入 `configs/default.yaml` `retention:`（90/90/30/30 天，`scripts/prune_data_files.py` 清理）——保留期数值仍待评审确认，当前为工程默认值。

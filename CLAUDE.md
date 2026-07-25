@@ -39,6 +39,10 @@ agr-index --no-embed
 # API + trial Web UI
 agr-api                                       # http://localhost:8000/web ; POST /v1/query ; POST /v1/query/stream (SSE); /healthz
 
+# Enterprise ops (ENT-01…08; offline-friendly)
+PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # consume queued upload tasks (API does NOT auto-start the worker)
+PYTHONPATH=src python scripts/prune_data_files.py --dry-run                # retention pruning per configs/default.yaml retention:
+
 # Infra (optional; only live paths need it)
 docker compose up -d                          # Neo4j 7474/7687 (neo4j/agentic-graphrag), Qdrant 6333
 
@@ -81,7 +85,11 @@ The output contract is `ReasoningChain` (`generation/trace.py`); its JSON Schema
 
 ### Config
 
-`config.py` merges `configs/default.yaml` (`AppConfig`, tunables) with `.env` (`Settings`, secrets/endpoints via pydantic-settings); env overrides YAML. Repo root is auto-discovered (`AGENTIC_GRAPHRAG_ROOT` to override), and all data paths resolve against it via `resolve_path()` regardless of cwd. LLM prompts are markdown files in `configs/prompts/` loaded by `load_prompt(name)`. API auth/rate limiting: `AGR_REQUIRE_AUTH=1`, `AGR_API_KEYS=tenant:key,...`, `AGR_RATE_LIMIT_QPS`.
+`config.py` merges `configs/default.yaml` (`AppConfig`, tunables; `tenants:` per-tenant limits and `retention:` periods live in `config_enterprise.py` models) with `.env` (`Settings`, secrets/endpoints via pydantic-settings); env overrides YAML. Repo root is auto-discovered (`AGENTIC_GRAPHRAG_ROOT` to override), and all data paths resolve against it via `resolve_path()` regardless of cwd. LLM prompts are markdown files in `configs/prompts/` loaded by `load_prompt(name)`. API auth/rate limiting: `AGR_REQUIRE_AUTH=1`, `AGR_API_KEYS=tenant:key:role,...` (roles admin/operator/reader via `api/rbac.py`; old `tenant:key` still parses as reader), `AGR_RATE_LIMIT_QPS`. `AGR_*` switches are read from `os.environ` directly (not `.env`).
+
+### Enterprise layer (ENT-01…08, 2026-07-25)
+
+Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars, `AGR_LOG_LEVEL/FILE`), `audit_events.py` (append-only security event JSONL), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra + `AGR_OTEL_*`; coverage-omitted). Admin-only troubleshooting routes in `api/routes/admin.py` (`/v1/traces/{id}`, `/v1/budget/snapshot`, `/v1/audit-events`) plus public `/metrics-prom`. `tenant_id` threads from `Principal` through all store protocols, the three retrievers, and the agent loop (tenant-scoped runs bypass the retrieval cache); uploads are governed (5MB/20 files/md|txt|pdf) and land in a durable `IngestTaskStore` consumed by a separately-run `ingest_worker`. ENT-07 (RPA/webhooks) is explicitly out of scope. Status authority: `docs/ENTERPRISE_READINESS.md` §3.5; ops procedures: `docs/ops-runbook.md`.
 
 ### Evaluation
 

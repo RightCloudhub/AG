@@ -1,7 +1,7 @@
 # 架构说明（ARCHITECTURE）
 
-**更新日期：** 2026-07-23
-**定位：** 描述性文档 — 模块地图、查询生命周期、离线/在线双轨、边界规则，以及 2026-07-23 静态架构审计的结论与**未实施**的优化建议。强制性规则以 [`plan/engineering/rules.md`](../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](./IMPORTANT.md) 为准。
+**更新日期：** 2026-07-25（ENT-01…08 增补；§6 审计结论为 2026-07-23 快照）
+**定位：** 描述性文档 — 模块地图、查询生命周期、离线/在线双轨、边界规则，以及 2026-07-23 静态架构审计的结论与优化建议跟踪。强制性规则以 [`plan/engineering/rules.md`](../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](./IMPORTANT.md) 为准；ENT 企业级能力状态以 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 为准。
 
 ---
 
@@ -26,11 +26,15 @@
                     │  factory 组合根（唯一入口）    │   budget_policy·circuit
                     └─────────────────────────────┘
   knowledge/  ingest → extract_* → graph_builder → incremental/resolution
-              → review/queue（人工复核）        eval/  金标·评分·baseline
+              → review/queue（人工复核）→ ingest_tasks/ingest_worker（ENT-05）
+  observability/（横切）logging_setup·trace·metrics·audit_events·redaction·otel_bridge
+  eval/  金标·评分·baseline        api/rbac.py  三角色路由守卫（ENT-04）
 ```
 
 依赖方向自上而下单向；应用代码只依赖 `stores/interfaces.py` 的
-`GraphStore` / `VectorStore` / `FulltextStore` / `DocStore` 协议，
+`GraphStore` / `VectorStore` / `FulltextStore` / `DocStore` 协议（自 ENT-06 起均接受
+`tenant_id` 过滤；调度侧协议 `LimiterStore`/`BudgetStore`/`AuditSink` 见
+`stores/scheduling_protocols.py`），
 Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内惰性导入）。
 
 ## 2. 离线 / 在线双轨（默认离线）
@@ -67,17 +71,23 @@ Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内�
    LangGraph `stream(updates)` 真增量）。
 8. `POST /v1/feedback` 把用户反馈挂到 chain，不准确的入 `knowledge/review/queue.py`。
 
+横切（ENT-01…08）：auth 中间件绑定日志 contextvars（request_id/query_id/tenant_id/user_id
+贯穿 JSON 日志）并 attach 入向 W3C traceparent；`tenant_id` 自 principal 透传 stores /
+三路检索 / agent loop（租户作用域绕过检索缓存）；安全事件（鉴权失败/限流/上传/复核决议）
+写 `observability/audit_events.py`；trace span 可选桥接 OTel（`otel_bridge.py`）。
+
 ## 4. API 面（实测自 `api/routes/`）
 
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE） |
-| `POST /v1/docs` · `GET /v1/ingest-tasks/{task_id}` | 文档接入与任务查询 |
-| `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision` | 人工复核 |
-| `GET /v1/audit/queries/{query_id}` | 审计链回查（AC-3） |
+| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单，ENT-06）与任务查询（`IngestTaskStore` 落盘，ENT-05） |
+| `GET /v1/review-queue`（自租户） · `POST /v1/review-queue/{item_id}/decision`（operator+） | 人工复核 |
+| `GET /v1/audit/queries/{query_id}` | 审计链回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环（FR-OP-03） |
-| `GET /v1/metrics` · `GET /v1/graph/entities` | 观测 / 图实体 |
-| `GET /healthz` · `GET /web` | 健康检查（免鉴权）/ 试用 UI |
+| `GET /v1/metrics`（admin） · `GET /v1/graph/entities` | 观测 / 图实体 |
+| `GET /v1/traces/{query_id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events`（均 admin） | 排障闭环（ENT-02）：trace / 预算快照 / 安全事件 |
+| `GET /healthz` · `GET /metrics-prom` · `GET /web` | 健康检查（含熔断器/复核积压/后端标识）/ Prometheus 抓取（ENT-08）/ 试用 UI —— 均免鉴权 |
 
 CLI：`agr-ingest / build-graph / index / run-cases / run-baseline / eval / gen-cases /
 pilot-triples / badcase / query / api`（`pyproject.toml [project.scripts]`，亦可
@@ -85,11 +95,14 @@ pilot-triples / badcase / query / api`（`pyproject.toml [project.scripts]`，�
 
 ## 5. 配置体系
 
-`config.py` 合并 `configs/default.yaml`（`AppConfig`，可调参数）与 `.env`
+`config.py` 合并 `configs/default.yaml`（`AppConfig`，可调参数；ENT-05 起含 `tenants:`
+per-tenant 限额与 `retention:` 保留期，模型在 `config_enterprise.py`）与 `.env`
 （`Settings`，pydantic-settings，密钥/端点）；env 覆盖 YAML；路径经 `resolve_path()`
 锚定仓库根。**例外**：API 运行时开关（`AGR_ALLOW_LLM`、`AGR_USE_LIVE_STORES`、
-`AGR_REQUIRE_AUTH`、`AGR_API_KEYS`、`AGR_RATE_LIMIT_QPS/CONCURRENT`、
-`AGR_TRUST_X_USER_ID`、`AGR_API_HOST/PORT/RELOAD`）在 `api/` 层调用时直读
+`AGR_REQUIRE_AUTH`、`AGR_API_KEYS`（三段式 `tenant:key:role`）、
+`AGR_RATE_LIMIT_QPS/CONCURRENT`、`AGR_TRUST_X_USER_ID`、`AGR_API_HOST/PORT/RELOAD`，
+以及 ENT 新增 `AGR_LOG_LEVEL/FILE`、`AGR_REDACTION_ENABLED/PATTERNS`、
+`AGR_OTEL_ENABLED/ENDPOINT/SAMPLE_RATE`）在调用点直读
 `os.environ` —— 有意为之（测试 monkeypatch 友好、进程内可翻转），见 §7 建议 P-A5。
 
 ## 6. 静态架构审计结论（2026-07-23，未运行代码）
@@ -105,13 +118,18 @@ pilot-triples / badcase / query / api`（`pyproject.toml [project.scripts]`，�
 | 5 | 内联魔法默认值 | `auth.py:130-131` 限流默认 `"20"`/`"10"`；`app.py:161-162` host/port 默认内联 |
 | 6 | 密钥硬编码 | 未发现（密钥走 `.env` / `Settings`） |
 
-## 7. 优化建议（仅记录，未实施）
+> **2026-07-25 增补：** 上表为 2026-07-23 快照。此后 ENT 变更：`neo4j_store.py` 已拆分
+> （269 行，查询构造拆出 `neo4j_queries.py`，P-A3 解除）；全部 src 文件 `wc -l` 复核 ≤300
+> （最大 `config.py` 298）；`os.environ` 直读点随 ENT 模块（logging_setup / redaction /
+> otel_bridge / app lifespan）增加，仍集中于运行时开关语义，P-A5 结论不变。
+
+## 7. 优化建议跟踪（P-A3 已解决；其余仅记录、未实施）
 
 | ID | 建议 | 要点 |
 |---|---|---|
 | P-A1 | 归并 truthy env 习语：新建 ~15 行的 `api/env_flags.py` 提供 `env_flag(name)`（调用时读 env，保 monkeypatch 语义），替换 §6-4 的 4 处重复 | **必须**保留 `require_auth_enabled` / `trust_x_user_id_enabled` 函数（`tests/unit/test_security_budget_cache_config.py` 直接导入）；`service.py` 可 `import env_flag as _env_flag` 保内部名。不放进 `config.py`（已 294 行，加即破 300 上限） |
 | P-A2 | `auth.py` 限流默认值、`app.py` host/port 提取具名常量（`_DEFAULT_RATE_LIMIT_QPS` 等） | 注意 ruff line-length 100，长行需折行 |
-| P-A3 | `stores/neo4j_store.py` 已顶格 300 行：**下次任何改动前先拆分**（规则要求拆分而非豁免；先例 `neo4j_codec.py` 已拆出） | 建议按 读/写 或 查询构造 拆 |
+| P-A3 | ~~`stores/neo4j_store.py` 已顶格 300 行：下次任何改动前先拆分~~ — **已解决（ENT-06，2026-07-25）**：查询构造拆出 `neo4j_queries.py`，主文件现 269 行 | 先例 `neo4j_codec.py` / `neo4j_queries.py` 均按 读写/查询构造 维度拆分 |
 | P-A4 | `config.py` 294 行：同上，预留拆分方案（如 `config_paths.py`） | 无需立即动 |
 | P-A5 | 长期：评估把 `AGR_*` 收进 pydantic-settings `Settings` | 代价是失去调用时读取语义（测试与进程内翻转依赖它）；若收编需连带改造测试，收益有限，**低优先** |
 

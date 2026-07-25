@@ -35,7 +35,8 @@
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
 | 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
 | 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
-| 2026-07-25 | ENT 实施完成（RPA 제외）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
+| 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
+| 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -141,7 +142,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|------|
 | P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
 | P4-UI 增强 | **代码 [x]** — 内联引用角标 + 论断列表、子问题分解树、图路径 chips（P5-UI-01 后见 `web/static/js/`；非路径编辑器） |
-| P4-REL-02…04 | **部分 [x]** — ops-runbook + metrics；生产部署/告警接部署侧 |
+| P4-REL-02…04 | **部分 [x]** — ops-runbook（**ENT 增补 2026-07-25**：RBAC/错误码对照/审计事件回查/告警规则示例）+ `/v1/metrics` + `/metrics-prom`；生产部署/告警落地接部署侧 |
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
 
@@ -167,6 +168,8 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | `llm/provider.py` | 在线 HTTP 客户端 | 契约/mock 测；C2 下 live 冒烟 |
 | `generation/answer.py` | LLM 生成路径 | live 生成测试 |
 | `generation/offline_answer.py` | 大启发式；靠 agent 离线 E2E 覆盖 | 拆分后优先单测 heuristics 模块 |
+| `generation/offline_heuristics/rules_*.py` | 域硬编码离线答案规则（EdgeView/dispatcher 仍计入覆盖） | demo 专用，保持 omit + 理由 |
+| `observability/otel_bridge.py` | 可选 OTel live 适配器（无 SDK 时 no-op） | collector 联调时补集成验证（ENT-08） |
 
 另延期：**分支覆盖**（`branch = false`）。
 
@@ -174,7 +177,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
-| `POST /v1/query` | 已有 + 鉴权/限流/SSE；答案缓存按 tenant/user/params；审计按 tenant 隔离 | 租户**数据级**图隔离（P4-REL-01 运维） |
+| `POST /v1/query` | 已有 + 鉴权/限流/SSE + RBAC 三角色（ENT-04）；答案缓存按 tenant/user/params；审计按 tenant 隔离；**数据级** tenant_id 已贯穿 stores/检索/agent（ENT-06，租户作用域绕过检索缓存） | 真实 Neo4j/Qdrant 跨租户回归 + 物理分库（P4-REL-01 运维侧） |
 | 推理链 | Schema + 响应内 chain + audit store API + evidence 正文目录 | 生产抽样审计（P4-AC-02） |
 | 引用/Recall | 门禁含词法支撑；Recall 不含 prediction 文本；fabrication=ID+claim 存在性 proxy | 真 NLI 支撑判定；live heldout 重跑 |
 | 3-hop 效果 | 计划动态 SQ 不再跳过后续节点 | **须重跑 heldout**；历史 g2_dev 3-hop 2.44% 不可作门禁证据 |

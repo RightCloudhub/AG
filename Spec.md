@@ -12,7 +12,7 @@
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 描述性架构文档（模块地图、生命周期） | 描述性，不具强制力 |
 | [docs/IMPORTANT.md](docs/IMPORTANT.md) | 债务 / 延期 / 不做事项台账 | 例外必须在此挂账 |
 
-**版本**：V1.0（2026-07-23）。规则数值若与 `configs/default.yaml` 不一致，以配置文件为准并回改本文件。
+**版本**：V1.1（2026-07-25）— S5.4 与实现对齐（免鉴权面全集 + ENT-04 RBAC 注记；按 §7"先修一致"条款，非新增规则）。前版 V1.0（2026-07-23）。规则数值若与 `configs/default.yaml` 不一致，以配置文件为准并回改本文件。
 
 ---
 
@@ -86,7 +86,9 @@
   Cypher / SQL 一律参数化，不拼串。
 - **S5.3 错误不泄密**：错误响应不含堆栈、内部路径、密钥；envelope 兜底只返回异常类型名。
 - **S5.4 鉴权与限流**：开启 `AGR_REQUIRE_AUTH=1` 时所有 `/v1/*` 端点须经
-  API Key → tenant 鉴权与 QPS / 并发限流（`api/auth.py`）；`/healthz`、`/web` 免鉴权。
+  API Key → tenant 鉴权与 QPS / 并发限流（`api/auth.py`；ENT-04 起附三角色
+  admin/operator/reader 路由守卫）；免鉴权面固定为
+  `/healthz`、`/metrics-prom`、`/docs`、`/openapi.json`、`/redoc`、`/web*`。
 - **S5.5 前端零注入**：`web/` 动态文本只经 mustache / `textContent`；
   禁止 `v-html` 与任何 `innerHTML`。
 - **S5.6 提示注入防护**：用户输入与系统指令隔离；检索回来的内容一律按不可信数据处理，
