@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from agentic_graphrag.observability.otel_bridge import otel_span
+
 
 @dataclass
 class SpanEvent:
@@ -84,6 +86,17 @@ class Tracer:
         with self._lock:
             return self._traces.get(query_id)
 
+    def rekey(self, old_query_id: str, query_id: str) -> None:
+        """Associate a completed trace with the externally visible query ID."""
+        with self._lock:
+            ctx = self._traces.pop(old_query_id, None)
+            if ctx is None:
+                return
+            ctx.query_id = query_id
+            for event in ctx.spans:
+                event.query_id = query_id
+            self._traces[query_id] = ctx
+
     def list_ids(self, limit: int = 100) -> list[str]:
         with self._lock:
             return list(self._traces.keys())[-limit:]
@@ -109,7 +122,9 @@ def span(
         attributes=dict(attributes),
     )
     try:
-        yield event
+        otel_attributes = {"agr.query_id": ctx.query_id, **attributes}
+        with otel_span(name, attributes=otel_attributes):
+            yield event
     finally:
         event.ended_at = time.time()
         ctx.spans.append(event)

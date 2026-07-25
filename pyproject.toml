@@ -31,6 +31,15 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
 ]
+sqlite-checkpoint = [
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "aiosqlite>=0.20.0",
+]
+otel = [
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+]
 
 [project.scripts]
 agr-ingest = "agentic_graphrag.cli:ingest_main"
@@ -80,8 +89,7 @@ omit = [
     "*/agentic_graphrag/generation/offline_answer.py",
     # Domain-hardcoded offline answer rules only (EdgeView/dispatcher still measured)
     "*/agentic_graphrag/generation/offline_heuristics/rules_*.py",
-    # Synthetic pilot triple generator (script universe, not runtime path)
-    "*/agentic_graphrag/knowledge/pilot_triples.py",
+    "*/agentic_graphrag/observability/otel_bridge.py",
 ]
 
 [tool.coverage.report]
