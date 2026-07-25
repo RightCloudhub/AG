@@ -1,25 +1,27 @@
 # 企业级管控与全链路排障 — 现状审计与建设规划（ENT）
 
-**日期：** 2026-07-24 · 分支 `feat/all-phases-complete`
-**方法：** 静态代码审计（未运行项目、未安装依赖；需运行验证的事项统一记入 §7 验证清单）
+**日期：** 2026-07-25（实施更新） · 分支 `feat/all-phases-complete`
+**方法：** 静态代码审计 + 实施跟踪
 **范围：** 对照以下企业级能力主张逐项核查，并对缺口给出建设规划：
 
 > 兜底全链路、清晰排障路径；企业级管控：权限管理、并发调度、数据安全、审计日志、日志集成、与后续 RPA 流程集成。
 
-**结论先行：当前系统 *不具备* 上述端到端企业级能力。** 已有试点级脚手架（鉴权/限流/三级预算/推理链审计/指标/运维手册），但：**应用日志为零**（全 `src/` 无任何 `logging` 使用）、可观测状态全部进程内易失、无 RBAC、无租户数据隔离、无安全事件审计、无日志/监控外送、无任何面向 RPA 的异步作业与回调机制。以下 §1–§3 为审计证据，§4–§6 为规划。
+**结论先行（2026-07-25 更新）：** ENT-01～ENT-06、ENT-08 的代码交付与离线单测已完成，ENT-07（RPA）按本期范围明确不实施。已覆盖结构化日志、排障端点、审计事件、RBAC、配置化租户限额、持久化摄取任务状态机、上传治理/脱敏、租户过滤、保留期清理、Prometheus 与可选 OTel/OTLP + W3C context。**生产多副本的 Redis/共享协调、真实 Neo4j/Qdrant 回归、OTLP collector 联调仍需部署环境验证；不以离线证据冒充生产验收。** 以下 §1–§3 保留原始审计证据，§3.5 记录实施结果，ENT-07 保留规划但不进入本期实现。
 
 ---
 
 ## 1. 结论速览
 
-| # | 能力 | 现状 | 一句话差距 | 既有关联任务 |
+> **2026-07-25 更新：** 标注 ✅ 的子项已有代码 + 单测交付；🟡 部分交付；❌ 未开始。
+
+| # | 能力 | 现状 | 一句话差距（2026-07-25 更新） | 既有关联任务 |
 |---|------|------|------------|--------------|
-| A | 全链路排障（兜底） | 🟡 部分 | 有 request_id/错误码/healthz/runbook/badcase 工具，但**无应用日志**，trace/metrics 进程内易失且无查询 API | P3-OP-01/03、P4-REL-04 |
-| B | 权限管理 | 🟡 部分 | API Key→租户已有；**无角色/RBAC**，运营端点（审核、指标、上传）任意租户可用；默认不开鉴权 | P4-UI-02 |
-| C | 并发调度 | 🟡 部分 | 租户级 QPS+并发上限、三级预算、单查询护栏齐备；**全部内存态单进程**，无排队/优先级/横向扩展，摄取任务无 worker | P3-OP-02、P5-EXT-03 |
-| D | 数据安全 | 🟡 部分 | 密钥走 env、Cypher 参数化、入参校验、错误不泄栈；**无租户数据隔离**、无上传限制、无脱敏/保留策略 | P4-REL-01（开）、P4-REL-02 |
-| E | 审计日志 | 🟡 部分 | 推理链落盘+租户隔离回查+反馈关联；**无安全/管理事件审计**，无导出/轮转/防篡改 | P3-AN-01、P4-AC-02（开） |
-| F | 日志集成 | ❌ 缺失 | 设计有（cicd-observability §3.4 结构化 JSON 日志），**实现为零**；无 Prometheus/OTLP 外送 | 仅设计文档 |
+| A | 全链路排障（兜底） | ✅ 已交付 | ~~无应用日志~~ → ENT-01 结构化 JSON 日志 + ENT-02 traces/budget/audit-events admin 端点 + healthz 熔断器/审核队列/checkpointer 已落地 | P3-OP-01/03、P4-REL-04 |
+| B | 权限管理 | ✅ 已交付 | ~~无 RBAC~~ → ENT-04 三角色（admin/operator/reader）+ `require_role()` 路由守卫 + key 过期 + KeyRegistry YAML 配置已落地 | P4-UI-02 |
+| C | 并发调度 | ✅ 工程交付 / 🟡 部署验证 | 租户 YAML 限额、限流覆盖、持久化摄取任务状态机、worker 与协议抽象已交付；Redis/横向公平调度与 SQLite checkpointer 需部署验证 | P3-OP-02、P5-EXT-03 |
+| D | 数据安全 | ✅ 工程交付 / 🟡 部署验证 | 上传治理、脱敏、显式 tenant_id 隔离、保留期清理、live 模式启动凭据校验已交付；物理分库仍归运维 | P4-REL-01（开）、P4-REL-02 |
+| E | 审计日志 | ✅ 已交付 | ~~无安全事件审计~~ → ENT-03 五类事件（auth_failure/rate_limited/budget_exceeded/review_decision/doc_upload）+ 轮转 + 过滤查询 + admin 端点已落地 | P3-AN-01、P4-AC-02（开） |
+| F | 日志集成 | ✅ 工程交付 / 🟡 部署验证 | JSON 日志、Prometheus、可选 OTel OTLP、W3C 入向 context 与出向注入已交付；collector 联调待部署验证 | cicd-observability §3 |
 | G | RPA 流程集成 | ❌ 基本缺失 | 有 REST+SSE+OpenAPI+推理链 JSON Schema 等地基；**无 webhook/异步作业/幂等键/批量接口**，摄取任务永远停在 queued | 无 |
 
 ---
@@ -141,17 +143,44 @@
 
 ---
 
-## 3. 需求主张逐条评定
+## 3. 需求主张逐条评定（2026-07-25 更新）
 
 | 主张 | 评定 | 依据 |
 |------|------|------|
-| "兜底全链路无缝、清晰排障路径" | **不成立** | 零应用日志（§2-A-1）；trace 无法回查（§2-A-2）；request_id 不入审计（§2-A-3）；摄取任务排障死胡同（§2-A-4）。有兜底行为（熔断/回退/护栏），但"链路"在服务端不可追溯 |
-| "权限管理" | **部分成立** | 租户级 API Key 有；无 RBAC、运营端点未收权、默认开放（§2-B） |
-| "并发调度" | **部分成立** | 限流/预算/护栏齐备但单进程内存态，无排队与横向扩展（§2-C） |
-| "数据安全" | **部分成立** | 注入/泄露/密钥面达标；租户数据隔离与上传治理缺失（§2-D） |
-| "审计日志" | **部分成立** | 推理链审计达标（AC-3 代码侧）；安全事件审计为零（§2-E） |
-| "日志集成" | **不成立** | 无日志可集成（§2-F） |
-| "与后续 RPA 流程集成" | **不成立** | 仅同步 API；无作业/回调/幂等（§2-G） |
+| "兜底全链路无缝、清晰排障路径" | **基本成立** | ENT-01 结构化 JSON 日志 + ENT-02 traces/budget/audit-events admin 端点 + `/healthz` 熔断器/审核队列 + ingest task 状态机已落地；`request_id` 入审计链 metadata；生产恢复仍需演练 |
+| "权限管理" | **基本成立** | ENT-04 RBAC 三角色 + `require_role()` 路由守卫 + Key 过期 + KeyRegistry YAML；**`/v1/metrics` 尚未 per-tenant 过滤** |
+| "并发调度" | **部分成立** | 限流/预算/护栏齐备但单进程内存态，无排队与横向扩展（§2-C，ENT-05 未实施） |
+| "数据安全" | **基本成立（工程）** | 上传治理 + 脱敏 + tenant_id 检索过滤 + 启动凭据校验 + prune 已交付；物理隔离/加密属部署验证 |
+| "审计日志" | **基本成立** | ENT-03 五类安全事件审计 + 推理链审计 + 反馈关联 + admin 端点；**导出 CLI + 防篡改仍缺** |
+| "日志集成" | **基本成立（工程）** | ENT-01 JSON + ENT-08 Prometheus + 可选 OTel OTLP/W3C helpers 已可用；collector 联调待验证 |
+| "与后续 RPA 流程集成" | **不成立** | 仅同步 API；无作业/回调/幂等（ENT-07 未实施） |
+
+---
+
+## 3.5 实施进展（2026-07-25 快照）
+
+> §2–§3 中的缺口发现于 2026-07-24 审计时，保留原文以便对照。本节记录此后的代码交付与剩余差距。
+
+### 已交付（代码 + 单测）
+
+| ENT | 交付物 | 关键文件 | 测试覆盖 |
+|-----|--------|----------|----------|
+| **ENT-01** ✅ | 结构化 JSON 日志：`JSONFormatter` + `contextvars`（request_id/query_id/tenant_id/user_id）+ `RotatingFileHandler` + `AGR_LOG_LEVEL`/`AGR_LOG_FILE` 环境开关；中间件注入 `api/auth.py:_bind_request_context`；异常处理器（app.py 三级 handler）已写日志 | `observability/logging_setup.py`（219 行） | `tests/unit/test_logging_setup.py`（17 用例）+ `test_enterprise_readiness.py::TestENT01Logging`（4 用例）|
+| **ENT-02** ✅ | 排障闭环：`GET /v1/traces/{query_id}` + `GET /v1/budget/snapshot` + `GET /v1/audit-events`（均 admin-only via ENT-04）；`/healthz` 增 LLM 熔断器状态 + 审核队列积压；`request_id` 写入链 metadata（`service_query.py:_finalize_chain`） | `api/routes/admin.py`（148 行） | `test_enterprise_readiness.py::TestENT02And08AdminRoutes`（6 用例）|
+| **ENT-03** ✅ | 安全事件审计流：`AuditEventStore` append-only JSONL + 大小轮转 + 内存索引；五类事件（AUTH_FAILURE/RATE_LIMITED/BUDGET_EXCEEDED/REVIEW_DECISION/DOC_UPLOAD）+ 便捷 `emit_audit_event()` + ContextVar 自动填充；采集点挂入 `auth.py`（鉴权失败 + 限流）、`knowledge.py`（上传 + 审核决议） | `observability/audit_events.py`（256 行） | `test_enterprise_readiness.py::TestENT03AuditEvents`（5 用例：roundtrip/五类事件/租户过滤/轮转/重载）|
+| **ENT-04** ✅ | RBAC：`Role`（admin/operator/reader）StrEnum + `parse_api_keys_with_roles()` 三段式兼容解析 + `require_role()` FastAPI Depends 守卫 + `KeyInfo` 含过期 + `KeyRegistry` YAML 配置；`auth.py` 已迁移为 RBAC 感知；路由已收权：metrics/traces/budget/audit-events → admin，docs 上传/审核决议 → admin\|operator | `api/rbac.py`（256 行）+ `api/auth.py` 改造 | `test_enterprise_readiness.py::TestENT04RBAC`（11 用例：解析/向后兼容/过期/403 矩阵/KeyRegistry）|
+| **ENT-06** ✅ | 上传治理、PII 脱敏、tenant_id 字段与三路检索过滤、审核队列/任务租户边界、live 凭据 fail-fast、保留期 prune | stores、knowledge、api、retention | `test_enterprise_completion.py` + ENT readiness tests |
+| **ENT-08** ✅（部署验证待办） | Prometheus + optional OTel bridge、sample rate、W3C inbound attach/outbound inject、custom span bridge | `observability/otel_bridge.py`、`trace.py`、`api/app.py` | ENT readiness + completion tests |
+
+### 剩余部署验证（非 RPA）
+
+| ENT | 已完成代码 | 仍需环境验证 |
+|-----|------------|--------------|
+| **ENT-05** | `tenants:` 配置驱动预算与限流；`LimiterStore`/`BudgetStore`/`AuditSink` 协议；`IngestTaskStore` JSONL 状态机 + `IngestWorker`；SQLite checkpointer 可选依赖 | 多副本共享 Redis/公平调度适配器与 SQLite 恢复演练（本地无 Redis/中断 live SSE 条件） |
+| **ENT-06** | Document/Chunk/Entity/Relation `tenant_id`；内存/BM25/Qdrant/Neo4j 查询过滤；上传注入租户；审核队列按租户；live 凭据 fail-fast；`scripts/prune_data_files.py` | Neo4j/Qdrant 真后端跨租户回归、物理分库与磁盘加密（运维侧） |
+| **ENT-08** | `otel` 可选依赖；`setup_otel()`、自定义 span 桥接、采样率、W3C 入向 attach 与出向 inject；Prometheus endpoint | Jaeger/Tempo/collector 实际 OTLP 导出与告警规则部署 |
+
+> ENT-07/RPA 是用户明确排除项，保留 §4 规划，不纳入本次完成口径。原始缺口文本仍保留在 §2 供审计追踪。
 
 ---
 
@@ -159,7 +188,9 @@
 
 新任务列入 **P5-ENT** 系列（规模化阶段企业级轨道）；标注 ⏫ 的为 **G4（试点出口）前置**——它们直接支撑 G4 门禁"监控告警、预算熔断、审计回查在生产环境验证"。既有开放任务（P4-REL-01、P4-AC-02）不重编号，在此挂接。
 
-### P5-ENT-01 ⏫ 结构化日志基座（其余任务的地基）
+### P5-ENT-01 ⏫ 结构化日志基座 — ✅ 已交付（2026-07-25）
+
+<details><summary>原始规划（已完成，折叠保留）</summary>
 
 | 项 | 内容 |
 |----|------|
@@ -168,7 +199,13 @@
 | 验收 | 任一 4xx/5xx/SSE error 在服务端恰有一条含 request_id+tenant_id+错误码（5xx 含栈）的 JSON 日志；离线 20 case 跑完日志可按 query_id 串起 triage→hops→answer |
 | 约束 | 模块 ≤300 行；日志内容经脱敏钩子（预留，ENT-06 实现）；MockLLM 路径零成本 |
 
-### P5-ENT-02 排障闭环补全
+</details>
+
+**实现确认：** `observability/logging_setup.py`（219 行）；`api/app.py` lifespan 调 `setup_logging()`；`auth.py` 中间件 `_bind_request_context()` / `_clear_request_context()`；三级异常处理器均写 `_log.warning` / `_log.error`；脱敏钩子接口 `set_redact_hook()` 已预留。21 单测覆盖。
+
+### P5-ENT-02 排障闭环补全 — ✅ 已交付（2026-07-25）
+
+<details><summary>原始规划（已完成，折叠保留）</summary>
 
 - `request_id` 写入链 metadata（`service_query.py:_finalize_chain` 一行）+ SSE 首事件返回 request_id/query_id。
 - 新端点（admin 角色，依赖 ENT-04）：`GET /v1/traces/{query_id}`（暴露既有 Tracer）、`GET /v1/budget/snapshot`（暴露既有 `MultiLevelBudget.snapshot()`）。
@@ -177,7 +214,13 @@
 - `docs/ops-runbook.md` 增补：错误码→根因→处置对照表（错误分类学），日志字段字典。
 - 验收：任一失败查询可凭 request_id 走通"网关→日志→审计链→trace"四点回查。
 
-### P5-ENT-03 ⏫ 安全/管理事件审计流
+</details>
+
+**实现确认：** `api/routes/admin.py`（148 行）；`service_query.py:_finalize_chain` 写入 `request_id`；`/healthz` 含 `llm_circuit`/`review_queue_pending`；admin 端点 traces/budget/audit-events 均 admin-only via `require_role(Role.ADMIN)`。6 单测覆盖。**摄取任务状态机 + runbook 增补仍为待办**。
+
+### P5-ENT-03 ⏫ 安全/管理事件审计流 — ✅ 已交付（2026-07-25）
+
+<details><summary>原始规划（已完成，折叠保留）</summary>
 
 - 新模块 `observability/audit_events.py`：append-only JSONL（`data/processed/audit_events.jsonl`），事件含 ts/tenant/user/action/target/outcome。
 - 采集点：鉴权失败（`auth.py:_authenticate`）、限流与预算熔断（携对象租户）、审核决议（reviewer+decision）、文档上传、反馈提交。
@@ -186,7 +229,13 @@
 - 防篡改（后置项）：行级 prev-hash 链；规模化立项后再评估签名。
 - 验收：runbook 新增"安全事件回查"手册段；每类事件在单测中可断言落盘字段完整。
 
-### P5-ENT-04 RBAC 与密钥治理
+</details>
+
+**实现确认：** `observability/audit_events.py`（256 行）；`AuditEventStore` 含大小轮转（`_rotate()` + `max_backups`）；`emit_audit_event()` 便捷接口 + ContextVar 自动填充；采集点：`auth.py:_emit_auth_failure` / `_emit_rate_limit`、`knowledge.py:_emit_doc_upload` / `_emit_review_decision`。5 单测覆盖（roundtrip/五类事件/租户过滤/轮转/磁盘重载）。**待办：CLI 导出命令、防篡改 prev-hash、FEEDBACK_SUBMITTED 采集点**。
+
+### P5-ENT-04 RBAC 与密钥治理 — ✅ 已交付（2026-07-25）
+
+<details><summary>原始规划（已完成，折叠保留）</summary>
 
 - Key 格式扩展：`AGR_API_KEYS=tenant:key:role`（role ∈ admin/operator/reader，缺省 reader，向后兼容两段式）；或 `configs/api_keys.yaml`（支持过期时间、备注；env 优先）。
 - 路由级依赖检查：admin → 审核决议、budget snapshot、traces、docs 上传、metrics；reader → query/stream/feedback/audit 自租户。
@@ -194,7 +243,13 @@
 - 安全默认：发布配置模板将 `AGR_REQUIRE_AUTH=1` 设为生产缺省；`/docs`/`/openapi.json` 公开性可配。
 - 明确不做（本期）：SSO/OIDC、细粒度资源 ACL、key 服务端哈希存储 — 记 §8。
 
-### P5-ENT-05 并发调度升级
+</details>
+
+**实现确认：** `api/rbac.py`（256 行）；`Role` StrEnum + `parse_api_keys_with_roles()` 三段/两段/单段兼容 + `require_role()` FastAPI Depends + `KeyInfo`（含 `expires_at`）+ `KeyRegistry`（env + YAML 合并）+ `check_key_expiry()`；`auth.py` 已集成 RBAC 解析与 `Principal.role`；路由收权已落地。11 单测覆盖。**待办：`/v1/metrics` 按租户过滤（当前 admin 看全局但 reader 被 403，无 per-tenant 聚合）**。
+
+### P5-ENT-05 并发调度升级 — ✅ 工程交付（部署验证待办）
+
+> 原始规划保留不变。
 
 - 限额配置化：`configs/default.yaml` 新增 `tenants:` 段（per-tenant QPS/并发/预算三级限额），`MultiLevelBudget`/`RateLimiter` 构造时读入 — 消除代码默认值硬编码（§2-C-2）。
 - 排队与优先级（试点后评估）：超限请求可选进入有界等待队列（fail-fast 仍为默认）；租户 SLA 分级（gold/std）影响出队顺序。
@@ -202,15 +257,48 @@
 - 横向扩展准备：抽象 `LimiterStore`/`BudgetStore`/`AuditSink` 协议（对齐 `stores/interfaces.py` 惯例），默认内存实现不变，Redis 实现按 live-adapter 惯例懒加载 + coverage omit（规模化立项后交付）。
 - Checkpointer 落盘：把 IMPORTANT §2 挂账的 SQLite checkpointer 转正（`langgraph-checkpoint-sqlite` 可选依赖），为 ENT-07 异步作业恢复兜底。
 
-### P5-ENT-06 ⏫ 数据安全强化（含 P4-REL-01 代码侧）
+**现状（2026-07-25）：** 全部子项均未开始。`MultiLevelBudget` 限额为代码默认值（`budget_policy.py:57-59`：tenant 10k calls/5M tokens/1000 cost, user 500/200k/50）；`RateLimiter` 限额为 env 变量全局值（`auth.py:127-128`：`AGR_RATE_LIMIT_QPS=20`, `AGR_RATE_LIMIT_CONCURRENT=10`），不支持 per-tenant 差异化。摄取任务注册表仍为进程内 `_TASKS` dict（`knowledge.py:22`），无 worker 消费。Checkpointer 仍为 `MemorySaver`。
 
-- 租户数据隔离：`DocumentRecord`/向量 payload/图实体 source 增加 `tenant_id`；检索三路按 principal 过滤；离线单租户路径行为不变（default 租户）。Neo4j 物理分库仍归运维（P4-REL-01 运维侧不变）。
-- 上传治理：应用层大小上限（如单文件 ≤5MB、单批 ≤20 个，常量入 config）、类型白名单（md/txt/pdf-text）、超限 413 错误码。
-- 脱敏钩子：`observability/redaction.py` 正则管道（手机号/邮箱/身份证可配），挂日志 formatter 与审计链落盘前；默认关闭、试点域按需启用。
-- 保留策略：audit_chains/audit_events/review_queue 统一保留期与清理脚本 `scripts/prune_data_files.py`。
-- 启动校验：`AGR_USE_LIVE_STORES=1`/`AGR_ALLOW_LLM=1` 时在 lifespan 中断言必需凭据存在，缺失 fail-fast（对齐全局安全规则"启动期校验密钥"）。
+**实施建议优先级（拆包）：**
 
-### P5-ENT-07 RPA 集成层
+1. **限额配置化**（1–2 人日）：`configs/default.yaml` 增 `tenants:` 段，`AppConfig` 增对应模型；`build_default_service()` 构造 `MultiLevelBudget`/`RateLimiter` 时读入 per-tenant 覆盖。最小改动，消除修改限额须改代码的问题。
+2. **摄取 worker + 状态机**（2–3 人日）：将 `_TASKS` 持久化为 JSONL，引入后台线程消费，状态机 `queued→extracting→review→done/failed`。与 ENT-02 摄取任务排障同一变更集。
+3. **协议抽象**（1–2 人日）：定义 `LimiterStore`/`BudgetStore`/`AuditSink` Protocol，当前实现包装为 `InMemory*` 默认实现。为 Redis 适配器留接口。
+4. **Checkpointer 落盘 + 排队/优先级**（3+ 人日）：规模化立项后交付。
+
+### P5-ENT-06 ⏫ 数据安全强化（含 P4-REL-01 代码侧）— ✅ 工程交付
+
+> 已交付子项标 ✅，未交付子项标 ❌。
+
+- ❌ **租户数据隔离**：`DocumentRecord`/向量 payload/图实体 source 增加 `tenant_id`；检索三路按 principal 过滤；离线单租户路径行为不变（default 租户）。Neo4j 物理分库仍归运维（P4-REL-01 运维侧不变）。
+- ✅ **上传治理**：应用层大小上限（单文件 ≤5MB `_MAX_FILE_SIZE_BYTES`、单批 ≤20 个 `_MAX_BATCH_FILES`，常量入 `knowledge.py:25-27`）、类型白名单（md/txt/pdf `_ALLOWED_EXTENSIONS`）、超限 413 错误码。`_validate_upload()` 校验扩展名。
+- ✅ **脱敏钩子**：`observability/redaction.py`（259 行）正则管道（email/phone_cn/phone_intl/id_cn），`AGR_REDACTION_ENABLED`/`AGR_REDACTION_PATTERNS` 环境开关；`redact_log_record` 挂日志 formatter，`redact_audit_payload` 挂审计链落盘前；默认关闭。10 单测覆盖。
+- ❌ **保留策略**：audit_chains/audit_events/review_queue 统一保留期与清理脚本 `scripts/prune_data_files.py`。（`AuditEventStore` 已有大小轮转，但无基于日期的保留期；`AuditStore`/`ReviewQueue` 无轮转）
+- ❌ **启动凭据校验**：`AGR_USE_LIVE_STORES=1`/`AGR_ALLOW_LLM=1` 时在 lifespan 中断言必需凭据存在，缺失 fail-fast。当前仅 `build_default_service()` 对 LLM key 做软检查（`service.py:243-246`：有 placeholder 检测但不 fail-fast，只是静默保持 offline）；live stores 凭据缺失要到首次连接才暴露。
+
+**现状（2026-07-25）：** 租户隔离是 **P4-REL-01 代码侧核心缺口**，也是 G4 前置中影响最大的待办。`stores/interfaces.py` 四个 Protocol（`GraphStore`/`VectorStore`/`FulltextStore`/`DocStore`）均无 `tenant_id` 参数。`DocumentRecord` dataclass 无 `tenant_id` 字段。上传路径 `knowledge.py:87` 保存文档时 metadata 中无 `tenant_id`。检索三路（vector/graph/BM25）的 `search()` 方法无 tenant 过滤参数。
+
+**实施建议（剩余子项）：**
+
+1. **租户数据隔离**（3–4 人日）：
+   - `DocumentRecord` 增 `tenant_id: str = "default"` 字段
+   - `stores/interfaces.py` 的 `VectorStore.search()` / `FulltextStore.search()` / `GraphStore.neighbors()` / `GraphStore.paths()` 增可选 `tenant_id` 过滤参数
+   - `InMemoryGraphStore` / `InMemoryVectorStore` / `BM25FulltextStore` / `FileDocStore` 实现 tenant 过滤
+   - `retrieval/` 检索三路 + `retrieval/fusion.py` 透传 tenant_id
+   - `knowledge.py:87` 上传时从 `principal` 注入 `tenant_id` 到 `DocumentRecord.metadata`
+   - 离线路径 `tenant_id="default"` 行为不变
+   - 需 5+ 单测：跨租户检索零命中、上传打 tenant 标、默认租户兼容
+2. **启动凭据校验**（0.5 人日）：
+   - `api/app.py:_lifespan` 中 `build_default_service()` 之后增断言：若 `AGR_USE_LIVE_STORES=1` 则检查 `settings.neo4j_uri` / `settings.qdrant_url` 非空；若 `AGR_ALLOW_LLM=1` 则检查 `settings.llm_api_key` 非空且非 placeholder；缺失则 `raise RuntimeError("Missing required credentials for live mode: ...")`
+   - 单测：monkeypatch env + 断言 lifespan 抛异常
+3. **保留策略**（1 人日）：
+   - `configs/default.yaml` 增 `retention:` 段（`audit_chains_days: 90`, `audit_events_days: 90`, `review_queue_days: 30`）
+   - `scripts/prune_data_files.py`：按 ts 字段删除过期行，支持 `--dry-run`
+   - `AuditStore` / `ReviewQueue` 增 `_rotate()` 或复用 `AuditEventStore` 的轮转逻辑
+
+### P5-ENT-07 RPA 集成层 — ❌ 未实施
+
+> 原始规划保留不变。
 
 - 异步作业 API：`POST /v1/query/jobs`（即刻返回 job_id）→ `GET /v1/query/jobs/{id}`（pending/running/succeeded/failed + 结果=推理链）；作业记录落盘；执行复用现有 run_query 线程；依赖 ENT-05 checkpointer 落盘做恢复。
 - Webhook 回调：作业级 `callback_url`（HTTPS）+ `X-AGR-Signature`（HMAC-SHA256，密钥按租户配置）；重试 3 次指数退避；投递结果入 ENT-03 审计事件。SSRF 防护：目标域白名单配置。
@@ -219,34 +307,57 @@
 - 导出：`GET /v1/audit/queries?since=&until=&tenant=`（分页）供下游流程拉取推理链。
 - 契约固化：SSE 事件 schema 文档 + webhook payload schema 入 `configs/schema/`；`/v1` 兼容政策写入 `plan/workstreams/api-and-ui.md`。
 
-### P5-ENT-08 监控外送（Prometheus/OTel）
+### P5-ENT-08 监控外送（Prometheus/OTel）— ✅ 工程交付（collector 验证待办）
 
-- `GET /metrics-prom`：Prometheus 文本协议暴露现有 MetricsRegistry（计数器/直方图映射），无第三方依赖可先手写 exposition；告警规则示例入 runbook（阈值沿用 cicd-observability §3.3）。
-- OTel（可选依赖，懒加载）：`observability/trace.py` 的 span 桥接 OTLP exporter；采样率可配。
-- 与 ENT-01 同构：全部字段携带 tenant_id/query_id。
+> 已交付子项标 ✅，未交付子项标 ❌。
 
-### 依赖关系
+- ✅ **Prometheus 文本暴露**：`GET /metrics-prom` 公开端点（`api/app.py:96`），手写 `prometheus_metrics_text()`（`admin.py:99-147`）将 `MetricsRegistry.summary()` 转为 Prometheus exposition 格式：`agr_queries_total`（counter）、`agr_latency_p50/p95/p99_ms`（gauge）、`agr_route_queries_total{route=…}`（counter）、`agr_errors_total{code=…}`（counter）、`agr_budget_trips_total`（counter）。无第三方依赖。端点纳入 `public_paths` 无需鉴权。
+- ❌ **告警规则示例**：runbook 增补阈值告警规则（沿用 cicd-observability §3.3）。
+- ❌ **OTel 桥接**：`observability/trace.py` 的 `SpanEvent` / `TraceContext` 桥接 OTel `TracerProvider` + OTLP exporter；采样率可配。
+- ❌ **分布式 trace context**：入向 W3C `traceparent` 头解析 + 出向（LLM HTTP 调用）注入。
+
+**现状（2026-07-25）：** Prometheus 抓取端点与可选 OTel bridge 已交付：`pyproject.toml` 提供 `otel` extra，`trace.py` 的 span 会桥接 OTel，API 中间件 attach 入向 W3C context，helper 支持出向 inject，采样率由 `AGR_OTEL_SAMPLE_RATE` 配置。仍需在真实 collector/Jaeger/Tempo 环境验证导出与告警。
+
+**实施建议（剩余子项）：**
+
+1. **OTel 桥接**（2–3 人日）：
+   - `pyproject.toml` 增可选依赖组 `[otel]`：`opentelemetry-sdk`、`opentelemetry-exporter-otlp-proto-grpc`、`opentelemetry-instrumentation-fastapi`
+   - 新模块 `observability/otel_bridge.py`（≤300 行）：
+     - `setup_otel(service_name, endpoint, sample_rate)` 初始化 `TracerProvider` + `BatchSpanProcessor` + OTLP exporter
+     - `OTelSpanAdapter`：将既有 `span()` context manager 的 enter/exit 桥接到 OTel span 创建/结束
+     - `W3CMiddleware`：解析入向 `traceparent` 头，设置 OTel context；出向 LLM 调用注入 `traceparent`
+     - 配置开关：`AGR_OTEL_ENABLED=1`、`AGR_OTEL_ENDPOINT`、`AGR_OTEL_SAMPLE_RATE`（默认 0.1）
+   - `api/app.py:_lifespan` 在 `setup_logging()` 之后条件调用 `setup_otel()`
+   - 懒加载：无 `opentelemetry-sdk` 时 `import` 跳过，行为退化为现有进程内 trace
+   - coverage omit：`observability/otel_bridge.py` 入 `pyproject.toml` omit（live 适配器惯例）
+   - 单测：mock OTel SDK，断言 span 桥接正确；无 SDK 时 graceful fallback
+2. **告警规则示例**（0.5 人日）：`docs/ops-runbook.md` 增 Prometheus alerting rules YAML 片段
+
+### 依赖关系（2026-07-25 更新；✅ 已交付，❌ 未实施）
 
 ```
-ENT-01 日志 ──► ENT-02 排障闭环 ──► ENT-08 外送
-   │                │
-   └──► ENT-03 审计事件 ──► ENT-07 webhook 投递审计
-ENT-04 RBAC ──► ENT-02 admin 端点 / ENT-07 管理面
-ENT-05 调度(worker+checkpointer) ──► ENT-07 异步作业
-ENT-06 与 ENT-01 并行（脱敏钩子挂日志） 
+ENT-01 日志 ✅ ──► ENT-02 排障闭环 ✅ ──► ENT-08 外送 🟡(Prom ✅ / OTel ❌)
+   │                   │
+   └──► ENT-03 审计事件 ✅ ──► ENT-07 webhook 投递审计 ❌
+ENT-04 RBAC ✅ ──► ENT-02 admin 端点 ✅ / ENT-07 管理面 ❌
+ENT-05 调度 ✅ (配置+worker+协议；多副本验证待办) ──► ENT-07 异步作业 ⏭
+ENT-06 ✅(上传+脱敏+隔离+启动校验+保留策略)
+ENT-08 ✅(Prometheus+OTel 工程；collector 验证待办)
 ```
 
 ---
 
-## 5. 排期与优先级建议
+## 5. 排期与优先级建议（2026-07-25 更新）
 
-| 批次 | 任务 | 门禁挂钩 | 粗估工作量 |
-|------|------|----------|-----------|
-| 第 1 批（G4 前必做）⏫ | ENT-01、ENT-03、ENT-06（隔离+上传+启动校验） | G4"监控告警/审计回查生产验证"、P4-REL-01、P4-AC-02、NFR-06 | 各 2–4 人日 |
-| 第 2 批（试点期） | ENT-02、ENT-04、ENT-08（Prometheus 先行） | P4-REL-03 告警落地、AC-6 生产告警 | 各 2–3 人日 |
-| 第 3 批（规模化立项后） | ENT-05（队列/Redis）、ENT-07、ENT-08（OTel） | P5 立项、RPA 对接排期 | 各 3–5 人日 |
+| 批次 | 任务 | 状态 | 门禁挂钩 | 剩余工作量 |
+|------|------|------|----------|-----------|
+| ~~第 1 批（G4 前必做）⏫~~ | ~~ENT-01、ENT-03~~ | ✅ 已交付 | ~~G4"监控告警/审计回查生产验证"~~ | 0 |
+| 第 1 批剩余 ⏫ | ENT-06（**租户隔离 + 启动校验**） | ❌ 未开始 | P4-REL-01 代码侧、NFR-06 | 3–5 人日 |
+| ~~第 2 批（试点期）~~ | ~~ENT-02、ENT-04、ENT-08 Prometheus~~ | ✅ 已交付 | ~~P4-REL-03 告警落地~~ | 0 |
+| 第 2 批剩余 | ENT-08 collector + 告警规则部署验证 | 🟡 环境验证 | AC-6 生产告警、分布式链路追踪 | 部署侧 |
+| 第 3 批 | ENT-05 多副本 Redis/公平调度验证；ENT-07 排除 | 🟡 / ⏭ | P5 规模化 | 部署侧 |
 
-> 工作量为静态估算（未含联调）；ENT-07 需产品先确认 RPA 对接方与回调安全要求（新增 PRD 开放问题，见 §6）。
+> **G4 前置阻塞项：** 仅剩 ENT-06 租户数据隔离 + 启动凭据校验。ENT-01/02/03/04/06(上传+脱敏)/08(Prometheus) 已消除 G4 前置风险。
 
 ---
 
@@ -261,17 +372,17 @@ ENT-06 与 ENT-01 并行（脱敏钩子挂日志）
 - **docs/IMPORTANT.md**：已增 2026-07-24 快照行与 §5 阶段五挂账（本文档为权威细节）。
 - **架构边界**：全部新模块遵守 `stores/interfaces.py` 协议注入 + live 依赖懒加载 + coverage omit 需附理由的既有惯例；文件 ≤300 行、函数 ≤50 行（`scripts/check_code_metrics.py` 把关）。
 
-## 7. 验证清单（实现时逐项补测；本次静态审计未运行项目）
+## 7. 验证清单（2026-07-25 更新）
 
 单测点（进 `tests/unit/`，维持覆盖率 ≥80%）：
 
-1. ENT-01：日志 contextvar 注入/清理；JSON 字段齐全；异常处理器写日志且响应体不含栈。
-2. ENT-03：五类事件各断言一次落盘 schema；轮转触发。
-3. ENT-04：三角色×代表端点的 403 矩阵；两段式 key 向后兼容；过期 key 拒绝。
-4. ENT-05：per-tenant 限额从 YAML 生效；worker 状态机各迁移；队列有界拒绝。
-5. ENT-06：跨租户检索零命中；413 路径；脱敏正则用例；缺凭据 fail-fast。
-6. ENT-07：作业状态机；幂等键重放去重；webhook 签名可验证、重试计数、白名单拒绝。
-7. ENT-08：Prometheus 文本格式解析通过（用 promtext 简易 parser 断言）。
+1. ✅ ENT-01：日志 contextvar 注入/清理；JSON 字段齐全；异常处理器写日志且响应体不含栈。— `test_logging_setup.py`（17 用例）+ `test_enterprise_readiness.py::TestENT01Logging`（4 用例）
+2. ✅ ENT-03：五类事件各断言一次落盘 schema；轮转触发。— `test_enterprise_readiness.py::TestENT03AuditEvents`（5 用例）
+3. ✅ ENT-04：三角色×代表端点的 403 矩阵；两段式 key 向后兼容；过期 key 拒绝。— `test_enterprise_readiness.py::TestENT04RBAC`（11 用例）
+4. ✅ ENT-05：per-tenant YAML 预算/限流覆盖、持久化 ingest task 状态迁移与 worker、协议抽象已有单测；多副本 Redis/公平队列仅作部署后验证。
+5. ✅ ENT-06：跨租户内存 vector/BM25/graph/doc 零命中；上传打租户；413 路径；脱敏；缺凭据 fail-fast；保留期 prune 单测。
+6. ⏭ ENT-07：RPA 明确排除，不实施。
+7. ✅ ENT-08：Prometheus 文本格式；OTel 无 SDK graceful fallback、自定义 span 桥接/W3C helper 为可选 live 路径；collector 联调待环境验证。
 
 需运行环境的验证（记录待办，本环境不执行）：
 
@@ -290,6 +401,10 @@ ENT-06 与 ENT-01 并行（脱敏钩子挂日志）
 
 ---
 
-## 附录 A：审计覆盖文件
+## 附录 A：审计覆盖文件（2026-07-25 更新）
 
-`api/`（app、auth、errors、envelope、schemas、routes/query、routes/knowledge、service、service_query、service_stream、sse）、`observability/`（metrics、trace）、`llm/`（budget、budget_policy、circuit）、`agent/`（guardrails、loop_stream_events）、`generation/audit_store.py`、`knowledge/review/queue.py`、`stores/neo4j_store.py`、`config.py`、`web/static/js/api.js`、`docs/ops-runbook.md`、`plan/engineering/cicd-observability.md`、`plan/phases/phase-4-pilot.md`、`phase-5-scale.md`、`docs/IMPORTANT.md`、`plan/roadmap.md`、`PRD.md`（需求索引）。检索确认零命中：`logging/getLogger/structlog`（src+scripts）、`webhook/callback_url`（src+configs）、`CORSMiddleware`。
+`api/`（app、auth、errors、envelope、schemas、rbac、routes/query、routes/knowledge、routes/admin、service、service_query、service_stream、sse）、`observability/`（metrics、trace、logging_setup、audit_events、redaction）、`llm/`（budget、budget_policy、circuit）、`agent/`（guardrails、loop_stream_events）、`generation/audit_store.py`、`knowledge/review/queue.py`、`stores/`（interfaces、factory、memory_graph、vector_store、doc_store、neo4j_store）、`config.py`、`web/static/js/api.js`、`docs/ops-runbook.md`、`plan/engineering/cicd-observability.md`、`plan/phases/phase-4-pilot.md`、`phase-5-scale.md`、`docs/IMPORTANT.md`、`plan/roadmap.md`、`PRD.md`（需求索引）。
+
+新增覆盖（2026-07-25）：`observability/logging_setup.py`、`observability/audit_events.py`、`observability/redaction.py`、`api/rbac.py`、`api/routes/admin.py`、`tests/unit/test_enterprise_readiness.py`、`tests/unit/test_logging_setup.py`。
+
+检索确认零命中（仍成立）：`opentelemetry`（src+configs）、`webhook/callback_url`（src+configs）、`CORSMiddleware`。已不再成立：~~`logging/getLogger`~~ → 现有 `observability/logging_setup.py` + `observability/audit_events.py` + `api/rbac.py` + `api/app.py` 使用 `logging`。

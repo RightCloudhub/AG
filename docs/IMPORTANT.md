@@ -35,6 +35,7 @@
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
 | 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
 | 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
+| 2026-07-25 | ENT 实施完成（RPA 제외）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -151,7 +152,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
-| **P5-ENT-01…08** | **⚪ 仅规划** — 企业级管控轨道（日志基座/审计事件/RBAC/调度升级/数据隔离/RPA 集成/监控外送）；权威文档 [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)；其中 ENT-01/03/06 为 **G4 前置** |
+| **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
 ---
 
