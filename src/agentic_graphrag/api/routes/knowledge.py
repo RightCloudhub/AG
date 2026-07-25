@@ -1,8 +1,7 @@
-"""Knowledge management APIs (FR-API-03 / P3-KG-04)."""
+"""Knowledge management APIs (FR-API-03 / P3-KG-04 / ENT-04/06)."""
 
 from __future__ import annotations
 
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -12,12 +11,14 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
-# In-process ingest task registry (pilot-scale)
+# In-process compatibility index; durable state uses QueryService.ingest_tasks.
 _TASKS: dict[str, dict[str, Any]] = {}
 
 
@@ -46,59 +47,44 @@ def _service(request: Request) -> QueryService:
     return svc
 
 
-@router.post("/docs")
+@router.post("/docs", dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))])
 async def upload_docs(
     request: Request,
     files: list[UploadFile] | None = None,
 ) -> dict:
     """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
-    from agentic_graphrag.stores.interfaces import DocumentRecord
-
     svc = _service(request)
+    tenant_id, _user_id = _principal(request)
     task_id = str(uuid.uuid4())
-    saved: list[dict[str, str]] = []
-    for f in files or []:
-        content = await f.read()
-        text = content.decode("utf-8", errors="replace")
-        doc_id = f.filename or str(uuid.uuid4())
-        try:
-            svc.bundle.docs.save(
-                DocumentRecord(
-                    doc_id=doc_id,
-                    title=f.filename or doc_id,
-                    content=text,
-                    metadata={"task_id": task_id, "source": "upload", "bytes": len(text)},
-                )
-            )
-        except Exception:
-            # Still record the upload even if doc store write fails.
-            pass
-        saved.append({"doc_id": doc_id, "bytes": str(len(text)), "name": f.filename or ""})
-    _TASKS[task_id] = {
-        "id": task_id,
-        "status": "queued" if saved else "empty",
-        "docs": saved,
-        "created_at": time.time(),
-        "message": (
-            "Documents persisted to doc store; run extract pipeline offline or via worker"
-            if saved
-            else "No documents received"
-        ),
-    }
+    saved = await save_uploads(svc, files or [], tenant_id=tenant_id, task_id=task_id)
+    row = task_row(task_id, tenant_id, saved)
+    if svc.ingest_tasks is not None:
+        row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
+    _TASKS[task_id] = row
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
             {"task_id": task_id, "doc_count": len(saved)},
             confidence=0.5,
             batch_id=task_id,
+            tenant_id=tenant_id,
         )
-    return ok(_TASKS[task_id], meta=MetaBody(request_id=task_id))
+    emit_audit(
+        request,
+        {"action": "doc_upload", "target": task_id, "outcome": "success", "doc_count": len(saved)},
+    )
+    return ok(row, meta=MetaBody(request_id=task_id))
 
 
 @router.get("/ingest-tasks/{task_id}")
-def get_ingest_task(task_id: str) -> dict:
-    task = _TASKS.get(task_id)
+def get_ingest_task(task_id: str, request: Request) -> dict:
+    tenant_id, _user_id = _principal(request)
+    svc = _service(request)
+    persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
+    task = persisted.to_dict() if persisted is not None else _TASKS.get(task_id)
     if task is None:
+        raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
+    if task.get("tenant_id") not in {None, tenant_id}:
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
     return ok(task)
 
@@ -129,14 +115,24 @@ def list_review_queue(
     svc = _service(request)
     if svc.review_queue is None:
         return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
-    items = svc.review_queue.list(status=q.status, type=q.type, limit=q.limit, offset=q.offset)
+    tenant_id, _user_id = _principal(request)
+    items = svc.review_queue.list(
+        status=q.status,
+        type=q.type,
+        limit=q.limit,
+        offset=q.offset,
+        tenant_id=tenant_id,
+    )
     return ok(
         [i.to_dict() for i in items],
         meta=MetaBody(total=len(items), limit=q.limit, page=q.offset // max(q.limit, 1) + 1),
     )
 
 
-@router.post("/review-queue/{item_id}/decision")
+@router.post(
+    "/review-queue/{item_id}/decision",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
 def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> dict:
     svc = _service(request)
     if svc.review_queue is None:
@@ -149,6 +145,15 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
         item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
     except KeyError as exc:
         raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    emit_audit(
+        request,
+        {
+            "action": "review_decision",
+            "target": item_id,
+            "outcome": dec.value,
+            "reviewer": body.reviewer,
+        },
+    )
     return ok(item.to_dict())
 
 
@@ -188,11 +193,12 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
         accurate=body.accurate,
         reason=body.reason,
         user_id=user_id,
+        tenant_id=tenant_id,
     )
     return ok(result)
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(require_role(Role.ADMIN))])
 def get_metrics_summary() -> dict:
     from agentic_graphrag.observability.metrics import get_metrics
 

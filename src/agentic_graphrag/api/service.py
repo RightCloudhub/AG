@@ -27,6 +27,7 @@ from agentic_graphrag.api.service_query import (
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.generation.audit_store import AuditStore
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
+from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
 from agentic_graphrag.knowledge.review.queue import ReviewQueue, ReviewType
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.budget_policy import MultiLevelBudget
@@ -67,6 +68,7 @@ class QueryService:
     review_queue: ReviewQueue | None = None
     retrieval_cache: RetrievalCache | None = None
     multi_budget: MultiLevelBudget | None = None
+    ingest_tasks: IngestTaskStore | None = None
     # Legacy field retained for tests that monkeypatch it; query paths no longer
     # hold this lock across agent/SSE lifetimes (see service_query / service_stream).
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -125,9 +127,19 @@ class QueryService:
         allow_llm: bool,
         load_seed: bool = True,
     ) -> QueryService:
+        from agentic_graphrag.llm.budget_policy import BudgetLimits
+
         triples = _load_triples(resolve_path(seed_triples)) if load_seed else []
         if triples:
             load_triples_into_graph(bundle.graph, triples, clear_first=True)
+        # Build per-tenant budget overrides from config (ENT-05).
+        tenant_overrides: dict[str, BudgetLimits] = {}
+        for tid, tcfg in cfg.tenants.items():
+            tenant_overrides[tid] = BudgetLimits(
+                max_llm_calls=tcfg.max_llm_calls or 10_000,
+                max_tokens=tcfg.max_tokens or 5_000_000,
+                max_cost_units=tcfg.max_cost_units or 1000.0,
+            )
         return cls(
             cfg=cfg,
             settings=settings,
@@ -140,7 +152,10 @@ class QueryService:
                 cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
                 answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,
             ),
-            multi_budget=MultiLevelBudget(),
+            multi_budget=MultiLevelBudget(tenant_overrides=tenant_overrides),
+            ingest_tasks=IngestTaskStore(
+                resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"
+            ),
         )
 
     def close(self) -> None:
@@ -172,6 +187,7 @@ class QueryService:
         accurate: bool,
         reason: str = "",
         user_id: str = "",
+        tenant_id: str = "default",
     ) -> dict[str, Any]:
         """FR-OP-03: feedback linked to reasoning chain → badcase/review queue."""
         payload = {
@@ -185,6 +201,7 @@ class QueryService:
                 ReviewType.FEEDBACK,
                 payload,
                 confidence=0.0,
+                tenant_id=tenant_id,
             )
             payload["review_id"] = item.id
         self._attach_feedback_to_audit(query_id, payload)
