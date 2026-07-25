@@ -27,10 +27,10 @@ from agentic_graphrag.api.service_query import (
     _budget_api_error,
     _finalize_chain,
     _persist_and_commit,
-    _record_metrics,
     _release_budget,
     _reserve_budget,
 )
+from agentic_graphrag.api.service_telemetry import record_metrics as _record_metrics
 from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_ERROR
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
@@ -103,7 +103,7 @@ def _stream_agent(
     """
     guard_cfg, budget = _guard_and_budget(svc, req)
     trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
-    executor, llm, opts = _build_stream_deps(svc, req, (guard_cfg, budget))
+    executor, llm, opts = _build_stream_deps(svc, req, (guard_cfg, budget), tenant_id=tenant_id)
     with span(trace_ctx, "stream_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
         yield from _consume_progress(
             svc,
@@ -132,6 +132,8 @@ def _build_stream_deps(
     svc: QueryService,
     req: QueryRequest,
     guard_budget: tuple[GuardrailConfig, Any],
+    *,
+    tenant_id: str,
 ) -> tuple[Executor, LLMProvider | None, QueryOptions]:
     guard_cfg, budget = guard_budget
     executor = build_executor_for_service(
@@ -153,6 +155,7 @@ def _build_stream_deps(
         force_agentic=req.force_agentic,
         enable_triage=svc.enable_triage and not req.force_agentic,
         known_entities=svc.known_entities,
+        tenant_id=tenant_id,
     )
     return executor, llm, opts
 

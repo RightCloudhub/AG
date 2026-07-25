@@ -17,9 +17,11 @@ from agentic_graphrag.api.service_helpers import (
     build_llm_for_service,
     cost_units_for_chain,
 )
+from agentic_graphrag.api.service_telemetry import record_metrics as _record_metrics
 from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
-from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
+from agentic_graphrag.observability.logging_setup import request_id_var
+from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
 
 if TYPE_CHECKING:
@@ -60,7 +62,15 @@ def execute_run_query(
     settled = False
     try:
         chain = _invoke_agent(svc, req, tenant_id=tenant_id, user_id=user_id)
-        _finalize_chain(chain, t0=t0, req=req, tenant_id=tenant_id, user_id=user_id)
+        request_id = request_id_var.get()
+        _finalize_chain(
+            chain,
+            t0=t0,
+            req=req,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            request_id=request_id,
+        )
         _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
         settled = True
         _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
@@ -182,7 +192,7 @@ def _invoke_agent(
     llm = build_llm_for_service(
         allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
     )
-    return run_agent_with_timeout(
+    chain = run_agent_with_timeout(
         svc,
         req,
         executor=executor,
@@ -191,11 +201,20 @@ def _invoke_agent(
         budget=budget,
         trace_ctx=trace_ctx,
         budget_error_factory=_budget_api_error,
+        tenant_id=tenant_id,
     )
+    get_tracer().rekey(trace_ctx.query_id, chain.query_id)
+    return chain
 
 
 def _finalize_chain(
-    chain: ReasoningChain, *, t0: float, req: QueryRequest, tenant_id: str, user_id: str
+    chain: ReasoningChain,
+    *,
+    t0: float,
+    req: QueryRequest,
+    tenant_id: str,
+    user_id: str,
+    request_id: str = "",
 ) -> None:
     if req.force_agentic:
         chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
@@ -205,6 +224,7 @@ def _finalize_chain(
         "tenant_id": tenant_id,
         "user_id": user_id,
         "query_id": chain.query_id,
+        "request_id": request_id,
     }
 
 
@@ -273,20 +293,3 @@ def _persist_and_commit(
             reserved_tokens=RESERVE_TOKENS,
             reserved_cost=RESERVE_COST,
         )
-
-
-def _record_metrics(chain: ReasoningChain, *, tenant_id: str, user_id: str) -> None:
-    get_metrics().record(
-        QueryMetrics(
-            query_id=chain.query_id,
-            route=chain.route,
-            hops=len(chain.steps),
-            llm_calls=chain.cost.llm_calls,
-            tokens=chain.cost.tokens,
-            tool_calls=sum(len(s.tool_calls) for s in chain.steps),
-            latency_ms=chain.cost.latency_ms,
-            status=chain.status.value if chain.status else "",
-            tenant_id=tenant_id,
-            user_id=user_id,
-        )
-    )
