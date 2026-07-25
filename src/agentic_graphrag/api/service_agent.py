@@ -43,6 +43,7 @@ def run_agent_with_timeout(
     budget: object,
     trace_ctx: object,
     budget_error_factory: Any,
+    tenant_id: str = "",
 ) -> ReasoningChain:
     """Hard wall-clock timeout around the agent (hop checks alone cannot cancel LLM I/O)."""
     timeout_s = float(guard_cfg.query_timeout_seconds or 0)
@@ -56,6 +57,7 @@ def run_agent_with_timeout(
         budget=budget,
         trace_ctx=trace_ctx,
         budget_error_factory=budget_error_factory,
+        tenant_id=tenant_id,
     )
     try:
         if timeout_s > 0:
@@ -80,6 +82,7 @@ def run_agent(
     budget: object,
     trace_ctx: object,
     budget_error_factory: Any,
+    tenant_id: str = "",
 ) -> ReasoningChain:
     try:
         with span(trace_ctx, "run_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
@@ -93,6 +96,7 @@ def run_agent(
                 force_agentic=req.force_agentic,
                 enable_triage=svc.enable_triage and not req.force_agentic,
                 known_entities=svc.known_entities,
+                tenant_id=tenant_id,
             )
     except BudgetExceeded as exc:
         raise budget_error_factory(exc) from exc

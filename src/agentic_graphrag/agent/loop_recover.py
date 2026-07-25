@@ -28,6 +28,7 @@ def invoke_agentic_graph(
     t0: float,
     llm: LLMProvider | None = None,
     allow_llm: bool = False,
+    tenant_id: str = "",
 ) -> ReasoningChain:
     """Invoke compiled graph; recover a partial chain on GraphRecursionError."""
     from agentic_graphrag.agent.loop import finalize_agentic_chain, invoke_config
@@ -41,6 +42,7 @@ def invoke_agentic_graph(
         "evidence": [],
         "done": False,
         "allow_llm": allow_llm,
+        "tenant_id": tenant_id,
     }
     try:
         result = graph.invoke(initial, config=invoke_config(tid, recursion_limit=rec_limit))

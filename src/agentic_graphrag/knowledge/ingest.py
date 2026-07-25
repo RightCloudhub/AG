@@ -92,6 +92,7 @@ def chunk_document(
             text=piece,
             index=i,
             metadata={"title": doc.title, **doc.metadata},
+            tenant_id=doc.tenant_id or str(doc.metadata.get("tenant_id") or ""),
         )
         for i, piece in enumerate(pieces)
     ]

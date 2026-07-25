@@ -16,9 +16,10 @@ from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
+from agentic_graphrag.agent.loop_policy import should_escalate_chain
 from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
 from agentic_graphrag.agent.options import AgentDeps, AgentRunOptions, QueryOptions
-from agentic_graphrag.agent.triage import Route, should_escalate_fast_path, triage
+from agentic_graphrag.agent.triage import Route, triage
 from agentic_graphrag.generation.confidence import grade_confidence
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetTracker
@@ -102,6 +103,7 @@ def run_agentic_query(
     recursion_limit: int | None = None,
     checkpointer: Any | None = None,
     thread_id: str | None = None,
+    tenant_id: str = "",
 ) -> ReasoningChain:
     """Run the full agentic loop; keyword args or ``options`` are equivalent."""
     opts = options or AgentRunOptions(
@@ -111,6 +113,7 @@ def run_agentic_query(
         recursion_limit=recursion_limit,
         checkpointer=checkpointer,
         thread_id=thread_id,
+        tenant_id=tenant_id,
     )
     return _run_agentic(question, executor, llm, opts=opts)
 
@@ -130,6 +133,7 @@ def run_query(
     force_agentic: bool = False,
     enable_triage: bool = True,
     known_entities: list[str] | None = None,
+    tenant_id: str = "",
 ) -> ReasoningChain:
     """Entry with complexity triage (Fast Path vs Agentic, P3-PERF-01)."""
     opts = options or QueryOptions(
@@ -142,6 +146,7 @@ def run_query(
         force_agentic=force_agentic,
         enable_triage=enable_triage,
         known_entities=known_entities,
+        tenant_id=tenant_id,
     )
     return _run_with_triage(question, executor, llm, opts=opts)
 
@@ -174,6 +179,7 @@ def _run_agentic(
         t0=t0,
         llm=llm,
         allow_llm=opts.allow_llm,
+        tenant_id=opts.tenant_id,
     )
 
 
@@ -255,6 +261,7 @@ def resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
         recursion_limit=opts.recursion_limit,
         checkpointer=opts.checkpointer,
         thread_id=opts.thread_id,
+        tenant_id=opts.tenant_id,
     )
 
 
@@ -273,6 +280,7 @@ def _fast_path_or_escalate(
         allow_llm=opts.allow_llm,
         budget=opts.budget,
         triage_meta=triage_meta,
+        tenant_id=opts.tenant_id or None,
     )
     if not should_escalate_chain(chain):
         return chain
@@ -283,13 +291,3 @@ def _fast_path_or_escalate(
         "escalated_from_fast_path": True,
     }
     return agentic
-
-
-def should_escalate_chain(chain: ReasoningChain) -> bool:
-    ev_count = sum(len(s.evidence_ids) for s in chain.steps)
-    has_graph = any("graph" in (tc.tool or "") for s in chain.steps for tc in s.tool_calls)
-    return should_escalate_fast_path(
-        ev_count,
-        has_graph=has_graph,
-        answer_status=chain.status.value if chain.status else None,
-    )

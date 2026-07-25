@@ -45,24 +45,30 @@ class ReviewItem:
     reviewer: str = ""
     decision_note: str = ""
     batch_id: str = ""
+    tenant_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> ReviewItem:
-        return cls(
-            id=str(d.get("id") or uuid.uuid4()),
-            type=str(d.get("type") or ReviewType.EXTRACTION.value),
-            payload=dict(d.get("payload") or {}),
-            status=str(d.get("status") or ReviewStatus.PENDING.value),
-            confidence=float(d.get("confidence") or 0.0),
-            created_at=float(d.get("created_at") or time.time()),
-            decided_at=d.get("decided_at"),
-            reviewer=str(d.get("reviewer") or ""),
-            decision_note=str(d.get("decision_note") or ""),
-            batch_id=str(d.get("batch_id") or ""),
-        )
+    def from_dict(cls, data: dict[str, Any]) -> ReviewItem:
+        coerce: dict[str, tuple[Any, Any]] = {
+            "id": (str, str(uuid.uuid4())),
+            "type": (str, ReviewType.EXTRACTION.value),
+            "payload": (dict, {}),
+            "status": (str, ReviewStatus.PENDING.value),
+            "confidence": (float, 0.0),
+            "created_at": (float, time.time()),
+            "reviewer": (str, ""),
+            "decision_note": (str, ""),
+            "batch_id": (str, ""),
+            "tenant_id": (str, ""),
+        }
+        normalized = dict(data)
+        for key, (cast, default) in coerce.items():
+            normalized[key] = cast(data.get(key) or default)
+        allowed = cls.__dataclass_fields__
+        return cls(**{key: value for key, value in normalized.items() if key in allowed})
 
 
 class ReviewQueue:
@@ -98,6 +104,7 @@ class ReviewQueue:
         confidence: float = 0.0,
         batch_id: str = "",
         item_id: str | None = None,
+        tenant_id: str = "",
     ) -> ReviewItem:
         item = ReviewItem(
             id=item_id or str(uuid.uuid4()),
@@ -105,6 +112,7 @@ class ReviewQueue:
             payload=payload,
             confidence=confidence,
             batch_id=batch_id,
+            tenant_id=tenant_id,
         )
         with self._lock:
             self._items[item.id] = item
@@ -122,6 +130,7 @@ class ReviewQueue:
         type: str | None = None,
         min_confidence: float | None = None,
         max_confidence: float | None = None,
+        tenant_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[ReviewItem]:
@@ -133,6 +142,7 @@ class ReviewQueue:
             type=type,
             min_confidence=min_confidence,
             max_confidence=max_confidence,
+            tenant_id=tenant_id,
         )
         items.sort(key=lambda i: i.created_at)
         return items[offset : offset + limit]
@@ -178,6 +188,7 @@ def _filter_items(
     type: str | None,
     min_confidence: float | None,
     max_confidence: float | None,
+    tenant_id: str | None,
 ) -> list[ReviewItem]:
     preds = []
     if status:
@@ -188,6 +199,8 @@ def _filter_items(
         preds.append(lambda i, m=min_confidence: i.confidence >= m)
     if max_confidence is not None:
         preds.append(lambda i, m=max_confidence: i.confidence <= m)
+    if tenant_id is not None:
+        preds.append(lambda i, t=tenant_id: i.tenant_id == t)
     if not preds:
         return items
     return [i for i in items if all(p(i) for p in preds)]

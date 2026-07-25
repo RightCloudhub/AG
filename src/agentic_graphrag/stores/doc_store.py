@@ -20,7 +20,9 @@ class InMemoryDocStore:
     def get(self, doc_id: str) -> DocumentRecord | None:
         return self._docs.get(doc_id)
 
-    def list_ids(self) -> list[str]:
+    def list_ids(self, *, tenant_id: str | None = None) -> list[str]:
+        if tenant_id is not None:
+            return sorted(did for did, doc in self._docs.items() if _tenant(doc) == tenant_id)
         return sorted(self._docs)
 
 
@@ -42,6 +44,7 @@ class FileDocStore:
                     "title": doc.title,
                     "content": doc.content,
                     "metadata": doc.metadata,
+                    "tenant_id": doc.tenant_id,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -59,7 +62,21 @@ class FileDocStore:
             title=data.get("title", ""),
             content=data.get("content", ""),
             metadata=data.get("metadata") or {},
+            tenant_id=str(
+                data.get("tenant_id") or (data.get("metadata") or {}).get("tenant_id", "")
+            ),
         )
 
-    def list_ids(self) -> list[str]:
+    def list_ids(self, *, tenant_id: str | None = None) -> list[str]:
+        if tenant_id is not None:
+            ids: list[str] = []
+            for p in self.root.glob("*.json"):
+                doc = self.get(p.stem)
+                if doc and _tenant(doc) == tenant_id:
+                    ids.append(p.stem)
+            return sorted(ids)
         return sorted(p.stem for p in self.root.glob("*.json"))
+
+
+def _tenant(doc: DocumentRecord) -> str:
+    return doc.tenant_id or str(doc.metadata.get("tenant_id") or "")

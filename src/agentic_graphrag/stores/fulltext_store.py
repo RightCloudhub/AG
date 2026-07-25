@@ -68,15 +68,22 @@ class BM25FulltextStore:
         self._bm25 = _SimpleBM25(self._corpus_tokens) if self._corpus_tokens else None
         return len(chunks)
 
-    def search(self, query: str, top_k: int = 10) -> list[tuple[ChunkRecord, float]]:
+    def search(
+        self, query: str, top_k: int = 10, *, tenant_id: str | None = None
+    ) -> list[tuple[ChunkRecord, float]]:
         if not self._bm25 or not self._chunks:
             return []
         tokens = tokenize(query)
         if not tokens:
             return []
         scores = self._bm25.get_scores(tokens)
-        ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
-        return [(self._chunks[i], float(s)) for i, s in ranked if s > 0]
+        candidates = [
+            (i, self._chunks[i], score)
+            for i, score in enumerate(scores)
+            if tenant_id is None or self._chunks[i].tenant_id in {"", tenant_id}
+        ]
+        ranked = sorted(candidates, key=lambda x: x[2], reverse=True)[:top_k]
+        return [(chunk, float(score)) for _, chunk, score in ranked if score > 0]
 
     def clear(self) -> None:
         self._chunks.clear()

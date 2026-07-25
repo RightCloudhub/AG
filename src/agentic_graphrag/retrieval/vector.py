@@ -13,10 +13,12 @@ class VectorRetriever:
         self.llm = llm
         self.top_k = top_k
 
-    def search(self, query: str, top_k: int | None = None) -> list[Candidate]:
+    def search(
+        self, query: str, top_k: int | None = None, *, tenant_id: str | None = None
+    ) -> list[Candidate]:
         k = top_k or self.top_k
         vector = self.llm.embed(query)
-        hits = self.store.search(vector, top_k=k)
+        hits = self.store.search(vector, top_k=k, tenant_id=tenant_id)
         candidates: list[Candidate] = []
         for rank, (chunk, score) in enumerate(hits):
             candidates.append(

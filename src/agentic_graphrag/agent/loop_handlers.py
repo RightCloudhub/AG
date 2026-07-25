@@ -91,10 +91,12 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
     memory, guards, sq = ctx.memory, ctx.guards, ctx.sq
     memory.mark_subquestion(sq.text)
     allow_llm = bool(ctx.state.get("allow_llm", True))
+    tenant_id = ctx.state.get("tenant_id") or None
     candidates, traces = ctx.executor.run(
         sq.text,
         entities_hint=collect_entity_hints(ctx),
         allow_llm=allow_llm and ctx.llm is not None,
+        tenant_id=tenant_id,
     )
     added = memory.add_evidence(candidates)
     step = ReasoningStep(

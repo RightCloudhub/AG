@@ -21,24 +21,33 @@ MAX_SUBGRAPH_SEEDS = 3
 MAX_PARALLEL_WORKERS = 8
 HIT_ID_PREVIEW = 20
 
-ToolHandler = Callable[["Executor", dict[str, Any], str], list[Candidate]]
+ToolHandler = Callable[["Executor", dict[str, Any], str, "str | None"], list[Candidate]]
 
 
 def dispatch(
-    executor: Executor, tool: str, args: dict[str, Any], *, sub_question: str
+    executor: Executor,
+    tool: str,
+    args: dict[str, Any],
+    *,
+    sub_question: str,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     handler = TOOL_HANDLERS.get(tool)
     if handler is None:
         return []
-    return handler(executor, args, sub_question)
+    return handler(executor, args, sub_question, tenant_id)
 
 
 def run_tool_specs(
-    executor: Executor, specs: list[ToolCallSpec], sub_question: str
+    executor: Executor,
+    specs: list[ToolCallSpec],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> tuple[list[list[Candidate]], list[ToolCallTrace]]:
     if executor.parallel and len(specs) > 1:
-        return _collect_parallel(executor, specs, sub_question)
-    return _collect_sequential(executor, specs, sub_question)
+        return _collect_parallel(executor, specs, sub_question, tenant_id=tenant_id)
+    return _collect_sequential(executor, specs, sub_question, tenant_id=tenant_id)
 
 
 def fuse_and_cache(
@@ -47,6 +56,7 @@ def fuse_and_cache(
     sub_question: str,
     *,
     tools_key: str,
+    cache_result: bool = True,
 ) -> list[Candidate]:
     fused = fuse_candidates(
         *evidence,
@@ -56,7 +66,7 @@ def fuse_and_cache(
         limit=executor.fusion_limit,
         reranker=executor.reranker,
     )
-    if executor.cache is not None:
+    if executor.cache is not None and cache_result:
         executor.cache.set_retrieval(sub_question, fused, tools_key)
     return fused
 
@@ -76,7 +86,11 @@ def cache_hit_result(
 
 
 def handle_graph_neighbors(
-    executor: Executor, args: dict[str, Any], sub_question: str
+    executor: Executor,
+    args: dict[str, Any],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     entity = str(args.get("entity") or args.get("name") or "")
     if not entity or is_stopword_entity(entity):
@@ -89,11 +103,16 @@ def handle_graph_neighbors(
         max_hops=int(args.get("max_hops", DEFAULT_NEIGHBOR_HOPS)),
         relation_types=args.get("relation_types"),
         sub_question=sub_question,
+        tenant_id=tenant_id,
     )
 
 
 def handle_graph_path(
-    executor: Executor, args: dict[str, Any], sub_question: str
+    executor: Executor,
+    args: dict[str, Any],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     src, dst = _resolve_path_endpoints(executor, args, sub_question)
     if not src or not dst:
@@ -103,11 +122,16 @@ def handle_graph_path(
         dst,
         max_hops=int(args.get("max_hops", DEFAULT_PATH_HOPS)),
         sub_question=sub_question,
+        tenant_id=tenant_id,
     )
 
 
 def handle_graph_subgraph(
-    executor: Executor, args: dict[str, Any], sub_question: str
+    executor: Executor,
+    args: dict[str, Any],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     seeds = args.get("entities") or args.get("seeds") or []
     if isinstance(seeds, str):
@@ -119,23 +143,32 @@ def handle_graph_subgraph(
         max_hops=int(args.get("max_hops", DEFAULT_SUBGRAPH_HOPS)),
         relation_types=args.get("relation_types"),
         sub_question=sub_question,
+        tenant_id=tenant_id,
     )
 
 
 def handle_vector_search(
-    executor: Executor, args: dict[str, Any], sub_question: str
+    executor: Executor,
+    args: dict[str, Any],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     if executor.vector is None:
         return []
-    return executor.vector.search(str(args.get("query") or sub_question))
+    return executor.vector.search(str(args.get("query") or sub_question), tenant_id=tenant_id)
 
 
 def handle_fulltext_search(
-    executor: Executor, args: dict[str, Any], sub_question: str
+    executor: Executor,
+    args: dict[str, Any],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     if executor.fulltext is None:
         return []
-    return executor.fulltext.search(str(args.get("query") or sub_question))
+    return executor.fulltext.search(str(args.get("query") or sub_question), tenant_id=tenant_id)
 
 
 TOOL_HANDLERS: dict[str, ToolHandler] = {
@@ -161,21 +194,29 @@ def _resolve_path_endpoints(
 
 
 def _collect_sequential(
-    executor: Executor, specs: list[ToolCallSpec], sub_question: str
+    executor: Executor,
+    specs: list[ToolCallSpec],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> tuple[list[list[Candidate]], list[ToolCallTrace]]:
     evidence: list[list[Candidate]] = []
     traces: list[ToolCallTrace] = []
     for spec in specs:
-        hits, err = _safe_dispatch(executor, spec, sub_question)
+        hits, err = _safe_dispatch(executor, spec, sub_question, tenant_id=tenant_id)
         evidence.append(hits)
         traces.append(_trace_for(spec, hits, err))
     return evidence, traces
 
 
 def _collect_parallel(
-    executor: Executor, specs: list[ToolCallSpec], sub_question: str
+    executor: Executor,
+    specs: list[ToolCallSpec],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> tuple[list[list[Candidate]], list[ToolCallTrace]]:
-    rows = _run_parallel(executor, specs, sub_question)
+    rows = _run_parallel(executor, specs, sub_question, tenant_id=tenant_id)
     evidence: list[list[Candidate]] = []
     traces: list[ToolCallTrace] = []
     for spec, hits, err in rows:
@@ -185,13 +226,24 @@ def _collect_parallel(
 
 
 def _run_parallel(
-    executor: Executor, specs: list[ToolCallSpec], sub_question: str
+    executor: Executor,
+    specs: list[ToolCallSpec],
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> list[tuple[ToolCallSpec, list[Candidate], str | None]]:
     out: list[tuple[ToolCallSpec, list[Candidate], str | None]] = []
     workers = min(MAX_PARALLEL_WORKERS, len(specs))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(dispatch, executor, spec.tool, spec.args, sub_question=sub_question): spec
+            pool.submit(
+                dispatch,
+                executor,
+                spec.tool,
+                spec.args,
+                sub_question=sub_question,
+                tenant_id=tenant_id,
+            ): spec
             for spec in specs
         }
         for fut in as_completed(futs):
@@ -206,10 +258,16 @@ def _run_parallel(
 
 
 def _safe_dispatch(
-    executor: Executor, spec: ToolCallSpec, sub_question: str
+    executor: Executor,
+    spec: ToolCallSpec,
+    sub_question: str,
+    *,
+    tenant_id: str | None = None,
 ) -> tuple[list[Candidate], str | None]:
     try:
-        hits = dispatch(executor, spec.tool, spec.args, sub_question=sub_question)
+        hits = dispatch(
+            executor, spec.tool, spec.args, sub_question=sub_question, tenant_id=tenant_id
+        )
         return hits, None
     except Exception as exc:  # noqa: BLE001 — channel failure degrades
         return [], type(exc).__name__

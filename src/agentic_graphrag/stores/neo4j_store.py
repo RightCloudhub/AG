@@ -21,6 +21,7 @@ from agentic_graphrag.stores.neo4j_codec import (
     sources_for_neo4j,
     sources_from_neo4j,
 )
+from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record
 
 # Back-compat aliases used by unit tests.
 _attrs_for_neo4j = attrs_for_neo4j
@@ -75,13 +76,15 @@ class Neo4jGraphStore:
         label = _validate_identifier(ent.type, "label")
         query = (
             f"MERGE (e:`{label}` {{id: $id}}) "
-            "SET e.name = $name, e.attributes = $attributes, e.aliases = $aliases "
+            "SET e.name = $name, e.tenant_id = $tenant_id, "
+            "e.attributes = $attributes, e.aliases = $aliases "
             "RETURN e.id AS id"
         )
         result = session.run(
             query,
             id=ent.id,
             name=ent.name,
+            tenant_id=ent.tenant_id,
             attributes=attrs_for_neo4j(ent.attributes),
             aliases=list(ent.aliases or []),
         )
@@ -109,6 +112,7 @@ class Neo4jGraphStore:
             "SET t.name = coalesce(t.name, $tail_name) "
             f"MERGE (h)-[r:`{rel_type}` {{id: $id}}]->(t) "
             "SET r.confidence = $confidence, "
+            "    r.tenant_id = $tenant_id, "
             "    r.attributes = $attributes, "
             "    r.head_id = $head_id, "
             "    r.tail_id = $tail_id, "
@@ -125,6 +129,7 @@ class Neo4jGraphStore:
             head_name=rel.head_name or "",
             tail_name=rel.tail_name or "",
             confidence=rel.confidence,
+            tenant_id=rel.tenant_id,
             attributes=attrs_for_neo4j(rel.attributes),
             sources=sources_for_neo4j(rel.sources),
         )
@@ -152,15 +157,21 @@ class Neo4jGraphStore:
         max_hops: int = 1,
         relation_types: list[str] | None = None,
         limit: int = 50,
+        tenant_id: str | None = None,
     ) -> list[tuple[RelationRecord, EntityRecord]]:
         max_hops = max(1, min(max_hops, _MAX_NEIGHBOR_HOPS))
         limit = max(1, min(limit, _MAX_NEIGHBOR_LIMIT))
-        params: dict[str, Any] = {"name": entity_name, "limit": limit, "max_hops": max_hops}
+        params: dict[str, Any] = {
+            "name": entity_name,
+            "limit": limit,
+            "max_hops": max_hops,
+            "tenant_id": tenant_id,
+        }
         if relation_types:
             for rt in relation_types:
                 _validate_identifier(rt, "rel")
             params["rel_types"] = relation_types
-        query = _neighbors_query(max_hops, relation_types)
+        query = neighbors_query(max_hops, relation_types)
         return self._run_neighbors(query, params, entity_name)
 
     def _run_neighbors(
@@ -185,6 +196,7 @@ class Neo4jGraphStore:
         *,
         max_hops: int = 4,
         limit: int = 20,
+        tenant_id: str | None = None,
     ) -> list[PathRecord]:
         """Bounded enumeration of simple paths (all, not only one shortest)."""
         max_hops = max(1, min(max_hops, _MAX_PATH_HOPS))
@@ -196,17 +208,31 @@ class Neo4jGraphStore:
           AND src <> dst
         MATCH path = (src)-[*1..{max_hops}]-(dst)
         WHERE ALL(n IN nodes(path) WHERE size([m IN nodes(path) WHERE id(m) = id(n)]) = 1)
+          AND ($tenant_id IS NULL OR ALL(r IN relationships(path)
+              WHERE coalesce(r.tenant_id, '') IN [$tenant_id, '']))
         RETURN path
         ORDER BY length(path) ASC
         LIMIT $limit
         """
-        return self._run_paths(query, source=source_name, target=target_name, limit=limit)
+        return self._run_paths(
+            query, source=source_name, target=target_name, limit=limit, tenant_id=tenant_id
+        )
 
-    def _run_paths(self, query: str, *, source: str, target: str, limit: int) -> list[PathRecord]:
+    def _run_paths(
+        self,
+        query: str,
+        *,
+        source: str,
+        target: str,
+        limit: int,
+        tenant_id: str | None,
+    ) -> list[PathRecord]:
         results: list[PathRecord] = []
         with self._driver.session() as session:
-            for record in session.run(query, source=source, target=target, limit=limit):
-                results.append(_path_record(record["path"]))
+            for record in session.run(
+                query, source=source, target=target, limit=limit, tenant_id=tenant_id
+            ):
+                results.append(path_record(record["path"]))
         return results
 
     def counts(self) -> dict[str, int]:
@@ -241,60 +267,3 @@ class Neo4jGraphStore:
                 id=relation_id,
             ).single()
         return bool(row and int(row["c"]) > 0)
-
-
-def _neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
-    if max_hops == 1:
-        return _one_hop_query(relation_types)
-    last_rel_pred = "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
-    return f"""
-    MATCH (src)
-    WHERE toLower(src.name) = toLower($name)
-    MATCH path = (src)-[*1..{max_hops}]-(dst)
-    WHERE src <> dst
-      AND ALL(n IN nodes(path) WHERE size([m IN nodes(path) WHERE id(m) = id(n)]) = 1)
-      {last_rel_pred}
-    WITH dst, last(relationships(path)) AS r, length(path) AS hops
-    WITH r, dst, min(hops) AS hops
-    ORDER BY hops ASC, coalesce(r.id, '') ASC, dst.name ASC
-    RETURN dst, r, hops
-    LIMIT $limit
-    """
-
-
-def _one_hop_query(relation_types: list[str] | None) -> str:
-    if relation_types:
-        return """
-        MATCH (src)-[r]-(dst)
-        WHERE toLower(src.name) = toLower($name)
-          AND type(r) IN $rel_types
-          AND src <> dst
-        RETURN dst, r, 1 AS hops
-        ORDER BY coalesce(r.id, ''), dst.name
-        LIMIT $limit
-        """
-    return """
-    MATCH (src)-[r]-(dst)
-    WHERE toLower(src.name) = toLower($name) AND src <> dst
-    RETURN dst, r, 1 AS hops
-    ORDER BY coalesce(r.id, ''), dst.name
-    LIMIT $limit
-    """
-
-
-def _path_record(path: Any) -> PathRecord:
-    nodes = [node_to_entity(n) for n in path.nodes]
-    rels = [
-        rel_to_record(
-            r,
-            walk_from_name=nodes[i].name if i < len(nodes) else "",
-            walk_other_name=nodes[i + 1].name if i + 1 < len(nodes) else "",
-        )
-        for i, r in enumerate(path.relationships)
-    ]
-    return PathRecord(
-        nodes=nodes,
-        relations=rels,
-        length=len(rels),
-        score=1.0 / max(len(rels), 1),
-    )

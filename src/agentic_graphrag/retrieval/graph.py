@@ -103,6 +103,7 @@ class GraphRetriever:
         relation_types: list[str] | None = None,
         limit: int | None = None,
         sub_question: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[Candidate]:
         hops = max_hops if max_hops is not None else self.default_neighbor_hops
         lim = min(limit or self.max_neighbors_per_layer, self.max_neighbors_per_layer)
@@ -114,6 +115,7 @@ class GraphRetriever:
             max_hops=max(1, hops),
             preferred_relations=preferred,
             sub_question=sub_question,
+            tenant_id=tenant_id,
         )
         ranked = self._rank_neighbor_edges(beams, entity_name, sub_question)
         return self._neighbor_candidates(ranked[:lim], entity_name, preferred)
@@ -192,11 +194,14 @@ class GraphRetriever:
         max_hops: int | None = None,
         limit: int | None = None,
         sub_question: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[Candidate]:
         hops = max_hops if max_hops is not None else self.default_path_hops
         lim = min(limit or self.max_paths, self.max_paths)
         preferred = infer_relation_types(sub_question, min_score=self.relation_relevance_threshold)
-        path_rows = self.store.paths(source_name, target_name, max_hops=hops, limit=lim * 3)
+        path_rows = self.store.paths(
+            source_name, target_name, max_hops=hops, limit=lim * 3, tenant_id=tenant_id
+        )
         if not path_rows:
             path_rows = self._beam.beam_paths(
                 source_name,
@@ -204,6 +209,7 @@ class GraphRetriever:
                 max_hops=hops,
                 preferred_relations=preferred,
                 sub_question=sub_question,
+                tenant_id=tenant_id,
             )
         scored = score_paths(path_rows, sub_question)
         return path_candidates(scored[:lim], source_name, target_name)
@@ -216,6 +222,7 @@ class GraphRetriever:
         relation_types: list[str] | None = None,
         limit: int | None = None,
         sub_question: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[Candidate]:
         """Seed set + relation constraints → union of pruned neighbor expansions."""
         hops = max_hops if max_hops is not None else self.default_neighbor_hops
@@ -231,6 +238,7 @@ class GraphRetriever:
                 relation_types=relation_types,
                 limit=per_seed,
                 sub_question=sub_question,
+                tenant_id=tenant_id,
             )
             for c in group:
                 key = c.content.lower()

@@ -2,48 +2,38 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import deque
 
 from agentic_graphrag.stores.interfaces import EntityRecord, PathRecord, RelationRecord
-
-
-@dataclass
-class _NeighborState:
-    visited_nodes: set[str]
-    frontier: set[str]
-    results: list[tuple[RelationRecord, EntityRecord]] = field(default_factory=list)
-    seen_edges: set[str] = field(default_factory=set)
 
 
 class InMemoryGraphStore:
     def __init__(self) -> None:
         self._entities: dict[str, EntityRecord] = {}
-        self._by_name: dict[str, EntityRecord] = {}
-        self._relations: list[RelationRecord] = []
+        self._relations: dict[str, RelationRecord] = {}
 
     def clear(self) -> None:
         self._entities.clear()
-        self._by_name.clear()
         self._relations.clear()
 
     def upsert_entities(self, entities: list[EntityRecord]) -> int:
-        for e in entities:
-            self._entities[e.id] = e
-            self._by_name[e.name.lower()] = e
+        for entity in entities:
+            self._entities[_key(entity.tenant_id, entity.id)] = entity
         return len(entities)
 
     def upsert_relations(self, relations: list[RelationRecord]) -> int:
-        by_id = {r.id: r for r in self._relations}
-        for r in relations:
-            by_id[r.id] = r
-        self._relations = list(by_id.values())
+        for relation in relations:
+            self._relations[_key(relation.tenant_id, relation.id)] = relation
         return len(relations)
 
     def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
-        ent = self._by_name.get(name.lower())
-        if ent and entity_type and ent.type != entity_type:
-            return None
-        return ent
+        target = name.lower()
+        for entity in self._entities.values():
+            if entity.name.lower() != target:
+                continue
+            if entity_type is None or entity.type == entity_type:
+                return entity
+        return None
 
     def neighbors(
         self,
@@ -52,66 +42,51 @@ class InMemoryGraphStore:
         max_hops: int = 1,
         relation_types: list[str] | None = None,
         limit: int = 50,
+        tenant_id: str | None = None,
     ) -> list[tuple[RelationRecord, EntityRecord]]:
-        start = entity_name.lower()
-        state = _NeighborState(visited_nodes={start}, frontier={start})
+        frontier = {entity_name.lower()}
+        visited = set(frontier)
+        seen_edges: set[str] = set()
+        results: list[tuple[RelationRecord, EntityRecord]] = []
         for _ in range(max(1, max_hops)):
-            if self._expand_frontier(state, relation_types, limit):
-                return state.results
-            if not state.frontier:
-                break
-        return state.results
-
-    def _expand_frontier(
-        self,
-        state: _NeighborState,
-        relation_types: list[str] | None,
-        limit: int,
-    ) -> bool:
-        """Return True when limit is hit."""
-        next_frontier: set[str] = set()
-        for node in state.frontier:
-            if self._expand_node(
-                node,
-                state=state,
+            frontier = self._expand_neighbors(
+                frontier,
+                visited=visited,
+                seen_edges=seen_edges,
+                results=results,
                 relation_types=relation_types,
-                next_frontier=next_frontier,
+                tenant_id=tenant_id,
                 limit=limit,
-            ):
-                return True
-        state.frontier = next_frontier
-        return False
+            )
+            if not frontier or len(results) >= limit:
+                break
+        return results[:limit]
 
-    def _expand_node(
+    def _expand_neighbors(
         self,
-        node: str,
+        frontier: set[str],
         *,
-        state: _NeighborState,
+        visited: set[str],
+        seen_edges: set[str],
+        results: list[tuple[RelationRecord, EntityRecord]],
         relation_types: list[str] | None,
-        next_frontier: set[str],
+        tenant_id: str | None,
         limit: int,
-    ) -> bool:
-        for rel, other in self._edges_of(node, relation_types):
-            if self._maybe_record(rel, other, state) and len(state.results) >= limit:
-                return True
-            key = other.name.lower()
-            if key not in state.visited_nodes:
-                state.visited_nodes.add(key)
-                next_frontier.add(key)
-        return False
-
-    def _maybe_record(
-        self,
-        rel: RelationRecord,
-        other: EntityRecord,
-        state: _NeighborState,
-    ) -> bool:
-        edge_key = rel.id or f"{rel.type}:{rel.head_name}:{rel.tail_name}:{other.name}"
-        if edge_key in state.seen_edges:
-            return False
-        state.seen_edges.add(edge_key)
-        state.results.append((rel, other))
-        return True
+    ) -> set[str]:
+        next_frontier: set[str] = set()
+        for node in sorted(frontier):
+            for relation, other in self._edges_of(node, relation_types, tenant_id):
+                edge_key = _key(relation.tenant_id, relation.id)
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    results.append((relation, other))
+                other_name = other.name.lower()
+                if other_name not in visited:
+                    visited.add(other_name)
+                    next_frontier.add(other_name)
+                if len(results) >= limit:
+                    return next_frontier
+        return next_frontier
 
     def paths(
         self,
@@ -120,95 +95,141 @@ class InMemoryGraphStore:
         *,
         max_hops: int = 4,
         limit: int = 20,
+        tenant_id: str | None = None,
     ) -> list[PathRecord]:
-        src = source_name.lower()
-        dst = target_name.lower()
-        if src not in self._by_name or dst not in self._by_name:
+        source = self._entity_for_name(source_name, tenant_id)
+        target = self._entity_for_name(target_name, tenant_id)
+        if source is None or target is None:
             return []
-        queue: list[tuple[str, list[EntityRecord], list[RelationRecord]]] = [
-            (src, [self._by_name[src]], [])
-        ]
+        queue = deque([(source, [source], [])])
         found: list[PathRecord] = []
         while queue and len(found) < limit:
-            node, nodes, rels = queue.pop(0)
-            if len(rels) >= max_hops:
+            current, nodes, relations = queue.popleft()
+            if len(relations) >= max_hops:
                 continue
-            self._expand_path(node, nodes, rels, dst=dst, queue=queue, found=found)
+            self._extend_paths(
+                queue,
+                found,
+                current=current,
+                nodes=nodes,
+                relations=relations,
+                target=target,
+                tenant_id=tenant_id,
+            )
         return found
 
-    def _expand_path(
+    def _extend_paths(
         self,
-        node: str,
-        nodes: list[EntityRecord],
-        rels: list[RelationRecord],
-        *,
-        dst: str,
-        queue: list[tuple[str, list[EntityRecord], list[RelationRecord]]],
+        queue: deque,
         found: list[PathRecord],
+        *,
+        current: EntityRecord,
+        nodes: list[EntityRecord],
+        relations: list[RelationRecord],
+        target: EntityRecord,
+        tenant_id: str | None,
     ) -> None:
-        seen_names = {n.name.lower() for n in nodes}
-        for rel, other in self._edges_of(node, None):
-            if other.name.lower() in seen_names:
+        seen = {node.name.lower() for node in nodes}
+        for relation, other in self._edges_of(current.name.lower(), None, tenant_id):
+            if other.name.lower() in seen:
                 continue
-            new_nodes = nodes + [other]
-            new_rels = rels + [rel]
-            if other.name.lower() == dst:
-                found.append(
-                    PathRecord(
-                        nodes=new_nodes,
-                        relations=new_rels,
-                        length=len(new_rels),
-                        score=1.0 / max(len(new_rels), 1),
-                    )
-                )
+            new_nodes = [*nodes, other]
+            new_relations = [*relations, relation]
+            if other.id == target.id and _tenant_matches(other.tenant_id, tenant_id):
+                found.append(_path(new_nodes, new_relations))
             else:
-                queue.append((other.name.lower(), new_nodes, new_rels))
+                queue.append((other, new_nodes, new_relations))
 
     def counts(self) -> dict[str, int]:
-        n = len(self._entities)
-        r = len(self._relations)
+        entities = len(self._entities)
+        relations = len(self._relations)
         return {
-            "nodes": n,
-            "entities": n,
-            "entity_count": n,
-            "relationships": r,
-            "relations": r,
+            "nodes": entities,
+            "entities": entities,
+            "entity_count": entities,
+            "relationships": relations,
+            "relations": relations,
         }
 
-    def list_entities(self, *, limit: int = 50, offset: int = 0) -> list[EntityRecord]:
-        items = list(self._entities.values())
-        items.sort(key=lambda e: (e.type, e.name.lower()))
+    def list_entities(
+        self, *, limit: int = 50, offset: int = 0, tenant_id: str | None = None
+    ) -> list[EntityRecord]:
+        items = [
+            entity
+            for entity in self._entities.values()
+            if _tenant_matches(entity.tenant_id, tenant_id)
+        ]
+        items.sort(key=lambda entity: (entity.type, entity.name.lower()))
         return items[max(0, offset) : max(0, offset) + max(0, limit)]
 
     def close(self) -> None:
         return None
 
     def _edges_of(
-        self, name_lower: str, relation_types: list[str] | None
-    ) -> list[tuple[RelationRecord, EntityRecord]]:
-        out: list[tuple[RelationRecord, EntityRecord]] = []
-        for r in self._relations:
-            pair = self._edge_endpoint(r, name_lower, relation_types)
-            if pair is not None:
-                out.append(pair)
-        return out
-
-    def _edge_endpoint(
         self,
-        r: RelationRecord,
-        name_lower: str,
+        name: str,
         relation_types: list[str] | None,
-    ) -> tuple[RelationRecord, EntityRecord] | None:
-        if relation_types and r.type not in relation_types:
+        tenant_id: str | None,
+    ) -> list[tuple[RelationRecord, EntityRecord]]:
+        rows: list[tuple[RelationRecord, EntityRecord]] = []
+        for relation in self._relations.values():
+            if not _tenant_matches(relation.tenant_id, tenant_id):
+                continue
+            endpoint = self._endpoint(relation, name, relation_types)
+            if endpoint is not None:
+                rows.append((relation, endpoint))
+        return rows
+
+    def _endpoint(
+        self,
+        relation: RelationRecord,
+        name: str,
+        relation_types: list[str] | None,
+    ) -> EntityRecord | None:
+        if relation_types and relation.type not in relation_types:
             return None
-        if r.head_name.lower() == name_lower:
-            other = self._entities.get(r.tail_id) or EntityRecord(
-                id=r.tail_id, name=r.tail_name, type="Entity"
-            )
-            return (r, other)
-        if r.tail_name.lower() == name_lower:
-            other = self._entities.get(r.head_id) or EntityRecord(
-                id=r.head_id, name=r.head_name, type="Entity"
-            )
-            return (r, other)
+        if relation.head_name.lower() == name:
+            return self._entity_or_stub(relation.tail_id, relation.tail_name, relation.tenant_id)
+        if relation.tail_name.lower() == name:
+            return self._entity_or_stub(relation.head_id, relation.head_name, relation.tenant_id)
         return None
+
+    def _entity_or_stub(self, entity_id: str, name: str, tenant_id: str) -> EntityRecord:
+        return self._entities.get(_key(tenant_id, entity_id)) or EntityRecord(
+            id=entity_id, name=name, type="Entity", tenant_id=tenant_id
+        )
+
+    def _entity_for_name(self, name: str, tenant_id: str | None) -> EntityRecord | None:
+        target = name.lower()
+        return next(
+            (
+                entity
+                for entity in self._entities.values()
+                if entity.name.lower() == target and _tenant_matches(entity.tenant_id, tenant_id)
+            ),
+            None,
+        )
+
+
+def _path(nodes: list[EntityRecord], relations: list[RelationRecord]) -> PathRecord:
+    return PathRecord(
+        nodes=nodes,
+        relations=relations,
+        length=len(relations),
+        score=1.0 / max(len(relations), 1),
+    )
+
+
+def _key(tenant_id: str, value: str) -> str:
+    return f"{tenant_id}\0{value}"
+
+
+def _tenant_matches(owner: str, requested: str | None) -> bool:
+    """Allow legacy seed records as shared; isolate explicitly tagged records."""
+    if requested is None:
+        return True
+    if owner == "":
+        return True
+    if requested == "default":
+        return owner == "default"
+    return owner == requested

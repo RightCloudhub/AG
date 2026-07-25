@@ -49,16 +49,31 @@ class QdrantVectorStore:
                         "text": ch.text,
                         "index": ch.index,
                         "metadata": ch.metadata or {},
+                        "tenant_id": ch.tenant_id,
                     },
                 )
             )
         self._client.upsert(collection_name=self._collection, points=points)
         return len(points)
 
-    def search(self, query_vector: list[float], top_k: int = 10) -> list[tuple[ChunkRecord, float]]:
+    def search(
+        self,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[tuple[ChunkRecord, float]]:
+        query_filter = None
+        if tenant_id is not None:
+            from qdrant_client.http import models as qm
+
+            query_filter = qm.Filter(
+                must=[qm.FieldCondition(key="tenant_id", match=qm.MatchValue(value=tenant_id))]
+            )
         hits = self._client.search(
             collection_name=self._collection,
             query_vector=query_vector,
+            query_filter=query_filter,
             limit=top_k,
         )
         out: list[tuple[ChunkRecord, float]] = []
@@ -70,6 +85,7 @@ class QdrantVectorStore:
                 text=str(payload.get("text", "")),
                 index=int(payload.get("index", 0)),
                 metadata=payload.get("metadata") or {},
+                tenant_id=str(payload.get("tenant_id") or ""),
             )
             out.append((chunk, float(hit.score)))
         return out
@@ -106,9 +122,17 @@ class InMemoryVectorStore:
             self._items.append(ch)
         return len(chunks)
 
-    def search(self, query_vector: list[float], top_k: int = 10) -> list[tuple[ChunkRecord, float]]:
+    def search(
+        self,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[tuple[ChunkRecord, float]]:
         scored: list[tuple[ChunkRecord, float]] = []
         for ch in self._items:
+            if tenant_id is not None and ch.tenant_id not in {"", tenant_id}:
+                continue
             if not ch.embedding:
                 continue
             score = _cosine(query_vector, ch.embedding)

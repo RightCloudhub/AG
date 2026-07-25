@@ -23,11 +23,12 @@ def run_fast_path(
     allow_llm: bool = True,
     budget: BudgetTracker | None = None,
     triage_meta: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
 ) -> ReasoningChain:
     """Single-hop retrieval + generation without Planner/Critic loop."""
     t0 = time.perf_counter()
     chain = _new_chain(question, triage_meta)
-    candidates, traces = executor.run(question, allow_llm=False)
+    candidates, traces = executor.run(question, allow_llm=False, tenant_id=tenant_id)
     chain.steps.append(_fast_step(question, candidates, traces))
     chain = generate_answer(
         chain,

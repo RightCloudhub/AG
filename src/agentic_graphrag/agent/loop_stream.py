@@ -174,6 +174,7 @@ def _iter_fast_or_escalate(
         allow_llm=ctx.run_opts.allow_llm,
         budget=ctx.run_opts.budget,
         triage_meta=triage_meta,
+        tenant_id=ctx.run_opts.tenant_id or None,
     )
     if not should_escalate_chain(chain):
         yield from _emit_steps_then_chain(chain)

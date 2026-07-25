@@ -32,6 +32,7 @@ class AgentRunOptions:
     recursion_limit: int | None = None
     checkpointer: Any | None = None
     thread_id: str | None = None
+    tenant_id: str = ""
 
 
 @dataclass(frozen=True)

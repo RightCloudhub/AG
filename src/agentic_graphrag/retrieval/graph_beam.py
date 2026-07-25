@@ -64,6 +64,7 @@ class BeamExpander:
         *,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[tuple[float, RelationRecord, EntityRecord]]:
         """1-hop edges from store, scored and pruned."""
         fetch_limit = max(self.cfg.max_neighbors_per_layer * 2, self.cfg.beam_width * 2)
@@ -74,11 +75,16 @@ class BeamExpander:
             max_hops=1,
             relation_types=hard_types if self.looks_high_degree(entity_name) else None,
             limit=fetch_limit,
+            tenant_id=tenant_id,
         )
         # If hard filter yielded nothing, retry unfiltered
         if hard_types and not rows:
             rows = self.store.neighbors(
-                entity_name, max_hops=1, relation_types=None, limit=fetch_limit
+                entity_name,
+                max_hops=1,
+                relation_types=None,
+                limit=fetch_limit,
+                tenant_id=tenant_id,
             )
 
         scored: list[tuple[float, RelationRecord, EntityRecord]] = []
@@ -120,6 +126,7 @@ class BeamExpander:
         max_hops: int,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[BeamItem]:
         start = EntityRecord(id="", name=entity_name, type="Entity")
         beams: list[BeamItem] = [
@@ -127,7 +134,7 @@ class BeamExpander:
         ]
         all_frontier = list(beams)
         for _hop in range(max(1, max_hops)):
-            nxt = self._expand_layer(beams, preferred_relations, sub_question)
+            nxt = self._expand_layer(beams, preferred_relations, sub_question, tenant_id=tenant_id)
             if not nxt:
                 break
             nxt.sort(key=lambda b: (-b.score, b.node_name))
@@ -140,10 +147,14 @@ class BeamExpander:
         beams: list[BeamItem],
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        *,
+        tenant_id: str | None = None,
     ) -> list[BeamItem]:
         nxt: list[BeamItem] = []
         for item in beams:
-            nxt.extend(self._extend_item(item, preferred_relations, sub_question))
+            nxt.extend(
+                self._extend_item(item, preferred_relations, sub_question, tenant_id=tenant_id)
+            )
         return nxt
 
     def _extend_item(
@@ -151,6 +162,8 @@ class BeamExpander:
         item: BeamItem,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        *,
+        tenant_id: str | None = None,
     ) -> list[BeamItem]:
         seen = {normalize_name(n.name) for n in item.nodes}
         out: list[BeamItem] = []
@@ -158,6 +171,7 @@ class BeamExpander:
             item.node_name,
             preferred_relations=preferred_relations,
             sub_question=sub_question,
+            tenant_id=tenant_id,
         )
         for sc, rel, ent in layer:
             if normalize_name(ent.name) in seen:
@@ -181,6 +195,7 @@ class BeamExpander:
         max_hops: int,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[PathRecord]:
         target_key = normalize_name(target_name)
         found: list[PathRecord] = []
@@ -189,6 +204,7 @@ class BeamExpander:
             max_hops=max_hops,
             preferred_relations=preferred_relations,
             sub_question=sub_question,
+            tenant_id=tenant_id,
         )
         seen: set[str] = set()
         for item in beams:

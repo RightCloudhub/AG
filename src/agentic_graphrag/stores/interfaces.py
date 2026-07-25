@@ -21,6 +21,7 @@ class EntityRecord:
     attributes: dict[str, Any] = field(default_factory=dict)
     aliases: list[str] = field(default_factory=list)
     sources: list[dict[str, Any]] = field(default_factory=list)
+    tenant_id: str = ""
 
 
 @dataclass
@@ -34,6 +35,7 @@ class RelationRecord:
     confidence: float = 1.0
     attributes: dict[str, Any] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
+    tenant_id: str = ""
 
 
 @dataclass
@@ -50,6 +52,7 @@ class DocumentRecord:
     title: str
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    tenant_id: str = ""
 
 
 @dataclass
@@ -60,6 +63,7 @@ class ChunkRecord:
     index: int
     metadata: dict[str, Any] = field(default_factory=dict)
     embedding: list[float] | None = None
+    tenant_id: str = ""
 
 
 @runtime_checkable
@@ -83,6 +87,7 @@ class GraphStore(Protocol):
         max_hops: int = 1,
         relation_types: list[str] | None = None,
         limit: int = 50,
+        tenant_id: str | None = None,
     ) -> list[tuple[RelationRecord, EntityRecord]]: ...
 
     def paths(
@@ -92,6 +97,7 @@ class GraphStore(Protocol):
         *,
         max_hops: int = 4,
         limit: int = 20,
+        tenant_id: str | None = None,
     ) -> list[PathRecord]: ...
 
     def counts(self) -> dict[str, int]: ...
@@ -108,7 +114,11 @@ class VectorStore(Protocol):
     def upsert(self, chunks: list[ChunkRecord]) -> int: ...
 
     def search(
-        self, query_vector: list[float], top_k: int = 10
+        self,
+        query_vector: list[float],
+        top_k: int = 10,
+        *,
+        tenant_id: str | None = None,
     ) -> list[tuple[ChunkRecord, float]]: ...
 
     def clear(self) -> None: ...
@@ -122,7 +132,9 @@ class FulltextStore(Protocol):
 
     def index(self, chunks: list[ChunkRecord]) -> int: ...
 
-    def search(self, query: str, top_k: int = 10) -> list[tuple[ChunkRecord, float]]: ...
+    def search(
+        self, query: str, top_k: int = 10, *, tenant_id: str | None = None
+    ) -> list[tuple[ChunkRecord, float]]: ...
 
     def clear(self) -> None: ...
 
@@ -135,4 +147,4 @@ class DocStore(Protocol):
 
     def get(self, doc_id: str) -> DocumentRecord | None: ...
 
-    def list_ids(self) -> list[str]: ...
+    def list_ids(self, *, tenant_id: str | None = None) -> list[str]: ...

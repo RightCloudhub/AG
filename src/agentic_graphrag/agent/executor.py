@@ -136,16 +136,19 @@ class Executor:
         *,
         entities_hint: list[str] | None = None,
         allow_llm: bool = True,
+        tenant_id: str | None = None,
     ) -> tuple[list[Candidate], list[ToolCallTrace]]:
         specs = self._choose_tools(sub_question, entities_hint or [], allow_llm=allow_llm)
         tools_key = ",".join(sorted(s.tool for s in specs))
-        if self.cache is not None:
+        if self.cache is not None and tenant_id is None:
             cached = self.cache.get_retrieval(sub_question, tools_key)
             if cached is not None:
                 return cache_hit_result(cached, tools_key)
 
-        evidence, traces = run_tool_specs(self, specs, sub_question)
-        fused = fuse_and_cache(self, evidence, sub_question, tools_key=tools_key)
+        evidence, traces = run_tool_specs(self, specs, sub_question, tenant_id=tenant_id)
+        fused = fuse_and_cache(
+            self, evidence, sub_question, tools_key=tools_key, cache_result=tenant_id is None
+        )
         return fused, traces
 
     def resolve_entities(self, text: str, hint: list[str] | None = None) -> list[str]:

@@ -65,7 +65,7 @@ def node_to_entity(node: Any) -> EntityRecord:
         name=str(props.get("name", "")),
         type=etype,
         attributes=attrs_from_neo4j(props.get("attributes")),
-        aliases=list(props.get("aliases") or []),
+        tenant_id=str(props.get("tenant_id") or ""),
     )
 
 
@@ -123,4 +123,5 @@ def rel_to_record(
         confidence=float(props.get("confidence", 1.0)),
         attributes=attrs_from_neo4j(props.get("attributes")),
         sources=sources_from_neo4j(props.get("sources")),
+        tenant_id=str(props.get("tenant_id") or ""),
     )

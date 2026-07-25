@@ -44,6 +44,7 @@ class AgentState(TypedDict, total=False):
     done: bool
     guardrail_status: str
     allow_llm: bool
+    tenant_id: str
 
 
 class AgentRuntime:
