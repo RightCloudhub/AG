@@ -67,3 +67,16 @@ paths:
 eval:
   cases_path: evals/datasets/g2_dev.jsonl
   report_dir: reports
+
+tenants: {}
+# Per-tenant overrides (ENT-05); example:
+#   acme:
+#     qps: 5
+#     concurrent: 3
+#     max_llm_calls: 200
+
+retention:
+  audit_chains_days: 90
+  audit_events_days: 90
+  review_queue_days: 30
+  ingest_tasks_days: 30

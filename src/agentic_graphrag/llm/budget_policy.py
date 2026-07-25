@@ -53,6 +53,7 @@ class MultiLevelBudget:
         user_limits: BudgetLimits | None = None,
         query_limits: BudgetLimits | None = None,
         window_seconds: float = 86400.0,
+        tenant_overrides: dict[str, BudgetLimits] | None = None,
     ) -> None:
         self.tenant_limits = tenant_limits or BudgetLimits(
             max_llm_calls=10_000, max_tokens=5_000_000, max_cost_units=1000.0
@@ -62,6 +63,7 @@ class MultiLevelBudget:
         )
         self.query_limits = query_limits or BudgetLimits()
         self.window_seconds = window_seconds
+        self.tenant_overrides = tenant_overrides or {}
         self._tenant: dict[str, WindowUsage] = {}
         self._user: dict[str, WindowUsage] = {}
         self._lock = threading.Lock()
@@ -95,7 +97,7 @@ class MultiLevelBudget:
                     "tenant",
                     tenant_id,
                     t_usage,
-                    self.tenant_limits,
+                    self._tenant_limits(tenant_id),
                     estimated_calls,
                     estimated_tokens,
                     estimated_cost,
@@ -167,6 +169,9 @@ class MultiLevelBudget:
         t_usage.reset_if_needed(self.window_seconds)
         u_usage.reset_if_needed(self.window_seconds)
         return t_usage, u_usage
+
+    def _tenant_limits(self, tenant_id: str) -> BudgetLimits:
+        return self.tenant_overrides.get(tenant_id, self.tenant_limits)
 
     @staticmethod
     def _apply(usage: WindowUsage, *, calls: int, tokens: int, cost: float) -> None:

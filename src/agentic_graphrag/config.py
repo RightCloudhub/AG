@@ -11,6 +11,8 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+
 if TYPE_CHECKING:
     from agentic_graphrag.llm.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
@@ -141,6 +143,8 @@ class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
+    tenants: dict[str, TenantBudgetConfig] = Field(default_factory=dict)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
 
 class Settings(BaseSettings):
