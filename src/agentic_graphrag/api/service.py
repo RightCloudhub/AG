@@ -29,6 +29,7 @@ from agentic_graphrag.generation.audit_store import AuditStore
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
 from agentic_graphrag.knowledge.review.queue import ReviewQueue, ReviewType
+from agentic_graphrag.knowledge.schema_check import load_schema
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.budget_policy import MultiLevelBudget
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
@@ -131,7 +132,11 @@ class QueryService:
 
         triples = _load_triples(resolve_path(seed_triples)) if load_seed else []
         if triples:
-            load_triples_into_graph(bundle.graph, triples, clear_first=True)
+            # BL-07: apply schema gate at seed load so the invariant holds
+            # even for offline/default paths.
+            schema_path = resolve_path(cfg.knowledge.schema_path)
+            schema = load_schema(schema_path) if schema_path.exists() else None
+            load_triples_into_graph(bundle.graph, triples, clear_first=True, schema=schema)
         # Build per-tenant budget overrides from config (ENT-05).
         tenant_overrides: dict[str, BudgetLimits] = {}
         for tid, tcfg in cfg.tenants.items():

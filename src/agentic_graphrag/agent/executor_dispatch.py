@@ -56,6 +56,7 @@ def fuse_and_cache(
     sub_question: str,
     *,
     tools_key: str,
+    tenant_id: str | None = None,
     cache_result: bool = True,
 ) -> list[Candidate]:
     fused = fuse_candidates(
@@ -67,7 +68,7 @@ def fuse_and_cache(
         reranker=executor.reranker,
     )
     if executor.cache is not None and cache_result:
-        executor.cache.set_retrieval(sub_question, fused, tools_key)
+        executor.cache.set_retrieval(sub_question, fused, tools_key, tenant_id=tenant_id)
     return fused
 
 

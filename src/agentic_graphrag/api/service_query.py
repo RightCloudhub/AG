@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Iterator
@@ -26,6 +27,8 @@ from agentic_graphrag.observability.trace import get_tracer
 
 if TYPE_CHECKING:
     from agentic_graphrag.api.service import QueryService
+
+logger = logging.getLogger(__name__)
 
 MS_PER_SECOND = 1000
 # Must match MultiLevelBudget.check_and_reserve defaults used by the API path.
@@ -263,8 +266,8 @@ def _maybe_cache_answer(
             force_agentic=req.force_agentic,
             timeout_ms=req.timeout_ms,
         )
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 — cache is best-effort but must be visible
+        logger.warning("Failed to cache answer for query %s: %r", req.question)
 
 
 def _persist_and_commit(
@@ -278,8 +281,10 @@ def _persist_and_commit(
     if svc.audit_store is not None:
         try:
             svc.audit_store.save(chain)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 — audit is best-effort but visible
+            logger.warning(
+                "Failed to persist audit chain %s (tenant=%s)", chain.query_id, tenant_id
+            )
     if svc.enable_cache and svc.retrieval_cache is not None:
         _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     if svc.multi_budget:

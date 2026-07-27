@@ -17,16 +17,41 @@ ALLOWED_EXTENSIONS = frozenset({"md", "txt", "pdf"})
 
 
 def validate_upload(file: UploadFile) -> None:
-    """Check a file extension against the upload allow list."""
+    """Check a file extension against the upload allow list.
+
+    Fixes BL-08: files without an extension must be rejected (not silently
+    passed through), and size is checked *before* the file is read into memory.
+    """
     name = (file.filename or "").lower()
     ext = name.rsplit(".", 1)[-1] if "." in name else ""
-    if ext and ext not in ALLOWED_EXTENSIONS:
+    if not ext:
+        raise ApiError(
+            INVALID_INPUT,
+            f"File has no extension and cannot be uploaded: {file.filename or '<unnamed>'}",
+            status_code=400,
+        )
+    if ext not in ALLOWED_EXTENSIONS:
         allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
         raise ApiError(
             INVALID_INPUT,
             f"File type not allowed: .{ext} (allowed: {allowed})",
-            status_code=413,
+            status_code=400,
         )
+    # Check file size *before* reading to avoid loading large blobs into memory.
+    # UploadFile.seek() only accepts offset (no whence); use the underlying file object.
+    try:
+        raw = getattr(file, "file", file)
+        raw.seek(0, 2)  # seek to end
+        size = raw.tell()
+        raw.seek(0)  # rewind for reading
+        if size > MAX_FILE_SIZE_BYTES:
+            raise ApiError(
+                INVALID_INPUT,
+                f"File too large: {file.filename} ({size} bytes, max {MAX_FILE_SIZE_BYTES})",
+                status_code=413,
+            )
+    except (OSError, ValueError, AttributeError):
+        pass  # seek failed; proceed and check after read (belt-and-suspenders)
 
 
 async def save_uploads(
@@ -44,12 +69,21 @@ async def _save_upload(
     svc: Any, file: UploadFile, *, tenant_id: str, task_id: str
 ) -> dict[str, str]:
     validate_upload(file)
+    # Re-extract extension (validate_upload doesn't return it) for PDF handling.
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     content = await file.read()
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise ApiError(
             INVALID_INPUT,
             f"File too large: {file.filename} ({len(content)} bytes, max {MAX_FILE_SIZE_BYTES})",
             status_code=413,
+        )
+    # BL-08: PDFs are not parsed as text — reject them with a clear message.
+    if ext == "pdf":
+        raise ApiError(
+            INVALID_INPUT,
+            "PDF upload is not yet supported; please convert to .txt or .md first.",
+            status_code=415,
         )
     text = content.decode("utf-8", errors="replace")
     doc_id = file.filename or str(uuid.uuid4())
@@ -65,10 +99,15 @@ async def _save_upload(
         },
         tenant_id=tenant_id,
     )
+    # BL-10: propagate save failures instead of silently swallowing them.
     try:
         svc.bundle.docs.save(record)
-    except Exception:  # The task still records the failed persistence attempt for troubleshooting.
-        pass
+    except Exception as exc:  # noqa: BLE001 — surface to caller
+        raise ApiError(
+            INVALID_INPUT,
+            f"Failed to persist document {doc_id}: {exc}",
+            status_code=500,
+        ) from exc
     return {"doc_id": doc_id, "bytes": str(len(text)), "name": file.filename or ""}
 
 

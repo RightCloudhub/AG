@@ -25,7 +25,7 @@ class ConflictAction(StrEnum):
     AUTO_UPDATE = "auto_update"
     REVIEW = "review"
     KEEP_OLD = "keep_old"
-    SKIP = "skip"
+    SKIP = "skip"  # Reserved for future; currently not emitted by _decide()
 
 
 @dataclass
@@ -61,6 +61,7 @@ class BatchResult:
     rejected: int = 0
     conflicts_auto: int = 0
     conflicts_review: int = 0
+    conflicts_keep_old: int = 0
     review_items: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
     index_version: int | None = None
@@ -72,6 +73,7 @@ class BatchResult:
             "rejected": self.rejected,
             "conflicts_auto": self.conflicts_auto,
             "conflicts_review": self.conflicts_review,
+            "conflicts_keep_old": self.conflicts_keep_old,
             "review_items": self.review_items,
             "duration_ms": self.duration_ms,
             "index_version": self.index_version,
@@ -136,31 +138,12 @@ class IncrementalUpdater:
             key = (t.head.name.lower(), t.relation, t.tail.name.lower())
             existing = self._rel_index.get(key)
             if existing is None:
-                # Same head+rel but different tail → value conflict
-                value_conflicts = [
-                    r
-                    for (h, rel, _), r in self._rel_index.items()
-                    if h == t.head.name.lower()
-                    and rel == t.relation
-                    and r.tail_name.lower() != t.tail.name.lower()
-                ]
-                if value_conflicts:
-                    old = value_conflicts[0]
-                    action, reason = self._decide(old.confidence, t.confidence)
-                    conflicts.append(
-                        Conflict(
-                            relation_key=f"{t.head.name}|{t.relation}|*",
-                            existing=old,
-                            incoming=t,
-                            action=action,
-                            reason=reason,
-                        )
-                    )
+                v_conflicts = self._detect_value_conflicts(t)
+                if v_conflicts:
+                    conflicts.extend(v_conflicts)
                 else:
                     clean.append(t)
                 continue
-
-            # Exact same edge — only upgrade when confidence is meaningfully higher
             if t.confidence > existing.confidence + 1e-9:
                 action, reason = self._decide(existing.confidence, t.confidence)
                 conflicts.append(
@@ -172,8 +155,24 @@ class IncrementalUpdater:
                         reason=reason or "higher confidence refresh",
                     )
                 )
-            # Equal or lower confidence: do not re-write (prevents low-conf overwrite)
         return clean, conflicts
+
+    def _detect_value_conflicts(self, t: Triple) -> list[Conflict]:
+        """Emit a Conflict for EACH conflicting edge (BL-11 fix)."""
+        conflicts: list[Conflict] = []
+        for (h, rel, _), old in self._rel_index.items():
+            if h == t.head.name.lower() and rel == t.relation:
+                action, reason = self._decide(old.confidence, t.confidence)
+                conflicts.append(
+                    Conflict(
+                        relation_key=f"{t.head.name}|{t.relation}|*",
+                        existing=old,
+                        incoming=t,
+                        action=action,
+                        reason=reason,
+                    )
+                )
+        return conflicts
 
     def _decide(self, old_conf: float, new_conf: float) -> tuple[ConflictAction, str]:
         if new_conf >= old_conf + self.auto_update_margin:
@@ -201,8 +200,9 @@ class IncrementalUpdater:
         accepted = self._gate(triples, result)
         clean, conflicts = self.detect_conflicts(accepted)
         to_write = self._collect_writes(clean, conflicts, result)
-        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=None)
-        result.accepted = int(stats.get("relations", 0) or len(to_write))
+        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=self.schema)
+        # BL-11: accepted = actual graph write count, never fallback to plan count.
+        result.accepted = int(stats.get("relations", 0))
         self._refresh_index(to_write)
         if self.on_commit is not None:
             self.on_commit()
@@ -222,16 +222,22 @@ class IncrementalUpdater:
     ) -> list[Triple]:
         to_write: list[Triple] = list(clean)
         for c in conflicts:
+            self._process_conflict(c, result)
             if c.action == ConflictAction.AUTO_UPDATE:
                 self._retire_conflicting_edge(c)
                 to_write.append(c.incoming)
-                result.conflicts_auto += 1
-            elif c.action == ConflictAction.REVIEW:
-                result.conflicts_review += 1
-                item = c.to_dict()
-                result.review_items.append(item)
-                self._append_review(item)
         return to_write
+
+    def _process_conflict(self, c: Conflict, result: BatchResult) -> None:
+        """Update counters and side-channel effects for a single conflict."""
+        if c.action == ConflictAction.AUTO_UPDATE:
+            result.conflicts_auto += 1
+        elif c.action == ConflictAction.REVIEW:
+            result.conflicts_review += 1
+            result.review_items.append(c.to_dict())
+            self._append_review(c.to_dict())
+        elif c.action == ConflictAction.KEEP_OLD:
+            result.conflicts_keep_old += 1
 
     def _retire_conflicting_edge(self, conflict: Conflict) -> None:
         """Remove/supersede the old edge so AUTO_UPDATE does not leave dual facts."""

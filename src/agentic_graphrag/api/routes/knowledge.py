@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -18,8 +18,9 @@ from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
-# In-process compatibility index; durable state uses QueryService.ingest_tasks.
-_TASKS: dict[str, dict[str, Any]] = {}
+# NOTE: All task state lives in QueryService.ingest_tasks (IngestTaskStore).
+# The legacy in-process _TASKS dict was removed in BL-11 fix to avoid
+# unbounded growth and dual-write inconsistency.
 
 
 class DocUploadMeta(BaseModel):
@@ -60,7 +61,9 @@ async def upload_docs(
     row = task_row(task_id, tenant_id, saved)
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
-    _TASKS[task_id] = row
+    # BL-11: SPOTCHECK for new uploads uses confidence=0.5 as the baseline
+    # "needs-review" threshold. These items go to human review regardless of
+    # the actual extraction confidence (which is only meaningful post-extraction).
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
@@ -81,7 +84,7 @@ def get_ingest_task(task_id: str, request: Request) -> dict:
     tenant_id, _user_id = _principal(request)
     svc = _service(request)
     persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
-    task = persisted.to_dict() if persisted is not None else _TASKS.get(task_id)
+    task = persisted.to_dict() if persisted is not None else None
     if task is None:
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
     if task.get("tenant_id") not in {None, tenant_id}:
@@ -137,14 +140,16 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     svc = _service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
+    tenant_id, _user_id = _principal(request)
+    # BL-09: verify the item belongs to this tenant before allowing a decision.
+    item = svc.review_queue.get(item_id)
+    if item is None or item.tenant_id != tenant_id:
+        raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404)
     try:
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
-    try:
-        item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
-    except KeyError as exc:
-        raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
     emit_audit(
         request,
         {
@@ -211,13 +216,15 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
 
     Supports stores that expose ``list_entities`` (InMemoryGraphStore) or a
     public/private entity map (``entities`` / ``_entities``).
+    BL-09: uses the request's principal tenant for filtering.
     """
     svc = _service(request)
+    tenant_id, _user_id = _principal(request)
     store = svc.bundle.graph
     lim = max(0, min(int(limit or 50), 500))
     off = max(0, int(offset or 0))
 
-    records = _list_entity_records(store, limit=lim, offset=off)
+    records = _list_entity_records(store, tenant_id=tenant_id, limit=lim, offset=off)
     total = _entity_total(store, fallback=len(records) if off == 0 else None)
     rows = [
         {
@@ -231,16 +238,19 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
     return ok(rows, meta=MetaBody(total=total, limit=lim, page=(off // lim + 1) if lim else 1))
 
 
-def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
+def _list_entity_records(store: object, *, tenant_id: str, limit: int, offset: int) -> list:
     """Resolve entity list from GraphStore implementations without Protocol change."""
     lister = getattr(store, "list_entities", None)
     if callable(lister):
         try:
-            return list(lister(limit=limit, offset=offset))
+            return list(lister(tenant_id=tenant_id, limit=limit, offset=offset))
         except TypeError:
-            # Older signature without offset
-            items = list(lister(limit=limit))
-            return items[offset : offset + limit]
+            try:
+                return list(lister(tenant_id=tenant_id, limit=limit))
+            except TypeError:
+                # Fallback: no tenant_id support — return all (existing behaviour)
+                items = list(lister(limit=limit))
+                return items[offset : offset + limit]
 
     for attr in ("entities", "_entities"):
         entities = getattr(store, attr, None)

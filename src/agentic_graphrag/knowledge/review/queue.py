@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -10,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewType(StrEnum):
@@ -147,6 +150,14 @@ class ReviewQueue:
         items.sort(key=lambda i: i.created_at)
         return items[offset : offset + limit]
 
+    _TERMINAL_STATUSES = frozenset(
+        {
+            ReviewStatus.APPROVED.value,
+            ReviewStatus.REJECTED.value,
+            ReviewStatus.SKIPPED.value,
+        }
+    )
+
     def decide(
         self,
         item_id: str,
@@ -159,6 +170,14 @@ class ReviewQueue:
             item = self._items.get(item_id)
             if item is None:
                 raise KeyError(item_id)
+            # BL-11: reject re-submission on terminal states (idempotent semantics).
+            if item.status in self._TERMINAL_STATUSES:
+                logger.warning(
+                    "Review item %s already in terminal status %s; ignoring re-decision",
+                    item_id,
+                    item.status,
+                )
+                return item
             dec = decision.value if isinstance(decision, ReviewDecision) else str(decision)
             if dec == ReviewDecision.APPROVE.value:
                 item.status = ReviewStatus.APPROVED.value

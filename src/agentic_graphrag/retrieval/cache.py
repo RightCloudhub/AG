@@ -130,9 +130,15 @@ class RetrievalCache:
         self.embeddings = MemoryCache(max_entries=50_000)
         self.cache_dir = Path(cache_dir) if cache_dir else None
 
-    def retrieval_key(self, query: str, tools: str = "") -> str:
+    def retrieval_key(self, query: str, tools: str = "", *, tenant_id: str | None = None) -> str:
         v = self.index_version.current()
-        return f"ret:v{v}:{content_hash(normalize_query_key(query) + '|' + tools)}"
+        # BL-04: tenant-scoped key so cross-tenant cache isolation is explicit
+        # rather than relying on "tenant_id=None → no cache" convention.
+        if tenant_id:
+            scope = f"t={tenant_id}|"
+        else:
+            scope = ""
+        return f"ret:v{v}:{content_hash(scope + normalize_query_key(query) + '|' + tools)}"
 
     def answer_key(
         self,
@@ -155,15 +161,24 @@ class RetrievalCache:
     def embedding_key(self, text: str) -> str:
         return f"emb:{content_hash(text)}"
 
-    def get_retrieval(self, query: str, tools: str = "") -> list[Candidate] | None:
-        raw = self.retrieval.get(self.retrieval_key(query, tools))
+    def get_retrieval(
+        self, query: str, tools: str = "", *, tenant_id: str | None = None
+    ) -> list[Candidate] | None:
+        raw = self.retrieval.get(self.retrieval_key(query, tools, tenant_id=tenant_id))
         if raw is None:
             return None
         return [Candidate.model_validate(c) for c in raw]
 
-    def set_retrieval(self, query: str, candidates: list[Candidate], tools: str = "") -> None:
+    def set_retrieval(
+        self,
+        query: str,
+        candidates: list[Candidate],
+        tools: str = "",
+        *,
+        tenant_id: str | None = None,
+    ) -> None:
         payload = [c.model_dump(mode="json") for c in candidates]
-        self.retrieval.set(self.retrieval_key(query, tools), payload)
+        self.retrieval.set(self.retrieval_key(query, tools, tenant_id=tenant_id), payload)
 
     def get_answer(
         self,
@@ -224,10 +239,11 @@ class RetrievalCache:
         self.answers.clear()
         return v
 
-    def persist_embeddings(self) -> None:
+    def persist_cache_stats(self) -> None:
+        """Persist cache hit/miss stats to disk (best-effort)."""
         if not self.cache_dir:
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        path = self.cache_dir / "embeddings.json"
+        path = self.cache_dir / "cache_stats.json"
         stats = self.embeddings.stats()
         path.write_text(json.dumps(stats), encoding="utf-8")

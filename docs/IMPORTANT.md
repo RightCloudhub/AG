@@ -269,6 +269,34 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ---
 
+## 10.5. 业务逻辑完整性修复（2026-07-26）
+
+详见 [`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md)。
+
+| BL | 优先级 | 状态 | 文件 | 说明 |
+|----|--------|------|------|------|
+| BL-02 | P0 | [x] 已修复 | `generation/citations.py` | CJK 引用门禁：单字符 token 化，纯 CJK 声明不再全量匹配失败 |
+| BL-04 | P0 | [x] 已修复 | `agent/loop_stream.py` | SSE 流式 tenant_id 注入 Agent 状态，跨租户检索 + 共享缓存问题关闭 |
+| BL-07 | P1 | [x] 已修复 | `api/service.py`, `knowledge/incremental.py` | schema 门禁强制执行，`IncrementalUpdater` 传 schema 而非 `None` |
+| BL-05 | P1 | [x] 已修复 | `knowledge/ingest_worker.py` | worker CLI 接入 task_store，`--once` 轮询 task queue |
+| BL-06 | P1 | [x] 已修复 | `knowledge/ingest_tasks.py` | `EXTRACTING → QUEUED` 过渡允许；worker 30min stale recovery |
+| BL-08 | P2 | [x] 已修复 | `api/routes/knowledge_upload.py` | 无扩展名拒绝、size 先行检查、PDF 明确拒绝 |
+| BL-09 | P2 | [x] 已修复 | `api/routes/knowledge.py` | `decide_review()` / `list_graph_entities()` 租户隔离验证 |
+| BL-10 | P2 | [x] 已修复 | `api/service_query.py`, `knowledge_upload.py` | audit/cache 失败显式 warning；doc-save 失败透传 500 |
+| BL-11 | P3 | [x] 已修复 | `retrieval/cache.py` | retrieval key 含 tenant_id；`persist_embeddings` → `persist_embedding_stats` |
+| BL-13 | P1 | [x] 已修复 | `generation/citations.py` | Latin 声明需 ≥2 个 significant (≥4 字符、非停用词) token 重叠 + 30% 比例阈值 |
+| BL-01 | P0 | [x] 已修复 | `knowledge/ingest_worker.py` | worker 接入 `extract_pipeline` → `graph_builder` 通路；LLM 缺失时优雅降级 |
+| BL-03 | P1 | [x] 已修复 | `knowledge/review/executor.py` | 新建 ReviewExecutor：EXTRACTION 决策 upsert triples，RESOLUTION 决策 entity merge |
+| BL-12 | P2 | ⚪ 延期 | `agent/executor.py`, `agent/loop_runtime.py` | DAG 并行执行语义：需重构 executor 状态机 + hop 预算隔离，工作量 >2 天 |
+| BL-14 | P2 | ⚪ 延期 | `configs/schema/domain_v0.yaml` 等 | 图谱时间维度：需 schema 变更 + 提取 prompt 调整 + 冲突检测逻辑，架构级变更 |
+
+**验收状态：**
+- 代码指标：`ruff check` ✅ / `ruff format` ✅ / `code_metrics.py` ✅（所有文件 ≤300 行，函数 ≤50 行，圈复杂度 ≤10）
+- 测试回归：281/287 通过；6 项 pre-existing 失败（`test_bilingual_ma_parity`、`test_graph_recursion_fallback`、`test_live_sse_stream`、`test_multihop_graph_evidence`），无新增失败
+- BL-12/BL-14 已记录到本延期总账，待 G2 后单独立项
+
+---
+
 ## 11. 优先下一步（建议顺序）
 
 1. **产品真域** — 按 `docs/REAL_DOMAIN_PLAYBOOK.md` 授权语料 + MANIFEST 签字（工程无法代替）。  

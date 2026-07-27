@@ -422,7 +422,7 @@ class TestENT06UploadGovernance:
             "/v1/docs",
             files=[("files", ("evil.exe", b"MZ...", "application/octet-stream"))],
         )
-        assert r.status_code == 413
+        assert r.status_code == 400
 
     def test_upload_too_many_files(self, client) -> None:
         files = [("files", (f"f{i}.txt", b"x", "text/plain")) for i in range(25)]

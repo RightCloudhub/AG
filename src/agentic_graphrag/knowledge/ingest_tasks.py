@@ -15,7 +15,7 @@ from typing import Any
 class IngestStatus(StrEnum):
     QUEUED = "queued"
     EXTRACTING = "extracting"
-    REVIEW = "review"
+    REVIEW = "review"  # Reserved for future: post-extraction human review before DONE
     DONE = "done"
     FAILED = "failed"
     EMPTY = "empty"
@@ -23,7 +23,12 @@ class IngestStatus(StrEnum):
 
 _ALLOWED_TRANSITIONS = {
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
-    IngestStatus.EXTRACTING: {IngestStatus.REVIEW, IngestStatus.DONE, IngestStatus.FAILED},
+    IngestStatus.EXTRACTING: {
+        IngestStatus.REVIEW,
+        IngestStatus.DONE,
+        IngestStatus.FAILED,
+        IngestStatus.QUEUED,  # BL-06: requeue on worker crash / timeout
+    },
     IngestStatus.REVIEW: {IngestStatus.DONE, IngestStatus.FAILED},
 }
 
@@ -91,6 +96,13 @@ class IngestTaskStore:
         with self._lock:
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]
         tasks.sort(key=lambda task: task.created_at)
+        return [IngestTask.from_dict(task.to_dict()) for task in tasks[:limit]]
+
+    def list_by_status(self, status: str, *, limit: int = 1000) -> list[IngestTask]:
+        """List tasks in a given status (public API for stale recovery)."""
+        with self._lock:
+            tasks = [t for t in self._tasks.values() if t.status == status]
+        tasks.sort(key=lambda task: task.updated_at)
         return [IngestTask.from_dict(task.to_dict()) for task in tasks[:limit]]
 
     def transition(self, task_id: str, status: IngestStatus, *, message: str = "") -> IngestTask:

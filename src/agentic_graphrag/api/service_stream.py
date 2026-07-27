@@ -189,10 +189,22 @@ def _finish_answer(
     user_id: str,
     t0: float,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
+    from agentic_graphrag.observability.logging_setup import request_id_var
+
     chain = (
         payload if isinstance(payload, ReasoningChain) else ReasoningChain.model_validate(payload)
     )
-    _finalize_chain(chain, t0=t0, req=req, tenant_id=tenant_id, user_id=user_id)
+    # BL-11: pass request_id from context var so streaming audit records have it.
+    # Mirrors service_query.py execute_run_query() which reads request_id_var.
+    request_id = request_id_var.get("")
+    _finalize_chain(
+        chain,
+        t0=t0,
+        req=req,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        request_id=request_id,
+    )
     _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
     yield EVENT_ANSWER, chain.model_dump(mode="json")

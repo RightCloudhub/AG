@@ -103,9 +103,15 @@ def iter_query_progress(
 
 
 def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
-    # Contract stability: clients always see a triage frame first.
     if ctx.opts.force_agentic:
-        yield EVENT_TRIAGE, _force_agentic_triage().model_dump(mode="json")
+        yield EVENT_TRIAGE, _trivial_triage(
+            route=Route.AGENTIC, rationale="force_agentic", rule_hit="force_agentic"
+        ).model_dump(mode="json")
+    else:
+        # enable_triage=False but not force_agentic → emit a skip-triage frame
+        yield EVENT_TRIAGE, _trivial_triage(
+            route=Route.AGENTIC, rationale="triage_bypassed", rule_hit="triage_disabled"
+        ).model_dump(mode="json")
     for etype, payload in _iter_agentic(ctx):
         if etype == EVENT_FINAL_CHAIN and ctx.opts.force_agentic:
             chain: ReasoningChain = payload
@@ -115,13 +121,11 @@ def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
             yield etype, payload
 
 
-def _force_agentic_triage() -> TriageResult:
+def _trivial_triage(
+    *, route: Route, rationale: str, rule_hit: str
+) -> TriageResult:
     return TriageResult(
-        route=Route.AGENTIC,
-        rationale="force_agentic",
-        estimated_hops=2,
-        confidence=1.0,
-        rule_hit="force_agentic",
+        route=route, rationale=rationale, estimated_hops=2, confidence=0.8, rule_hit=rule_hit
     )
 
 
@@ -220,7 +224,7 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
         ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
     )
     t0 = time.perf_counter()
-    initial = _initial_state(ctx.question, chain, opts.allow_llm)
+    initial = _initial_state(ctx.question, chain, opts.allow_llm, tenant_id=opts.tenant_id or None)
     config = invoke_config(tid, recursion_limit=rec_limit)
     try:
         final_state = yield from _stream_graph_updates(graph, initial, config)
@@ -245,7 +249,13 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
 
 
-def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dict[str, Any]:
+def _initial_state(
+    question: str,
+    chain: ReasoningChain,
+    allow_llm: bool,
+    *,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "question": question,
         "chain": chain.model_dump(),
@@ -255,6 +265,7 @@ def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dic
         "evidence": [],
         "done": False,
         "allow_llm": allow_llm,
+        "tenant_id": tenant_id,
     }
 
 

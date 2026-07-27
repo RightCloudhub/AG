@@ -7,8 +7,15 @@ actually exist in the retrieved candidate set. Failures trigger regenerate
 
 from __future__ import annotations
 
+import re
+
 from agentic_graphrag.generation.trace import Claim
 from agentic_graphrag.retrieval.contracts import Candidate
+
+# CJK Unified Ideographs, CJK Ext-A, Hangul Syllables, fullwidth forms.
+_CJK_RE = re.compile(
+    "[\u4e00-\u9fff\u3400-\u4dbf\uac00-\ud7af\u3040-\u309f\u30a0-\u30ff\uff00-\uffef]"
+)
 
 
 def evidence_id_set(evidence: list[Candidate]) -> set[str]:
@@ -44,7 +51,7 @@ def filter_claim_evidence_ids(
     claims: list[Claim],
     evidence: list[Candidate] | set[str],
 ) -> list[Claim]:
-    """Drop unknown evidence ids from claims (keep claims that still have ≥1)."""
+    """Drop unknown evidence ids from claims (keep claims that still have \u22651)."""
     known = evidence if isinstance(evidence, set) else evidence_id_set(evidence)
     cleaned: list[Claim] = []
     for claim in claims:
@@ -92,10 +99,10 @@ def validate_answered_claims(
 
     Rules (AC-7 baseline):
     - ANSWERED/PARTIAL paths that assert facts must carry claims
-    - every claim needs ≥1 evidence_id
+    - every claim needs \u22651 evidence_id
     - every claim must reference a retrieved candidate id
     - optional lexical support: claim tokens must overlap cited evidence text
-      (not a full NLI check — still better than ID-only fabrication=0)
+      (not a full NLI check \u2014 still better than ID-only fabrication=0)
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -112,6 +119,60 @@ _STOPWORDS = frozenset(
     "a an the of to in on for and or is are was were be by with from as at".split()
 )
 
+# Minimum non-stopword, length-≥4 tokens required for Latin claims.
+_MIN_LATIN_OVERLAP = 2
+# Minimum fraction of claim's significant tokens that must appear in evidence.
+_MIN_LATIN_RATIO = 0.30
+
+
+def _significant_tokens(text: str) -> set[str]:
+    """Significant Latin tokens: non-stopword, length ≥ 4."""
+    toks: set[str] = set()
+    for raw in text.lower().replace("-", " ").split():
+        t = _alphanumeric(raw)
+        if len(t) >= 4 and t not in _STOPWORDS:
+            toks.add(t)
+    return toks
+
+
+def _claim_supported_char(
+    claim: Claim,
+    by_id: dict[str, Candidate],
+    *,
+    min_overlap: int = 1,
+) -> bool:
+    """Char-level (CJK / fallback) support: claim tokens overlap evidence tokens."""
+    claim_toks = _content_tokens(claim.text)
+    if not claim_toks:
+        return True  # nothing to check
+    for eid in claim.evidence_ids:
+        cand = by_id.get(eid)
+        if cand is None:
+            continue
+        ev_toks = _content_tokens(cand.content)
+        if len(claim_toks & ev_toks) >= min_overlap:
+            return True
+    return False
+
+
+def _claim_supported_latin(
+    claim: Claim,
+    by_id: dict[str, Candidate],
+) -> bool:
+    """Latin support: significant (≥4 char, non-stopword) token overlap."""
+    claim_sig = _significant_tokens(claim.text)
+    if not claim_sig:
+        return True  # nothing significant — skip
+    sig_threshold = max(_MIN_LATIN_OVERLAP, int(len(claim_sig) * _MIN_LATIN_RATIO) + 1)
+    for eid in claim.evidence_ids:
+        cand = by_id.get(eid)
+        if cand is None:
+            continue
+        ev_sig = _significant_tokens(cand.content)
+        if len(claim_sig & ev_sig) >= sig_threshold:
+            return True
+    return False
+
 
 def claims_lexically_supported(
     claims: list[Claim],
@@ -119,30 +180,43 @@ def claims_lexically_supported(
     *,
     min_overlap: int = 1,
 ) -> bool:
-    """True if every claim shares ≥1 content token with at least one cited candidate."""
+    """True if every claim shares meaningful content tokens with cited evidence.
+
+    Fixes BL-13: a single shared word (e.g. 'Apex') no longer suffices for
+    Latin text.  CJK claims continue to use single-char token matching (BL-02
+    behaviour).  For Latin, requires at least ``_MIN_LATIN_OVERLAP`` significant
+    tokens (length ≥ 4, non-stopword) with a minimum overlap ratio.
+    """
     by_id = {c.id: c for c in evidence}
     for claim in claims:
-        claim_toks = _content_tokens(claim.text)
-        if not claim_toks:
+        if any(_CJK_RE.match(ch) for ch in claim.text):
+            if not _claim_supported_char(claim, by_id, min_overlap=min_overlap):
+                return False
             continue
-        supported = False
-        for eid in claim.evidence_ids:
-            cand = by_id.get(eid)
-            if cand is None:
-                continue
-            ev_toks = _content_tokens(cand.content)
-            if len(claim_toks & ev_toks) >= min_overlap:
-                supported = True
-                break
-        if not supported:
+        if not _claim_supported_latin(claim, by_id):
             return False
     return True
 
 
 def _content_tokens(text: str) -> set[str]:
-    toks = set()
-    for raw in (text or "").lower().replace("-", " ").split():
-        t = "".join(ch for ch in raw if ch.isalnum())
+    """Content tokens \u2014 CJK chars as single-char tokens, Latin as >=2 words.
+
+    Fixes BL-02: pure-CJK claims like '\u82f9\u679c\u63a7\u80a1\u7684\u9996\u5e2d\u6267\u884c\u5b98'
+    previously collapsed to a single whitespace-delimited 'blob' that never matched
+    evidence tokens, causing the lexical-support gate to fail deterministically.
+    """
+    if not text:
+        return set()
+    cjk_toks = {ch for ch in text if _CJK_RE.match(ch)}
+    if cjk_toks:
+        return cjk_toks
+    toks: set[str] = set()
+    for raw in text.lower().replace("-", " ").split():
+        t = _alphanumeric(raw)
         if len(t) >= 2 and t not in _STOPWORDS:
             toks.add(t)
     return toks
+
+
+def _alphanumeric(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalnum())
