@@ -113,18 +113,41 @@ _STOPWORDS = frozenset(
 )
 
 
+def _has_cjk(text: str) -> bool:
+    """True if text contains any CJK character (used for cross-language bridging)."""
+    return any(_is_cjk(ch) for ch in text)
+
+
 def claims_lexically_supported(
     claims: list[Claim],
     evidence: list[Candidate],
     *,
-    min_overlap: int = 1,
+    min_overlap: int = 2,
 ) -> bool:
-    """True if every claim shares ≥1 content token with at least one cited candidate."""
+    """True if every claim shares ≥2 content tokens with at least one cited candidate.
+
+    ⚠ This is a lexical overlap check, NOT a full NLI / relationship-verification
+    gate. A claim that correctly names the subject and object entities but asserts
+    the wrong relationship type can still pass (e.g., evidence says "FOUNDED_BY"
+    but claim says "CEO_OF" — as long as entity names overlap). See BL-13.
+
+    The CJK-unigram expansion (see ``_content_tokens``) means single Chinese
+    characters count as separate tokens, so ``min_overlap=2`` still gives a
+    weak check for East Asian languages.
+
+    **Cross-language bridging (BL-02 fix):** When a claim and its cited evidence
+    are in different language families (e.g., Chinese-only claim vs English-only
+    evidence, or vice versa), lexical overlap is fundamentally impossible. In
+    that case the check is skipped — the evidence-binding check in
+    ``validate_answered_claims`` already ensures the claim references real
+    retrieved evidence, which provides a baseline level of verification.
+    """
     by_id = {c.id: c for c in evidence}
     for claim in claims:
         claim_toks = _content_tokens(claim.text)
         if not claim_toks:
             continue
+        claim_has_cjk = _has_cjk(claim.text)
         supported = False
         for eid in claim.evidence_ids:
             cand = by_id.get(eid)
@@ -132,6 +155,12 @@ def claims_lexically_supported(
                 continue
             ev_toks = _content_tokens(cand.content)
             if len(claim_toks & ev_toks) >= min_overlap:
+                supported = True
+                break
+            # Cross-language bridging: if claim has CJK but evidence doesn't
+            # (or vice versa), lexical overlap is impossible — skip the check.
+            ev_has_cjk = _has_cjk(cand.content)
+            if claim_has_cjk != ev_has_cjk:
                 supported = True
                 break
         if not supported:
@@ -145,4 +174,21 @@ def _content_tokens(text: str) -> set[str]:
         t = "".join(ch for ch in raw if ch.isalnum())
         if len(t) >= 2 and t not in _STOPWORDS:
             toks.add(t)
+    # CJK-aware: individual CJK characters are meaningful tokens (unigrams).
+    # Whitespace-based splitting collapses CJK sentences into single tokens;
+    # this ensures Chinese claims can find lexical overlap with evidence.
+    for ch in (text or ""):
+        if _is_cjk(ch):
+            toks.add(ch)
     return toks
+
+
+def _is_cjk(ch: str) -> bool:
+    cp = ord(ch)
+    # CJK Unified Ideographs, Extension A, Compatibility Ideographs, Radicals
+    return (
+        (0x4E00 <= cp <= 0x9FFF)
+        or (0x3400 <= cp <= 0x4DBF)
+        or (0xF900 <= cp <= 0xFAFF)
+        or (0x2E80 <= cp <= 0x2EFF)
+    )

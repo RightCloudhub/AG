@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Any
@@ -10,6 +11,8 @@ from fastapi import Request, UploadFile
 
 from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.stores.interfaces import DocumentRecord
+
+logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 MAX_BATCH_FILES = 20
@@ -20,7 +23,7 @@ def validate_upload(file: UploadFile) -> None:
     """Check a file extension against the upload allow list."""
     name = (file.filename or "").lower()
     ext = name.rsplit(".", 1)[-1] if "." in name else ""
-    if ext and ext not in ALLOWED_EXTENSIONS:
+    if ext not in ALLOWED_EXTENSIONS:
         allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
         raise ApiError(
             INVALID_INPUT,
@@ -52,6 +55,8 @@ async def _save_upload(
             status_code=413,
         )
     text = content.decode("utf-8", errors="replace")
+    # ⚠ PDF files are decoded as UTF-8 text without extraction,
+    # resulting in garbled content. Full PDF parsing is pending (see BL-08).
     doc_id = file.filename or str(uuid.uuid4())
     record = DocumentRecord(
         doc_id=doc_id,
@@ -67,8 +72,8 @@ async def _save_upload(
     )
     try:
         svc.bundle.docs.save(record)
-    except Exception:  # The task still records the failed persistence attempt for troubleshooting.
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to persist document %s: %s", doc_id, exc)
     return {"doc_id": doc_id, "bytes": str(len(text)), "name": file.filename or ""}
 
 

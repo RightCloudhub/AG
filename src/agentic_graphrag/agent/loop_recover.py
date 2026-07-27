@@ -37,7 +37,7 @@ def invoke_agentic_graph(
         "question": question,
         "chain": chain.model_dump(),
         "sub_questions": [],
-        "current_index": 0,
+        "done_ids": [],
         "hop": 0,
         "evidence": [],
         "done": False,
@@ -57,6 +57,7 @@ def invoke_agentic_graph(
             t0=t0,
             llm=llm,
             allow_llm=allow_llm,
+            tenant_id=tenant_id,
         )
     return finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
 
@@ -70,8 +71,14 @@ def recover_chain_after_recursion(
     t0: float,
     llm: LLMProvider | None = None,
     allow_llm: bool = False,
+    tenant_id: str = "",
 ) -> ReasoningChain:
-    """Build a chain from checkpointed state after GraphRecursionError."""
+    """Build a chain from checkpointed state after GraphRecursionError.
+
+    Args:
+        tenant_id: Tenant identifier for tenant-scoped recovery
+            (BL-04 fix: ensures the recovered chain carries the correct tenant).
+    """
     # Lazy import avoids loop ↔ loop_recover cycle (finalize lives in loop).
     from agentic_graphrag.agent.loop import finalize_agentic_chain
 

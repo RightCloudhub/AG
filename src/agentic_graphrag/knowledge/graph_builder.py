@@ -12,6 +12,7 @@ from agentic_graphrag.knowledge.schema_check import (
     Triple,
     ValidationResult,
     gate_triples,
+    load_default_schema,
 )
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
 
@@ -80,20 +81,20 @@ def load_triples_into_graph(
     confidence_threshold: float | None = None,
     reject_log_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Upsert triples into ``store``.
+    """Upsert triples into ``store`` with schema validation gate.
 
-    When ``schema`` is provided, applies the P2-KG-02/03 ingestion gate
-    (schema + optional confidence threshold) and never writes rejected
-    triples. Rejections are optionally appended to ``reject_log_path``.
+    When ``schema`` is None, loads the project-level default schema from
+    config (``configs/schema/domain_v0.yaml``). This ensures the P2-KG-02/03
+    ingestion gate (schema + optional confidence threshold) is always applied
+    and non-conforming triples never enter the graph.
     """
-    gate: ValidationResult | None = None
-    accepted = triples
-    if schema is not None:
-        thr = 0.0 if confidence_threshold is None else float(confidence_threshold)
-        gate = gate_triples(triples, schema, confidence_threshold=thr)
-        accepted = gate.accepted
-        if reject_log_path is not None and gate.rejected:
-            _append_reject_log(reject_log_path, gate)
+    if schema is None:
+        schema = load_default_schema()
+    thr = 0.0 if confidence_threshold is None else float(confidence_threshold)
+    gate = gate_triples(triples, schema, confidence_threshold=thr)
+    accepted = gate.accepted
+    if reject_log_path is not None and gate.rejected:
+        _append_reject_log(reject_log_path, gate)
 
     entities, relations = triples_to_records(accepted)
     if clear_first:
@@ -108,10 +109,9 @@ def load_triples_into_graph(
         "relationships": counts.get("relationships", 0),
         "triples_input": len(triples),
         "triples_accepted": len(accepted),
-        "triples_rejected": len(gate.rejected) if gate else 0,
+        "triples_rejected": len(gate.rejected),
     }
-    if gate is not None:
-        stats["rejection_reasons"] = gate.rejection_reasons
+    stats["rejection_reasons"] = gate.rejection_reasons
     return stats
 
 

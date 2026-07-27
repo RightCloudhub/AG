@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Iterator
@@ -20,6 +21,8 @@ from agentic_graphrag.api.service_helpers import (
 from agentic_graphrag.api.service_telemetry import record_metrics as _record_metrics
 from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
+
+logger = logging.getLogger(__name__)
 from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
@@ -279,7 +282,7 @@ def _persist_and_commit(
         try:
             svc.audit_store.save(chain)
         except Exception:
-            pass
+            logger.warning("Audit save failed for query %s", chain.get("query_id", "unknown"))
     if svc.enable_cache and svc.retrieval_cache is not None:
         _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     if svc.multi_budget:

@@ -21,6 +21,10 @@ from agentic_graphrag.agent.loop_handlers import (
     materialize_current,
     skip_excluded_or_duplicate,
 )
+from agentic_graphrag.agent.loop_handlers_dag import (
+    materialize_current_dag,
+    skip_excluded_or_duplicate_dag,
+)
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps, CritiqueContext
 from agentic_graphrag.agent.planner import SubQuestion, plan
@@ -36,7 +40,8 @@ class AgentState(TypedDict, total=False):
     question: str
     chain: dict[str, Any]
     sub_questions: list[dict[str, Any]]
-    current_index: int
+    done_ids: list[str]
+    last_sq_idx: int
     hop: int
     evidence: list[dict[str, Any]]
     memory_summary: str
@@ -99,7 +104,7 @@ class AgentRuntime:
         return {
             **state,
             "sub_questions": [s.model_dump() for s in sqs],
-            "current_index": 0,
+            "done_ids": [],
             "hop": 0,
             "done": False,
             "memory_snapshot": self.memory.to_snapshot(),
@@ -119,8 +124,12 @@ class AgentRuntime:
             }
 
         sqs = list(state.get("sub_questions") or [])
-        idx = int(state.get("current_index") or 0)
-        if idx >= len(sqs):
+        done_ids: set[str] = set(state.get("done_ids") or [])
+
+        # BL-12: DAG-aware — use ready_subquestions() to find the next
+        # ready node instead of linear current_index.
+        ready = materialize_current_dag(sqs, done_ids, self.memory)
+        if ready is None:
             return {
                 **state,
                 "hop": hop,
@@ -129,7 +138,7 @@ class AgentRuntime:
                 "memory_snapshot": self.memory.to_snapshot(),
             }
 
-        sq, sqs = materialize_current(sqs, idx, self.memory)
+        sq, sqs, idx = ready
         ctx = ExecutorNodeCtx(
             state=state,
             sq=sq,
@@ -140,7 +149,7 @@ class AgentRuntime:
             executor=self.executor,
             llm=self.llm,
         )
-        skipped = skip_excluded_or_duplicate(ctx)
+        skipped = skip_excluded_or_duplicate_dag(ctx, done_ids)
         if skipped is not None:
             return skipped
         return execute_subquestion(ctx)
@@ -159,11 +168,14 @@ class AgentRuntime:
             return state
 
         sqs = list(state.get("sub_questions") or [])
-        idx = int(state.get("current_index") or 0)
+        # BL-12: use last_sq_idx from executor (set by DAG-aware node_executor)
+        # instead of linear current_index.
+        idx = int(state.get("last_sq_idx") or 0)
         sq = SubQuestion.model_validate(sqs[idx]) if idx < len(sqs) else None
         sq_text = sq.text if sq else state["question"]
         sq_id = sq.id if sq else f"sq{idx}"
-        remaining = max(0, len(sqs) - idx - 1)
+        done_ids: set[str] = set(state.get("done_ids") or [])
+        remaining = max(0, len(sqs) - len(done_ids))
         allow_llm = bool(state.get("allow_llm", True))
 
         result = critique(

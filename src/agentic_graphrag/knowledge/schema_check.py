@@ -78,6 +78,22 @@ class ValidationResult:
         ]
 
 
+_DEFAULT_SCHEMA: SchemaDefinition | None = None
+
+
+def load_default_schema() -> SchemaDefinition:
+    """Load the project-level schema from config path (cached)."""
+    global _DEFAULT_SCHEMA
+    if _DEFAULT_SCHEMA is not None:
+        return _DEFAULT_SCHEMA
+    from agentic_graphrag.config import get_config, resolve_path
+
+    cfg = get_config()
+    schema_path = resolve_path(cfg.knowledge.schema_path)
+    _DEFAULT_SCHEMA = load_schema(schema_path)
+    return _DEFAULT_SCHEMA
+
+
 def load_schema(path: str | Path) -> SchemaDefinition:
     path = Path(path)
     data = yaml.safe_load(path.read_text(encoding="utf-8"))

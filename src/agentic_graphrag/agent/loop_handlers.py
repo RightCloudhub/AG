@@ -11,6 +11,10 @@ from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
+from agentic_graphrag.agent.loop_handlers_dag import (
+    all_sq_done,
+    resolve_terminal_action_dag as _resolve_terminal_action_dag,
+)
 from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
 from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.retrieval.contracts import Candidate
@@ -118,6 +122,7 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
         "memory_summary": memory.summary(),
         "memory_snapshot": memory.to_snapshot(),
         "guardrail_status": guards.status_text(),
+        "last_sq_idx": ctx.idx,
     }
 
 
@@ -137,22 +142,30 @@ def apply_critic_result(ctx: CriticApplyCtx) -> AgentState:
     _record_critic_on_chain(ctx)
     new_state = _base_state_after_critic(ctx)
     sqs = list(ctx.state.get("sub_questions") or [])
+    done_ids: set[str] = set(ctx.state.get("done_ids") or [])
+    sq_id = ctx.sq_id
 
-    # Guardrail trip / give_up always terminate (even with remaining DAG nodes).
+    # Guardrail trip / give_up always terminate.
     if ctx.guards.state.tripped or ctx.result.action == CriticAction.GIVE_UP:
         if ctx.result.action == CriticAction.GIVE_UP:
             ctx.memory.exclude_hypothesis(ctx.sq_text)
+        done_ids.add(sq_id)
+        new_state["done_ids"] = list(done_ids)
         new_state["done"] = True
         return _cap_hops(new_state, ctx.guards, ctx.guard_cfg)
 
-    # Planned remaining nodes: only advance on SUFFICIENT (sub-question done).
-    # NEXT_HOP / REWRITE still go through terminal resolution so rewrites apply.
+    # Mark the current sub-question as done.
+    done_ids.add(sq_id)
+
+    # Planned remaining nodes: on SUFFICIENT, check if any more ready nodes exist.
     if ctx.remaining > 0 and ctx.result.action == CriticAction.SUFFICIENT:
-        new_state["current_index"] = ctx.idx + 1
-        new_state["done"] = ctx.guards.state.hop >= ctx.guard_cfg.max_hops
+        new_state["done_ids"] = list(done_ids)
+        new_state["done"] = (
+            all_sq_done(sqs, done_ids) or ctx.guards.state.hop >= ctx.guard_cfg.max_hops
+        )
         return _cap_hops(new_state, ctx.guards, ctx.guard_cfg)
 
-    _resolve_terminal_action(new_state, ctx, sqs)
+    _resolve_terminal_action_dag(new_state, ctx, sqs, done_ids)
     return _cap_hops(new_state, ctx.guards, ctx.guard_cfg)
 
 
@@ -190,63 +203,6 @@ def _cap_hops(
         new_state["done"] = True
         new_state["guardrail_status"] = guards.status_text()
     return new_state
-
-
-def _resolve_terminal_action(
-    new_state: AgentState,
-    ctx: CriticApplyCtx,
-    sqs: list[dict[str, Any]],
-) -> None:
-    result, memory, guards = ctx.result, ctx.memory, ctx.guards
-    action = result.action
-    if action == CriticAction.SUFFICIENT:
-        new_state["done"] = True
-        return
-    if action == CriticAction.GIVE_UP or guards.state.tripped:
-        if action == CriticAction.GIVE_UP:
-            memory.exclude_hypothesis(ctx.sq_text)
-        new_state["done"] = True
-        return
-    if action in (CriticAction.NEXT_HOP, CriticAction.REWRITE):
-        _append_dynamic_subquestion(new_state, ctx, sqs)
-        return
-    new_state["current_index"] = ctx.idx + 1
-    if new_state["current_index"] >= len(sqs):
-        new_state["done"] = True
-
-
-def _append_dynamic_subquestion(
-    new_state: AgentState,
-    ctx: CriticApplyCtx,
-    sqs: list[dict[str, Any]],
-) -> None:
-    """Insert critic follow-up after the current node so remaining plan nodes run.
-
-    Previously the dynamic SQ was appended at the end and ``current_index`` jumped
-    there, permanently skipping any planned nodes that had not yet executed.
-    """
-    memory = ctx.memory
-    new_sq = ctx.result.new_sub_question or ctx.sq_text
-    if ctx.result.action == CriticAction.REWRITE:
-        memory.exclude_hypothesis(ctx.sq_text)
-    if memory.is_duplicate_subquestion(new_sq) or memory.is_excluded(new_sq):
-        new_state["done"] = True
-        return
-    new_id = f"sq_dyn_{len(sqs) + 1}"
-    insert_at = min(ctx.idx + 1, len(sqs))
-    sqs = list(sqs)
-    sqs.insert(
-        insert_at,
-        SubQuestion(
-            id=new_id,
-            text=new_sq,
-            depends_on=[ctx.sq_id] if ctx.sq else [],
-            rationale=ctx.result.rationale,
-        ).model_dump(),
-    )
-    new_state["sub_questions"] = sqs
-    # Next executor hop runs the inserted node; original tail still follows.
-    new_state["current_index"] = insert_at
 
 
 def load_evidence(state: AgentState) -> list[Candidate]:

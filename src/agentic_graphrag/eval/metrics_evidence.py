@@ -143,13 +143,25 @@ def _alias_hit(token: str, blob: str) -> bool:
 
 
 def fabrication_rate(rows: list[dict[str, Any]]) -> float:
-    """Share of rows with answered status but no cited claims (AC-7 proxy)."""
+    """Share of answered rows with no cited claims (uncited-claims-rate proxy).
+
+    ⚠ This is NOT a true fabrication / hallucination detector — it only checks
+    whether answered rows carry *any* evidence_ids on their claims (AC-7 proxy).
+    A claim with a real evidence_id pointing to an irrelevant candidate passes
+    this check. See BL-13 in docs/BUSINESS_LOGIC.md for the gap between this
+    proxy and true NLI-level fabrication detection.
+
+    .. deprecated::
+        The name ``fabrication_rate`` overstates what this metric measures.
+        Prefer ``uncited_claims_rate`` for new code; the old name is kept for
+        backward compatibility.
+    """
     if not rows:
         return 0.0
     bad = 0
     counted = 0
     for row in rows:
-        flag = _fabrication_flag(row)
+        flag = _uncited_flag(row)
         if flag is None:
             continue
         counted += 1
@@ -158,8 +170,8 @@ def fabrication_rate(rows: list[dict[str, Any]]) -> float:
     return (bad / counted) if counted else 0.0
 
 
-def _fabrication_flag(row: dict[str, Any]) -> bool | None:
-    """True=fabricated, False=ok, None=skip row."""
+def _uncited_flag(row: dict[str, Any]) -> bool | None:
+    """True=claims have no citations, False=ok, None=skip row (AC-7 proxy)."""
     status = str(row.get("status") or "").lower()
     if status in {"no_answer", ""}:
         return None
@@ -173,4 +185,15 @@ def _fabrication_flag(row: dict[str, Any]) -> bool | None:
 
 
 def _claims_unbound(claims: list) -> bool:
-    return any(not (c.get("evidence_ids") if isinstance(c, dict) else True) for c in claims)
+    """True if any claim lacks evidence_ids (weakest fabrication proxy).
+
+    ⚠ This only checks that evidence_ids exist — it does NOT verify that
+    the cited evidence actually supports the claim. See BL-13.
+    """
+    for c in claims:
+        if not isinstance(c, dict):
+            continue
+        eids = c.get("evidence_ids")
+        if not eids:
+            return True
+    return False

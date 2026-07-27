@@ -17,7 +17,8 @@ from typing import Any
 
 from agentic_graphrag.knowledge.ingest import chunk_document
 from agentic_graphrag.knowledge.ingest_tasks import IngestStatus, IngestTaskStore
-from agentic_graphrag.stores.interfaces import DocStore, VectorStore
+from agentic_graphrag.knowledge.schema_check import SchemaDefinition, load_default_schema
+from agentic_graphrag.stores.interfaces import DocStore, GraphStore, VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ class IngestWorker:
         fulltext_store: Any | None = None,
         embed_fn: Any | None = None,
         task_store: IngestTaskStore | None = None,
+        graph_store: GraphStore | None = None,
+        schema: SchemaDefinition | None = None,
+        llm: Any | None = None,
         config: IngestWorkerConfig | None = None,
     ) -> None:
         self.doc_store = doc_store
@@ -63,27 +67,110 @@ class IngestWorker:
         self.embed_fn = embed_fn
         self.config = config or IngestWorkerConfig()
         self.task_store = task_store
+        self.graph_store = graph_store
+        self.schema = schema or load_default_schema()
+        self.llm = llm
         self._processed: set[str] = set()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def process_doc(self, doc_id: str) -> IngestResult:
-        """Process a single document: chunk → embed → upsert."""
+        """Chunk → embed → upsert → (optional) graph build."""
         doc = self.doc_store.get(doc_id)
         if doc is None:
             return IngestResult(doc_id=doc_id, error="not_found")
         chunks = chunk_document(
-            doc,
-            chunk_size=self.config.chunk_size_chars,
-            overlap=self.config.chunk_overlap_chars,
+            doc, chunk_size=self.config.chunk_size_chars, overlap=self.config.chunk_overlap_chars,
         )
         if not chunks:
             self._processed.add(doc_id)
             return IngestResult(doc_id=doc_id)
         self._embed_chunks(chunks)
         indexed = self._index_chunks(doc_id, chunks)
+        embed_failed = indexed < len(chunks) if len(chunks) > 0 else False
+        if embed_failed:
+            logger.warning("Partial embedding failure for %s: %d chunks, %d indexed", doc_id, len(chunks), indexed)
+
+        # Optionally build graph from extracted triples (BL-01)
+        graph_ok = True
+        if self.graph_store is not None:
+            try:
+                self._build_graph_from_chunks(doc_id, chunks)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Graph build failed for %s: %s", doc_id, exc)
+                graph_ok = False
+
         self._processed.add(doc_id)
-        return IngestResult(doc_id=doc_id, chunks_created=len(chunks), chunks_indexed=indexed)
+        result = IngestResult(doc_id=doc_id, chunks_created=len(chunks), chunks_indexed=indexed)
+        errors = []
+        if embed_failed:
+            errors.append("partial_embedding_failure")
+        if not graph_ok:
+            errors.append("graph_build_failed")
+        if errors:
+            result.error = "; ".join(errors)
+        return result
+
+    def _build_graph_from_chunks(self, doc_id: str, chunks: list[Any]) -> None:
+        """Extract triples from chunks and upsert into graph store (BL-01).
+
+        Uses the LLM if available (``extract_from_chunks``), otherwise falls
+        back to a mock extraction from chunk metadata (offline/demo mode).
+        """
+        from agentic_graphrag.knowledge.extract_core import extract_from_chunks
+        from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
+        from agentic_graphrag.stores.interfaces import ChunkRecord
+
+        if self.llm is not None:
+            accepted, _rejected = extract_from_chunks(
+                [c for c in chunks if isinstance(c, ChunkRecord)],
+                self.schema,
+                self.llm,
+            )
+        else:
+            # Offline path: extract mock triples from chunk metadata for demo
+            accepted = self._mock_extract(doc_id, chunks)
+
+        if accepted:
+            load_triples_into_graph(
+                self.graph_store,
+                accepted,
+                clear_first=False,
+                schema=self.schema,
+            )
+
+    def _mock_extract(self, doc_id: str, chunks: list[Any]) -> list[Any]:
+        """Produce demo triples from chunk metadata when no LLM is available."""
+        from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
+
+        triples: list[Triple] = []
+        for chunk in chunks:
+            meta = getattr(chunk, "metadata", None) or {}
+            entities = meta.get("entities", [])
+            relations = meta.get("relations", [])
+            for ent in entities:
+                triples.append(
+                    Triple(
+                        head=EntityMention(name=str(ent.get("name", "")), type=str(ent.get("type", "Unknown"))),
+                        relation="MENTIONED_IN",
+                        tail=EntityMention(name=doc_id, type="Document"),
+                        confidence=0.5,
+                        source_doc_id=doc_id,
+                        source_chunk_id=chunk.chunk_id if hasattr(chunk, "chunk_id") else "",
+                    )
+                )
+            for rel in relations:
+                triples.append(
+                    Triple(
+                        head=EntityMention(name=str(rel.get("head", "")), type=str(rel.get("head_type", "Unknown"))),
+                        relation=str(rel.get("type", "RELATED_TO")),
+                        tail=EntityMention(name=str(rel.get("tail", "")), type=str(rel.get("tail_type", "Unknown"))),
+                        confidence=float(rel.get("confidence", 0.5)),
+                        source_doc_id=doc_id,
+                        source_chunk_id=chunk.chunk_id if hasattr(chunk, "chunk_id") else "",
+                    )
+                )
+        return triples
 
     def _embed_chunks(self, chunks: list[Any]) -> None:
         if self.embed_fn is None:
@@ -93,6 +180,7 @@ class IngestWorker:
                 chunk.embedding = self.embed_fn(chunk.text)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Embed failed for %s: %s", chunk.chunk_id, exc)
+                chunk.embedding = None
 
     def _index_chunks(self, doc_id: str, chunks: list[Any]) -> int:
         embedded = [chunk for chunk in chunks if chunk.embedding]
@@ -120,7 +208,7 @@ class IngestWorker:
     def _run_task_batch(self) -> list[IngestResult]:
         assert self.task_store is not None
         results: list[IngestResult] = []
-        for task in self.task_store.pending(self.config.batch_size):
+        for task in self.task_store.pending_or_stale(self.config.batch_size):
             self.task_store.transition(task.id, IngestStatus.EXTRACTING)
             try:
                 task_results = [self.process_doc(row["doc_id"]) for row in task.docs]
@@ -167,7 +255,8 @@ class IngestWorker:
 if __name__ == "__main__":
     import argparse
 
-    from agentic_graphrag.config import get_config, get_settings
+    from agentic_graphrag.config import get_config, get_settings, resolve_path
+    from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
     from agentic_graphrag.stores.factory import create_offline_bundle
 
     parser = argparse.ArgumentParser(description="Run ingest worker")
@@ -178,10 +267,19 @@ if __name__ == "__main__":
     settings = get_settings()
     bundle = create_offline_bundle(cfg=cfg, settings=settings)
 
+    # Share the same task_store JSONL path as the API process so queued tasks
+    # are visible to this worker (BL-05 fix).
+    task_store = IngestTaskStore(
+        resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"
+    )
+
     worker = IngestWorker(
         doc_store=bundle.docs,
         vector_store=bundle.vector,
         fulltext_store=bundle.fulltext,
+        task_store=task_store,
+        graph_store=bundle.graph,
+        schema=load_default_schema(),
         config=IngestWorkerConfig(
             chunk_size_chars=cfg.knowledge.chunk_size_chars,
             chunk_overlap_chars=cfg.knowledge.chunk_overlap_chars,

@@ -23,7 +23,7 @@ class IngestStatus(StrEnum):
 
 _ALLOWED_TRANSITIONS = {
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
-    IngestStatus.EXTRACTING: {IngestStatus.REVIEW, IngestStatus.DONE, IngestStatus.FAILED},
+    IngestStatus.EXTRACTING: {IngestStatus.EXTRACTING, IngestStatus.REVIEW, IngestStatus.DONE, IngestStatus.FAILED},
     IngestStatus.REVIEW: {IngestStatus.DONE, IngestStatus.FAILED},
 }
 
@@ -55,12 +55,22 @@ class IngestTask:
 
 
 class IngestTaskStore:
-    """Thread-safe last-write-wins JSONL task store."""
+    """Thread-safe last-write-wins JSONL task store.
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    BL-06: Tasks stuck in ``EXTRACTING`` beyond ``extract_timeout_seconds``
+    are eligible for re-processing via ``pending_or_stale()``.
+    """
+
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        extract_timeout_seconds: float = 300.0,
+    ) -> None:
         self.path = Path(path) if path else None
         self._tasks: dict[str, IngestTask] = {}
         self._lock = threading.Lock()
+        self._extract_timeout = extract_timeout_seconds
         if self.path and self.path.exists():
             self._load()
 
@@ -90,6 +100,22 @@ class IngestTaskStore:
     def pending(self, limit: int = 10) -> list[IngestTask]:
         with self._lock:
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]
+        tasks.sort(key=lambda task: task.created_at)
+        return [IngestTask.from_dict(task.to_dict()) for task in tasks[:limit]]
+
+    def pending_or_stale(self, limit: int = 10) -> list[IngestTask]:
+        """Return queued tasks + extracting tasks past the timeout (BL-06 crash recovery)."""
+        now = time.time()
+        with self._lock:
+            tasks = [
+                t
+                for t in self._tasks.values()
+                if t.status == IngestStatus.QUEUED
+                or (
+                    t.status == IngestStatus.EXTRACTING
+                    and (now - t.updated_at) > self._extract_timeout
+                )
+            ]
         tasks.sort(key=lambda task: task.created_at)
         return [IngestTask.from_dict(task.to_dict()) for task in tasks[:limit]]
 

@@ -224,10 +224,18 @@ class RetrievalCache:
         self.answers.clear()
         return v
 
-    def persist_embeddings(self) -> None:
+    def persist_embedding_stats(self) -> None:
+        """Persist embedding cache stats (not the embeddings themselves).
+
+        ⚠ The method name ``persist_embeddings`` was misleading — it only writes
+        cache metadata (size, hits, misses), not the actual embedding vectors.
+        """
         if not self.cache_dir:
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         path = self.cache_dir / "embeddings.json"
         stats = self.embeddings.stats()
         path.write_text(json.dumps(stats), encoding="utf-8")
+
+    # Backward-compat alias — the old name overstated what this method does.
+    persist_embeddings = persist_embedding_stats

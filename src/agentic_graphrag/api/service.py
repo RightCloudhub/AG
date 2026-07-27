@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,15 +20,13 @@ from agentic_graphrag.api.service_helpers import (
 )
 from agentic_graphrag.api.service_query import (
     execute_run_query,
-)
-from agentic_graphrag.api.service_query import (
     stream_query_events as _stream_query_events,
 )
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.generation.audit_store import AuditStore
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
-from agentic_graphrag.knowledge.review.queue import ReviewQueue, ReviewType
+from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewItem, ReviewQueue, ReviewType
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.budget_policy import MultiLevelBudget
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
@@ -40,17 +38,49 @@ from agentic_graphrag.stores.factory import (
 )
 
 # Re-exports for tests / public helpers
-__all__ = [
-    "QueryService",
-    "build_default_service",
-    "_chain_to_data",
-    "_entities_from_triples",
-    "_load_triples",
-]
+__all__ = ["QueryService", "build_default_service", "_chain_to_data", "_entities_from_triples", "_load_triples"]
 
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").lower() in {"1", "true", "yes"}
+
+
+def _decision_handler_for(bundle: StoreBundle) -> Callable[[ReviewItem, str], None]:
+    """BL-03: Apply approved review decisions to the graph store.
+
+    CONFLICT items: upsert the triple into the graph.
+    SPOTCHECK / FEEDBACK: log only (no graph mutation).
+    """
+    from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
+    from agentic_graphrag.knowledge.schema_check import load_default_schema
+
+    schema = load_default_schema()
+
+    def _handler(item: ReviewItem, decision: str) -> None:
+        if decision != ReviewDecision.APPROVE.value:
+            return
+        if item.type == ReviewType.CONFLICT.value:
+            payload = item.payload
+            triple_data = payload.get("triple")
+            if triple_data is not None:
+                from agentic_graphrag.knowledge.schema_check import Triple
+
+                try:
+                    triple = Triple.model_validate(triple_data)
+                    load_triples_into_graph(
+                        bundle.graph, [triple], clear_first=False, schema=schema
+                    )
+                    logger.info(
+                        "Review decision applied: approved %s -> graph (triple: %s)",
+                        item.id,
+                        triple.relation,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "Failed to apply review decision %s", item.id
+                    )
+
+    return _handler
 
 
 @dataclass
@@ -147,7 +177,10 @@ class QueryService:
             allow_llm=allow_llm,
             known_entities=_entities_from_triples(triples) if triples else [],
             audit_store=AuditStore(resolve_path(cfg.paths.processed_dir) / "audit_chains.jsonl"),
-            review_queue=ReviewQueue(resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl"),
+            review_queue=ReviewQueue(
+                resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl",
+                on_decision=_decision_handler_for(bundle),
+            ),
             retrieval_cache=RetrievalCache(
                 cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
                 answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,
@@ -204,13 +237,14 @@ class QueryService:
                 tenant_id=tenant_id,
             )
             payload["review_id"] = item.id
-        self._attach_feedback_to_audit(query_id, payload)
+        self._attach_feedback_to_audit(query_id, payload, tenant_id=tenant_id)
         return payload
 
-    def _attach_feedback_to_audit(self, query_id: str, payload: dict[str, Any]) -> None:
+    def _attach_feedback_to_audit(self, query_id: str, payload: dict[str, Any], *, tenant_id: str = "") -> None:
         if self.audit_store is None:
             return
-        chain = self.audit_store.get(query_id)
+        # BL-09: use tenant-scoped lookup to prevent cross-tenant feedback attachment
+        chain = self.audit_store.get_for_tenant(query_id, tenant_id) if tenant_id else self.audit_store.get(query_id)
         if chain is None:
             return
         meta = dict(chain.get("metadata") or {})

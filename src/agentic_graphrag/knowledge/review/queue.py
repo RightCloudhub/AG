@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -72,12 +73,23 @@ class ReviewItem:
 
 
 class ReviewQueue:
-    """Thread-safe review queue with optional JSONL persistence."""
+    """Thread-safe review queue with optional JSONL persistence.
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    BL-03: ``on_decision`` callback is invoked when a decision is made,
+    allowing the caller to apply approved items to the graph (or reject
+    items to trigger rollback logic).
+    """
+
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        on_decision: Callable[[ReviewItem, str], None] | None = None,
+    ) -> None:
         self.path = Path(path) if path else None
         self._items: dict[str, ReviewItem] = {}
         self._lock = threading.Lock()
+        self.on_decision = on_decision
         if self.path and self.path.exists():
             self._load()
 
@@ -86,7 +98,10 @@ class ReviewQueue:
         for line in self.path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            item = ReviewItem.from_dict(json.loads(line))
+            try:
+                item = ReviewItem.from_dict(json.loads(line))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue  # skip corrupt lines, remain available
             self._items[item.id] = item
 
     def _persist(self, item: ReviewItem) -> None:
@@ -159,6 +174,15 @@ class ReviewQueue:
             item = self._items.get(item_id)
             if item is None:
                 raise KeyError(item_id)
+            # Terminal state protection: prevent overwriting a finalized decision
+            if item.status in {
+                ReviewStatus.APPROVED.value,
+                ReviewStatus.REJECTED.value,
+                ReviewStatus.SKIPPED.value,
+            }:
+                raise ValueError(
+                    f"Item {item_id} already in terminal state '{item.status}'"
+                )
             dec = decision.value if isinstance(decision, ReviewDecision) else str(decision)
             if dec == ReviewDecision.APPROVE.value:
                 item.status = ReviewStatus.APPROVED.value
@@ -170,7 +194,11 @@ class ReviewQueue:
             item.decision_note = note
             item.decided_at = time.time()
             self._persist(item)
-            return item
+        # BL-03: invoke decision handler outside the lock so callbacks
+        # can perform graph writes without deadlock.
+        if self.on_decision is not None:
+            self.on_decision(item, dec)
+        return item
 
     def counts(self) -> dict[str, int]:
         with self._lock:

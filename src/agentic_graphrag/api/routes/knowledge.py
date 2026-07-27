@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -19,7 +20,9 @@ from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
 # In-process compatibility index; durable state uses QueryService.ingest_tasks.
+# BL-11: bounded to 1000 entries to prevent unbounded memory growth.
 _TASKS: dict[str, dict[str, Any]] = {}
+_MAX_TASKS = 1000
 
 
 class DocUploadMeta(BaseModel):
@@ -61,7 +64,13 @@ async def upload_docs(
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
     _TASKS[task_id] = row
+    # BL-11: bounded cleanup — evict oldest entries when the map exceeds limit
+    while len(_TASKS) > _MAX_TASKS:
+        oldest = min(_TASKS, key=lambda k: _TASKS[k].get("created_at", 0))
+        _TASKS.pop(oldest, None)
     if svc.review_queue is not None and saved:
+        # confidence=0.5 is a placeholder — replace with actual extraction confidence
+        # when the extract pipeline is wired into the upload flow (see BL-01).
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
             {"task_id": task_id, "doc_count": len(saved)},
@@ -137,12 +146,21 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     svc = _service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
+    tenant_id, _user_id = _principal(request)
     try:
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
     try:
-        item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
+        item = svc.review_queue.get(item_id)
+        if item is None:
+            raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404)
+        # BL-09: tenant-scoped access check — prevent cross-tenant decision
+        if item.tenant_id and item.tenant_id != tenant_id:
+            raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404)
+        item = svc.review_queue.decide(
+            item_id, dec, reviewer=body.reviewer, note=body.note
+        )
     except KeyError as exc:
         raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
     emit_audit(
@@ -213,11 +231,12 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
     public/private entity map (``entities`` / ``_entities``).
     """
     svc = _service(request)
+    tenant_id, _user_id = _principal(request)
     store = svc.bundle.graph
     lim = max(0, min(int(limit or 50), 500))
     off = max(0, int(offset or 0))
 
-    records = _list_entity_records(store, limit=lim, offset=off)
+    records = _list_entity_records(store, limit=lim, offset=off, tenant_id=tenant_id)
     total = _entity_total(store, fallback=len(records) if off == 0 else None)
     rows = [
         {
@@ -231,16 +250,21 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
     return ok(rows, meta=MetaBody(total=total, limit=lim, page=(off // lim + 1) if lim else 1))
 
 
-def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
-    """Resolve entity list from GraphStore implementations without Protocol change."""
+def _list_entity_records(store: object, *, limit: int, offset: int, tenant_id: str = "") -> list:
+    """Resolve entity list from GraphStore implementations without Protocol change.
+
+    BL-09: passes ``tenant_id`` to ``list_entities`` when supported.
+    Uses ``inspect.signature`` to detect parameter support instead of
+    try/except (which could swallow unrelated TypeErrors).
+    """
     lister = getattr(store, "list_entities", None)
     if callable(lister):
-        try:
-            return list(lister(limit=limit, offset=offset))
-        except TypeError:
-            # Older signature without offset
-            items = list(lister(limit=limit))
-            return items[offset : offset + limit]
+        sig = inspect.signature(lister)
+        has_tenant = "tenant_id" in sig.parameters
+        kwargs: dict[str, Any] = {"limit": limit, "offset": offset}
+        if has_tenant:
+            kwargs["tenant_id"] = tenant_id
+        return list(lister(**kwargs))
 
     for attr in ("entities", "_entities"):
         entities = getattr(store, attr, None)

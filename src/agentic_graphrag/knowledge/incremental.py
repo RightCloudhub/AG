@@ -7,6 +7,7 @@ New docs → extract → conflict detect → high-conf auto-merge / low-conf rev
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -17,8 +18,15 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
-from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, gate_triples
+from agentic_graphrag.knowledge.schema_check import (
+    SchemaDefinition,
+    Triple,
+    gate_triples,
+    load_default_schema,
+)
 from agentic_graphrag.stores.interfaces import GraphStore, RelationRecord
+
+logger = logging.getLogger(__name__)
 
 
 class ConflictAction(StrEnum):
@@ -92,6 +100,8 @@ class IncrementalUpdater:
         review_log: Path | str | None = None,
     ) -> None:
         self.store = store
+        if schema is None:
+            schema = load_default_schema()
         self.schema = schema
         self.confidence_threshold = confidence_threshold
         self.auto_update_margin = auto_update_margin
@@ -201,15 +211,14 @@ class IncrementalUpdater:
         accepted = self._gate(triples, result)
         clean, conflicts = self.detect_conflicts(accepted)
         to_write = self._collect_writes(clean, conflicts, result)
-        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=None)
-        result.accepted = int(stats.get("relations", 0) or len(to_write))
+        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=self.schema)
+        result.accepted = int(stats.get("relations_upserted", 0) or len(to_write))
         self._refresh_index(to_write)
         if self.on_commit is not None:
             self.on_commit()
 
     def _gate(self, triples: list[Triple], result: BatchResult) -> list[Triple]:
-        if self.schema is None:
-            return triples
+        assert self.schema is not None, "IncrementalUpdater requires a schema"
         gate = gate_triples(triples, self.schema, confidence_threshold=self.confidence_threshold)
         result.rejected = len(gate.rejected)
         return gate.accepted
@@ -252,8 +261,8 @@ class IncrementalUpdater:
         if callable(deleter):
             try:
                 deleter(old.id)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to delete stale relation %s: %s", old.id, exc)
 
     def _refresh_index(self, to_write: list[Triple]) -> None:
         _ents, rels = triples_to_records(to_write)

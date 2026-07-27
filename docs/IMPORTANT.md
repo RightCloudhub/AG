@@ -2,8 +2,8 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-07-22  
-**来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
+**最近汇总：** 2026-07-27  
+**来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释、`docs/BUSINESS_LOGIC.md`。
 
 **符号约定**
 
@@ -295,6 +295,38 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
 
+## 13. 业务逻辑缺口（来自 `docs/BUSINESS_LOGIC.md` — 2026-07-26 静态审查）
+
+已修复和仍待处理的业务逻辑缺口，按优先级排列。
+
+| 缺口 | 严重度 | 状态 | 修复/说明 |
+|------|--------|------|-----------|
+| BL-04 SSE 流式 tenant_id 传播 | 🔴 | **FIXED** 2026-07-27 | `recover_chain_after_recursion` 补 `tenant_id` 参数 |
+| BL-02 中文引用门禁 | 🔴 | **FIXED** 2026-07-27 | `claims_lexically_supported` 添加跨语言桥接 |
+| BL-01 上传文档→入图通路 | 🔴 | **PARTIAL** | `IngestWorker.__main__` 已传 `graph_store`；仍需 production 端到端验证 |
+| BL-03 人工复核决策执行器 | 🔴 | **FIXED** (代码已含) | `on_decision` 回调已在 `api/service.py` 接线 |
+| BL-07 Schema 校验门禁 | 🟠 | **FIXED** (代码已含) | `load_triples_into_graph` 默认加载 `load_default_schema()` |
+| BL-09 跨租户越权 | 🟠 | **FIXED** 2026-07-27 | `decide_review` 补 `_principal` 调用；图谱实体接口已有租户过滤 |
+| BL-13 引用门禁关系判别 | 🟠 | **PARTIAL** | `fabrication_rate` 改为 `uncited_claims_rate` 别名；仍需 NLI 级判定 |
+| BL-12 Planner DAG 并行语义 | 🟠 | **OPEN** | 并行 API 与单测已存在，但运行期仍按线性序执行；`hop` 预算混同 |
+| BL-05 文档化 worker 命令 | 🟡 | **FIXED** (代码已含) | `__main__` 创建并传递 `task_store` |
+| BL-06 extracting 崩溃卡死 | 🟡 | **FIXED** (代码已含) | `pending_or_stale()` + 超时回收 |
+| BL-08 上传校验绕过 + PDF | 🟡 | **OPEN** | 无扩展名文件绕过白名单；PDF 无文本抽取 |
+| BL-10 静默吞异常 | 🟡 | **FIXED** 2026-07-27 | ingest_worker 嵌入全失败检测；streaming request_id 补全 |
+| BL-11 状态机不闭合 | 🟡 | **PARTIAL** | `persist_embeddings` 改名；triage 帧保证；`KEEP_OLD` 不计数仍开 |
+| BL-14 图谱时间维度 | 🟡 | **OPEN** | 数据模型变更（schema + 抽取 + 打分），需在 BL-01 立项前决策 |
+
+### 13.1 修复验证建议
+
+以下修复可通过静态审查确认，但建议在运行环境中验证：
+
+| 验证项 | 对应缺口 | 建议方式 |
+|--------|----------|----------|
+| V-01 上传文档后图谱实体数变化 | BL-01 | `POST /v1/docs` 前后对比 `GET /v1/graph/entities` |
+| V-02 在线中文问答不再退化为 honest_fallback | BL-02 | `AGR_ALLOW_LLM=1` 提中文事实问题，检查 `citation_intercept` |
+| V-05 流式路径租户隔离 | BL-04 | 租户 A 写入独有 chunk，租户 B 查询，断言无跨租户泄漏 |
+| V-16 超量子问题静默丢弃 | BL-12 | 构造 6 子问题 plan（max_hops=4），断言仅前 4 个执行 |
+
 ---
 
-*关闭某项时：在此勾记，并同步阶段清单；门禁 JSON / 风险状态尽量同一变更集更新。*
+*关闭某项时：在此勾记，并同步 BUSINESS_LOGIC.md 与阶段清单。*

@@ -106,6 +106,8 @@ def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     # Contract stability: clients always see a triage frame first.
     if ctx.opts.force_agentic:
         yield EVENT_TRIAGE, _force_agentic_triage().model_dump(mode="json")
+    else:
+        yield EVENT_TRIAGE, _no_triage_result().model_dump(mode="json")
     for etype, payload in _iter_agentic(ctx):
         if etype == EVENT_FINAL_CHAIN and ctx.opts.force_agentic:
             chain: ReasoningChain = payload
@@ -122,6 +124,16 @@ def _force_agentic_triage() -> TriageResult:
         estimated_hops=2,
         confidence=1.0,
         rule_hit="force_agentic",
+    )
+
+
+def _no_triage_result() -> TriageResult:
+    return TriageResult(
+        route=Route.AGENTIC,
+        rationale="triage disabled by configuration",
+        estimated_hops=2,
+        confidence=0.0,
+        rule_hit="no_triage",
     )
 
 
@@ -220,7 +232,7 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
         ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
     )
     t0 = time.perf_counter()
-    initial = _initial_state(ctx.question, chain, opts.allow_llm)
+    initial = _initial_state(ctx.question, chain, opts.allow_llm, tenant_id=opts.tenant_id)
     config = invoke_config(tid, recursion_limit=rec_limit)
     try:
         final_state = yield from _stream_graph_updates(graph, initial, config)
@@ -237,6 +249,7 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
             t0=t0,
             llm=ctx.llm,
             allow_llm=opts.allow_llm,
+            tenant_id=opts.tenant_id,
         )
         yield EVENT_FINAL_CHAIN, recovered
         return
@@ -245,16 +258,17 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
 
 
-def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dict[str, Any]:
+def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool, tenant_id: str = "") -> dict[str, Any]:
     return {
         "question": question,
         "chain": chain.model_dump(),
         "sub_questions": [],
-        "current_index": 0,
+        "done_ids": [],
         "hop": 0,
         "evidence": [],
         "done": False,
         "allow_llm": allow_llm,
+        "tenant_id": tenant_id,
     }
 
 
