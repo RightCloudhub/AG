@@ -7,6 +7,8 @@ actually exist in the retrieved candidate set. Failures trigger regenerate
 
 from __future__ import annotations
 
+import re
+
 from agentic_graphrag.generation.trace import Claim
 from agentic_graphrag.retrieval.contracts import Candidate
 
@@ -95,7 +97,11 @@ def validate_answered_claims(
     - every claim needs ≥1 evidence_id
     - every claim must reference a retrieved candidate id
     - optional lexical support: claim tokens must overlap cited evidence text
-      (not a full NLI check — still better than ID-only fabrication=0)
+
+    Caveat (BL-13): lexical support is a proxy, not full NLI. It checks token
+    overlap, not whether the relation asserted in the claim matches the
+    evidence. A claim citing a real id but misreading its relation can pass.
+    True relation-aware checking requires an NLI step (out of scope).
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -112,6 +118,10 @@ _STOPWORDS = frozenset(
     "a an the of to in on for and or is are was were be by with from as at".split()
 )
 
+# CJK Unified Ideographs + Extension A + Compatibility Ideographs.
+_CJK_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+_LATIN_RUN = re.compile(r"[a-z0-9]+")
+
 
 def claims_lexically_supported(
     claims: list[Claim],
@@ -119,7 +129,13 @@ def claims_lexically_supported(
     *,
     min_overlap: int = 1,
 ) -> bool:
-    """True if every claim shares ≥1 content token with at least one cited candidate."""
+    """True if every claim shares ≥1 content token with at least one cited candidate.
+
+    Tokenization is CJK-aware (BL-02): CJK runs yield unigrams + bigrams so
+    Chinese claims can match Chinese evidence. Latin/digit runs follow the
+    whitespace-based split. Note (BL-13): overlap is lexical only; a claim
+    that cites a real id but asserts a different relation may still pass.
+    """
     by_id = {c.id: c for c in evidence}
     for claim in claims:
         claim_toks = _content_tokens(claim.text)
@@ -140,9 +156,30 @@ def claims_lexically_supported(
 
 
 def _content_tokens(text: str) -> set[str]:
-    toks = set()
-    for raw in (text or "").lower().replace("-", " ").split():
-        t = "".join(ch for ch in raw if ch.isalnum())
-        if len(t) >= 2 and t not in _STOPWORDS:
-            toks.add(t)
+    """Token set for lexical support check; CJK-aware (BL-02).
+
+    - Latin/digit runs: lowercase, alnum-filtered, len>=2, non-stopword.
+    - CJK runs: unigrams + bigrams of consecutive CJK chars. Whitespace
+      splitting alone collapses a whole Chinese sentence into one token,
+      making the gate always fail for pure-CJK claims. Bigrams add
+      discrimination so the gate is not trivially satisfied (BL-13).
+    """
+    toks: set[str] = set()
+    if not text:
+        return toks
+    lowered = text.lower().replace("-", " ")
+    for raw in lowered.split():
+        # Latin/digit sub-tokens (preserves prior behaviour for mixed runs).
+        for latin in _LATIN_RUN.findall(raw):
+            if len(latin) >= 2 and latin not in _STOPWORDS:
+                toks.add(latin)
+        # CJK runs: unigrams + bigrams.
+        for cjk_run in _CJK_RUN.findall(raw):
+            if len(cjk_run) == 1:
+                toks.add(cjk_run)
+                continue
+            for i in range(len(cjk_run)):
+                toks.add(cjk_run[i])
+                if i + 1 < len(cjk_run):
+                    toks.add(cjk_run[i : i + 2])
     return toks

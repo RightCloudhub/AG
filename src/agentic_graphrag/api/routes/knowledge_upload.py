@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Any
@@ -11,20 +12,26 @@ from fastapi import Request, UploadFile
 from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.stores.interfaces import DocumentRecord
 
+logger = logging.getLogger(__name__)
+
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 MAX_BATCH_FILES = 20
-ALLOWED_EXTENSIONS = frozenset({"md", "txt", "pdf"})
+# BL-08: pdf removed — no text extraction library is wired, so PDFs were
+# stored as binary garbage and poisoned the chunk/index pipeline.
+# Re-add when a PDF text extractor (pypdf / pdfplumber) is integrated.
+ALLOWED_EXTENSIONS = frozenset({"md", "txt"})
 
 
 def validate_upload(file: UploadFile) -> None:
     """Check a file extension against the upload allow list."""
     name = (file.filename or "").lower()
     ext = name.rsplit(".", 1)[-1] if "." in name else ""
-    if ext and ext not in ALLOWED_EXTENSIONS:
+    # BL-08: reject files without an extension (previously bypassed the whitelist).
+    if not ext or ext not in ALLOWED_EXTENSIONS:
         allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
         raise ApiError(
             INVALID_INPUT,
-            f"File type not allowed: .{ext} (allowed: {allowed})",
+            f"File type not allowed: .{ext or '(none)'} (allowed: {allowed})",
             status_code=413,
         )
 
@@ -44,6 +51,14 @@ async def _save_upload(
     svc: Any, file: UploadFile, *, tenant_id: str, task_id: str
 ) -> dict[str, str]:
     validate_upload(file)
+    # BL-08: check declared size before reading into memory to avoid OOM on huge uploads.
+    declared = getattr(file, "size", None)
+    if declared is not None and declared > MAX_FILE_SIZE_BYTES:
+        raise ApiError(
+            INVALID_INPUT,
+            f"File too large: {file.filename} ({declared} bytes, max {MAX_FILE_SIZE_BYTES})",
+            status_code=413,
+        )
     content = await file.read()
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise ApiError(
@@ -65,10 +80,16 @@ async def _save_upload(
         },
         tenant_id=tenant_id,
     )
+    # BL-10: log persistence failures instead of silently swallowing.
     try:
         svc.bundle.docs.save(record)
-    except Exception:  # The task still records the failed persistence attempt for troubleshooting.
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DocStore.save failed for %s: %s", doc_id, exc)
+        raise ApiError(
+            "DOC_STORE_ERROR",
+            "Failed to persist document",
+            status_code=500,
+        ) from exc
     return {"doc_id": doc_id, "bytes": str(len(text)), "name": file.filename or ""}
 
 
@@ -96,5 +117,5 @@ def emit_audit(request: Request, event: dict[str, Any]) -> None:
         tenant_id = principal.tenant_id if principal else "default"
         user_id = principal.user_id if principal else "anonymous"
         emit_audit_event(tenant_id=tenant_id, user_id=user_id, **event)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 — audit must not break the API operation
+        logger.warning("emit_audit_event failed for %s: %s", event.get("action"), exc)

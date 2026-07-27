@@ -23,9 +23,18 @@ class IngestStatus(StrEnum):
 
 _ALLOWED_TRANSITIONS = {
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
-    IngestStatus.EXTRACTING: {IngestStatus.REVIEW, IngestStatus.DONE, IngestStatus.FAILED},
+    # BL-06: EXTRACTING → QUEUED allows requeue of stale tasks after crash.
+    IngestStatus.EXTRACTING: {
+        IngestStatus.REVIEW,
+        IngestStatus.DONE,
+        IngestStatus.FAILED,
+        IngestStatus.QUEUED,
+    },
     IngestStatus.REVIEW: {IngestStatus.DONE, IngestStatus.FAILED},
 }
+
+# BL-06: default lease timeout for extracting tasks (5 minutes).
+_DEFAULT_LEASE_TIMEOUT_SECONDS = 300.0
 
 
 @dataclass
@@ -37,12 +46,15 @@ class IngestTask:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     message: str = ""
+    # BL-06: lease timestamp for EXTRACTING state recovery.
+    lease_started_at: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> IngestTask:
+        lease = value.get("lease_started_at")
         return cls(
             id=str(value.get("id") or uuid.uuid4()),
             tenant_id=str(value.get("tenant_id") or "default"),
@@ -51,6 +63,7 @@ class IngestTask:
             created_at=float(value.get("created_at") or time.time()),
             updated_at=float(value.get("updated_at") or time.time()),
             message=str(value.get("message") or ""),
+            lease_started_at=float(lease) if lease is not None else None,
         )
 
 
@@ -105,8 +118,38 @@ class IngestTaskStore:
             task.status = status.value
             task.updated_at = time.time()
             task.message = message
+            # BL-06: track lease start when entering EXTRACTING; clear on exit.
+            if status == IngestStatus.EXTRACTING:
+                task.lease_started_at = time.time()
+            else:
+                task.lease_started_at = None
             self._persist(task)
             return IngestTask.from_dict(task.to_dict())
+
+    def requeue_stale(
+        self, *, timeout_seconds: float = _DEFAULT_LEASE_TIMEOUT_SECONDS
+    ) -> int:
+        """BL-06: requeue EXTRACTING tasks whose lease has expired.
+
+        Called by the worker before polling for new tasks. Returns the count
+        of requeued tasks. Tasks without a ``lease_started_at`` (legacy) are
+        requeued only if they've been in EXTRACTING longer than the timeout.
+        """
+        now = time.time()
+        requeued = 0
+        with self._lock:
+            for task in self._tasks.values():
+                if task.status != IngestStatus.EXTRACTING.value:
+                    continue
+                lease = task.lease_started_at or task.updated_at
+                if now - lease >= timeout_seconds:
+                    task.status = IngestStatus.QUEUED.value
+                    task.updated_at = now
+                    task.lease_started_at = None
+                    task.message = "Requeued: extracting lease expired"
+                    self._persist(task)
+                    requeued += 1
+        return requeued
 
     def _load(self) -> None:
         assert self.path is not None

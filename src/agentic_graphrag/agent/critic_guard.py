@@ -67,7 +67,9 @@ def _should_force(ctx: CritiqueContext, result: CriticResult) -> bool:
 
     if result.action in (CriticAction.NEXT_HOP, CriticAction.REWRITE):
         return False
-    if ctx.hop >= ctx.max_hops:
+    # BL-12: use sub_question_cap for iteration limit.
+    sq_cap = ctx.max_sub_questions or ctx.max_hops
+    if ctx.hop >= sq_cap:
         return False
     # Respect remaining planned sub-questions (do not short-circuit 3-hop plans).
     if getattr(ctx, "remaining_subquestions", 0) > 0:

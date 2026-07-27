@@ -64,6 +64,11 @@ class GuardrailsConfig(BaseModel):
     max_tokens_per_query: int = 50_000
     query_timeout_seconds: int = 60
     recursion_limit: int = 15
+    # BL-12: separate sub-question count budget from graph-traversal hop
+    # budget. ``max_hops`` caps retrieval depth (neighbors/paths); this caps
+    # how many sub-questions the loop may process. Defaults to ``max_hops``
+    # for backward compatibility when unset in YAML.
+    max_sub_questions: int = 0
 
 
 class GraphRetrievalConfig(BaseModel):

@@ -40,7 +40,17 @@ def test_incremental_updater_no_clear():
         tail=EntityMention(name="B", type="Company"),
         confidence=0.6,
     )
-    up = IncrementalUpdater(store, confidence_threshold=0.5, auto_update_margin=0.15)
+    # BL-07: pass schema so the incremental gate is enforced.
+    from agentic_graphrag.knowledge.schema_check import load_schema
+
+    schema = None
+    try:
+        schema = load_schema("configs/schema/domain_v0.yaml")
+    except Exception:  # noqa: BLE001
+        pass
+    up = IncrementalUpdater(
+        store, schema=schema, confidence_threshold=0.5, auto_update_margin=0.15
+    )
     r1 = up.apply_batch([t0])
     assert r1.accepted >= 0
     counts1 = store.counts()

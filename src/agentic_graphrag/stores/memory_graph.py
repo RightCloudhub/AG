@@ -26,6 +26,30 @@ class InMemoryGraphStore:
             self._relations[_key(relation.tenant_id, relation.id)] = relation
         return len(relations)
 
+    def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
+        """Remove a relation by id. Returns True if removed.
+
+        BL-03: needed by ReviewExecutor to apply REJECT decisions. Also used
+        by IncrementalUpdater._retire_conflicting_edge via getattr fallback.
+
+        When ``tenant_id`` is given, only removes the relation whose owner
+        tenant strictly matches. ``_relation_id`` is tenant-agnostic (sha1 of
+        ``head|rel|tail``), so without this scope the same relation id would
+        be removed from every tenant that happens to have it.
+        """
+        removed = False
+        keys_to_drop: list[str] = []
+        for key, rel in self._relations.items():
+            if rel.id != relation_id:
+                continue
+            if tenant_id is not None and rel.tenant_id != tenant_id:
+                continue
+            keys_to_drop.append(key)
+        for key in keys_to_drop:
+            del self._relations[key]
+            removed = True
+        return removed
+
     def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
         target = name.lower()
         for entity in self._entities.values():

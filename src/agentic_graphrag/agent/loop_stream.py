@@ -220,7 +220,7 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
         ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
     )
     t0 = time.perf_counter()
-    initial = _initial_state(ctx.question, chain, opts.allow_llm)
+    initial = _initial_state(ctx.question, chain, opts.allow_llm, opts.tenant_id)
     config = invoke_config(tid, recursion_limit=rec_limit)
     try:
         final_state = yield from _stream_graph_updates(graph, initial, config)
@@ -245,7 +245,9 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
 
 
-def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dict[str, Any]:
+def _initial_state(
+    question: str, chain: ReasoningChain, allow_llm: bool, tenant_id: str = ""
+) -> dict[str, Any]:
     return {
         "question": question,
         "chain": chain.model_dump(),
@@ -255,6 +257,7 @@ def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dic
         "evidence": [],
         "done": False,
         "allow_llm": allow_llm,
+        "tenant_id": tenant_id,
     }
 
 

@@ -8,6 +8,7 @@ Single-chunk extract logic lives in
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ from agentic_graphrag.knowledge.extract_types import (
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
 from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.stores.interfaces import ChunkRecord, DocStore
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ChunkExtractResult",
@@ -213,7 +216,8 @@ def persist_doc_provenance(
     for doc_id, outcomes in by_doc.items():
         try:
             _merge_one_doc(doc_store, doc_id, outcomes, batch_id=batch_id)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 — one doc's provenance must not abort the rest
+            logger.warning("provenance merge failed for %s: %s", doc_id, exc)
             continue
 
 

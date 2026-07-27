@@ -36,6 +36,11 @@ def triples_to_records(
     for t in triples:
         hid = _entity_id(t.head.name, t.head.type)
         tid = _entity_id(t.tail.name, t.tail.type)
+        # BL-01: propagate tenant_id from triple.attributes to records so the
+        # memory graph stores them under the correct tenant-scoped key. Without
+        # this, uploaded-doc triples default to tenant_id="" and are visible to
+        # ALL tenants (treated as shared legacy seed records by _tenant_matches).
+        tenant_id = str((t.attributes or {}).get("tenant_id") or "")
         source = {
             "doc_id": t.source_doc_id,
             "chunk_id": t.source_chunk_id,
@@ -43,9 +48,18 @@ def triples_to_records(
             "confidence": t.confidence,
         }
         if hid not in entities:
-            entities[hid] = EntityRecord(id=hid, name=t.head.name.strip(), type=t.head.type)
+            entities[hid] = EntityRecord(
+                id=hid, name=t.head.name.strip(), type=t.head.type, tenant_id=tenant_id
+            )
+        elif tenant_id and not entities[hid].tenant_id:
+            # Backfill tenant on an entity previously seen without one.
+            entities[hid].tenant_id = tenant_id
         if tid not in entities:
-            entities[tid] = EntityRecord(id=tid, name=t.tail.name.strip(), type=t.tail.type)
+            entities[tid] = EntityRecord(
+                id=tid, name=t.tail.name.strip(), type=t.tail.type, tenant_id=tenant_id
+            )
+        elif tenant_id and not entities[tid].tenant_id:
+            entities[tid].tenant_id = tenant_id
         sources_by_entity[hid].append(source)
         sources_by_entity[tid].append(source)
 
@@ -61,6 +75,7 @@ def triples_to_records(
                 confidence=t.confidence,
                 attributes=t.attributes or {},
                 sources=[source],
+                tenant_id=tenant_id,
             )
         else:
             relations[rid].sources.append(source)
@@ -85,11 +100,15 @@ def load_triples_into_graph(
     When ``schema`` is provided, applies the P2-KG-02/03 ingestion gate
     (schema + optional confidence threshold) and never writes rejected
     triples. Rejections are optionally appended to ``reject_log_path``.
+
+    BL-07: when ``schema`` is provided but ``confidence_threshold`` is None,
+    the threshold defaults to 0.5 (matching ``gate_triples``) rather than
+    0.0, so confidence filtering does not silently degrade to a no-op.
     """
     gate: ValidationResult | None = None
     accepted = triples
     if schema is not None:
-        thr = 0.0 if confidence_threshold is None else float(confidence_threshold)
+        thr = 0.5 if confidence_threshold is None else float(confidence_threshold)
         gate = gate_triples(triples, schema, confidence_threshold=thr)
         accepted = gate.accepted
         if reject_log_path is not None and gate.rejected:

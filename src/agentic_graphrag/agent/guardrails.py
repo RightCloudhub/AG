@@ -39,6 +39,10 @@ class GuardrailConfig:
     recursion_limit: int = 15
     # Server hard ceiling — request overrides cannot exceed this
     hard_max_hops: int = 20
+    # BL-12: sub-question count budget (separate from graph-traversal hop
+    # budget). When 0, falls back to ``max_hops`` for backward compatibility.
+    max_sub_questions: int = 0
+    hard_max_sub_questions: int = 50
 
     @classmethod
     def from_app_config(
@@ -50,6 +54,7 @@ class GuardrailConfig:
         max_tokens: int | None = None,
         query_timeout_seconds: int | None = None,
         recursion_limit: int | None = None,
+        max_sub_questions: int | None = None,
     ) -> GuardrailConfig:
         """Build from YAML/app config with optional per-request overrides (P2-AG-04)."""
         if cfg is None:
@@ -67,6 +72,12 @@ class GuardrailConfig:
         rec = recursion_limit if recursion_limit is not None else int(g.recursion_limit)
         # Never ship a recursion_limit that the hop budget can exhaust.
         rec = max(int(rec), min_recursion_limit(hops))
+        # BL-12: resolve sub-question budget; 0 in YAML means "use max_hops".
+        sq_budget = max_sub_questions if max_sub_questions is not None else int(
+            getattr(g, "max_sub_questions", 0) or 0
+        )
+        if sq_budget <= 0:
+            sq_budget = hops
 
         return cls(
             max_hops=hops,
@@ -79,6 +90,8 @@ class GuardrailConfig:
             ),
             recursion_limit=rec,
             hard_max_hops=hard,
+            max_sub_questions=min(int(sq_budget), 50),
+            hard_max_sub_questions=50,
         )
 
     def with_overrides(
@@ -89,10 +102,14 @@ class GuardrailConfig:
         max_tokens: int | None = None,
         query_timeout_seconds: int | None = None,
         recursion_limit: int | None = None,
+        max_sub_questions: int | None = None,
     ) -> GuardrailConfig:
         hops = self.max_hops if max_hops is None else max(1, min(int(max_hops), self.hard_max_hops))
         rec = self.recursion_limit if recursion_limit is None else int(recursion_limit)
         rec = max(rec, min_recursion_limit(hops))
+        sq = self.max_sub_questions if max_sub_questions is None else max(
+            1, min(int(max_sub_questions), self.hard_max_sub_questions)
+        )
         return replace(
             self,
             max_hops=hops,
@@ -104,10 +121,20 @@ class GuardrailConfig:
                 else int(query_timeout_seconds)
             ),
             recursion_limit=rec,
+            max_sub_questions=sq,
         )
 
     def budget_tracker(self) -> BudgetTracker:
         return BudgetTracker(max_llm_calls=self.max_llm_calls, max_tokens=self.max_tokens)
+
+    @property
+    def sub_question_cap(self) -> int:
+        """BL-12: effective sub-question iteration cap.
+
+        Returns ``max_sub_questions`` when set (>0); otherwise falls back to
+        ``max_hops`` for backward compatibility with pre-BL-12 configs.
+        """
+        return self.max_sub_questions or self.max_hops
 
 
 @dataclass
@@ -129,9 +156,19 @@ class Guardrails:
         self._check()
 
     def _check(self) -> None:
-        if self.state.hop > self.config.max_hops:
+        # BL-12: ``hop`` counts sub-question iterations; cap it with
+        # ``max_sub_questions`` (separate from ``max_hops`` which now only
+        # governs graph-traversal depth). When ``max_sub_questions`` is 0
+        # (legacy), fall back to ``max_hops`` for backward compatibility.
+        sq_cap = self.config.sub_question_cap
+        if self.state.hop > sq_cap:
             self.state.tripped = True
-            self.state.reason = f"max_hops exceeded ({self.state.hop}/{self.config.max_hops})"
+            # Keep "max_hops exceeded" text when falling back to max_hops
+            # (backward compat with tests/monitoring that match on it).
+            label = (
+                "max_sub_questions" if self.config.max_sub_questions > 0 else "max_hops"
+            )
+            self.state.reason = f"{label} exceeded ({self.state.hop}/{sq_cap})"
             return
         # Wall-clock timeout (P3 / F9 fix)
         if self.config.query_timeout_seconds > 0 and self.state.started_at > 0:
@@ -157,7 +194,8 @@ class Guardrails:
         if self.state.tripped:
             return f"tripped: {self.state.reason}"
         return (
-            f"ok hop={self.state.hop}/{self.config.max_hops} "
+            f"ok sub_questions={self.state.hop}/{self.config.sub_question_cap} "
+            f"max_hops={self.config.max_hops} "
             f"llm_calls={self.budget.llm_calls}/{self.config.max_llm_calls} "
             f"tokens={self.budget.total_tokens}/{self.config.max_tokens} "
             f"timeout_s={self.config.query_timeout_seconds} "

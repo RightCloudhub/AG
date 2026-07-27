@@ -141,10 +141,23 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
+    # BL-09: verify tenant ownership before deciding (previously any tenant
+    # could decide any other tenant's review item by knowing the id).
+    tenant_id, _user_id = _principal(request)
+    existing = svc.review_queue.get(item_id)
+    if existing is None or existing.tenant_id != tenant_id:
+        raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404)
     try:
         item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
     except KeyError as exc:
         raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    # BL-03: actually apply the decision to the graph (previously a no-op).
+    apply_outcome: dict[str, Any] = {}
+    if svc.review_executor is not None:
+        try:
+            apply_outcome = svc.review_executor.apply_decision(item)
+        except Exception as exc:  # noqa: BLE001 — graph mutation must not lose the decision
+            apply_outcome = {"action": "error", "reason": str(exc)}
     emit_audit(
         request,
         {
@@ -152,9 +165,10 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
             "target": item_id,
             "outcome": dec.value,
             "reviewer": body.reviewer,
+            "graph_apply": apply_outcome,
         },
     )
-    return ok(item.to_dict())
+    return ok({**item.to_dict(), "apply_outcome": apply_outcome})
 
 
 def _principal(request: Request) -> tuple[str, str]:
@@ -185,8 +199,9 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
     svc = _service(request)
     tenant_id, user_id = _principal(request)
     if svc.audit_store is not None:
+        # BL-09: 404 for both missing and cross-tenant (no existence leak).
         row = svc.audit_store.get_for_tenant(body.query_id, tenant_id)
-        if row is None and svc.audit_store.get(body.query_id) is not None:
+        if row is None:
             raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
     result = svc.submit_feedback(
         body.query_id,
@@ -205,7 +220,10 @@ def get_metrics_summary() -> dict:
     return ok(get_metrics().summary())
 
 
-@router.get("/graph/entities")
+@router.get(
+    "/graph/entities",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
 def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> dict:
     """Minimal graph browse API scaffold (P5-CAP-01).
 
@@ -216,8 +234,10 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
     store = svc.bundle.graph
     lim = max(0, min(int(limit or 50), 500))
     off = max(0, int(offset or 0))
+    # BL-09: scope to tenant so operators can't browse other tenants' entities.
+    tenant_id, _user_id = _principal(request)
 
-    records = _list_entity_records(store, limit=lim, offset=off)
+    records = _list_entity_records(store, limit=lim, offset=off, tenant_id=tenant_id)
     total = _entity_total(store, fallback=len(records) if off == 0 else None)
     rows = [
         {
@@ -231,25 +251,40 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
     return ok(rows, meta=MetaBody(total=total, limit=lim, page=(off // lim + 1) if lim else 1))
 
 
-def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
+def _list_entity_records(
+    store: object, *, limit: int, offset: int, tenant_id: str | None = None
+) -> list:
     """Resolve entity list from GraphStore implementations without Protocol change."""
     lister = getattr(store, "list_entities", None)
     if callable(lister):
         try:
-            return list(lister(limit=limit, offset=offset))
+            return list(lister(limit=limit, offset=offset, tenant_id=tenant_id))
         except TypeError:
-            # Older signature without offset
-            items = list(lister(limit=limit))
+            try:
+                items = list(lister(limit=limit, tenant_id=tenant_id))
+            except TypeError:
+                # Older signature without tenant_id
+                items = list(lister(limit=limit))
             return items[offset : offset + limit]
 
     for attr in ("entities", "_entities"):
         entities = getattr(store, attr, None)
         if isinstance(entities, dict):
             items = list(entities.values())
+            # BL-09: filter by tenant when requested.
+            if tenant_id is not None:
+                items = [
+                    e for e in items if not getattr(e, "tenant_id", "") or e.tenant_id == tenant_id
+                ]
             items.sort(key=lambda e: (getattr(e, "type", ""), getattr(e, "name", "").lower()))
             return items[offset : offset + limit]
         if isinstance(entities, list):
-            return list(entities)[offset : offset + limit]
+            items = list(entities)
+            if tenant_id is not None:
+                items = [
+                    e for e in items if not getattr(e, "tenant_id", "") or e.tenant_id == tenant_id
+                ]
+            return items[offset : offset + limit]
     return []
 
 

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentic_graphrag.knowledge.schema_check import SchemaDefinition
+    from agentic_graphrag.stores.interfaces import GraphStore
 
 
 class ReviewType(StrEnum):
@@ -204,3 +209,100 @@ def _filter_items(
     if not preds:
         return items
     return [i for i in items if all(p(i) for p in preds)]
+
+
+class ReviewExecutor:
+    """Applies review decisions to the graph (BL-03 fix).
+
+    Without this executor, ``ReviewQueue.decide()`` only mutates the item's
+    status string — no code consumes the decision to modify the graph. This
+    class closes the loop: APPROVE writes the pending triple; REJECT removes
+    the existing relation if one is recorded in the payload.
+    """
+
+    def __init__(
+        self,
+        store: GraphStore,
+        *,
+        schema: SchemaDefinition | None = None,
+        confidence_threshold: float = 0.5,
+    ) -> None:
+        self.store = store
+        self.schema = schema
+        self.confidence_threshold = confidence_threshold
+        self._log = logging.getLogger(__name__)
+
+    def apply_decision(self, item: ReviewItem) -> dict[str, Any]:
+        """Apply a decided review item to the graph. Returns an outcome dict.
+
+        Only CONFLICT / EXTRACTION items carry graph operations. SPOTCHECK
+        and FEEDBACK items are no-ops here (they gate other pipelines).
+        """
+        if item.status == ReviewStatus.APPROVED.value:
+            return self._apply_approve(item)
+        if item.status == ReviewStatus.REJECTED.value:
+            return self._apply_reject(item)
+        return {"action": "skip", "item_id": item.id, "status": item.status}
+
+    def _apply_approve(self, item: ReviewItem) -> dict[str, Any]:
+        """Write the approved triple to the graph."""
+        from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
+        from agentic_graphrag.knowledge.schema_check import Triple
+
+        incoming = (item.payload or {}).get("incoming")
+        if incoming is None:
+            return {
+                "action": "noop",
+                "item_id": item.id,
+                "reason": "no incoming triple in payload",
+            }
+        try:
+            triple = Triple.model_validate(incoming)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("review approve: failed to parse triple: %s", exc)
+            return {"action": "error", "item_id": item.id, "reason": str(exc)}
+        stats = load_triples_into_graph(
+            self.store,
+            [triple],
+            clear_first=False,
+            schema=self.schema,
+            confidence_threshold=self.confidence_threshold,
+        )
+        return {
+            "action": "approve",
+            "item_id": item.id,
+            "relations_upserted": stats.get("relations_upserted", 0),
+        }
+
+    def _apply_reject(self, item: ReviewItem) -> dict[str, Any]:
+        """Remove the rejected relation from the graph if it exists."""
+        existing = (item.payload or {}).get("existing")
+        if not existing:
+            return {
+                "action": "noop",
+                "item_id": item.id,
+                "reason": "no existing relation to remove",
+            }
+        rel_id = existing.get("id")
+        if not rel_id:
+            return {"action": "noop", "item_id": item.id, "reason": "no relation id"}
+        deleter = getattr(self.store, "delete_relation", None)
+        if not callable(deleter):
+            return {
+                "action": "noop",
+                "item_id": item.id,
+                "reason": "store does not support delete_relation",
+            }
+        try:
+            # BL-09: scope deletion to the review item's tenant so rejecting a
+            # conflict in one tenant doesn't remove the same-id relation from
+            # another tenant (``_relation_id`` is tenant-agnostic).
+            try:
+                deleter(rel_id, tenant_id=item.tenant_id)
+            except TypeError:
+                # Store signature predates the tenant_id kwarg.
+                deleter(rel_id)
+            return {"action": "reject", "item_id": item.id, "removed": rel_id}
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("review reject: failed to delete relation %s: %s", rel_id, exc)
+            return {"action": "error", "item_id": item.id, "reason": str(exc)}

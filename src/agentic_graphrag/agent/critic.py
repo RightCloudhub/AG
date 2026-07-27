@@ -179,11 +179,13 @@ def _critique_impl(
 
 
 def _critique_no_evidence(ctx: CritiqueContext) -> CriticResult:
-    if ctx.hop >= ctx.max_hops:
+    # BL-12: use sub_question_cap for iteration limit.
+    sq_cap = ctx.max_sub_questions or ctx.max_hops
+    if ctx.hop >= sq_cap:
         return CriticResult(
             action=CriticAction.GIVE_UP,
             scope=CriticScope.GLOBAL,
-            rationale="no evidence and hop limit",
+            rationale="no evidence and sub-question limit",
         )
     return CriticResult(
         action=CriticAction.NEXT_HOP,

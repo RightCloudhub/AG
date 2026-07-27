@@ -122,7 +122,10 @@ def _guard_and_budget(svc: QueryService, req: QueryRequest) -> tuple[GuardrailCo
         max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
     )
     guard_cfg = GuardrailConfig.from_app_config(
-        svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
+        svc.cfg,
+        max_hops=req.max_hops,
+        max_sub_questions=req.max_sub_questions,
+        query_timeout_seconds=timeout_override,
     )
     budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
     return guard_cfg, budget

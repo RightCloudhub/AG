@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,8 +35,13 @@ def rewire_edges(req: MergeApply) -> None:
         try:
             rewire(req.drop.id, req.keep.id, keep_name=req.keep.name)
             return
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — fall back to in-memory rewire, but log
+            logger.warning(
+                "store.rewire_entity failed for drop=%s keep=%s (falling back): %s",
+                req.drop.id,
+                req.keep.id,
+                exc,
+            )
     rels = getattr(req.store, "_relations", None)
     if not isinstance(rels, list):
         return
@@ -57,8 +65,12 @@ def delete_entity(req: MergeApply) -> None:
         try:
             deleter(req.drop.id)
             return
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — fall back to in-memory delete, but log
+            logger.warning(
+                "store.delete_entity failed for drop=%s (falling back): %s",
+                req.drop.id,
+                exc,
+            )
     entities = getattr(req.store, "_entities", None)
     by_name = getattr(req.store, "_by_name", None)
     if isinstance(entities, dict):

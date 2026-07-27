@@ -257,13 +257,26 @@ class Neo4jGraphStore:
                 )
         return out
 
-    def delete_relation(self, relation_id: str) -> bool:
-        """Delete a relationship by property id (conflict supersede)."""
+    def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
+        """Delete a relationship by property id (conflict supersede).
+
+        When ``tenant_id`` is given, only deletes the relationship in that
+        tenant's scope. ``_relation_id`` is tenant-agnostic, so without this
+        scope the same id would delete across all tenants.
+        """
         if not relation_id:
             return False
         with self._driver.session() as session:
-            row = session.run(
-                "MATCH ()-[r]->() WHERE r.id = $id DELETE r RETURN count(*) AS c",
-                id=relation_id,
-            ).single()
+            if tenant_id is not None:
+                row = session.run(
+                    "MATCH ()-[r]->() WHERE r.id = $id AND r.tenant_id = $tenant "
+                    "DELETE r RETURN count(*) AS c",
+                    id=relation_id,
+                    tenant=tenant_id,
+                ).single()
+            else:
+                row = session.run(
+                    "MATCH ()-[r]->() WHERE r.id = $id DELETE r RETURN count(*) AS c",
+                    id=relation_id,
+                ).single()
         return bool(row and int(row["c"]) > 0)

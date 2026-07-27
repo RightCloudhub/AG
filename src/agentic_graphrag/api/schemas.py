@@ -12,6 +12,9 @@ class QueryRequest(BaseModel):
 
     question: str = Field(..., min_length=1, max_length=2000)
     max_hops: int | None = Field(default=None, ge=1, le=20)
+    # BL-12: separate sub-question count budget from graph-traversal hop budget.
+    # When omitted, the server falls back to ``max_hops`` (backward compatible).
+    max_sub_questions: int | None = Field(default=None, ge=1, le=50)
     timeout_ms: int | None = Field(default=None, ge=100, le=600_000)
     force_agentic: bool = False
 

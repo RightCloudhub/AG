@@ -7,6 +7,7 @@ New docs → extract → conflict detect → high-conf auto-merge / low-conf rev
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -20,11 +21,17 @@ from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, tr
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, gate_triples
 from agentic_graphrag.stores.interfaces import GraphStore, RelationRecord
 
+logger = logging.getLogger(__name__)
+
 
 class ConflictAction(StrEnum):
     AUTO_UPDATE = "auto_update"
     REVIEW = "review"
     KEEP_OLD = "keep_old"
+    # BL-11: SKIP is reserved for future use (e.g. schema-non-functional
+    # relations where a value collision is not a real conflict). Currently
+    # no code path produces SKIP; kept in the enum so BatchResult counters
+    # and downstream consumers have a stable vocabulary.
     SKIP = "skip"
 
 
@@ -61,6 +68,11 @@ class BatchResult:
     rejected: int = 0
     conflicts_auto: int = 0
     conflicts_review: int = 0
+    # BL-11: count KEEP_OLD so batches conserve (auto + review + kept + accepted
+    # == total incoming after gate). Previously KEEP_OLD was silently dropped
+    # and the counter undercounted conflicts.
+    conflicts_kept: int = 0
+    conflicts_skip: int = 0
     review_items: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
     index_version: int | None = None
@@ -72,6 +84,8 @@ class BatchResult:
             "rejected": self.rejected,
             "conflicts_auto": self.conflicts_auto,
             "conflicts_review": self.conflicts_review,
+            "conflicts_kept": self.conflicts_kept,
+            "conflicts_skip": self.conflicts_skip,
             "review_items": self.review_items,
             "duration_ms": self.duration_ms,
             "index_version": self.index_version,
@@ -90,6 +104,7 @@ class IncrementalUpdater:
         auto_update_margin: float = 0.15,
         on_commit: Callable[[], None] | None = None,
         review_log: Path | str | None = None,
+        review_queue: Any | None = None,
     ) -> None:
         self.store = store
         self.schema = schema
@@ -97,9 +112,13 @@ class IncrementalUpdater:
         self.auto_update_margin = auto_update_margin
         self.on_commit = on_commit
         self.review_log = Path(review_log) if review_log else None
+        # BL-03: optionally enqueue conflicts into the API-facing ReviewQueue
+        # so /v1/review-queue can list and decide them (previously conflicts
+        # were only written to a separate JSONL that the queue never reads).
+        self.review_queue = review_queue
         self._lock = threading.RLock()
-        # Index of active relations: (head_lower, rel, tail_lower) → RelationRecord
-        self._rel_index: dict[tuple[str, str, str], RelationRecord] = {}
+        # Index of active relations: (tenant, head_lower, rel, tail_lower) → RelationRecord
+        self._rel_index: dict[tuple[str, str, str, str], RelationRecord] = {}
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
@@ -107,7 +126,11 @@ class IncrementalUpdater:
         self._rel_index.clear()
         values = self._iter_store_relations()
         for r in values:
+            # BL-09: include tenant_id in the key so conflict detection is
+            # tenant-scoped. Without this, the same entity names in two
+            # tenants would falsely conflict with each other.
             key = (
+                (r.tenant_id or ""),
                 (r.head_name or "").lower(),
                 r.type,
                 (r.tail_name or "").lower(),
@@ -124,7 +147,12 @@ class IncrementalUpdater:
         if callable(lister):
             try:
                 return list(lister(limit=50_000) or [])
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 — log so silent empty index is observable
+                logger.warning(
+                    "list_relations failed during incremental index rebuild "
+                    "(conflict detection will treat all triples as clean): %s",
+                    exc,
+                )
                 return []
         return []
 
@@ -133,19 +161,27 @@ class IncrementalUpdater:
         clean: list[Triple] = []
         conflicts: list[Conflict] = []
         for t in triples:
-            key = (t.head.name.lower(), t.relation, t.tail.name.lower())
+            # BL-09: scope conflict detection to the incoming triple's tenant
+            # so cross-tenant entities with the same name don't falsely clash.
+            t_tenant = str((t.attributes or {}).get("tenant_id") or "")
+            key = (t_tenant, t.head.name.lower(), t.relation, t.tail.name.lower())
             existing = self._rel_index.get(key)
             if existing is None:
-                # Same head+rel but different tail → value conflict
+                # Same tenant + head + rel but different tail → value conflict.
+                # BL-11: compare against the highest-confidence existing edge,
+                # not just the first one. Previously `value_conflicts[0]` could
+                # pick a low-confidence edge, causing an unjustified AUTO_UPDATE
+                # while a higher-confidence edge was silently kept.
                 value_conflicts = [
                     r
-                    for (h, rel, _), r in self._rel_index.items()
-                    if h == t.head.name.lower()
+                    for (tenant, h, rel, _), r in self._rel_index.items()
+                    if tenant == t_tenant
+                    and h == t.head.name.lower()
                     and rel == t.relation
                     and r.tail_name.lower() != t.tail.name.lower()
                 ]
                 if value_conflicts:
-                    old = value_conflicts[0]
+                    old = max(value_conflicts, key=lambda r: r.confidence)
                     action, reason = self._decide(old.confidence, t.confidence)
                     conflicts.append(
                         Conflict(
@@ -201,14 +237,33 @@ class IncrementalUpdater:
         accepted = self._gate(triples, result)
         clean, conflicts = self.detect_conflicts(accepted)
         to_write = self._collect_writes(clean, conflicts, result)
-        stats = load_triples_into_graph(self.store, to_write, clear_first=False, schema=None)
-        result.accepted = int(stats.get("relations", 0) or len(to_write))
+        # BL-07: pass schema + confidence_threshold so the load step also gates.
+        # _gate() already filtered, but _collect_writes may emit new triples
+        # (e.g. AUTO_UPDATE incoming edge) that must be re-validated.
+        stats = load_triples_into_graph(
+            self.store,
+            to_write,
+            clear_first=False,
+            schema=self.schema,
+            confidence_threshold=self.confidence_threshold,
+        )
+        # BL-11: do not mask 0 writes with len(to_write) fallback. Use the
+        # actual upsert count returned by the graph builder (relations_upserted);
+        # fall back to "relationships" count only when the store reports it.
+        result.accepted = int(stats.get("relations_upserted", stats.get("relationships", 0)))
         self._refresh_index(to_write)
         if self.on_commit is not None:
             self.on_commit()
 
     def _gate(self, triples: list[Triple], result: BatchResult) -> list[Triple]:
         if self.schema is None:
+            # BL-07: schema gate is skipped — warn so operators know the
+            # invariant "non-conforming triples never enter the graph" is
+            # not enforced on this path.
+            logger.warning(
+                "IncrementalUpdater.schema is None; skipping schema gate "
+                "(P2-KG-02 invariant not enforced)"
+            )
             return triples
         gate = gate_triples(triples, self.schema, confidence_threshold=self.confidence_threshold)
         result.rejected = len(gate.rejected)
@@ -231,6 +286,13 @@ class IncrementalUpdater:
                 item = c.to_dict()
                 result.review_items.append(item)
                 self._append_review(item)
+            elif c.action == ConflictAction.KEEP_OLD:
+                # BL-11: count so batches conserve. No write — the existing
+                # edge stays and the incoming triple is dropped.
+                result.conflicts_kept += 1
+            elif c.action == ConflictAction.SKIP:
+                # BL-11: reserved — currently never produced by _decide.
+                result.conflicts_skip += 1
         return to_write
 
     def _retire_conflicting_edge(self, conflict: Conflict) -> None:
@@ -238,6 +300,7 @@ class IncrementalUpdater:
         old = conflict.existing
         # Drop from in-process index (all backends).
         old_key = (
+            (old.tenant_id or ""),
             (old.head_name or "").lower(),
             old.type,
             (old.tail_name or "").lower(),
@@ -246,20 +309,36 @@ class IncrementalUpdater:
         # Memory store: remove relation object.
         rels = getattr(self.store, "_relations", None)
         if isinstance(rels, list):
-            self.store._relations = [r for r in rels if r.id != old.id]  # type: ignore[attr-defined]
+            # BL-09: scope by tenant so we don't drop another tenant's edge
+            # that happens to share the same tenant-agnostic relation id.
+            self.store._relations = [  # type: ignore[attr-defined]
+                r
+                for r in rels
+                if r.id != old.id or r.tenant_id != old.tenant_id
+            ]
             return
         deleter = getattr(self.store, "delete_relation", None)
         if callable(deleter):
             try:
-                deleter(old.id)
-            except Exception:
-                pass
+                # BL-09: scope deletion to the old edge's tenant.
+                try:
+                    deleter(old.id, tenant_id=old.tenant_id)
+                except TypeError:
+                    deleter(old.id)
+            except Exception as exc:  # noqa: BLE001 — log so dual-fact risk is observable
+                logger.warning(
+                    "delete_relation failed for %s during AUTO_UPDATE (dual-fact risk): %s",
+                    old.id,
+                    exc,
+                )
 
     def _refresh_index(self, to_write: list[Triple]) -> None:
         _ents, rels = triples_to_records(to_write)
         del _ents
         for r in rels:
+            # BL-09: keep the index tenant-scoped to match _rebuild_index.
             key = (
+                (r.tenant_id or ""),
                 (r.head_name or "").lower(),
                 r.type,
                 (r.tail_name or "").lower(),
@@ -267,6 +346,28 @@ class IncrementalUpdater:
             self._rel_index[key] = r
 
     def _append_review(self, item: dict[str, Any]) -> None:
+        # BL-03: enqueue to ReviewQueue if wired, so /v1/review-queue can see it.
+        if self.review_queue is not None:
+            try:
+                from agentic_graphrag.knowledge.review.queue import ReviewType
+
+                # BL-09: propagate tenant_id from the incoming triple so the
+                # review item is tenant-scoped. Without this, ``enqueue``
+                # defaults to tenant_id="" and the API's tenant ownership
+                # check (``existing.tenant_id != tenant_id``) always 404s,
+                # blocking operators from approving/rejecting conflicts.
+                incoming = item.get("incoming") or {}
+                incoming_attrs = incoming.get("attributes") or {}
+                item_tenant = str(incoming_attrs.get("tenant_id") or "")
+
+                self.review_queue.enqueue(
+                    ReviewType.CONFLICT,
+                    item,
+                    confidence=incoming.get("confidence", 0.0),
+                    tenant_id=item_tenant,
+                )
+            except Exception as exc:  # noqa: BLE001 — review enqueue must not break the batch
+                logger.warning("review_queue.enqueue failed for %s: %s", item.get("relation_key"), exc)
         if not self.review_log:
             return
         self.review_log.parent.mkdir(parents=True, exist_ok=True)

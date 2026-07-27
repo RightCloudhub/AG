@@ -56,3 +56,6 @@ class CritiqueContext:
     max_hops: int = 5
     remaining_subquestions: int = 0
     excluded_hypotheses: list[str] = field(default_factory=list)
+    # BL-12: sub-question iteration cap (separate from max_hops which governs
+    # graph-traversal depth). When 0, critic falls back to max_hops.
+    max_sub_questions: int = 0

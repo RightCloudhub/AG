@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Iterator
@@ -23,6 +24,8 @@ from agentic_graphrag.llm.budget import BudgetExceeded
 from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from agentic_graphrag.api.service import QueryService
@@ -175,7 +178,10 @@ def _invoke_agent(
         max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
     )
     guard_cfg = GuardrailConfig.from_app_config(
-        svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
+        svc.cfg,
+        max_hops=req.max_hops,
+        max_sub_questions=req.max_sub_questions,
+        query_timeout_seconds=timeout_override,
     )
     budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
     trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
@@ -263,8 +269,8 @@ def _maybe_cache_answer(
             force_agentic=req.force_agentic,
             timeout_ms=req.timeout_ms,
         )
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — caching must not break the response
+        logger.warning("retrieval_cache.set_answer failed for query_id=%s: %s", chain.query_id, exc)
 
 
 def _persist_and_commit(
@@ -278,8 +284,12 @@ def _persist_and_commit(
     if svc.audit_store is not None:
         try:
             svc.audit_store.save(chain)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — compliance audit failure must not drop the answer
+            logger.error(
+                "audit_store.save failed for query_id=%s (compliance gap): %s",
+                chain.query_id,
+                exc,
+            )
     if svc.enable_cache and svc.retrieval_cache is not None:
         _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     if svc.multi_budget:

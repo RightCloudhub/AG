@@ -128,7 +128,9 @@ def offline_critique(ctx: CritiqueContext):
 def _offline_planned_remaining(bits: _OfflineBits):
     CriticAction, CriticResult, CriticScope = _results()
     ctx = bits.ctx
-    if ctx.remaining_subquestions <= 0 or ctx.hop >= ctx.max_hops:
+    # BL-12: use sub_question_cap (separate from max_hops) for iteration limit.
+    sq_cap = ctx.max_sub_questions or ctx.max_hops
+    if ctx.remaining_subquestions <= 0 or ctx.hop >= sq_cap:
         return None
     return CriticResult(
         action=CriticAction.SUFFICIENT,
@@ -159,7 +161,9 @@ def _offline_graph_sufficient(bits: _OfflineBits):
 def _offline_text_or_limit(bits: _OfflineBits):
     CriticAction, CriticResult, CriticScope = _results()
     ctx, evidence = bits.ctx, bits.evidence
-    if len(evidence) < _MIN_TEXT_EVIDENCE and ctx.hop < ctx.max_hops:
+    # BL-12: use sub_question_cap for iteration limit.
+    sq_cap = ctx.max_sub_questions or ctx.max_hops
+    if len(evidence) < _MIN_TEXT_EVIDENCE and ctx.hop < sq_cap:
         return None
     return CriticResult(
         action=CriticAction.SUFFICIENT if evidence else CriticAction.GIVE_UP,

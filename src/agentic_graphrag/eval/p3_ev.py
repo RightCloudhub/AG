@@ -162,9 +162,18 @@ def run_incremental_drill() -> IncrementalDrillResult:
         _EdgeSpec("Elena", "Person", "CEO_OF", "HoldCo", "Company", 0.95),
     ]
     from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
+    from agentic_graphrag.knowledge.schema_check import load_schema
 
-    load_triples_into_graph(store, [_to_triple(s) for s in seed], clear_first=True)
-    updater = IncrementalUpdater(store, confidence_threshold=0.5)
+    # BL-07: load schema so the incremental gate is enforced.
+    schema = None
+    try:
+        schema = load_schema("configs/schema/domain_v0.yaml")
+    except Exception:  # noqa: BLE001 — schema is optional for the drill
+        pass
+    load_triples_into_graph(
+        store, [_to_triple(s) for s in seed], clear_first=True, schema=schema
+    )
+    updater = IncrementalUpdater(store, schema=schema, confidence_threshold=0.5)
     batch = [
         _EdgeSpec("Acme", "Company", "SUBSIDIARY_OF", "HoldCo", "Company", 0.99),
         _EdgeSpec("Nova", "Company", "SUBSIDIARY_OF", "HoldCo", "Company", 0.9),

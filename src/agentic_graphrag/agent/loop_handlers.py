@@ -61,7 +61,9 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
     sq, sqs, idx = ctx.sq, ctx.sqs, ctx.idx
     memory, guards, state = ctx.memory, ctx.guards, ctx.state
     hop = guards.state.hop
-    hop_cap = hop >= guards.config.max_hops
+    # BL-12: use sub_question_cap (separate from max_hops which governs
+    # graph-traversal depth).
+    hop_cap = hop >= guards.config.sub_question_cap
     if memory.is_excluded(sq.text):
         memory.mark_subquestion_done(sq.id)
         return {
@@ -149,7 +151,8 @@ def apply_critic_result(ctx: CriticApplyCtx) -> AgentState:
     # NEXT_HOP / REWRITE still go through terminal resolution so rewrites apply.
     if ctx.remaining > 0 and ctx.result.action == CriticAction.SUFFICIENT:
         new_state["current_index"] = ctx.idx + 1
-        new_state["done"] = ctx.guards.state.hop >= ctx.guard_cfg.max_hops
+        # BL-12: use sub_question_cap for iteration limit.
+        new_state["done"] = ctx.guards.state.hop >= ctx.guard_cfg.sub_question_cap
         return _cap_hops(new_state, ctx.guards, ctx.guard_cfg)
 
     _resolve_terminal_action(new_state, ctx, sqs)
@@ -186,7 +189,8 @@ def _cap_hops(
     guards: Guardrails,
     guard_cfg: GuardrailConfig,
 ) -> AgentState:
-    if guards.state.hop >= guard_cfg.max_hops:
+    # BL-12: use sub_question_cap for the iteration limit.
+    if guards.state.hop >= guard_cfg.sub_question_cap:
         new_state["done"] = True
         new_state["guardrail_status"] = guards.status_text()
     return new_state

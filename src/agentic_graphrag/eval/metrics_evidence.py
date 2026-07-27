@@ -143,7 +143,15 @@ def _alias_hit(token: str, blob: str) -> bool:
 
 
 def fabrication_rate(rows: list[dict[str, Any]]) -> float:
-    """Share of rows with answered status but no cited claims (AC-7 proxy)."""
+    """Share of answered rows whose claims lack evidence_ids (AC-7 proxy).
+
+    Note (BL-13): this is the weakest of the three citation gates — it only
+    checks that ``evidence_ids`` is non-empty. It does NOT verify the ids are
+    in the retrieved set, nor that claim text overlaps evidence text. The name
+    ``fabrication_rate`` overstates the check; treat as an upper bound on
+    unbound-claim rate, not a true fabrication measure. Relation-aware NLI
+    would be needed for a faithful fabrication metric.
+    """
     if not rows:
         return 0.0
     bad = 0
@@ -173,4 +181,5 @@ def _fabrication_flag(row: dict[str, Any]) -> bool | None:
 
 
 def _claims_unbound(claims: list) -> bool:
+    """A claim is 'unbound' iff it has no evidence_ids (weakest gate, BL-13)."""
     return any(not (c.get("evidence_ids") if isinstance(c, dict) else True) for c in claims)

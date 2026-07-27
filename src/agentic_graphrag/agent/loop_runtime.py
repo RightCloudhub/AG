@@ -149,7 +149,8 @@ class AgentRuntime:
         """Skip critic when hop already terminal (saves recursion budget)."""
         if state.get("done") or self.guards.state.tripped:
             return "answer"
-        if int(state.get("hop") or 0) > self.guard_cfg.max_hops:
+        # BL-12: use sub_question_cap for iteration limit.
+        if int(state.get("hop") or 0) > self.guard_cfg.sub_question_cap:
             return "answer"
         return "critic"
 
@@ -176,6 +177,7 @@ class AgentRuntime:
                 max_hops=self.guard_cfg.max_hops,
                 remaining_subquestions=remaining,
                 excluded_hypotheses=sorted(self.memory.excluded_hypotheses),
+                max_sub_questions=self.guard_cfg.sub_question_cap,
             ),
             self.llm if allow_llm else None,
             allow_llm=allow_llm and self.llm is not None,
@@ -234,9 +236,11 @@ class AgentRuntime:
     def route_after_critic(self, state: AgentState) -> str:
         if state.get("done") or self.guards.state.tripped:
             return "answer"
-        # Belt-and-suspenders: hop cap must end the loop even if done was lost.
-        if int(state.get("hop") or 0) >= self.guard_cfg.max_hops:
+        # BL-12: belt-and-suspenders — sub-question cap must end the loop even
+        # if the ``done`` flag was lost. Uses sub_question_cap (not max_hops).
+        cap = self.guard_cfg.sub_question_cap
+        if int(state.get("hop") or 0) >= cap:
             return "answer"
-        if self.guards.state.hop >= self.guard_cfg.max_hops:
+        if self.guards.state.hop >= cap:
             return "answer"
         return "executor"

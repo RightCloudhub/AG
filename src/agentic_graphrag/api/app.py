@@ -43,12 +43,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.query_service = svc
         owns = True
     _validate_live_credentials(svc)
+    # BL-01: opt-in background ingest worker. When ``AGR_INGEST_WORKER=1`` is
+    # set, the API process consumes the upload task queue and (when LLM is
+    # also enabled) extracts triples into the knowledge graph — closing the
+    # runtime write-path gap between ``POST /v1/docs`` and the graph.
+    if _env_flag("AGR_INGEST_WORKER"):
+        svc.start_background_workers()
+        _log.info(
+            "Ingest worker started (graph_write=%s)",
+            "on" if (svc.ingest_worker and svc.ingest_worker.graph_write_enabled) else "off",
+        )
     try:
         yield
     finally:
         if owns and svc is not None:
             svc.close()
         _log.info("Application shutting down")
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in {"1", "true", "yes"}
 
 
 def create_app(*, query_service: QueryService | None = None) -> FastAPI:
