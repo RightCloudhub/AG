@@ -37,6 +37,13 @@ def _service(request: Request) -> QueryService:
     return svc
 
 
+def _principal(request: Request) -> tuple[str, str]:
+    p = getattr(request.state, "principal", None)
+    if p is None:
+        return "default", "anonymous"
+    return p.tenant_id, p.user_id
+
+
 # ---------------------------------------------------------------------------
 # ENT-02: troubleshooting closure
 # ---------------------------------------------------------------------------
@@ -99,6 +106,33 @@ def list_audit_events(q: Annotated[AuditEventQuery, Depends(_audit_event_query)]
         [e.to_dict() for e in events],
         meta=MetaBody(total=len(events), limit=q.limit),
     )
+
+
+@router.get(
+    "/audit/queries/recent",
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def list_recent_queries(request: Request, limit: int = Query(50, ge=1, le=200)) -> dict:
+    """Recent Q&A history (summary rows) for the trial UI history view."""
+    svc = _service(request)
+    if svc.audit_store is None:
+        return ok([], meta=MetaBody(total=0, limit=limit, page=1))
+    tenant_id, _user_id = _principal(request)
+    rows = svc.audit_store.list_recent(limit=limit)
+    scoped = [
+        r
+        for r in rows
+        if _chain_visible(r, tenant_id)
+    ]
+    return ok(scoped, meta=MetaBody(total=len(scoped), limit=limit, page=1))
+
+
+def _chain_visible(row: dict[str, Any], tenant_id: str) -> bool:
+    meta = row.get("metadata") or {}
+    owner = meta.get("tenant_id") if isinstance(meta, dict) else None
+    if owner is None:
+        return tenant_id == "default"
+    return owner == tenant_id
 
 
 # ---------------------------------------------------------------------------

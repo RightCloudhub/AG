@@ -1,4 +1,4 @@
-"""Structural + smoke tests for Vue 3 zero-build trial UI (P5-UI-01 / ADR-006)."""
+"""Structural + smoke tests for Vue 3 zero-build trial UI (P5-UI-01/02 / ADR-006)."""
 
 from __future__ import annotations
 
@@ -20,13 +20,22 @@ REQUIRED_FILES = (
     STATIC / "app.css",
     STATIC / "chat.css",
     STATIC / "panels.css",
+    STATIC / "css" / "shell.css",
+    STATIC / "css" / "views.css",
     STATIC / "app.js",
     STATIC / "js" / "api.js",
     STATIC / "js" / "chain-view.js",
-    STATIC / "js" / "root.js",
+    STATIC / "js" / "router.js",
+    STATIC / "js" / "nav.js",
+    STATIC / "js" / "views" / "chat.js",
+    STATIC / "js" / "views" / "graph.js",
+    STATIC / "js" / "views" / "dashboard.js",
+    STATIC / "js" / "views" / "review.js",
+    STATIC / "js" / "views" / "history.js",
     STATIC / "js" / "components" / "index.js",
     STATIC / "js" / "components" / "widgets.js",
     STATIC / "js" / "components" / "answer-turn.js",
+    STATIC / "js" / "components" / "layout.js",
     STATIC / "vendor" / "README.md",
 )
 
@@ -77,18 +86,33 @@ def test_html_vue_shell_structure():
     assert 'id="app"' in html
     assert "v-cloak" in html
     assert 'type="module"' in html
-    assert "/web/static/app.css" in html
-    assert "/web/static/chat.css" in html
-    assert "/web/static/panels.css" in html
+    for css in (
+        "/web/static/app.css",
+        "/web/static/chat.css",
+        "/web/static/panels.css",
+        "/web/static/css/shell.css",
+        "/web/static/css/views.css",
+    ):
+        assert css in html
     assert "/web/static/app.js" in html
-    assert 'id="q"' in html
-    assert 'id="askForm"' in html
-    assert "answer-turn" in html
-    assert "progress-log" in html
-    assert "thinking-panel" in html
-    assert 'id="forceAgentic"' in html
-    assert 'id="maxHops"' in html
-    assert 'id="useStream"' in html
+    # SPA shell: single mount, routing owned by the layout component.
+    assert "<app-shell>" in html
+
+
+def test_chat_view_keeps_chat_surface():
+    """The old in-DOM chat template moved to the chat view component."""
+    chat = _read(STATIC / "js" / "views" / "chat.js")
+    for marker in (
+        'id="q"',
+        'id="askForm"',
+        'id="forceAgentic"',
+        'id="maxHops"',
+        'id="useStream"',
+        "answer-turn",
+        "progress-log",
+        "thinking-panel",
+    ):
+        assert marker in chat
 
 
 def test_answer_turn_retry_label_depends_on_force_agentic():
@@ -119,17 +143,36 @@ def test_app_js_pins_vue_vendor_first():
 
 def test_js_backend_endpoints_and_sse_events():
     api = _read(STATIC / "js" / "api.js")
-    assert '"/v1/query"' in api or "'/v1/query'" in api
-    assert "/v1/query/stream" in api
-    assert "/v1/feedback" in api
-    assert "/healthz" in api
+    for url in (
+        '"/v1/query"',
+        "'/v1/query'",
+        "/v1/query/stream",
+        "/v1/feedback",
+        "/healthz",
+        "/v1/graph/relations",
+        "/v1/metrics",
+        "/v1/budget/snapshot",
+        "/v1/review-queue",
+        "/v1/audit/queries/recent",
+    ):
+        assert url in api
     assert "fetch(" in api
     chain = _read(STATIC / "js" / "chain-view.js")
     for name in CHAIN_EXPORTS:
         assert f"export function {name}" in chain or f"function {name}" in chain
+    chat = _read(STATIC / "js" / "views" / "chat.js")
     for evt in SSE_EVENTS:
-        # answer/error handled in root; progress events listed in chain-view
-        assert evt in chain or evt in _read(STATIC / "js" / "root.js")
+        # progress events listed in chain-view; answer/error handled in chat view
+        assert evt in chain or evt in chat
+
+
+def test_router_and_nav_helpers():
+    router = _read(STATIC / "js" / "router.js")
+    for fn in ("parseHash", "hashFor", "navigate"):
+        assert fn in router
+    nav = _read(STATIC / "js" / "nav.js")
+    for name in ("chat", "graph", "dashboard", "review", "history"):
+        assert name in nav
 
 
 def test_injection_safety_no_vhtml_or_innerhtml():
@@ -143,24 +186,19 @@ def test_css_tokens_and_new_classes():
     app_css = _read(STATIC / "app.css")
     chat_css = _read(STATIC / "chat.css")
     panels_css = _read(STATIC / "panels.css")
-    assert "--bg:" in app_css
-    assert "#f5f2eb" in app_css
-    assert "--warn" in app_css
-    assert "--avatar-w" in app_css
-    assert "[v-cloak]" in app_css
-    assert ".rail-health" in app_css
-    assert ".health-dot" in app_css
-    assert ".boot-error" in app_css
-    assert ".stop-btn" in chat_css
-    assert ".progress-state" in chat_css
-    assert ".progress-live" in chat_css
-    assert ".thinking-card" in chat_css
-    assert ".thinking-detail" in chat_css
-    assert ".claim-active" in panels_css
-    assert ".mini-btn" in panels_css
-    assert ".feedback-note" in panels_css
-    assert ".retry-row" in panels_css
-    assert ".path-overflow" in panels_css
+    shell_css = _read(STATIC / "css" / "shell.css")
+    views_css = _read(STATIC / "css" / "views.css")
+    assert "--bg:" in app_css and "#f5f2eb" in app_css
+    assert "--warn" in app_css and "--avatar-w" in app_css
+    assert "[v-cloak]" in app_css and ".rail-health" in app_css
+    assert ".health-dot" in app_css and ".boot-error" in app_css
+    for cls in (".stop-btn", ".progress-state", ".progress-live", ".thinking-card", ".thinking-detail"):
+        assert cls in chat_css
+    for cls in (".claim-active", ".mini-btn", ".feedback-note", ".retry-row", ".path-overflow"):
+        assert cls in panels_css
+    # SPA shell + view styles
+    assert ".nav-item" in shell_css and ".chat-shell" in shell_css
+    assert ".view-page" in views_css and ".stat-card" in views_css and ".data-table" in views_css
     # Must not be the old dark primary background
     assert "--bg: #0f1419" not in app_css
 
@@ -174,20 +212,54 @@ def test_get_web_and_static_assets():
     body = r.text
     assert 'id="app"' in body
     assert "claude-app" in body
-    assert 'id="q"' in body
+    assert "<app-shell>" in body
 
     for path in (
         "/web/static/app.css",
         "/web/static/chat.css",
         "/web/static/panels.css",
+        "/web/static/css/shell.css",
+        "/web/static/css/views.css",
         "/web/static/app.js",
         "/web/static/js/api.js",
         "/web/static/js/chain-view.js",
-        "/web/static/js/root.js",
+        "/web/static/js/router.js",
+        "/web/static/js/nav.js",
+        "/web/static/js/views/chat.js",
+        "/web/static/js/views/graph.js",
         "/web/static/js/components/index.js",
     ):
-        resp = client.get(path)
-        assert resp.status_code == HTTP_OK, path
+        assert client.get(path).status_code == HTTP_OK, path
+    svc.close()
+
+
+def test_graph_browse_and_history_endpoints():
+    """New endpoints powering the graph explorer + history views."""
+    svc = QueryService.create_offline()
+    app = create_app(query_service=svc)
+    client = TestClient(app)
+
+    rel = client.get("/v1/graph/relations")
+    assert rel.status_code == HTTP_OK and rel.json()["success"] is True
+
+    ent = client.get("/v1/graph/entities/Apex Holdings")
+    assert ent.status_code == HTTP_OK
+    assert ent.json()["data"]["name"] == "Apex Holdings"
+
+    nb = client.get("/v1/graph/entities/Apex Holdings/neighbors")
+    assert nb.status_code == HTTP_OK and nb.json()["success"] is True
+
+    assert client.get("/v1/graph/entities/NoSuchEntity").status_code == 404
+
+    # Seed a chain so the history endpoint has a row.
+    q = client.post("/v1/query", json={"question": "Who is the CEO of Apex Holdings?"})
+    assert q.status_code == HTTP_OK and q.json()["success"] is True
+
+    hist = client.get("/v1/audit/queries/recent")
+    assert hist.status_code == HTTP_OK
+    data = hist.json()
+    assert data["success"] is True
+    assert any(row["question"] for row in data["data"])
     svc.close()
 
 
@@ -212,8 +284,7 @@ def test_web_query_feedback_and_stream_still_work():
         "/v1/feedback",
         json={"query_id": data["query_id"], "accurate": True, "reason": "ui-test"},
     )
-    assert fb.status_code == HTTP_OK
-    assert fb.json()["success"] is True
+    assert fb.status_code == HTTP_OK and fb.json()["success"] is True
 
     with client.stream(
         "POST",

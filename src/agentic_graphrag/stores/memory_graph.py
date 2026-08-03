@@ -186,6 +186,17 @@ class InMemoryGraphStore:
         items.sort(key=lambda entity: (entity.type, entity.name.lower()))
         return items[max(0, offset) : max(0, offset) + max(0, limit)]
 
+    def list_relations(
+        self, *, limit: int = 5000, tenant_id: str | None = None
+    ) -> list[RelationRecord]:
+        items = [
+            relation
+            for relation in self._relations.values()
+            if _tenant_matches(relation.tenant_id, tenant_id)
+        ]
+        items.sort(key=lambda relation: (relation.type, relation.head_name.lower()))
+        return items[:max(0, limit)]
+
     def close(self) -> None:
         return None
 

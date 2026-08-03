@@ -37,6 +37,7 @@
 | 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
 | 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
 | 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
+| 2026-08-04 | **P5-UI-02 前端现代化**：单页聊天 → SPA 多视图（对话/图谱/仪表盘/审核/历史，hash 路由，仍零构建）；新增 `routes/graph_browse.py`（`/v1/graph/relations`、`/v1/graph/entities/{name}`、`/v1/graph/entities/{name}/neighbors`）与 `GET /v1/audit/queries/recent`。已知缺口：`graph_browse` 在 live Neo4j 后端上实体/邻居枚举有限（Neo4j 无 `list_entities`/`list_relations` 的 tenant 签名，`get_entity_by_name` 无租户过滤）——离线内存图路径完整可用 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm

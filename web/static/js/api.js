@@ -9,6 +9,12 @@ const QUERY_URL = "/v1/query";
 const STREAM_URL = "/v1/query/stream";
 const FEEDBACK_URL = "/v1/feedback";
 const HEALTH_URL = "/healthz";
+const RELATIONS_URL = "/v1/graph/relations";
+const ENTITY_URL = "/v1/graph/entities";
+const METRICS_URL = "/v1/metrics";
+const BUDGET_URL = "/v1/budget/snapshot";
+const REVIEW_QUEUE_URL = "/v1/review-queue";
+const RECENT_QUERIES_URL = "/v1/audit/queries/recent";
 const SSE_BLOCK_SEPARATOR = "\n\n";
 const SSE_EVENT_PREFIX = "event:";
 const SSE_DATA_PREFIX = "data:";
@@ -72,6 +78,72 @@ export function postQuery(body) {
 
 export function postFeedback(body) {
   return postEnvelope(FEEDBACK_URL, body);
+}
+
+/* GET an envelope endpoint and unwrap data; throws on success=false. */
+async function getEnvelope(url) {
+  const res = await fetch(url, { headers: authHeaders() });
+  let env = null;
+  try {
+    env = await res.json();
+  } catch {
+    env = null;
+  }
+  if (!env) throw new Error(`请求失败（HTTP ${res.status}）`);
+  if (!env.success) {
+    const error = env.error || {};
+    throw new Error(error.message || error.code || "请求失败");
+  }
+  return env;
+}
+
+function encodeName(name) {
+  return encodeURIComponent(String(name || "").trim());
+}
+
+export async function fetchRelations() {
+  const env = await getEnvelope(RELATIONS_URL);
+  return { rows: env.data || [], meta: env.meta || {} };
+}
+
+export async function fetchEntity(name) {
+  const env = await getEnvelope(`${ENTITY_URL}/${encodeName(name)}`);
+  return env.data;
+}
+
+export async function fetchEntities(limit, offset) {
+  const env = await getEnvelope(`${ENTITY_URL}?limit=${limit}&offset=${offset}`);
+  return { rows: env.data || [], meta: env.meta || {} };
+}
+
+export async function fetchEntityNeighbors(name) {
+  const env = await getEnvelope(`${ENTITY_URL}/${encodeName(name)}/neighbors`);
+  return { rows: env.data || [], meta: env.meta || {} };
+}
+
+export async function fetchMetrics() {
+  const env = await getEnvelope(METRICS_URL);
+  return env.data || {};
+}
+
+export async function fetchBudgetSnapshot() {
+  const env = await getEnvelope(BUDGET_URL);
+  return env.data || {};
+}
+
+export async function fetchReviewQueue(status) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const env = await getEnvelope(`${REVIEW_QUEUE_URL}${query}`);
+  return { rows: env.data || [], meta: env.meta || {} };
+}
+
+export async function decideReview(itemId, body) {
+  return postEnvelope(`${REVIEW_QUEUE_URL}/${encodeURIComponent(itemId)}/decision`, body);
+}
+
+export async function fetchRecentQueries() {
+  const env = await getEnvelope(RECENT_QUERIES_URL);
+  return { rows: env.data || [], meta: env.meta || {} };
 }
 
 export async function fetchHealth() {

@@ -169,8 +169,7 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 
 ## 🖥 试用 Web UI
 
-内部试用 SPA（`web/`，`agr-api` 静态挂载）：提问区（跳数 / 强制 Agentic / SSE 开关 + 健
-康点）、会话历史（仅展示，请求间无上下文）、真·增量进度区、答案引用角标（点击高亮）、推 理链树 + 图路径 chips + 可复制 JSON、逐 turn 准确性反馈、绕缓存重问。**V1 明确不做**：多轮对话上下文、图谱编辑、移动端适配。结构冒烟测试：`tests/unit/test_web_claude_ui.py`。
+内部试用 SPA 多视图（`web/`，`agr-api` 静态挂载，侧栏 hash 导航）：**对话问答**（跳数 / 强制 Agentic / SSE 开关 + 健康点、会话历史仅展示、真·增量进度、答案引用角标点击高亮、推理链树 + 图路径 chips + 可复制 JSON、逐 turn 反馈、绕缓存重问）、**知识图谱浏览器**（实体分页 / 过滤 / 邻居展开）、**指标仪表盘**（查询量 / 延迟分位 / 路由错误分布 / 预算快照）、**审核队列**（三元组通过/驳回）、**问答历史**（最近推理链）。**V1 明确不做**：多轮对话上下文、图谱编辑、移动端适配。结构冒烟测试：`tests/unit/test_web_claude_ui.py`。
 
 ## 📊 评测与门禁
 
@@ -248,7 +247,7 @@ python scripts/check_code_metrics.py    # 硬指标：文件≤300行 · 函数�
 |---|---|
 | 阶段一～三（代码） | ✅ 抽取入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计、增量与 复核队列 |
 | G1 → G2 过渡门禁 | ✅ 工程 PASS（2026-07-20，[`reports/G1_to_G2_status.json`](./reports/G1_to_G2_status.json)）；真域 / live 配额 caveat 仍开 |
-| 试用 Web UI + 鉴权限流 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01）— `/web` 挂载 |
+| 试用 Web UI + 鉴权限流 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01/02）— `/web` 挂载 |
 | Live held-out（合成语料） | 🟡 agentic rescored **93.6%** / 相对基线 **+70pp** / 证据 recall **0.94**；但 **P95 ~92s 未达 AC-4（≤8s）**，且语料为合成 |
 | 企业级管控（P5-ENT-01…08） | 🟢 工程交付（2026-07-25，ENT-07/RPA 除外）— JSON 日志、admin 排障端点、安全审计流、RBAC、租户配置化限额与摄取任务状态机、数据隔离 / 脱敏 / 保留清理、Prometheus + 可选 OTel；**Redis 多副本 / 真后端跨租户回归 / OTLP collector 仍待部署验证**（[docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) §3.5） |
 | 效果门禁 G2 / G3 / G4 | ⏳ 仍开：真域语料签字、live held-out 正式达标、生产 P95、灰度 与全套验收 |

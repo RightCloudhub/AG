@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.4（2026-07-25）— ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离。前版 V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
+**版本**：V1.5（2026-08-04）— P5-UI-02 前端现代化：单页 → SPA 多视图（对话/图谱/仪表盘/审核/历史），新增图谱浏览与问答历史后端端点。前版 V1.4（2026-07-25）— ENT 增补；V1.3（2026-07-21）— P5-UI-01 Vue 3 零构建重构；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -70,9 +70,9 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
 - 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-## 2. 问答 Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01）— 已交付
+## 2. 问答 Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01/02）— 已交付
 
-**定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
+**定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建 **SPA 多视图**（ADR-006）。
 
 ### 2.1 技术形态（零构建 + 钉版 Vue 3）
 
@@ -80,8 +80,8 @@
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
 | 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
-| 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
-| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
+| 模块 | `app.js`（boot）· `js/router.js`（hash 路由）· `js/nav.js`（导航模型）· `js/api.js` · `js/chain-view.js` · `js/views/{chat,graph,dashboard,review,history}.js` · `js/components/{index,layout,empty,widgets,answer-turn}.js` |
+| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）· `css/shell.css`（侧栏导航/视图过渡）· `css/views.css`（卡片/表格/统计卡）；各 ≤300 行 |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
 | SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
 | 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200） |
@@ -112,14 +112,30 @@
 
 见 [engineering/rules.md](../engineering/rules.md) §8。核心：零构建 + 仅钉版 Vue 3（ADR-006）；动态文本 mustache/`textContent`，禁 `v-html`/`.innerHTML`；只调 `/v1/*` 且遵守 envelope；改动后保持 `test_web_claude_ui.py` 同步。
 
-### 2.5 界面明确不做（V1）
+### 2.5 SPA 多视图（P5-UI-02，2026-08-04）[x]
+
+单页聊天改为**侧栏导航 + hash 路由**的多视图应用，仍零构建：
+
+| 视图 | 数据源 | 功能 |
+|---|---|---|
+| 对话问答 | `POST /v1/query[/stream]`、`/v1/feedback` | 原 P5-UI-01 全部能力（SSE 流式、反馈、重试、推理链折叠）迁移至 `views/chat.js` |
+| 知识图谱 | `GET /v1/graph/entities`、`GET /v1/graph/relations`、`GET /v1/graph/entities/{name}`、`.../neighbors` | 实体分页浏览/过滤、点击展开邻居、关系列表 |
+| 指标仪表盘 | `GET /v1/metrics`、`GET /v1/budget/snapshot` | 统计卡 + 路由/错误分布 bar + 租户用量 |
+| 审核队列 | `GET /v1/review-queue`、`POST .../decision` | 按状态筛选，逐条通过/驳回/跳过（带备注） |
+| 问答历史 | `GET /v1/audit/queries/recent` | 最近推理链列表，点击展开完整链 JSON |
+
+- 路由：`router.js`（纯函数 `parseHash`/`hashFor`/`navigate`）+ 侧栏 `nav.js`；layout 组件持有响应式 `currentView`，`<component :is>` 切换。
+- 新增后端端点：`routes/graph_browse.py`（`/v1/graph/relations`、`/v1/graph/entities/{name}`、`/v1/graph/entities/{name}/neighbors`，admin|operator）、`GET /v1/audit/queries/recent`（admin，`AuditStore.list_recent`）。
+- `index.html` 收敛为 `<app-shell>` 挂载点；聊天模板迁入 `views/chat.js`（`root.js` 删除）。
+
+### 2.6 界面明确不做（V1）
 
 - 多轮对话上下文（每次提问独立）
 - 图谱编辑能力（治理走独立审核界面 P3-KG-03）
 - 移动端适配
 - 图路径可视化**编辑器**
 
-### 2.6 验证清单
+### 2.7 验证清单
 
 工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
 
@@ -128,3 +144,4 @@
 - [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 未知事件静默忽略
 - [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
 - [x] 全前端 `v-html` / `.innerHTML` 零命中
+- [x] P5-UI-02：五视图路由切换；`/v1/graph/*` 与 `/v1/audit/queries/recent` 冒烟（`test_web_claude_ui.py`）

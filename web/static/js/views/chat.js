@@ -1,18 +1,17 @@
-/* Root chat component (Options API; template is the in-DOM markup under
- * #app in web/index.html). Holds conversation state and orchestrates the
- * query/stream/feedback flows. Each turn is an independent question — no
- * multi-turn context is ever sent to the server (V1 boundary).
+/* Chat view — the full conversation UI extracted from the old single-page
+ * root component (P5-UI-01 → P5-UI-02). Holds its own turns[] state; each
+ * turn is an independent request (no multi-turn context sent, V1 boundary).
+ * Options API pure object (no Vue import).
  */
 import {
-  fetchHealth,
   friendlyError,
   getApiKey,
   postFeedback,
   postQuery,
   setApiKey,
   streamQuery,
-} from "./api.js";
-import { describeStreamEvent, describeThinkingEvent } from "./chain-view.js";
+} from "../api.js";
+import { describeStreamEvent, describeThinkingEvent } from "../chain-view.js";
 
 const DEFAULT_MAX_HOPS = 5;
 const MIN_HOPS = 1;
@@ -26,8 +25,8 @@ const SUGGESTED_QUESTIONS = Object.freeze([
   "What is the parent company of NovaTech Industries?",
 ]);
 
-export const rootComponent = {
-  name: "AgrChatApp",
+export const ChatView = {
+  name: "ChatView",
   data() {
     return {
       draft: "",
@@ -41,27 +40,12 @@ export const rootComponent = {
         useStream: true,
         apiKey: getApiKey(),
       },
-      health: { state: "checking", label: "检测服务中…" },
     };
-  },
-  mounted() {
-    this.checkHealth();
   },
   methods: {
     saveApiKey() {
       setApiKey((this.settings.apiKey || "").trim());
     },
-    async checkHealth() {
-      try {
-        const h = await fetchHealth();
-        const status = (h && h.status) || "ok";
-        if (status === "ok") this.health = { state: "ok", label: "服务正常" };
-        else this.health = { state: "warn", label: `服务${status}` };
-      } catch {
-        this.health = { state: "down", label: "服务不可用" };
-      }
-    },
-
     submitAsk() {
       const question = this.draft.trim();
       if (!question || this.busy) return;
@@ -69,17 +53,14 @@ export const rootComponent = {
       this.autoResize();
       this.askQuestion(question, {});
     },
-
     askSuggestion(question) {
       if (this.busy) return;
       this.askQuestion(question, {});
     },
-
     retryAgentic(turn) {
       if (this.busy) return;
       this.askQuestion(turn.question, { forceAgentic: true });
     },
-
     async askQuestion(question, opts) {
       const turn = this.createTurn(question, opts);
       this.turns.push(turn);
@@ -97,7 +78,6 @@ export const rootComponent = {
         this.scrollThreadSoon();
       }
     },
-
     createTurn(question, opts) {
       this.turnSeq += 1;
       return {
@@ -113,7 +93,6 @@ export const rootComponent = {
         fbReason: "",
       };
     },
-
     requestBody(turn) {
       const hops = Number(this.settings.maxHops) || DEFAULT_MAX_HOPS;
       return {
@@ -122,13 +101,11 @@ export const rootComponent = {
         max_hops: Math.min(MAX_HOPS, Math.max(MIN_HOPS, hops)),
       };
     },
-
     async runJson(turn) {
       this.addProgress(turn, "info", "同步查询 /v1/query …");
       const data = await postQuery(this.requestBody(turn));
       this.finishWithResult(turn, data);
     },
-
     async runStream(turn) {
       this.addProgress(turn, "info", "连接流式接口…");
       await streamQuery({
@@ -140,7 +117,6 @@ export const rootComponent = {
         this.finishWithError(turn, new Error("流式连接提前结束（未收到 answer）"));
       }
     },
-
     async handleStreamEvent(turn, evt) {
       if (evt.type === "answer") {
         this.finishWithResult(turn, evt.payload);
@@ -157,29 +133,24 @@ export const rootComponent = {
       if (thought) this.addThinking(turn, thought);
       const note = describeStreamEvent(evt);
       if (note) this.addProgress(turn, note.kind, note.text);
-      // Paint between frames so batched TCP chunks still look incremental.
       await this.$nextTick();
       await new Promise((r) => requestAnimationFrame(r));
     },
-
     finishWithResult(turn, data) {
       turn.result = data;
       turn.status = "done";
       this.addProgress(turn, "done", "完成");
     },
-
     finishWithError(turn, err) {
       if (turn.status !== "streaming") return;
       turn.error = friendlyError(err);
       turn.status = "error";
       this.addProgress(turn, "error", `错误: ${turn.error}`);
     },
-
     addProgress(turn, kind, text) {
       turn.progress.push({ key: turn.progress.length, kind, text });
       this.scrollThreadSoon();
     },
-
     addThinking(turn, thought) {
       turn.thinking.push({
         key: turn.thinking.length,
@@ -189,7 +160,6 @@ export const rootComponent = {
       });
       this.scrollThreadSoon();
     },
-
     stopStreaming() {
       const turn = this.turns[this.turns.length - 1];
       if (turn && turn.status === "streaming") {
@@ -199,7 +169,6 @@ export const rootComponent = {
       }
       if (this._controller) this._controller.abort();
     },
-
     async sendFeedback(payload) {
       const { turn, accurate } = payload;
       if (!turn.result || turn.feedback.state === "sending") return;
@@ -215,8 +184,6 @@ export const rootComponent = {
         turn.feedback = { state: "idle", message: `反馈失败: ${friendlyError(err)}` };
       }
     },
-
-    /* Follow new output only when the user is already near the bottom. */
     scrollThreadSoon() {
       const el = this.$refs.thread;
       if (!el) return;
@@ -226,7 +193,6 @@ export const rootComponent = {
         el.scrollTop = el.scrollHeight;
       });
     },
-
     autoResize() {
       const box = this.$refs.draftBox;
       if (!box) return;
@@ -234,4 +200,101 @@ export const rootComponent = {
       box.style.height = `${Math.min(box.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
     },
   },
+  template: `
+    <div class="chat-shell">
+      <header class="topbar">
+        <h1>对话</h1>
+        <p class="topbar-sub">单次独立提问 · 答案绑定证据引用</p>
+        <details class="rail-settings chat-settings">
+          <summary>高级选项</summary>
+          <div class="settings-body">
+            <label class="check">
+              <input type="checkbox" id="forceAgentic" v-model="settings.forceAgentic" />
+              <span>强制 Agentic</span>
+            </label>
+            <label class="field">
+              <span>最大跳数</span>
+              <input type="number" id="maxHops" min="1" max="10" v-model.number="settings.maxHops" />
+            </label>
+            <label class="check">
+              <input type="checkbox" id="useStream" v-model="settings.useStream" />
+              <span>SSE 流式进度</span>
+            </label>
+            <label class="field">
+              <span>API Key</span>
+              <input
+                type="password"
+                id="apiKey"
+                autocomplete="off"
+                placeholder="Bearer token（可选）"
+                v-model="settings.apiKey"
+                @change="saveApiKey"
+              />
+            </label>
+          </div>
+        </details>
+      </header>
+
+      <main class="thread" ref="thread" aria-live="polite" v-cloak>
+        <div class="empty-state" v-if="!turns.length">
+          <div class="empty-icon" aria-hidden="true">✦</div>
+          <h2>有什么想查的？</h2>
+          <p>试试多跳关系问题，例如公司母公司的 CEO。</p>
+          <div class="suggestions">
+            <button
+              v-for="q in suggestions"
+              :key="q"
+              type="button"
+              class="chip"
+              @click="askSuggestion(q)"
+            >{{ q }}</button>
+          </div>
+        </div>
+
+        <div class="messages" v-else>
+          <template v-for="turn in turns" :key="turn.id">
+            <article class="msg user">
+              <div class="avatar" aria-hidden="true">你</div>
+              <div class="bubble"><div class="user-text">{{ turn.question }}</div></div>
+            </article>
+            <progress-log :turn="turn"></progress-log>
+            <thinking-panel :turn="turn"></thinking-panel>
+            <answer-turn
+              v-if="turn.result || turn.error"
+              :turn="turn"
+              @send-feedback="sendFeedback"
+              @retry-agentic="retryAgentic"
+            ></answer-turn>
+          </template>
+        </div>
+      </main>
+
+      <footer class="composer">
+        <form id="askForm" class="composer-inner" autocomplete="off" @submit.prevent="submitAsk">
+          <label class="sr-only" for="q">问题</label>
+          <textarea
+            id="q"
+            ref="draftBox"
+            rows="1"
+            placeholder="向知识图谱提问…"
+            v-model="draft"
+            @keydown.enter.exact.prevent="submitAsk"
+            @input="autoResize"
+          ></textarea>
+          <button
+            v-if="busy"
+            type="button"
+            class="stop-btn"
+            aria-label="停止"
+            v-cloak
+            @click="stopStreaming"
+          ><span>停止</span></button>
+          <button v-else id="askBtn" type="submit" class="send-btn" aria-label="发送">
+            <span>发送</span>
+          </button>
+        </form>
+        <p class="composer-hint">Enter 发送 · Shift+Enter 换行 · 走真实 <code>/v1/query</code> API</p>
+      </footer>
+    </div>
+  `,
 };

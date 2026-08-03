@@ -31,6 +31,7 @@
 
 ### 2b. 前端框架化（rules.md §8 预留的阶段五事项）
 - [x] `P5-UI-01` 试用 Web 前端框架化 — Vue 3 零构建重构 + 交互增强；ADR-006 已入 tech-stack；执行计划：[p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)
+- [x] `P5-UI-02` 前端现代化 — 单页 → SPA 多视图（对话/图谱/仪表盘/审核/历史）；配套图谱浏览端点 `routes/graph_browse.py` + `GET /v1/audit/queries/recent`
 
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表

@@ -276,6 +276,13 @@
   font-family: var(--font-mono); font-size: 0.72rem;
   background: var(--surface-soft); padding: 0.05rem 0.3rem; border-radius: 4px;
 }
+/* Chat view collapsible advanced options (P5-UI-02; topbar is centered). */
+.chat-settings {
+  max-width: 22rem;
+  margin: 0.7rem auto 0;
+  text-align: left;
+  padding: 0.35rem 0.75rem 0.75rem;
+}
 @media (max-width: 860px) {
   .empty-state { margin-top: 3vh; }
 }

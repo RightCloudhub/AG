@@ -16,6 +16,7 @@ from agentic_graphrag.api.auth import AuthRateLimitMiddleware
 from agentic_graphrag.api.envelope import MetaBody, fail
 from agentic_graphrag.api.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.api.routes import admin as admin_routes
+from agentic_graphrag.api.routes import graph_browse as graph_browse_routes
 from agentic_graphrag.api.routes import knowledge as knowledge_routes
 from agentic_graphrag.api.routes import query as query_routes
 from agentic_graphrag.api.service import QueryService, build_default_service
@@ -159,8 +160,10 @@ def _register_routes(app: FastAPI) -> None:
         )
 
     app.include_router(query_routes.router)
-    app.include_router(knowledge_routes.router)
+    # admin first so the static /audit/queries/recent wins over /{query_id}.
     app.include_router(admin_routes.router)
+    app.include_router(knowledge_routes.router)
+    app.include_router(graph_browse_routes.router)
 
 
 def _health_payload(request: Request) -> dict[str, Any]:

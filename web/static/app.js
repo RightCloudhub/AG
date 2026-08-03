@@ -5,7 +5,6 @@
  * web/static/vendor/README.md), then pinned CDN mirrors as fallback.
  */
 import { registerComponents } from "./js/components/index.js";
-import { rootComponent } from "./js/root.js";
 
 const VUE_VERSION = "3.5.13";
 const VENDOR_VUE_PATH = "/web/static/vendor/vue.esm-browser.prod.js";
@@ -50,7 +49,7 @@ function renderBootError(detail) {
 async function boot() {
   try {
     const vue = await loadVueRuntime();
-    const app = vue.createApp(rootComponent);
+    const app = vue.createApp({});
     registerComponents(app);
     app.mount("#app");
   } catch (err) {

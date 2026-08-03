@@ -68,3 +68,9 @@ class AuditStore:
     def list_ids(self, limit: int = 100) -> list[str]:
         with self._lock:
             return list(self._index.keys())[-limit:]
+
+    def list_recent(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Recent reasoning chains (summary rows) for the Q&A history view."""
+        with self._lock:
+            ids = list(self._index.keys())[-limit:]
+            return [dict(self._index[qid]) for qid in ids]
