@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.4（2026-07-25）— ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离。前版 V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
+**版本**：V1.5（2026-08-08）— **P5-UI-02 前端重规划立项（规划态，未实施）**：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -70,9 +70,11 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
 - 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-## 2. 问答 Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01）— 已交付
+## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 重规划规划态）
 
 **定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
+
+> **重规划（2026-08-08，P5-UI-02，未实施）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台。§2.1–§2.4 描述**已交付**的问答视图现状；控制台目标见 §2.7，任务分解与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
 
 ### 2.1 技术形态（零构建 + 钉版 Vue 3）
 
@@ -119,6 +121,8 @@
 - 移动端适配
 - 图路径可视化**编辑器**
 
+> 2026-08-08 注：知识运维 / 审核 / 可观测界面**不属于**上列「不做」——已立项 P5-UI-02（§2.7）。上列四项维持不做（rules.md §8；改动须先改 PRD）。
+
 ### 2.6 验证清单
 
 工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
@@ -128,3 +132,12 @@
 - [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 未知事件静默忽略
 - [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
 - [x] 全前端 `v-html` / `.innerHTML` 零命中
+
+### 2.7 P5-UI-02 前端重规划概要（2026-08-08，规划态未实施）
+
+试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表，低优先）。
+
+- **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
+- **API 前置两项**（M0）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页（当前仅有单条查询）。
+- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
+- 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
