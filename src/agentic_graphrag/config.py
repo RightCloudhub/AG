@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,49 +11,14 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+from agentic_graphrag.config_paths import find_root
 
 if TYPE_CHECKING:
     from agentic_graphrag.llm.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
 
 
-def _find_root() -> Path:
-    """Locate repo root (handles editable install, site-packages, and cwd)."""
-    env = os.environ.get("AGENTIC_GRAPHRAG_ROOT")
-    if env:
-        return Path(env).resolve()
-    for start in (Path.cwd(), Path(__file__).resolve().parent):
-        found = _root_from_start(start)
-        if found is not None:
-            return found
-    return _root_near_src() or Path.cwd().resolve()
-
-
-def _root_from_start(start: Path) -> Path | None:
-    for candidate in [start, *start.parents]:
-        if _is_full_root(candidate) or _is_light_root(candidate):
-            return candidate.resolve()
-    return None
-
-
-def _is_full_root(candidate: Path) -> bool:
-    if not (candidate / "configs" / "default.yaml").exists():
-        return False
-    return (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
-
-
-def _is_light_root(candidate: Path) -> bool:
-    return (candidate / "pyproject.toml").exists() and (candidate / "configs").exists()
-
-
-def _root_near_src() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").exists() and (parent / "src").exists():
-            return parent
-    return None
-
-
-ROOT_DIR = _find_root()
+ROOT_DIR = find_root()
 DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.yaml"
 
 
@@ -64,6 +28,9 @@ class GuardrailsConfig(BaseModel):
     max_tokens_per_query: int = 50_000
     query_timeout_seconds: int = 60
     recursion_limit: int = 15
+    # Breadth budget (plan nodes) — BL-12. Kept ≤ max_hops because one hop runs
+    # one sub-question; GuardrailConfig clamps it if configured higher.
+    max_sub_questions: int = 5
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -208,7 +175,6 @@ def get_config(config_path: str | None = None) -> AppConfig:
     raw = _load_yaml(path)
     cfg = AppConfig.model_validate(raw)
     _apply_settings_overrides(cfg, get_settings())
-    _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
     return cfg
 
 

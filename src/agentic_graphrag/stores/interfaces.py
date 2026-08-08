@@ -143,6 +143,10 @@ class FulltextStore(Protocol):
 class DocStore(Protocol):
     """Document blob store (source of truth for raw document text)."""
 
+    # False for process-local stores: writes are invisible to any other process,
+    # so a separately-run ingest worker cannot see documents the API accepted.
+    durable: bool
+
     def save(self, doc: DocumentRecord) -> None: ...
 
     def get(self, doc_id: str) -> DocumentRecord | None: ...

@@ -32,6 +32,44 @@ class AnswerPayload(BaseModel):
     missing_info: list[str] = Field(default_factory=list)
 
 
+# Persisted-evidence caps: bound audit-row size without dropping citable rows.
+EVIDENCE_CATALOG_LIMIT = 50
+EVIDENCE_CONTENT_CHARS = 800
+
+
+# Keyed by the exact reasons ``validate_answered_claims`` returns. The regenerate
+# pass costs a second STRONG call, so it must be told what actually failed: the
+# previous generic "add evidence_ids" text could never repair a lexical-support
+# failure, which made the retry deterministic waste (docs/BUSINESS_LOGIC.md BL-02).
+_REPAIR_HINTS: dict[str, str] = {
+    "no claims": (
+        "Your previous answer carried no claims at all. Split the answer into short "
+        "factual claims and bind each one to the evidence it rests on."
+    ),
+    "claim missing evidence_ids": (
+        "One or more claims had an empty evidence_ids list. Every claim MUST cite at "
+        "least one bracketed id from the evidence list above."
+    ),
+    "claim evidence_ids not in retrieved set": (
+        "One or more claims cited an id that does not appear in the evidence list. Use "
+        "ONLY the bracketed ids shown above, verbatim; never invent an id."
+    ),
+    "claim text not supported by cited evidence content": (
+        "One or more claims cited evidence whose text does not state what the claim "
+        "asserts — the ids were valid but the content did not match. Restate each claim "
+        "in the wording of the evidence you cite, naming the exact entity that evidence "
+        "points to, and do not lean on an edge that asserts a different relation. If no "
+        "evidence states it, drop the claim and lower status to partial or no_answer."
+    ),
+}
+_DEFAULT_REPAIR_HINT = "Re-ground every claim in the evidence above, citing ids exactly as shown."
+
+
+def _repair_instruction(reason: str) -> str:
+    hint = _REPAIR_HINTS.get(reason, _DEFAULT_REPAIR_HINT)
+    return f"\n\nIMPORTANT — your previous answer was rejected ({reason}). {hint}"
+
+
 def _format_evidence(evidence: list[Candidate]) -> str:
     lines = []
     for c in evidence:
@@ -41,16 +79,28 @@ def _format_evidence(evidence: list[Candidate]) -> str:
 
 def _attach_evidence_catalog(chain: ReasoningChain, evidence: list[Candidate]) -> None:
     """Persist evidence id+content so API/UI can resolve citation clicks."""
-    catalog = [
-        {
-            "id": c.id,
-            "content": (c.content or "")[:800],
-            "source": c.source.value if hasattr(c.source, "value") else str(c.source),
-            "score": c.score,
-        }
-        for c in evidence[:50]
-    ]
+    catalog = [_catalog_entry(c) for c in evidence[:EVIDENCE_CATALOG_LIMIT]]
     chain.metadata = {**(chain.metadata or {}), "evidence": catalog}
+
+
+def _catalog_entry(candidate: Candidate) -> dict[str, object]:
+    """One catalog row, flagged when its content was cut.
+
+    ``truncated`` is load-bearing downstream: ``eval/metrics_evidence.py``
+    re-checks claim↔evidence overlap against *this* persisted text, so a
+    supporting token living past the cut would make the eval gate stricter than
+    the runtime gate it exists to mirror (BL-13). The flag lets it abstain
+    instead of accusing the row of fabricating.
+    """
+    content = candidate.content or ""
+    source = candidate.source
+    return {
+        "id": candidate.id,
+        "content": content[:EVIDENCE_CONTENT_CHARS],
+        "truncated": len(content) > EVIDENCE_CONTENT_CHARS,
+        "source": source.value if hasattr(source, "value") else str(source),
+        "score": candidate.score,
+    }
 
 
 def _split(text: str) -> tuple[str, str]:
@@ -64,24 +114,29 @@ def _apply_payload(
     chain: ReasoningChain,
     payload: AnswerPayload,
     evidence: list[Candidate],
-) -> ReasoningChain | None:
-    """Apply a validated payload; return None if citation gate fails."""
+) -> tuple[ReasoningChain | None, str]:
+    """Apply a validated payload.
+
+    Returns ``(chain, "")`` on success and ``(None, reason)`` when the citation
+    gate rejects it — the caller needs that reason to build a repair hint that
+    can actually fix the failure (BL-02), so it is reported, not recomputed.
+    """
     if payload.status == QueryStatus.NO_ANSWER:
         chain.honest_fallback(payload.answer or "model reported no answer")
-        return chain
+        return chain, ""
 
     # Clean unknown ids, then validate
     claims = filter_claim_evidence_ids(payload.claims, evidence)
     require = payload.status in (QueryStatus.ANSWERED, QueryStatus.PARTIAL)
     reason = validate_answered_claims(claims, evidence, require_claims=require)
     if reason:
-        return None
+        return None, reason
 
     chain.answer = payload.answer
     chain.status = payload.status
     chain.claims = claims
     chain.missing_info = payload.missing_info
-    return chain
+    return chain, ""
 
 
 def _llm_answer(
@@ -91,16 +146,11 @@ def _llm_answer(
     *,
     conclusions: str,
     guardrail_status: str,
-    regenerate: bool = False,
+    repair_reason: str = "",
     tier: Tier = Tier.STRONG,
 ) -> AnswerPayload:
     prompt = load_prompt("answer")
-    extra = ""
-    if regenerate:
-        extra = (
-            "\n\nIMPORTANT: Your previous answer had uncited claims. "
-            "Every claim MUST include evidence_ids that appear in the evidence list above."
-        )
+    extra = _repair_instruction(repair_reason) if repair_reason else ""
     system, user = _split(
         prompt.format(
             question=chain.question,
@@ -190,34 +240,48 @@ def _generate_with_llm(
         guardrail_status=guardrail_status,
         tier=tier,
     )
-    applied = _apply_payload(chain, payload, evidence)
+    applied, reason = _apply_payload(chain, payload, evidence)
     if applied is not None:
         return applied
-
-    # One regenerate attempt (P2-AG-05)
-    chain.metadata["citation_intercept"] = True
-    chain.metadata["citation_intercept_reason"] = (
-        validate_answered_claims(
-            filter_claim_evidence_ids(payload.claims, evidence),
-            evidence,
-            require_claims=True,
-        )
-        or "citation gate failed"
+    return _regenerate_after_intercept(
+        chain,
+        evidence,
+        llm,
+        reason=reason or "citation gate failed",
+        conclusions=conclusions,
+        guardrail_status=guardrail_status,
+        tier=tier,
     )
+
+
+def _regenerate_after_intercept(
+    chain: ReasoningChain,
+    evidence: list[Candidate],
+    llm: LLMProvider,
+    *,
+    reason: str,
+    conclusions: str,
+    guardrail_status: str,
+    tier: Tier,
+) -> ReasoningChain:
+    """One targeted regenerate attempt (P2-AG-05), then honest fallback."""
+    chain.metadata["citation_intercept"] = True
+    chain.metadata["citation_intercept_reason"] = reason
     retry = _llm_answer(
         chain,
         evidence,
         llm,
         conclusions=conclusions,
         guardrail_status=guardrail_status,
-        regenerate=True,
+        repair_reason=reason,
         tier=tier,
     )
-    applied = _apply_payload(chain, retry, evidence)
+    applied, retry_reason = _apply_payload(chain, retry, evidence)
     if applied is not None:
         chain.metadata["citation_regenerated"] = True
         return applied
 
+    chain.metadata["citation_retry_reason"] = retry_reason or reason
     chain.honest_fallback("answer claims lacked evidence citations after regenerate")
     chain.metadata["citation_fallback"] = True
     return chain

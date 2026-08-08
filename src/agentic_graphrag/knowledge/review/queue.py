@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -10,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewType(StrEnum):
@@ -31,6 +34,21 @@ class ReviewDecision(StrEnum):
     APPROVE = "approve"
     REJECT = "reject"
     SKIP = "skip"
+
+
+_DECISION_STATUS = {
+    ReviewDecision.APPROVE.value: ReviewStatus.APPROVED.value,
+    ReviewDecision.REJECT.value: ReviewStatus.REJECTED.value,
+    ReviewDecision.SKIP.value: ReviewStatus.SKIPPED.value,
+}
+
+
+class ReviewAlreadyDecided(RuntimeError):
+    """Raised when a decided item is decided again (terminal-state protection)."""
+
+    def __init__(self, item: ReviewItem) -> None:
+        super().__init__(f"Review item {item.id} is already {item.status}")
+        self.item = item
 
 
 @dataclass
@@ -82,11 +100,21 @@ class ReviewQueue:
             self._load()
 
     def _load(self) -> None:
+        """Load persisted items, skipping corrupt lines.
+
+        A single malformed line used to raise straight out of ``__init__`` and
+        take ``QueryService`` construction — hence the whole API — down with it
+        (docs/BUSINESS_LOGIC.md BL-11).
+        """
         assert self.path is not None
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        for lineno, line in enumerate(self.path.read_text(encoding="utf-8").splitlines(), 1):
             if not line.strip():
                 continue
-            item = ReviewItem.from_dict(json.loads(line))
+            try:
+                item = ReviewItem.from_dict(json.loads(line))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                logger.warning("Skipping corrupt review-queue line %s:%d", self.path, lineno)
+                continue
             self._items[item.id] = item
 
     def _persist(self, item: ReviewItem) -> None:
@@ -154,18 +182,25 @@ class ReviewQueue:
         *,
         reviewer: str = "",
         note: str = "",
+        tenant_id: str | None = None,
     ) -> ReviewItem:
+        """Record a decision.
+
+        ``tenant_id`` scopes the lookup — without it any operator who knew an id
+        could decide another tenant's item (docs/BUSINESS_LOGIC.md BL-09). A
+        mismatch raises ``KeyError`` so callers answer 404 for "not yours" and
+        "not found" alike. Legacy rows with an empty ``tenant_id`` stay
+        decidable by any tenant. Re-deciding a decided item raises
+        ``ReviewAlreadyDecided`` instead of silently overwriting it (BL-11).
+        """
         with self._lock:
             item = self._items.get(item_id)
-            if item is None:
+            if item is None or not _tenant_allows(item, tenant_id):
                 raise KeyError(item_id)
+            if item.status != ReviewStatus.PENDING.value:
+                raise ReviewAlreadyDecided(item)
             dec = decision.value if isinstance(decision, ReviewDecision) else str(decision)
-            if dec == ReviewDecision.APPROVE.value:
-                item.status = ReviewStatus.APPROVED.value
-            elif dec == ReviewDecision.REJECT.value:
-                item.status = ReviewStatus.REJECTED.value
-            else:
-                item.status = ReviewStatus.SKIPPED.value
+            item.status = _DECISION_STATUS.get(dec, ReviewStatus.SKIPPED.value)
             item.reviewer = reviewer
             item.decision_note = note
             item.decided_at = time.time()
@@ -179,6 +214,13 @@ class ReviewQueue:
                 out[item.status] = out.get(item.status, 0) + 1
             out["total"] = len(self._items)
             return out
+
+
+def _tenant_allows(item: ReviewItem, tenant_id: str | None) -> bool:
+    """True when ``tenant_id`` may act on ``item`` (empty item tenant = legacy row)."""
+    if tenant_id is None or not item.tenant_id:
+        return True
+    return item.tenant_id == tenant_id
 
 
 def _filter_items(

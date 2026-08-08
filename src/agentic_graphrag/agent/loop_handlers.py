@@ -10,6 +10,7 @@ from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
 from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
 from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
 from agentic_graphrag.llm.provider import LLMProvider
@@ -230,6 +231,12 @@ def _append_dynamic_subquestion(
     if ctx.result.action == CriticAction.REWRITE:
         memory.exclude_hypothesis(ctx.sq_text)
     if memory.is_duplicate_subquestion(new_sq) or memory.is_excluded(new_sq):
+        new_state["done"] = True
+        return
+    if len(sqs) >= ctx.guard_cfg.max_sub_questions:
+        # Breadth budget is exhausted; stop instead of growing the plan into
+        # nodes the hop budget can never reach (BL-12).
+        record_dropped_subquestion(new_state, new_sq)
         new_state["done"] = True
         return
     new_id = f"sq_dyn_{len(sqs) + 1}"

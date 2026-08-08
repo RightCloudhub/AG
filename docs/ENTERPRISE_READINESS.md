@@ -270,12 +270,12 @@
 > 已交付子项标 ✅，未交付子项标 ❌。
 
 - ✅ **租户数据隔离**：`DocumentRecord`/向量 payload/图实体携带 `tenant_id`；检索三路按 principal 过滤；离线单租户路径行为不变（default 租户）。Neo4j 物理分库仍归运维（P4-REL-01 运维侧不变）。
-- ✅ **上传治理**：应用层大小上限（单文件 ≤5MB、单批 ≤20 个，常量入 `api/routes/knowledge_upload.py`）、类型白名单（md/txt/pdf）、超限 413 错误码。
+- ✅ **上传治理**：应用层大小上限（单文件 ≤5MB、单批 ≤20 个，常量入 `api/routes/knowledge_upload.py`；分片读取，超限即中断，不先整体入内存）、类型白名单（md/txt；**pdf 已从白名单移除**——无文本抽取器时入库会变成乱码，现返回「暂不支持」）、严格 UTF-8 解码、超限 413 错误码。
 - ✅ **脱敏钩子**：`observability/redaction.py` 正则管道（email/phone_cn/phone_intl/id_cn），`AGR_REDACTION_ENABLED`/`AGR_REDACTION_PATTERNS` 环境开关；`redact_log_record` 挂日志 formatter，`redact_audit_payload` 挂审计链落盘前；默认关闭。10 单测覆盖。
 - ✅ **保留策略**：`configs/default.yaml` `retention:` 段（audit_chains 90 天 / audit_events 90 天 / review_queue 30 天 / ingest_tasks 30 天）+ `scripts/prune_data_files.py`（按时间字段删过期行，支持 `--dry-run`）；`AuditEventStore` 另有大小轮转。
 - ✅ **启动凭据校验**：`api/app.py:_validate_live_credentials`（lifespan，ENT-06b）——`AGR_USE_LIVE_STORES=1` 断言 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 非空；`AGR_ALLOW_LLM=1` 断言 `LLM_API_KEY` 非空且非占位符；缺失抛 `RuntimeError` 拒绝启动。
 
-**实现确认（2026-07-25，替换 2026-07-24 审计时的缺口描述）：** `stores/interfaces.py` 四协议（`GraphStore`/`VectorStore`/`FulltextStore`/`DocStore`）接受租户过滤，内存 / BM25 / Neo4j / Qdrant 实现全部落实；检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**租户作用域运行绕过检索缓存**，隔离优先）；上传从 principal 注入租户；复核队列按租户列取。单测：`test_enterprise_completion.py`（跨租户零命中 / 413 路径 / 脱敏 / fail-fast / prune）+ ENT readiness 套件。物理分库、磁盘加密与真实 Neo4j/Qdrant 跨租户回归归运维与部署验证。
+**实现确认（2026-07-25，替换 2026-07-24 审计时的缺口描述）：** `stores/interfaces.py` 四协议（`GraphStore`/`VectorStore`/`FulltextStore`/`DocStore`）接受租户过滤，内存 / BM25 / Neo4j / Qdrant 实现全部落实；检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**检索缓存键已含租户**，`retrieval_key(query, tools, tenant_id=…)`，租户作用域运行不再绕过缓存 —— 旧的「绕过」约定在流式路径不成立，见 `docs/BUSINESS_LOGIC.md` BL-04）；上传从 principal 注入租户；复核队列按租户列取。单测：`test_enterprise_completion.py`（跨租户零命中 / 413 路径 / 脱敏 / fail-fast / prune）+ ENT readiness 套件。物理分库、磁盘加密与真实 Neo4j/Qdrant 跨租户回归归运维与部署验证。
 
 ### P5-ENT-07 RPA 集成层 — ❌ 未实施
 

@@ -38,7 +38,7 @@ problem. These matched without qualification:
 | Abstention as a first-class outcome | `QueryStatus.NO_ANSWER` + `honest_fallback()`, wired at 5 sites (guardrail trip, recursion recovery, no evidence, model no-answer, citation failure) | Exact match |
 | Citation binding, regenerate-once, then abstain | `generation/citations.py`, `generation/answer.py:221` | Match — but see **D2** |
 | RRF fusion | `retrieval/fusion.py` | Exact match |
-| Cache: index-version invalidation, tenant-scoped answers | `retrieval/cache.py:133,147` — retrieval key = `norm(query)+version`; answer key = `tenant|user|params|version`; tenant runs bypass the retrieval cache | Exact match |
+| Cache: index-version invalidation, tenant-scoped answers | `retrieval/cache.py:133,147` — retrieval key = `tenant|norm(query)|tools+version`; answer key = `tenant|user|params|version` | Exact match |
 | SSE incremental streaming | `agent/loop_stream_events.py` — `triage/thinking/sub_question/hop_done` | Exact match |
 | RBAC, tenancy, budgets, audit events | `api/rbac.py`, `llm/budget_policy.py`, `observability/audit_events.py` | Exact match |
 | Evidence recall + fabrication rate | `eval/metrics_evidence.py:93,145` | Match — but see **D2** |

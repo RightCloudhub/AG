@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
+
+from agentic_graphrag.generation.claim_support import content_tokens
 
 
 def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
@@ -143,13 +147,53 @@ def _alias_hit(token: str, blob: str) -> bool:
 
 
 def fabrication_rate(rows: list[dict[str, Any]]) -> float:
-    """Share of rows with answered status but no cited claims (AC-7 proxy)."""
-    if not rows:
-        return 0.0
+    """Share of answered rows whose claims fail the eval-side citation gate (AC-7).
+
+    Aligned with the runtime gate in :mod:`agentic_graphrag.generation.citations`:
+    every claim must carry evidence ids, those ids must resolve inside the row's
+    own evidence catalog, and the claim text must share a content token with the
+    cited content (CJK-aware, BL-02). The runtime *object anchor* tier (BL-13)
+    cannot be reproduced here — the persisted catalog keeps only id/content and
+    drops ``structured`` — so this remains an upper bound on grounding, not an
+    entailment check. Rows whose only cited evidence was truncated on the way
+    into the catalog are skipped rather than accused: the supporting token may
+    sit past the cut, and being *stricter* than the runtime gate would be just
+    as wrong as being looser.
+    """
+    return _rate(rows, _fabrication_flag)
+
+
+def unbound_claim_rate(rows: list[dict[str, Any]]) -> float:
+    """Share of answered rows carrying a claim with no evidence ids at all.
+
+    This is the historical ``fabrication_rate`` criterion under a name that
+    matches what it measures: the weakest of the three citation tiers, blind to
+    a claim that cites a real id whose content asserts something else (BL-13).
+    Kept alongside the strengthened metric so the historical series stays
+    comparable across reports.
+    """
+    return _rate(rows, _unbound_flag)
+
+
+@dataclass(frozen=True)
+class _CatalogEntry:
+    """Persisted evidence text, plus whether it was cut on the way in."""
+
+    content: str
+    truncated: bool = False
+
+
+# id → persisted evidence; the callables that consume a row or its claims.
+_Catalog = dict[str, _CatalogEntry]
+_RowFlag = Callable[[dict[str, Any]], bool | None]
+_ClaimJudge = Callable[[list, _Catalog], bool]
+
+
+def _rate(rows: list[dict[str, Any]], flag_of: _RowFlag) -> float:
     bad = 0
     counted = 0
     for row in rows:
-        flag = _fabrication_flag(row)
+        flag = flag_of(row)
         if flag is None:
             continue
         counted += 1
@@ -160,16 +204,64 @@ def fabrication_rate(rows: list[dict[str, Any]]) -> float:
 
 def _fabrication_flag(row: dict[str, Any]) -> bool | None:
     """True=fabricated, False=ok, None=skip row."""
+    return _row_flag(row, _claims_fail_gate)
+
+
+def _unbound_flag(row: dict[str, Any]) -> bool | None:
+    return _row_flag(row, lambda claims, _catalog: _claims_unbound(claims))
+
+
+def _row_flag(row: dict[str, Any], judge: _ClaimJudge) -> bool | None:
     status = str(row.get("status") or "").lower()
     if status in {"no_answer", ""}:
         return None
     chain = row.get("chain") or {}
     claims = chain.get("claims") if isinstance(chain, dict) else None
     if claims:
-        return _claims_unbound(claims)
+        return bool(judge(claims, _catalog_by_id(chain)))
     if status == "answered" and not (row.get("prediction") or "").startswith("无法"):
         return True
     return False
+
+
+def _claims_fail_gate(claims: list, catalog: _Catalog) -> bool:
+    if _claims_unbound(claims):
+        return True
+    if not catalog:
+        # Older reports and baseline rows carry no evidence catalog; only the
+        # id-presence tier is checkable, so do not accuse the row of fabricating.
+        return False
+    return any(not _claim_grounded(c, catalog) for c in claims if isinstance(c, dict))
+
+
+def _claim_grounded(claim: dict[str, Any], catalog: _Catalog) -> bool:
+    """One claim must cite a catalog id whose content shares a content token."""
+    ids = [str(i) for i in (claim.get("evidence_ids") or [])]
+    cited = [catalog[i] for i in ids if i in catalog]
+    if not cited:
+        return False
+    claim_tokens = content_tokens(str(claim.get("text") or ""))
+    if not claim_tokens:
+        return True  # nothing lexical to check — mirrors the runtime gate
+    if any(claim_tokens & content_tokens(entry.content) for entry in cited):
+        return True
+    # Truncated content: the token that satisfied the runtime gate may sit past
+    # the persisted cut, so abstain instead of over-reporting fabrication.
+    return any(entry.truncated for entry in cited)
+
+
+def _catalog_by_id(chain: dict[str, Any]) -> _Catalog:
+    """Evidence id → persisted text from the catalog (absent in older rows)."""
+    meta = chain.get("metadata") if isinstance(chain.get("metadata"), dict) else {}
+    catalog = chain.get("evidence") or (meta.get("evidence") if meta else None) or []
+    out: _Catalog = {}
+    for ev in catalog:
+        if isinstance(ev, dict) and ev.get("id"):
+            out[str(ev["id"])] = _CatalogEntry(
+                content=str(ev.get("content") or ""),
+                truncated=bool(ev.get("truncated")),
+            )
+    return out
 
 
 def _claims_unbound(claims: list) -> bool:

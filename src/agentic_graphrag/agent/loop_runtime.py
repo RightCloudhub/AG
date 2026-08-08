@@ -23,6 +23,8 @@ from agentic_graphrag.agent.loop_handlers import (
 )
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps, CritiqueContext
+from agentic_graphrag.agent.plan_coverage import annotate_plan_coverage
+from agentic_graphrag.agent.plan_dag import cap_plan_breadth
 from agentic_graphrag.agent.planner import SubQuestion, plan
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.generation.trace import ReasoningChain
@@ -45,6 +47,7 @@ class AgentState(TypedDict, total=False):
     guardrail_status: str
     allow_llm: bool
     tenant_id: str
+    dropped_sub_questions: list[str]
 
 
 class AgentRuntime:
@@ -96,9 +99,14 @@ class AgentRuntime:
             allow_llm=allow_llm and self.llm is not None,
             known_entities=known,
         )
+        # Breadth budget is enforced here, not left to the hop cap silently
+        # truncating the tail mid-run (BL-12).
+        kept, dropped = cap_plan_breadth(sqs, self.guard_cfg.max_sub_questions)
+        self.guards.note_plan_breadth(len(sqs))
         return {
             **state,
-            "sub_questions": [s.model_dump() for s in sqs],
+            "sub_questions": [s.model_dump() for s in kept],
+            "dropped_sub_questions": [s.text for s in dropped],
             "current_index": 0,
             "hop": 0,
             "done": False,
@@ -215,6 +223,7 @@ class AgentRuntime:
             )
 
         chain.explored_paths = sorted(self.memory.explored_paths)
+        annotate_plan_coverage(chain, state)
         return {
             **state,
             "chain": chain.model_dump(),

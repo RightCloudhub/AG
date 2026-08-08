@@ -125,7 +125,7 @@ agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm            
 ### 4. 缓存清理
 
 图谱/索引更新后调用 `RetrievalCache.on_index_update()`（代码侧）或重启进程（版本键失效）。
-磁盘：`data/cache/`。注意：**带 tenant_id 的检索绕过检索缓存**（隔离优先，ENT-06）。
+磁盘：`data/cache/`。注意：**检索缓存键已含 tenant_id**（`retrieval_key(query, tools, tenant_id=…)`），带租户的检索正常读写缓存，隔离由键本身保证（BL-04）。`RetrievalCache.persist_cache_stats()` 写 `data/cache/cache_stats.json`（仅计数，非 embedding 向量；无读回路径，仅供人工查看）。
 
 ### 5. 审计回查（推理链 + 安全事件）
 
@@ -201,7 +201,7 @@ OTel：`pip install -e ".[otel]"` + `AGR_OTEL_ENABLED=1 AGR_OTEL_ENDPOINT=<colle
 - [ ] 无硬编码密钥；生产 `AGR_REQUIRE_AUTH=1` 且 key 带角色段（reader 缺省）
 - [ ] Cypher 参数化（Neo4j 适配器）
 - [ ] 错误 envelope 不泄露内部路径 / 栈（栈只入服务端 JSON 日志）
-- [x] 上传治理已在应用层兜底：单文件 ≤5MB、单批 ≤20、类型白名单 md/txt/pdf、超限 413
+- [x] 上传治理已在应用层兜底：单文件 ≤5MB（分片读取，超限立即中断）、单批 ≤20、类型白名单 md/txt（pdf 返回「暂不支持」）、非 UTF-8 拒绝、超限 413
       （反向代理限制仍建议作为外层）
 - [ ] 租户隔离：应用层 `tenant_id` 已贯穿 stores / 检索 / agent / 审计 / 复核（ENT-06）；
       生产仍需物理分库或标签隔离核查 + 真实 Neo4j/Qdrant 跨租户回归（P4-REL-01 运维侧）

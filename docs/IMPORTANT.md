@@ -177,16 +177,16 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
-| `POST /v1/query` | 已有 + 鉴权/限流/SSE + RBAC 三角色（ENT-04）；答案缓存按 tenant/user/params；审计按 tenant 隔离；**数据级** tenant_id 已贯穿 stores/检索/agent（ENT-06，租户作用域绕过检索缓存） | 真实 Neo4j/Qdrant 跨租户回归 + 物理分库（P4-REL-01 运维侧） |
+| `POST /v1/query` | 已有 + 鉴权/限流/SSE + RBAC 三角色（ENT-04）；答案缓存按 tenant/user/params；审计按 tenant 隔离；**数据级** tenant_id 已贯穿 stores/检索/agent（ENT-06；检索缓存键含租户，不再绕过缓存 —— BL-04） | 真实 Neo4j/Qdrant 跨租户回归 + 物理分库（P4-REL-01 运维侧） |
 | 推理链 | Schema + 响应内 chain + audit store API + evidence 正文目录 | 生产抽样审计（P4-AC-02） |
-| 引用/Recall | 门禁含词法支撑；Recall 不含 prediction 文本；fabrication=ID+claim 存在性 proxy | 真 NLI 支撑判定；live heldout 重跑 |
+| 引用/Recall | 门禁含词法支撑 + **图证据对象锚定**（neighbor 命中 tail / path 命中 ≥2 节点，BL-13）；Recall 不含 prediction 文本；`fabrication_rate` 已与运行期门禁同口径，历史口径保留为 `unbound_claim_rate` | 真 NLI 支撑判定；评测侧无法复现对象锚定（持久化目录只留 id/content）；live heldout 重跑 |
 | 3-hop 效果 | 计划动态 SQ 不再跳过后续节点 | **须重跑 heldout**；历史 g2_dev 3-hop 2.44% 不可作门禁证据 |
 | CI | unit + coverage≥80%；omit 仍有 live 适配器 | integration/Neo4j/Qdrant job；勿用 omit 路径冒充覆盖 |
 
 | BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
 | 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
 | SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |
-| 接入格式 | 偏 MD/TXT | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本） |
+| 接入格式 | 仅 MD/TXT —— **PDF 已从上传白名单移除**（BL-08：无文本抽取器时入库即乱码，现返回「暂不支持」） | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本），需先引入抽取依赖 |
 | 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
 
@@ -198,6 +198,19 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | `DEMO_HQ` 无条件种子 | `constants.DEMO_HQ` → `hq_from_texts` | 即便检索正文未提 Austin/Singapore，仍可产出 HQ 句；事实对 demo 正确但证据无关 | 试点域改为仅从 evidence 抽取；删 DEMO_HQ 或 require-mention |
 | ZH 问 EN 答 | `rules_ma` format helpers | 中文多跳问句答案仍是英文专名串；parity 是事实级非语言级（单测期望如此） | 需要产品化 i18n 时再做语言对齐 |
 | agent 层 CJK/前缀消歧 | `entity_stopwords` / `entity_mentions` | 共享 live 路径；已收紧（禁单字「何」姓误杀；前缀扩展须唯一） | 真域实体消歧 UI / 更强 NER 在阶段三+ |
+
+### 业务逻辑断链（BL-01…14，2026-07-27）
+
+来源：[`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已在同一变更集中修复，
+以下为**仍然挂账**的部分：
+
+| # | 状态 | 挂账原因 | 解挂需要 |
+|---|------|----------|----------|
+| BL-01 上传 → 知识图谱无运行期通路 | `[ ]` | 属功能新建而非缺陷修复：需要「抽取 → 消解 → 冲突 → 入图」的运行期编排与幂等/回滚语义；且入图前须先定 BL-14 的时间维度，否则建成后要回填全量图谱 | 立项 + ADR；先决 BL-14 |
+| BL-03 人工复核决策无执行器 | `[ ]` | 决策只改队列状态，不产生图谱副作用。本次仅补齐决策自身的正确性（终态保护 409、租户校验 404） | 与 BL-01 同批立项（共用写图通路） |
+| BL-12 DAG 并发执行 | `[~]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
+| BL-13 真 NLI 支撑判定 | `[~]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
+| BL-14 图谱无时间维度 | `[ ]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
 
 ### 规范 / 结构备注
 
@@ -292,6 +305,8 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 目标目录树 | [`plan/engineering/repo-structure.md`](../plan/engineering/repo-structure.md) |
 | 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 企业级管控审计 / ENT 规划 | [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
+| 业务逻辑断链（BL-01…14） | [`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) |
+| BL 修复变更集待验证清单 | [`docs/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
 

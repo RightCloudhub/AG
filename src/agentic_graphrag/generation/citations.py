@@ -7,6 +7,11 @@ actually exist in the retrieved candidate set. Failures trigger regenerate
 
 from __future__ import annotations
 
+from agentic_graphrag.generation.claim_support import (
+    DEFAULT_MIN_OVERLAP,
+    claim_supported_by,
+    content_tokens,
+)
 from agentic_graphrag.generation.trace import Claim
 from agentic_graphrag.retrieval.contracts import Candidate
 
@@ -94,8 +99,9 @@ def validate_answered_claims(
     - ANSWERED/PARTIAL paths that assert facts must carry claims
     - every claim needs ≥1 evidence_id
     - every claim must reference a retrieved candidate id
-    - optional lexical support: claim tokens must overlap cited evidence text
-      (not a full NLI check — still better than ID-only fabrication=0)
+    - optional lexical support: claim tokens must overlap cited evidence text,
+      and graph evidence must be anchored on the entity it asserts
+      (not a full NLI check — see docs/BUSINESS_LOGIC.md BL-13)
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -108,41 +114,56 @@ def validate_answered_claims(
     return None
 
 
-_STOPWORDS = frozenset(
-    "a an the of to in on for and or is are was were be by with from as at".split()
-)
-
-
 def claims_lexically_supported(
     claims: list[Claim],
     evidence: list[Candidate],
     *,
-    min_overlap: int = 1,
+    min_overlap: int = DEFAULT_MIN_OVERLAP,
+    require_object_anchor: bool = True,
 ) -> bool:
-    """True if every claim shares ≥1 content token with at least one cited candidate."""
+    """True if every claim is lexically supported by ≥1 candidate it cites.
+
+    Tokenization is CJK-aware (BL-02) and graph evidence must be anchored on the
+    object it asserts (BL-13); both live in
+    :mod:`agentic_graphrag.generation.claim_support`.
+    """
     by_id = {c.id: c for c in evidence}
     for claim in claims:
-        claim_toks = _content_tokens(claim.text)
+        claim_toks = content_tokens(claim.text)
         if not claim_toks:
             continue
-        supported = False
-        for eid in claim.evidence_ids:
-            cand = by_id.get(eid)
-            if cand is None:
-                continue
-            ev_toks = _content_tokens(cand.content)
-            if len(claim_toks & ev_toks) >= min_overlap:
-                supported = True
-                break
-        if not supported:
+        if not _any_candidate_supports(
+            claim,
+            by_id,
+            min_overlap=min_overlap,
+            require_object_anchor=require_object_anchor,
+        ):
             return False
     return True
 
 
+def _any_candidate_supports(
+    claim: Claim,
+    by_id: dict[str, Candidate],
+    *,
+    min_overlap: int,
+    require_object_anchor: bool,
+) -> bool:
+    claim_toks = content_tokens(claim.text)
+    for eid in claim.evidence_ids:
+        cand = by_id.get(eid)
+        if cand is None:
+            continue
+        if claim_supported_by(
+            claim_toks,
+            cand,
+            min_overlap=min_overlap,
+            require_object_anchor=require_object_anchor,
+        ):
+            return True
+    return False
+
+
 def _content_tokens(text: str) -> set[str]:
-    toks = set()
-    for raw in (text or "").lower().replace("-", " ").split():
-        t = "".join(ch for ch in raw if ch.isalnum())
-        if len(t) >= 2 and t not in _STOPWORDS:
-            toks.add(t)
-    return toks
+    """Back-compat alias — tokenization now lives in ``claim_support``."""
+    return content_tokens(text)

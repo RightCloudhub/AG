@@ -90,6 +90,7 @@ def _summary(systems: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
         "agentic_latency_p95_ms": systems["agentic"]["latency_p95_ms"],
         "agentic_cost_tokens_mean": systems["agentic"]["cost_tokens_mean"],
         "fabrication_rate": systems["agentic"]["fabrication_rate"],
+        "unbound_claim_rate": systems["agentic"].get("unbound_claim_rate"),
     }
 
 
@@ -107,7 +108,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Agentic latency P50/P95 (ms): **{s.get('agentic_latency_p50_ms')}** / "
         f"**{s.get('agentic_latency_p95_ms')}**",
         f"- Agentic mean tokens: **{s.get('agentic_cost_tokens_mean')}**",
-        f"- Fabrication rate: **{s.get('fabrication_rate')}**",
+        f"- Fabrication rate: **{s.get('fabrication_rate')}** "
+        f"(unbound-claim rate: **{s.get('unbound_claim_rate')}**)",
         "",
         "## Systems",
         "",

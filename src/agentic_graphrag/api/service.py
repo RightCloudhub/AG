@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from collections.abc import Iterator
@@ -48,9 +49,24 @@ __all__ = [
     "_load_triples",
 ]
 
+logger = logging.getLogger(__name__)
+
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").lower() in {"1", "true", "yes"}
+
+
+def _load_seed_graph(graph: Any, triples: list[Any]) -> None:
+    """Load seed triples through the ingestion gate, logging any rejections."""
+    stats = load_triples_into_graph(graph, triples, clear_first=True)
+    rejected = int(stats.get("triples_rejected", 0))
+    if rejected:
+        logger.warning(
+            "seed graph: %s/%s triples rejected by the ingestion gate (%s)",
+            rejected,
+            stats.get("triples_input", len(triples)),
+            stats.get("rejection_reasons", {}),
+        )
 
 
 @dataclass
@@ -131,7 +147,9 @@ class QueryService:
 
         triples = _load_triples(resolve_path(seed_triples)) if load_seed else []
         if triples:
-            load_triples_into_graph(bundle.graph, triples, clear_first=True)
+            # Gated by default now (BL-07): seed triples go through the same
+            # schema + confidence gate as every other ingestion path.
+            _load_seed_graph(bundle.graph, triples)
         # Build per-tenant budget overrides from config (ENT-05).
         tenant_overrides: dict[str, BudgetLimits] = {}
         for tid, tcfg in cfg.tenants.items():

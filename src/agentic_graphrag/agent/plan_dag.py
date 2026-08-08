@@ -135,6 +135,23 @@ def ready_subquestions(
     return ready
 
 
+def cap_plan_breadth(
+    sub_questions: list[SubQuestion],
+    limit: int,
+) -> tuple[list[SubQuestion], list[SubQuestion]]:
+    """Split a plan into the nodes that fit the breadth budget and the overflow.
+
+    Planner output used to be unbounded: nodes past the hop budget never ran and
+    were never reported (docs/BUSINESS_LOGIC.md BL-12). ``normalize_plan`` topo-sorts
+    the list, so keeping the prefix keeps every kept node's dependencies (except when
+    the sort hit a cycle and fell back to input order — a plan already broken); the
+    overflow is returned so the caller can record what was dropped.
+    """
+    if limit <= 0 or len(sub_questions) <= limit:
+        return list(sub_questions), []
+    return list(sub_questions[:limit]), list(sub_questions[limit:])
+
+
 def materialize_subquestion(
     sq: SubQuestion,
     conclusions_by_id: dict[str, str],

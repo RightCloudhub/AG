@@ -26,6 +26,18 @@ class InMemoryGraphStore:
             self._relations[_key(relation.tenant_id, relation.id)] = relation
         return len(relations)
 
+    def delete_relation(self, relation_id: str) -> bool:
+        """Remove an edge by id across tenants; mirrors ``Neo4jGraphStore``.
+
+        Needed by the incremental updater: without it an auto-merged conflict
+        wrote the new edge while the superseded one stayed, leaving two
+        contradictory facts on the offline path (docs/BUSINESS_LOGIC.md BL-10).
+        """
+        keys = [k for k, rec in self._relations.items() if rec.id == relation_id]
+        for key in keys:
+            del self._relations[key]
+        return bool(keys)
+
     def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
         target = name.lower()
         for entity in self._entities.values():

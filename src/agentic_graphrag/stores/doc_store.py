@@ -11,6 +11,8 @@ from agentic_graphrag.stores.interfaces import DocumentRecord
 class InMemoryDocStore:
     """Process-local document store for tests and offline API smoke."""
 
+    durable = False
+
     def __init__(self) -> None:
         self._docs: dict[str, DocumentRecord] = {}
 
@@ -27,6 +29,10 @@ class InMemoryDocStore:
 
 
 class FileDocStore:
+    """JSON-per-document store; readable by any process sharing the directory."""
+
+    durable = True
+
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

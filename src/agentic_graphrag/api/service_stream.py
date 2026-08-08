@@ -34,6 +34,7 @@ from agentic_graphrag.api.service_telemetry import record_metrics as _record_met
 from agentic_graphrag.api.sse import EVENT_ANSWER, EVENT_ERROR
 from agentic_graphrag.generation.trace import ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
+from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.trace import get_tracer, span
 
 if TYPE_CHECKING:
@@ -192,7 +193,16 @@ def _finish_answer(
     chain = (
         payload if isinstance(payload, ReasoningChain) else ReasoningChain.model_validate(payload)
     )
-    _finalize_chain(chain, t0=t0, req=req, tenant_id=tenant_id, user_id=user_id)
+    # Streamed audit records used to carry an empty request_id while the
+    # non-streaming path set it (docs/BUSINESS_LOGIC.md BL-11).
+    _finalize_chain(
+        chain,
+        t0=t0,
+        req=req,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        request_id=request_id_var.get(),
+    )
     _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
     yield EVENT_ANSWER, chain.model_dump(mode="json")

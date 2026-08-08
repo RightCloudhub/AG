@@ -73,7 +73,7 @@ Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内�
 
 横切（ENT-01…08）：auth 中间件绑定日志 contextvars（request_id/query_id/tenant_id/user_id
 贯穿 JSON 日志）并 attach 入向 W3C traceparent；`tenant_id` 自 principal 透传 stores /
-三路检索 / agent loop（租户作用域绕过检索缓存）；安全事件（鉴权失败/限流/上传/复核决议）
+三路检索 / agent loop（检索缓存键含租户，不再绕过缓存）；安全事件（鉴权失败/限流/上传/复核决议）
 写 `observability/audit_events.py`；trace span 可选桥接 OTel（`otel_bridge.py`）。
 
 ## 4. API 面（实测自 `api/routes/`）
@@ -81,7 +81,7 @@ Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内�
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE） |
-| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单，ENT-06）与任务查询（`IngestTaskStore` 落盘，ENT-05） |
+| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单 md·txt，ENT-06）与任务查询（`IngestTaskStore` 落盘，ENT-05） |
 | `GET /v1/review-queue`（自租户） · `POST /v1/review-queue/{item_id}/decision`（operator+） | 人工复核 |
 | `GET /v1/audit/queries/{query_id}` | 审计链回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环（FR-OP-03） |

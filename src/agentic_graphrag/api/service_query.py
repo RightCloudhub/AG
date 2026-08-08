@@ -18,6 +18,7 @@ from agentic_graphrag.api.service_helpers import (
     cost_units_for_chain,
 )
 from agentic_graphrag.api.service_telemetry import record_metrics as _record_metrics
+from agentic_graphrag.api.service_telemetry import save_chain_audit
 from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
 from agentic_graphrag.observability.logging_setup import request_id_var
@@ -275,11 +276,7 @@ def _persist_and_commit(
     tenant_id: str,
     user_id: str,
 ) -> None:
-    if svc.audit_store is not None:
-        try:
-            svc.audit_store.save(chain)
-        except Exception:
-            pass
+    save_chain_audit(svc.audit_store, chain)
     if svc.enable_cache and svc.retrieval_cache is not None:
         _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     if svc.multi_budget:

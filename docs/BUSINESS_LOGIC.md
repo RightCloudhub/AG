@@ -413,3 +413,29 @@ stateDiagram-v2
 | — | BL-14 | 数据模型变更（schema + 抽取 + 打分），对静态语料无损害；**应在 BL-01 立项前决策**，否则入图通路建成后再补时间字段需回填全量图谱 |
 
 **与既有台账的关系：** 上述缺口在 [`IMPORTANT.md`](./IMPORTANT.md) 中均未以「业务逻辑断链」形式记录。若接受本文件结论，应将 BL-01 / BL-03 / BL-04 补入债务总账，并同步 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 中 ENT-05/06 的状态口径。
+
+---
+
+## 7. 修复落地状态（2026-07-27）
+
+> 状态口径与仓库约定一致：`[x]` 已完成、`[~]` 部分完成、`[ ]` 未开始、`[-]` 不做。
+> **全部为代码逻辑检查，未运行项目、未执行测试** —— 待执行的验证项见
+> [`IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md)。
+
+| 缺口 | 状态 | 落地内容 |
+|---|---|---|
+| BL-01 上传→图谱无通路 | `[ ]` | **未实施（需立项）**：属功能新建（抽取→消解→入图的运行期编排），且与 BL-14 的数据模型决策耦合，见 §6 |
+| BL-02 中文 claim 必然失败 | `[x]` | 新增 `generation/claim_support.py`：CJK 按**字符二元组**切词（一元过于常见、不具区分度）；`answer.py` 按 `validate_answered_claims` 的**具体失败原因**生成 repair 提示（`_REPAIR_HINTS`），重生成不再是确定性浪费 |
+| BL-03 复核决策无执行器 | `[ ]` | **未实施（需立项）**：需要「批准 → 写图 / 拒绝 → 归档」的执行器与幂等语义；本次仅补齐决策**本身**的正确性（终态保护、租户校验，见 BL-09/BL-11） |
+| BL-04 SSE 未传租户 | `[x]` | `loop_stream._initial_state` 补 `tenant_id`；`RetrievalCache.retrieval_key` 加入租户维度，`executor` 不再靠「绕过缓存」保隔离（隔离从**约定**变为**结构**） |
+| BL-05 worker 不消费队列 | `[x]` | `ingest_worker._build_cli_worker()` 注入 `IngestTaskStore`；doc store 非文件后端时显式告警（进程本地 = worker 看不到 API 上传的文档） |
+| BL-06 `extracting` 永久卡死 | `[x]` | 状态机允许 `EXTRACTING → QUEUED`；`IngestTaskStore.requeue_stale()`（默认 900s）由 `_run_task_batch` 每轮调用 |
+| BL-07 schema 门禁是可选参数 | `[x]` | `schema_check.default_schema()` / `default_confidence_threshold()`；`load_triples_into_graph` **默认开门禁**，`schema=None` 语义由「跳过」改为「用配置的 schema」，已自行 gate 的调用方传 `pre_gated=True` |
+| BL-08 上传校验可绕过 / PDF | `[x]` | 无扩展名不再短路；分片读取（256KB）即时超限中断；严格 UTF-8；**pdf 移出白名单**，返回「暂不支持」而非入库乱码 |
+| BL-09 越权与存在性泄漏 | `[x]` | `ReviewQueue.decide(tenant_id=…)` 跨租户 404；`/v1/feedback` 对「他租户」与「不存在」一律 404；`/v1/graph/entities` 加 RBAC 依赖 + 租户过滤 |
+| BL-10 静默吞异常 | `[x]` | 审计落库失败改为 `logger.error`（`service_telemetry.save_chain_audit`）；doc store 保存失败写入 `row["error"]`；全量 embed 失败使任务判 `failed`；`delete_relation` 失败告警 |
+| BL-11 空分支 / 计数不闭合 | `[x]` | 删除无生产者的 `ConflictAction.SKIP`；`BatchResult.conflicts_kept` 使计数守恒；`accepted` 取 store 实际 upsert 数；`_TASKS` 改为有界 `OrderedDict`；`persist_embeddings` → `persist_cache_stats`；`InMemoryGraphStore.delete_relation` 补齐，AUTO_UPDATE 不再留双事实 |
+| BL-12 广度/深度预算混同 | `[~]` | 新增 `guardrails.max_sub_questions`（默认 6）与 `plan_dag.cap_plan_breadth`；被丢弃/未执行的节点记入 `chain.metadata`（`agent/plan_coverage.py`）；护栏文案区分「breadth stop」与「depth stop」。**并发分支执行未做** —— 需要仓库尚不具备的并发编排，见 V-17 |
+| BL-13 门禁只到词面重叠 | `[~]` | 图证据增加**对象锚定**：neighbor 需命中 tail、path 需命中 ≥2 个节点；`fabrication_rate` 收紧为「与运行期门禁同口径」，历史口径另立 `unbound_claim_rate` 保持序列可比。**真 NLI 判定未做**（评测侧亦无法复现对象锚定：持久化目录只留 id/content） |
+| BL-14 图谱无时间维度 | `[ ]` | **未实施（需先决策）**：schema + 抽取 + 打分三处联动的数据模型变更，按 §6 应在 BL-01 立项前决策 |
+

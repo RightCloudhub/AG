@@ -7,6 +7,7 @@ P2-KG-03: confidence threshold is configurable and applied at the same gate.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +91,28 @@ def load_schema(path: str | Path) -> SchemaDefinition:
         relation_types=relation_types,
         raw=data,
     )
+
+
+@lru_cache(maxsize=1)
+def default_schema() -> SchemaDefinition:
+    """The configured domain schema (``knowledge.schema_path``), loaded once.
+
+    Exists so the P2-KG-02 invariant — non-conforming triples never enter the
+    graph — holds by default instead of only when a caller remembers to pass
+    ``schema=`` (docs/BUSINESS_LOGIC.md BL-07). Deliberately raises when the
+    file is missing: an ingestion path that cannot validate must fail loudly,
+    not silently degrade into "no gate".
+    """
+    from agentic_graphrag.config import get_config, resolve_path
+
+    return load_schema(resolve_path(get_config().knowledge.schema_path))
+
+
+def default_confidence_threshold() -> float:
+    """Configured extraction confidence floor (``knowledge.extract_confidence_threshold``)."""
+    from agentic_graphrag.config import get_config
+
+    return float(get_config().knowledge.extract_confidence_threshold)
 
 
 def _as_type_set(value: Any) -> set[str]:

@@ -150,7 +150,9 @@ def _write_graph(
         allow_memory_fallback=args.no_llm,
     )
     try:
-        stats = load_triples_into_graph(store, triples, clear_first=not args.no_clear)
+        stats = load_triples_into_graph(
+            store, triples, clear_first=not args.no_clear, pre_gated=True
+        )
         stats["backend"] = backend
         stats["gate_rejected"] = gate_rejected
         print(json.dumps(stats, indent=2), flush=True)

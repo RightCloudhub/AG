@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -12,14 +13,36 @@ from pydantic import BaseModel, Field
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.knowledge_graph_browse import (
+    DEFAULT_ENTITY_PAGE,
+    MAX_ENTITY_PAGE,
+    entity_page,
+)
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.service import QueryService
-from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewType
+from agentic_graphrag.knowledge.review.queue import (
+    ReviewAlreadyDecided,
+    ReviewDecision,
+    ReviewType,
+)
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
 # In-process compatibility index; durable state uses QueryService.ingest_tasks.
-_TASKS: dict[str, dict[str, Any]] = {}
+# Bounded: it is a fallback cache, not the source of truth, so old rows are
+# evicted rather than accumulating for the process lifetime (BL-11).
+_TASKS: OrderedDict[str, dict[str, Any]] = OrderedDict()
+MAX_CACHED_TASKS = 500
+# Placeholder confidence for upload spot-checks until a real sampling policy
+# exists — named so it reads as a policy value, not a magic number (BL-11).
+UPLOAD_SPOTCHECK_CONFIDENCE = 0.5
+
+
+def _remember_task(task_id: str, row: dict[str, Any]) -> None:
+    _TASKS[task_id] = row
+    _TASKS.move_to_end(task_id)
+    while len(_TASKS) > MAX_CACHED_TASKS:
+        _TASKS.popitem(last=False)
 
 
 class DocUploadMeta(BaseModel):
@@ -60,12 +83,12 @@ async def upload_docs(
     row = task_row(task_id, tenant_id, saved)
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
-    _TASKS[task_id] = row
+    _remember_task(task_id, row)
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
             {"task_id": task_id, "doc_count": len(saved)},
-            confidence=0.5,
+            confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
             batch_id=task_id,
             tenant_id=tenant_id,
         )
@@ -137,14 +160,28 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     svc = _service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
+    tenant_id, _user_id = _principal(request)
     try:
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
     try:
-        item = svc.review_queue.decide(item_id, dec, reviewer=body.reviewer, note=body.note)
+        item = svc.review_queue.decide(
+            item_id,
+            dec,
+            reviewer=body.reviewer,
+            note=body.note,
+            tenant_id=tenant_id,
+        )
     except KeyError as exc:
+        # Same 404 for unknown and cross-tenant ids — no existence probe (BL-09).
         raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    except ReviewAlreadyDecided as exc:
+        raise ApiError(
+            INVALID_INPUT,
+            f"Review item already decided: {exc.item.status}",
+            status_code=409,
+        ) from exc
     emit_audit(
         request,
         {
@@ -184,10 +221,12 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
     """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
     svc = _service(request)
     tenant_id, user_id = _principal(request)
-    if svc.audit_store is not None:
-        row = svc.audit_store.get_for_tenant(body.query_id, tenant_id)
-        if row is None and svc.audit_store.get(body.query_id) is not None:
-            raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
+    audit = svc.audit_store
+    if audit is not None and audit.get_for_tenant(body.query_id, tenant_id) is None:
+        # 404 whether the id belongs to another tenant or does not exist at all.
+        # Answering 404 only for the cross-tenant case made this an existence
+        # probe (docs/BUSINESS_LOGIC.md BL-09).
+        raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
     result = svc.submit_feedback(
         body.query_id,
         accurate=body.accurate,
@@ -205,20 +244,26 @@ def get_metrics_summary() -> dict:
     return ok(get_metrics().summary())
 
 
-@router.get("/graph/entities")
+@router.get(
+    "/graph/entities",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR, Role.READER))],
+)
 def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> dict:
     """Minimal graph browse API scaffold (P5-CAP-01).
 
     Supports stores that expose ``list_entities`` (InMemoryGraphStore) or a
-    public/private entity map (``entities`` / ``_entities``).
+    public/private entity map (``entities`` / ``_entities``). Tenant-scoped:
+    the store already accepts ``tenant_id`` — this route simply never passed it
+    (docs/BUSINESS_LOGIC.md BL-09). ``meta.total`` counts the tenant's rows, not
+    the whole graph, and is marked as a floor when the scan cap is reached.
     """
     svc = _service(request)
     store = svc.bundle.graph
-    lim = max(0, min(int(limit or 50), 500))
+    tenant_id, _user_id = _principal(request)
+    lim = max(0, min(int(limit or DEFAULT_ENTITY_PAGE), MAX_ENTITY_PAGE))
     off = max(0, int(offset or 0))
 
-    records = _list_entity_records(store, limit=lim, offset=off)
-    total = _entity_total(store, fallback=len(records) if off == 0 else None)
+    page = entity_page(store, limit=lim, offset=off, tenant_id=tenant_id)
     rows = [
         {
             "id": e.id,
@@ -226,48 +271,12 @@ def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> d
             "type": e.type,
             "aliases": list(getattr(e, "aliases", None) or []),
         }
-        for e in records
+        for e in page.records
     ]
-    return ok(rows, meta=MetaBody(total=total, limit=lim, page=(off // lim + 1) if lim else 1))
-
-
-def _list_entity_records(store: object, *, limit: int, offset: int) -> list:
-    """Resolve entity list from GraphStore implementations without Protocol change."""
-    lister = getattr(store, "list_entities", None)
-    if callable(lister):
-        try:
-            return list(lister(limit=limit, offset=offset))
-        except TypeError:
-            # Older signature without offset
-            items = list(lister(limit=limit))
-            return items[offset : offset + limit]
-
-    for attr in ("entities", "_entities"):
-        entities = getattr(store, attr, None)
-        if isinstance(entities, dict):
-            items = list(entities.values())
-            items.sort(key=lambda e: (getattr(e, "type", ""), getattr(e, "name", "").lower()))
-            return items[offset : offset + limit]
-        if isinstance(entities, list):
-            return list(entities)[offset : offset + limit]
-    return []
-
-
-def _entity_total(store: object, *, fallback: int | None) -> int:
-    counts = _safe_counts(store)
-    for key in ("entities", "entity_count", "nodes", "node_count"):
-        if key not in counts:
-            continue
-        try:
-            return int(counts[key])
-        except (TypeError, ValueError):
-            continue
-    return int(fallback) if fallback is not None else 0
-
-
-def _safe_counts(store: object) -> dict:
-    try:
-        counts = store.counts()  # type: ignore[attr-defined]
-    except Exception:
-        return {}
-    return counts if isinstance(counts, dict) else {}
+    meta = MetaBody(
+        total=page.total,
+        limit=lim,
+        page=(off // lim + 1) if lim else 1,
+        extra={"total_is_floor": True} if page.total_is_floor else {},
+    )
+    return ok(rows, meta=meta)

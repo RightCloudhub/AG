@@ -11,9 +11,16 @@ from agentic_graphrag.knowledge.schema_check import (
     SchemaDefinition,
     Triple,
     ValidationResult,
+    default_confidence_threshold,
+    default_schema,
     gate_triples,
 )
 from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
+
+
+def _resolved_threshold(value: float | None) -> float:
+    """``None`` means "use the configured floor", never "accept everything"."""
+    return default_confidence_threshold() if value is None else float(value)
 
 
 def _entity_id(name: str, etype: str) -> str:
@@ -79,22 +86,26 @@ def load_triples_into_graph(
     schema: SchemaDefinition | None = None,
     confidence_threshold: float | None = None,
     reject_log_path: str | Path | None = None,
+    pre_gated: bool = False,
 ) -> dict[str, Any]:
-    """Upsert triples into ``store``.
+    """Upsert triples into ``store``, applying the P2-KG-02/03 ingestion gate.
 
-    When ``schema`` is provided, applies the P2-KG-02/03 ingestion gate
-    (schema + optional confidence threshold) and never writes rejected
-    triples. Rejections are optionally appended to ``reject_log_path``.
+    The gate runs by default: ``schema=None`` means "use the configured domain
+    schema", not "skip validation" — the latter reading turned the documented
+    invariant into an opt-in (docs/BUSINESS_LOGIC.md BL-07). Callers that
+    already gated pass ``pre_gated=True`` so rejections are not counted twice.
     """
-    gate: ValidationResult | None = None
-    accepted = triples
-    if schema is not None:
-        thr = 0.0 if confidence_threshold is None else float(confidence_threshold)
-        gate = gate_triples(triples, schema, confidence_threshold=thr)
-        accepted = gate.accepted
-        if reject_log_path is not None and gate.rejected:
-            _append_reject_log(reject_log_path, gate)
-
+    gate = (
+        None
+        if pre_gated
+        else _run_gate(
+            triples,
+            schema,
+            confidence_threshold=confidence_threshold,
+            reject_log_path=reject_log_path,
+        )
+    )
+    accepted = triples if gate is None else gate.accepted
     entities, relations = triples_to_records(accepted)
     if clear_first:
         store.clear()
@@ -113,6 +124,24 @@ def load_triples_into_graph(
     if gate is not None:
         stats["rejection_reasons"] = gate.rejection_reasons
     return stats
+
+
+def _run_gate(
+    triples: list[Triple],
+    schema: SchemaDefinition | None,
+    *,
+    confidence_threshold: float | None,
+    reject_log_path: str | Path | None,
+) -> ValidationResult:
+    """Schema + confidence gate; ``None`` inputs resolve to configured defaults."""
+    gate = gate_triples(
+        triples,
+        schema if schema is not None else default_schema(),
+        confidence_threshold=_resolved_threshold(confidence_threshold),
+    )
+    if reject_log_path is not None and gate.rejected:
+        _append_reject_log(reject_log_path, gate)
+    return gate
 
 
 def _append_reject_log(path: str | Path, result: ValidationResult) -> None:

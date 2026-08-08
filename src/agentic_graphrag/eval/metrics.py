@@ -17,6 +17,7 @@ from agentic_graphrag.eval.metrics_evidence import (
     fabrication_rate,
     gold_evidence_items,
     predicted_evidence_blob,
+    unbound_claim_rate,
 )
 from agentic_graphrag.eval.scoring import score_pair
 
@@ -37,6 +38,7 @@ __all__ = [
     "percentile",
     "predicted_evidence_blob",
     "score_system_rows",
+    "unbound_claim_rate",
 ]
 
 
@@ -97,6 +99,7 @@ class SystemMetrics:
     cost_llm_calls_total: int = 0
     cost_llm_calls_mean: float = 0.0
     fabrication_rate: float = 0.0
+    unbound_claim_rate: float = 0.0
     by_hops: dict[str, dict[str, Any]] = field(default_factory=dict)
     cases: list[dict[str, Any]] = field(default_factory=list)
 
@@ -119,6 +122,7 @@ class SystemMetrics:
             "cost_llm_calls_total": self.cost_llm_calls_total,
             "cost_llm_calls_mean": round(self.cost_llm_calls_mean, 2),
             "fabrication_rate": round(self.fabrication_rate, 4),
+            "unbound_claim_rate": round(self.unbound_claim_rate, 4),
             "by_hops": self.by_hops,
             "cases": self.cases,
         }
@@ -220,6 +224,7 @@ def _finalize_metrics(
     metrics.evidence_recall = statistics.fmean(acc.recalls) if acc.recalls else None
     metrics.evidence_recall_n = len(acc.recalls)
     metrics.fabrication_rate = fabrication_rate(rows)
+    metrics.unbound_claim_rate = unbound_claim_rate(rows)
     metrics.by_hops = {
         h: {
             "total": v["total"],

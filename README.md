@@ -159,7 +159,7 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE 真·增量，流中可中止） |
-| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt/pdf）与任务查询 |
+| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt；pdf 暂不支持）与任务查询 |
 | `GET /v1/audit/queries/{query_id}` | 推理链审计回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环 → 不准确项入复核队列 |
 | `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision`（operator） | 人工复核（列表自租户） |

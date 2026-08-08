@@ -31,6 +31,7 @@ from agentic_graphrag.agent.loop_stream_events import (
     EVENT_THINKING,
     EVENT_TRIAGE,
     events_for_node,
+    fast_path_step_events,
 )
 from agentic_graphrag.agent.options import AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.triage import Route, TriageResult, triage
@@ -49,6 +50,7 @@ __all__ = [
 ]
 
 _STREAM_MODES = ["updates", "values"]
+DEFAULT_ESTIMATED_HOPS = 2
 
 
 class AgentStreamEmptyError(RuntimeError):
@@ -103,9 +105,9 @@ def iter_query_progress(
 
 
 def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
-    # Contract stability: clients always see a triage frame first.
-    if ctx.opts.force_agentic:
-        yield EVENT_TRIAGE, _force_agentic_triage().model_dump(mode="json")
+    # Contract stability: clients always see a triage frame first — including
+    # when triage is disabled, which previously emitted no frame at all (BL-11).
+    yield EVENT_TRIAGE, _entry_triage(force_agentic=ctx.opts.force_agentic).model_dump(mode="json")
     for etype, payload in _iter_agentic(ctx):
         if etype == EVENT_FINAL_CHAIN and ctx.opts.force_agentic:
             chain: ReasoningChain = payload
@@ -115,13 +117,14 @@ def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
             yield etype, payload
 
 
-def _force_agentic_triage() -> TriageResult:
+def _entry_triage(*, force_agentic: bool) -> TriageResult:
+    rule = "force_agentic" if force_agentic else "triage_disabled"
     return TriageResult(
         route=Route.AGENTIC,
-        rationale="force_agentic",
-        estimated_hops=2,
+        rationale=rule,
+        estimated_hops=DEFAULT_ESTIMATED_HOPS,
         confidence=1.0,
-        rule_hit="force_agentic",
+        rule_hit=rule,
     )
 
 
@@ -183,27 +186,7 @@ def _iter_fast_or_escalate(
 
 
 def _emit_steps_then_chain(chain: ReasoningChain) -> Iterator[tuple[str, Any]]:
-    if chain.steps:
-        yield (
-            EVENT_THINKING,
-            {
-                "stage": "plan",
-                "text": f"Fast Path：处理 {len(chain.steps)} 个步骤",
-                "detail": "\n".join(
-                    f"{i}. {s.sub_question}" for i, s in enumerate(chain.steps, 1) if s.sub_question
-                ),
-            },
-        )
-    for step in chain.steps:
-        yield EVENT_SUB_QUESTION, {"hop": step.hop, "sub_question": step.sub_question}
-        yield (
-            EVENT_HOP_DONE,
-            {
-                "hop": step.hop,
-                "conclusion": step.conclusion,
-                "critic_action": step.critic_action,
-            },
-        )
+    yield from fast_path_step_events(list(chain.steps))
     yield EVENT_FINAL_CHAIN, chain
 
 
@@ -220,7 +203,9 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
         ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
     )
     t0 = time.perf_counter()
-    initial = _initial_state(ctx.question, chain, opts.allow_llm)
+    initial = _initial_state(
+        ctx.question, chain, allow_llm=opts.allow_llm, tenant_id=opts.tenant_id or ""
+    )
     config = invoke_config(tid, recursion_limit=rec_limit)
     try:
         final_state = yield from _stream_graph_updates(graph, initial, config)
@@ -245,7 +230,18 @@ def _iter_agentic(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
     yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
 
 
-def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dict[str, Any]:
+def _initial_state(
+    question: str,
+    chain: ReasoningChain,
+    *,
+    allow_llm: bool,
+    tenant_id: str = "",
+) -> dict[str, Any]:
+    """Mirror of ``loop_recover._initial_state`` — ``tenant_id`` MUST be included.
+
+    Omitting it made streamed agentic runs retrieve with ``tenant_id=None``,
+    which the stores treat as "no filter" (fail-open) → cross-tenant leak (BL-04).
+    """
     return {
         "question": question,
         "chain": chain.model_dump(),
@@ -255,6 +251,7 @@ def _initial_state(question: str, chain: ReasoningChain, allow_llm: bool) -> dic
         "evidence": [],
         "done": False,
         "allow_llm": allow_llm,
+        "tenant_id": tenant_id,
     }
 
 

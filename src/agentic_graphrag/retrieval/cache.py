@@ -130,9 +130,17 @@ class RetrievalCache:
         self.embeddings = MemoryCache(max_entries=50_000)
         self.cache_dir = Path(cache_dir) if cache_dir else None
 
-    def retrieval_key(self, query: str, tools: str = "") -> str:
+    def retrieval_key(self, query: str, tools: str = "", *, tenant_id: str | None = None) -> str:
+        """Tenant-scoped key — a tenant-scoped run must never read another's hits.
+
+        Before ENT-06 hardening the key omitted the tenant and isolation relied
+        on tenant-scoped runs *bypassing* the cache, which silently disabled
+        P3-PERF-04 for every authenticated query. Scoping the key restores the
+        cache and makes isolation structural (BL-04).
+        """
         v = self.index_version.current()
-        return f"ret:v{v}:{content_hash(normalize_query_key(query) + '|' + tools)}"
+        scope = f"{tenant_id or _DEFAULT_TENANT}|{normalize_query_key(query)}|{tools}"
+        return f"ret:v{v}:{content_hash(scope)}"
 
     def answer_key(
         self,
@@ -155,15 +163,24 @@ class RetrievalCache:
     def embedding_key(self, text: str) -> str:
         return f"emb:{content_hash(text)}"
 
-    def get_retrieval(self, query: str, tools: str = "") -> list[Candidate] | None:
-        raw = self.retrieval.get(self.retrieval_key(query, tools))
+    def get_retrieval(
+        self, query: str, tools: str = "", *, tenant_id: str | None = None
+    ) -> list[Candidate] | None:
+        raw = self.retrieval.get(self.retrieval_key(query, tools, tenant_id=tenant_id))
         if raw is None:
             return None
         return [Candidate.model_validate(c) for c in raw]
 
-    def set_retrieval(self, query: str, candidates: list[Candidate], tools: str = "") -> None:
+    def set_retrieval(
+        self,
+        query: str,
+        candidates: list[Candidate],
+        tools: str = "",
+        *,
+        tenant_id: str | None = None,
+    ) -> None:
         payload = [c.model_dump(mode="json") for c in candidates]
-        self.retrieval.set(self.retrieval_key(query, tools), payload)
+        self.retrieval.set(self.retrieval_key(query, tools, tenant_id=tenant_id), payload)
 
     def get_answer(
         self,
@@ -224,10 +241,20 @@ class RetrievalCache:
         self.answers.clear()
         return v
 
-    def persist_embeddings(self) -> None:
+    def persist_cache_stats(self) -> None:
+        """Write hit/miss/size counters for ops inspection.
+
+        Renamed from ``persist_embeddings``: it never wrote embedding vectors,
+        only these counters, and had no read-back path (BL-11).
+        """
         if not self.cache_dir:
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        path = self.cache_dir / "embeddings.json"
-        stats = self.embeddings.stats()
+        path = self.cache_dir / "cache_stats.json"
+        stats = {
+            "embeddings": self.embeddings.stats(),
+            "retrieval": self.retrieval.stats(),
+            "answers": self.answers.stats(),
+            "index_version": self.index_version.current(),
+        }
         path.write_text(json.dumps(stats), encoding="utf-8")

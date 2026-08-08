@@ -21,7 +21,9 @@ MAX_SUBGRAPH_SEEDS = 3
 MAX_PARALLEL_WORKERS = 8
 HIT_ID_PREVIEW = 20
 
-ToolHandler = Callable[["Executor", dict[str, Any], str, "str | None"], list[Candidate]]
+# Handlers take (executor, args, sub_question) positionally and ``tenant_id``
+# keyword-only; ``Callable`` cannot express keyword-only params, so keep it loose.
+ToolHandler = Callable[..., list[Candidate]]
 
 
 def dispatch(
@@ -35,7 +37,8 @@ def dispatch(
     handler = TOOL_HANDLERS.get(tool)
     if handler is None:
         return []
-    return handler(executor, args, sub_question, tenant_id)
+    # tenant_id MUST be passed by keyword — handlers declare it keyword-only.
+    return handler(executor, args, sub_question, tenant_id=tenant_id)
 
 
 def run_tool_specs(
@@ -56,7 +59,7 @@ def fuse_and_cache(
     sub_question: str,
     *,
     tools_key: str,
-    cache_result: bool = True,
+    tenant_id: str | None = None,
 ) -> list[Candidate]:
     fused = fuse_candidates(
         *evidence,
@@ -66,8 +69,8 @@ def fuse_and_cache(
         limit=executor.fusion_limit,
         reranker=executor.reranker,
     )
-    if executor.cache is not None and cache_result:
-        executor.cache.set_retrieval(sub_question, fused, tools_key)
+    if executor.cache is not None:
+        executor.cache.set_retrieval(sub_question, fused, tools_key, tenant_id=tenant_id)
     return fused
 
 

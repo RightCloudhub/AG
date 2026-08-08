@@ -34,6 +34,37 @@ def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str
         )
 
 
+def fast_path_step_events(steps: list[Any]) -> Iterator[tuple[str, Any]]:
+    """Replay a finished Fast Path chain's steps as progress events.
+
+    Fast Path runs to completion before yielding, so unlike the agentic graph
+    there is nothing to stream incrementally — the steps are replayed so that
+    clients see the same ``thinking``/``sub_question``/``hop_done`` sequence.
+    """
+    if not steps:
+        return
+    yield (
+        EVENT_THINKING,
+        {
+            "stage": "plan",
+            "text": f"Fast Path：处理 {len(steps)} 个步骤",
+            "detail": "\n".join(
+                f"{i}. {s.sub_question}" for i, s in enumerate(steps, 1) if s.sub_question
+            ),
+        },
+    )
+    for step in steps:
+        yield EVENT_SUB_QUESTION, {"hop": step.hop, "sub_question": step.sub_question}
+        yield (
+            EVENT_HOP_DONE,
+            {
+                "hop": step.hop,
+                "conclusion": step.conclusion,
+                "critic_action": step.critic_action,
+            },
+        )
+
+
 def last_step(chain_data: Any) -> dict[str, Any] | None:
     if not isinstance(chain_data, dict):
         return None
