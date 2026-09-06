@@ -81,7 +81,8 @@ Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内�
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE） |
-| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单 md·txt，ENT-06）与任务查询（`IngestTaskStore` 落盘，ENT-05） |
+| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks`（列表，operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单 md·txt，ENT-06）与任务列表 / 查询（`IngestTaskStore` 落盘，ENT-05；列表为 P5-UI-02 M0） |
+| `GET /v1/me` | 身份回显 `{tenant_id, user_id, role}`（匿名 = reader；控制台按角色显隐导航，P5-UI-02 M0） |
 | `GET /v1/review-queue`（自租户） · `POST /v1/review-queue/{item_id}/decision`（operator+） | 人工复核 |
 | `GET /v1/audit/queries/{query_id}` | 审计链回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环（FR-OP-03） |

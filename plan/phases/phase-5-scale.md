@@ -31,7 +31,7 @@
 
 ### 2b. 前端框架化（rules.md §8 预留的阶段五事项）
 - [x] `P5-UI-01` 试用 Web 前端框架化 — Vue 3 零构建重构 + 交互增强；ADR-006 已入 tech-stack；执行计划：[p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)
-- [ ] `P5-UI-02` 前端重规划：问答 → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图；M0 API 前置 `GET /v1/me` + `GET /v1/ingest-tasks` 列表；零构建边界不变，无需新 ADR）— 执行计划：[p5-ui-02-console-replan.md](./p5-ui-02-console-replan.md)
+- [x] `P5-UI-02` 前端重规划：问答 → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图；M0 API 前置 `GET /v1/me` + `GET /v1/ingest-tasks` 列表；零构建边界不变，无需新 ADR）— **2026-09-07 交付**（M2b 视觉体系 U-14/U-15 未做）— 执行计划：[p5-ui-02-console-replan.md](./p5-ui-02-console-replan.md)
 
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表

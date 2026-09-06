@@ -19,7 +19,7 @@ plan/
 │   ├── phase-4-pilot.md          # 阶段四：试点上线（2-3周）
 │   ├── phase-5-scale.md          # 阶段五：规模化推广（持续）
 │   ├── p5-ui-01-vue-refactor.md  # P5-UI-01：Vue 3 零构建前端重构（[x] 已完成）
-│   └── p5-ui-02-console-replan.md # P5-UI-02：角色工作台控制台重规划（[~] 规划定稿，待评审后实施）
+│   └── p5-ui-02-console-replan.md # P5-UI-02：角色工作台控制台重规划（[x] 已实施 2026-09-07，M2b 视觉未做）
 ├── workstreams/                  # 按工作流的技术方案与任务分解（怎么做）
 │   ├── knowledge-graph.md        # 图谱构建：抽取、消歧、增量更新
 │   ├── retrieval.md              # 混合检索：向量/图/全文 + 融合排序

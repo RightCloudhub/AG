@@ -436,6 +436,6 @@ stateDiagram-v2
 | BL-10 静默吞异常 | `[x]` | 审计落库失败改为 `logger.error`（`service_telemetry.save_chain_audit`）；doc store 保存失败写入 `row["error"]`；全量 embed 失败使任务判 `failed`；`delete_relation` 失败告警 |
 | BL-11 空分支 / 计数不闭合 | `[x]` | 删除无生产者的 `ConflictAction.SKIP`；`BatchResult.conflicts_kept` 使计数守恒；`accepted` 取 store 实际 upsert 数；`_TASKS` 改为有界 `OrderedDict`；`persist_embeddings` → `persist_cache_stats`；`InMemoryGraphStore.delete_relation` 补齐，AUTO_UPDATE 不再留双事实 |
 | BL-12 广度/深度预算混同 | `[~]` | 新增 `guardrails.max_sub_questions`（默认 6）与 `plan_dag.cap_plan_breadth`；被丢弃/未执行的节点记入 `chain.metadata`（`agent/plan_coverage.py`）；护栏文案区分「breadth stop」与「depth stop」。**并发分支执行未做** —— 需要仓库尚不具备的并发编排，见 V-17 |
-| BL-13 门禁只到词面重叠 | `[~]` | 图证据增加**对象锚定**：neighbor 需命中 tail、path 需命中 ≥2 个节点；`fabrication_rate` 收紧为「与运行期门禁同口径」，历史口径另立 `unbound_claim_rate` 保持序列可比。**真 NLI 判定未做**（评测侧亦无法复现对象锚定：持久化目录只留 id/content） |
+| BL-13 门禁只到词面重叠 | `[~]` | 图证据增加**对象锚定**：neighbor 需命中 tail、path 需命中 ≥2 个节点；`fabrication_rate` 收紧为「与运行期门禁同口径」，历史口径另立 `unbound_claim_rate` 保持序列可比。**真 NLI 判定未做**。评测侧镜像已落地（2026-09-07，D2）：证据目录持久化 `structured` refs，`metrics_evidence` 按 `claim_supported_by` 复算运行期同款对象锚定 |
 | BL-14 图谱无时间维度 | `[x]` | **已实施（2026-09-06，ADR-007）**：`Triple`/`RelationRecord` 增 `valid_from`/`valid_to`，`rid` 聚合键含时间窗（同事实不同区间可并存）；冲突裁决**时间优先**（新窗口事实胜出，置信度仅在同窗内比较）；抽取提示词带时间抽取指令。语料侧：`scripts/generate_temporal_corpus.py`（41 时间窗冲突演练 PASS，`reports/temporal_corpus/bl14_drill.json`）。测试：`tests/unit/test_bl14_temporal_conflicts.py` |
 

@@ -72,7 +72,7 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
 - 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 重规划规划态）
+## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 控制台已交付 2026-09-07，M2b 视觉除外）
 
 **定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
 
@@ -84,11 +84,11 @@
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
 | 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
-| 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
-| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
+| 模块 | `app.js`（boot）· `js/root.js`（壳：身份区 + 导航 + 视图分发）· `js/router.js` · `js/views/{registry,chat,knowledge,review,ops,graph}.js` · `js/api.js` · `js/api-console.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn,console-widgets}.js` |
+| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）· `console.css`（控制台组件/视图）；各 ≤300 行 |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
 | SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
-| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200） |
+| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（问答回归：文件全集、钉版、注入安全、静态资源 200）· `tests/unit/test_web_console.py`（控制台：文件清单/行数预算、注入安全、角色-视图映射、请求形状、静态挂载） |
 
 ### 2.2 页面结构与功能（实现）
 
@@ -127,7 +127,7 @@
 
 ### 2.6 验证清单
 
-工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
+工程冒烟（CI）：`tests/unit/test_web_claude_ui.py` + `tests/unit/test_web_console.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7、[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md) §8。
 
 - [x] `GET /web` 与 `/web/static/*` 挂载存在；文件全集与钉版断言
 - [x] 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）

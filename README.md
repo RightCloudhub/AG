@@ -159,7 +159,8 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE 真·增量，流中可中止） |
-| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt；pdf 暂不支持）与任务查询 |
+| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks`（列表） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt；pdf 暂不支持）与任务列表 / 查询 |
+| `GET /v1/me` | 身份回显 tenant / user / role（匿名视作 reader；控制台按角色显隐导航，P5-UI-02） |
 | `GET /v1/audit/queries/{query_id}` | 推理链审计回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环 → 不准确项入复核队列 |
 | `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision`（operator） | 人工复核（列表自租户） |
@@ -179,6 +180,7 @@ python -m agentic_graphrag run-baseline --no-llm   # 纯向量 RAG 基线对照
 python -m agentic_graphrag badcase            # 坏例归因
 ./scripts/g1_to_g2_gate.sh                    # G1→G2 门禁汇总（--with-llm 含 live）
 ./scripts/g2_formal_eval.sh --with-llm        # G2 正式评测（live）
+PYTHONPATH=src .venv/bin/python scripts/p3_ablations.py   # −graph / −fusion 离线消融（D9；−critic 仅 live）
 PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20   # HTTP 压测（P95）
 ```
 

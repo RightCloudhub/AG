@@ -29,7 +29,7 @@
 | 阶段二 MVP 代码 | **P0 代码 + 金标 ≥200 + dev offline 评测** 已齐；**正式 G2 效果**仍 Conditional |
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
-| Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
+| Heldout（合成合并语料） | 离线 **agentic 85.11% vs baseline 12.77%** / 证据 recall **0.9021**（2026-09-06 金标重生成，`reports/g2_heldout/eval_comparison.md`）；live LLM 重跑仍开（历史 live P95 ~92s 未达 AC-4） |
 | 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
@@ -155,7 +155,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
-| **P5-UI-02** | **⚪ 规划完成（2026-08-08），未实施** — 前端重规划：角色感知控制台（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）；M0 API 前置：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md) |
+| **P5-UI-02** | **[x] 代码交付（2026-09-07）** — 角色感知控制台：五视图（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）+ 身份区 hash 路由壳；M0 API：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；**M2b 视觉体系（U-14/U-15，tokens.css 未抽出）未做**；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
@@ -183,7 +183,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|----------|------|
 | `POST /v1/query` | 已有 + 鉴权/限流/SSE + RBAC 三角色（ENT-04）；答案缓存按 tenant/user/params；审计按 tenant 隔离；**数据级** tenant_id 已贯穿 stores/检索/agent（ENT-06；检索缓存键含租户，不再绕过缓存 —— BL-04） | 真实 Neo4j/Qdrant 跨租户回归 + 物理分库（P4-REL-01 运维侧） |
 | 推理链 | Schema + 响应内 chain + audit store API + evidence 正文目录 | 生产抽样审计（P4-AC-02） |
-| 引用/Recall | 门禁含词法支撑 + **图证据对象锚定**（neighbor 命中 tail / path 命中 ≥2 节点，BL-13）；Recall 不含 prediction 文本；`fabrication_rate` 已与运行期门禁同口径，历史口径保留为 `unbound_claim_rate` | 真 NLI 支撑判定；评测侧无法复现对象锚定（持久化目录只留 id/content）；live heldout 重跑 |
+| 引用/Recall | 门禁含词法支撑 + **图证据对象锚定**（neighbor 命中 tail / path 命中 ≥2 节点，BL-13）；Recall 不含 prediction 文本；`fabrication_rate` 已与运行期门禁同口径，历史口径保留为 `unbound_claim_rate` | 真 NLI 支撑判定（评测侧镜像已落地，2026-09-07 D2：目录持久化 `structured` refs + `metrics_evidence` 按 `claim_supported_by` 复算）；live heldout 重跑 |
 | 3-hop 效果 | 计划动态 SQ 不再跳过后续节点 | **须重跑 heldout**；历史 g2_dev 3-hop 2.44% 不可作门禁证据 |
 | CI | unit + coverage≥80%；omit 仍有 live 适配器 | integration/Neo4j/Qdrant job；勿用 omit 路径冒充覆盖 |
 
@@ -203,18 +203,16 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | ZH 问 EN 答 | `rules_ma` format helpers | 中文多跳问句答案仍是英文专名串；parity 是事实级非语言级（单测期望如此） | 需要产品化 i18n 时再做语言对齐 |
 | agent 层 CJK/前缀消歧 | `entity_stopwords` / `entity_mentions` | 共享 live 路径；已收紧（禁单字「何」姓误杀；前缀扩展须唯一） | 真域实体消歧 UI / 更强 NER 在阶段三+ |
 
-### 业务逻辑断链（BL-01…14，2026-07-27）
+### 业务逻辑断链（BL-01…14，2026-07-27 审计；2026-09-06/07 收口）
 
-来源：[`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已在同一变更集中修复，
-以下为**仍然挂账**的部分：
+来源：[`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已随首轮变更集修复；
+**BL-01 / BL-03 / BL-14 已于 2026-09-06 关闭**（运行期入图通路 `knowledge/graph_ingest.py` + worker、
+`ReviewExecutor` 复核执行器、ADR-007 时间维度——见 §0 与 BUSINESS_LOGIC §7），以下为**仍然挂账**的部分：
 
 | # | 状态 | 挂账原因 | 解挂需要 |
 |---|------|----------|----------|
-| BL-01 上传 → 知识图谱无运行期通路 | `[ ]` | 属功能新建而非缺陷修复：需要「抽取 → 消解 → 冲突 → 入图」的运行期编排与幂等/回滚语义；且入图前须先定 BL-14 的时间维度，否则建成后要回填全量图谱 | 立项 + ADR；先决 BL-14 |
-| BL-03 人工复核决策无执行器 | `[ ]` | 决策只改队列状态，不产生图谱副作用。本次仅补齐决策自身的正确性（终态保护 409、租户校验 404） | 与 BL-01 同批立项（共用写图通路） |
 | BL-12 DAG 并发执行 | `[~]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
-| BL-13 真 NLI 支撑判定 | `[~]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
-| BL-14 图谱无时间维度 | `[ ]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
+| BL-13 真 NLI 支撑判定 | `[~]` | 已加对象锚定，评测侧镜像亦已落地（2026-09-07 D2：证据目录持久化 `structured` refs，`metrics_evidence` 按 `claim_supported_by` 复算对象锚定）；**蕴含判定本身仍开** | 引入 NLI 模型（live-only） |
 
 ### 规范 / 结构备注
 

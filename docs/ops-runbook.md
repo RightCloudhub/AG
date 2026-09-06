@@ -48,8 +48,8 @@ uvicorn agentic_graphrag.api.app:create_app --factory --host 0.0.0.0 --port 8000
 
 | 端点 | 最低角色 |
 |------|----------|
-| `POST /v1/query` · `/v1/query/stream` · `/v1/feedback` · `GET /v1/audit/queries/{id}`（自租户） · `GET /v1/review-queue`（自租户） · `GET /v1/ingest-tasks/{id}` · `GET /v1/graph/entities` | reader |
-| `POST /v1/docs` · `POST /v1/review-queue/{id}/decision` | operator |
+| `POST /v1/query` · `/v1/query/stream` · `/v1/feedback` · `GET /v1/audit/queries/{id}`（自租户） · `GET /v1/review-queue`（自租户） · `GET /v1/ingest-tasks/{id}` · `GET /v1/graph/entities` · `GET /v1/me`（身份回显，匿名视作 reader） | reader |
+| `POST /v1/docs` · `POST /v1/review-queue/{id}/decision` · `GET /v1/ingest-tasks`（任务列表，P5-UI-02） | operator |
 | `GET /v1/metrics` · `GET /v1/traces/{id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events` | admin |
 | `GET /healthz` · `GET /metrics-prom` · `/web` · `/docs` · `/openapi.json` | 公开（免鉴权） |
 
