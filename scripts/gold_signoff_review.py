@@ -39,10 +39,7 @@ def load_triples() -> list[Triple]:
 
 
 def edge_set(triples: list[Triple]) -> set[tuple[str, str, str]]:
-    return {
-        (t.head.name.lower(), t.relation, t.tail.name.lower())
-        for t in triples
-    }
+    return {(t.head.name.lower(), t.relation, t.tail.name.lower()) for t in triples}
 
 
 def edge_exists(head: str, rel: str, tail: str, edges: set[tuple[str, str, str]]) -> bool:
@@ -97,7 +94,7 @@ def sample_cases() -> list[dict]:
             case = json.loads(line)
             by_cat.setdefault(case.get("category", "?"), []).append(case)
     picked: list[dict] = []
-    for cat, items in sorted(by_cat.items()):
+    for _cat, items in sorted(by_cat.items()):
         step = max(1, len(items) // SAMPLE_PER_CATEGORY)
         picked.extend(items[::step][:SAMPLE_PER_CATEGORY])
     return picked

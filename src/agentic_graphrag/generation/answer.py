@@ -91,16 +91,24 @@ def _catalog_entry(candidate: Candidate) -> dict[str, object]:
     supporting token living past the cut would make the eval gate stricter than
     the runtime gate it exists to mirror (BL-13). The flag lets it abstain
     instead of accusing the row of fabricating.
+
+    ``structured`` is persisted for the same reason (BL-13 / D2): the runtime
+    object-anchor check reads ``candidate.structured``, so the eval side can
+    only reproduce that check when the catalog carries the shape through.
     """
     content = candidate.content or ""
     source = candidate.source
-    return {
+    entry: dict[str, object] = {
         "id": candidate.id,
         "content": content[:EVIDENCE_CONTENT_CHARS],
         "truncated": len(content) > EVIDENCE_CONTENT_CHARS,
         "source": source.value if hasattr(source, "value") else str(source),
         "score": candidate.score,
     }
+    structured = getattr(candidate, "structured", None)
+    if isinstance(structured, dict) and structured:
+        entry["structured"] = structured
+    return entry
 
 
 def _split(text: str) -> tuple[str, str]:

@@ -46,17 +46,56 @@ def load_documents_from_dir(directory: str | Path) -> list[DocumentRecord]:
     return docs
 
 
+_HEADING_RE = re.compile(r"^#{1,6} ", re.MULTILINE)
+
+
 def chunk_text(
     text: str,
     *,
     chunk_size: int = 1200,
     overlap: int = 150,
 ) -> list[str]:
+    """Heading-aware chunking (D6).
+
+    Markdown headings are hard boundaries: a chunk never spans two sections,
+    so retrieved evidence stays inside one topic. Sections larger than the
+    window fall back to the size/overlap windower with paragraph/sentence
+    breaks. Heading-less text behaves exactly like the old single-window path.
+    """
     text = text.strip()
     if not text:
         return []
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
+    sections = _split_sections(text)
+    if len(sections) <= 1:
+        return _window_chunk(text, chunk_size=chunk_size, overlap=overlap)
+    chunks: list[str] = []
+    for section in sections:
+        if not section.strip():
+            continue
+        if len(section) <= chunk_size:
+            chunks.append(section.strip())
+        else:
+            chunks.extend(_window_chunk(section, chunk_size=chunk_size, overlap=overlap))
+    return chunks
+
+
+def _split_sections(text: str) -> list[str]:
+    """Slice at markdown headings, keeping each heading with its section."""
+    matches = list(_HEADING_RE.finditer(text))
+    if not matches:
+        return [text]
+    sections: list[str] = []
+    if matches[0].start() > 0:
+        sections.append(text[: matches[0].start()])
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        sections.append(text[match.start() : end])
+    return sections
+
+
+def _window_chunk(text: str, *, chunk_size: int, overlap: int) -> list[str]:
     overlap = max(0, min(overlap, chunk_size - 1))
     chunks: list[str] = []
     start = 0

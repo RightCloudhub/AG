@@ -90,10 +90,18 @@ def build_heuristic(
     specs.extend(_relation_specs(q, names))
     if not specs and names:
         specs.extend(_default_neighbor_specs(names))
+    specs = _drop_disabled_tools(executor, specs)
     # Skip remote embedding when graph already expanded (AC-4 latency).
     has_graph = any(s.tool.startswith("graph_") for s in specs)
     specs.extend(_lexical_backup_specs(sub_question, skip_vector=has_graph))
-    return specs
+    return _drop_disabled_tools(executor, specs)
+
+
+def _drop_disabled_tools(executor: Executor, specs: list[ToolCallSpec]) -> list[ToolCallSpec]:
+    """Ablation knob (D9): ``enable_graph_tools=False`` removes graph retrieval."""
+    if getattr(executor.config, "enable_graph_tools", True):
+        return specs
+    return [s for s in specs if not s.tool.startswith("graph_")]
 
 
 def sanitize_spec(executor: Executor, spec: ToolCallSpec, sub_question: str) -> ToolCallSpec:

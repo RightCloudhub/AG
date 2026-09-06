@@ -103,6 +103,31 @@ class IngestTaskStore:
                 return None
             return IngestTask.from_dict(task.to_dict())
 
+    def list_tasks(
+        self, *, limit: int = 20, offset: int = 0, tenant_id: str | None = None
+    ) -> list[IngestTask]:
+        """Newest-first page over all tasks (console task list, P5-UI-02 U-02).
+
+        ``tenant_id`` scopes like the review queue: a task with an empty
+        tenant is a legacy row and stays visible to any tenant.
+        """
+        with self._lock:
+            tasks = [
+                task
+                for task in self._tasks.values()
+                if tenant_id is None or not task.tenant_id or task.tenant_id == tenant_id
+            ]
+        tasks.sort(key=lambda task: task.created_at, reverse=True)
+        return [IngestTask.from_dict(task.to_dict()) for task in tasks[offset : offset + limit]]
+
+    def count_tasks(self, *, tenant_id: str | None = None) -> int:
+        with self._lock:
+            return sum(
+                1
+                for task in self._tasks.values()
+                if tenant_id is None or not task.tenant_id or task.tenant_id == tenant_id
+            )
+
     def pending(self, limit: int = 10) -> list[IngestTask]:
         with self._lock:
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]

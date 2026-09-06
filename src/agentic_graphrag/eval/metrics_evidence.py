@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
-from agentic_graphrag.generation.claim_support import content_tokens
+from agentic_graphrag.generation.claim_support import (
+    claim_supported_by,
+    content_tokens,
+)
 
 
 def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
@@ -151,14 +155,14 @@ def fabrication_rate(rows: list[dict[str, Any]]) -> float:
 
     Aligned with the runtime gate in :mod:`agentic_graphrag.generation.citations`:
     every claim must carry evidence ids, those ids must resolve inside the row's
-    own evidence catalog, and the claim text must share a content token with the
-    cited content (CJK-aware, BL-02). The runtime *object anchor* tier (BL-13)
-    cannot be reproduced here — the persisted catalog keeps only id/content and
-    drops ``structured`` — so this remains an upper bound on grounding, not an
-    entailment check. Rows whose only cited evidence was truncated on the way
-    into the catalog are skipped rather than accused: the supporting token may
-    sit past the cut, and being *stricter* than the runtime gate would be just
-    as wrong as being looser.
+    own evidence catalog, the claim text must share a content token with the
+    cited content (CJK-aware, BL-02), and — since the catalog persists
+    ``structured`` (BL-13 / D2) — graph evidence must be anchored on the entity
+    it asserts, mirroring the runtime object-anchor tier. This is still not an
+    entailment (NLI) check. Rows whose only cited evidence was truncated on the
+    way into the catalog are skipped rather than accused: the supporting token
+    may sit past the cut, and being *stricter* than the runtime gate would be
+    just as wrong as being looser.
     """
     return _rate(rows, _fabrication_flag)
 
@@ -181,6 +185,7 @@ class _CatalogEntry:
 
     content: str
     truncated: bool = False
+    structured: dict[str, Any] = field(default_factory=dict)
 
 
 # id → persisted evidence; the callables that consume a row or its claims.
@@ -235,18 +240,28 @@ def _claims_fail_gate(claims: list, catalog: _Catalog) -> bool:
 
 
 def _claim_grounded(claim: dict[str, Any], catalog: _Catalog) -> bool:
-    """One claim must cite a catalog id whose content shares a content token."""
+    """One claim must cite an entry that lexically supports AND anchors it."""
     cited = _cited_entries(claim, catalog)
     if not cited:
         return False
     claim_tokens = content_tokens(str(claim.get("text") or ""))
     if not claim_tokens:
         return True  # nothing lexical to check — mirrors the runtime gate
-    if any(claim_tokens & content_tokens(entry.content) for entry in cited):
+    if any(_entry_supports(claim_tokens, entry) for entry in cited):
         return True
     # Truncated content: the token that satisfied the runtime gate may sit past
     # the persisted cut, so abstain instead of over-reporting fabrication.
     return any(entry.truncated for entry in cited)
+
+
+def _entry_supports(claim_tokens: set[str], entry: _CatalogEntry) -> bool:
+    """Runtime-mirroring check: lexical overlap + object anchor (BL-13)."""
+    if not claim_tokens & content_tokens(entry.content):
+        return False
+    if not entry.structured:
+        return True
+    shim = SimpleNamespace(content=entry.content, structured=entry.structured)
+    return claim_supported_by(claim_tokens, shim, min_overlap=1, require_object_anchor=True)
 
 
 def _cited_entries(claim: dict[str, Any], catalog: _Catalog) -> list[_CatalogEntry]:
@@ -261,9 +276,11 @@ def _catalog_by_id(chain: dict[str, Any]) -> _Catalog:
     out: _Catalog = {}
     for ev in catalog:
         if isinstance(ev, dict) and ev.get("id"):
+            structured = ev.get("structured")
             out[str(ev["id"])] = _CatalogEntry(
                 content=str(ev.get("content") or ""),
                 truncated=bool(ev.get("truncated")),
+                structured=structured if isinstance(structured, dict) else {},
             )
     return out
 

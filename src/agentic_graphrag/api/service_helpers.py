@@ -19,6 +19,7 @@ from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.llm.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
+from agentic_graphrag.retrieval.fusion import Reranker
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.factory import StoreBundle
@@ -85,9 +86,19 @@ def build_executor_for_service(
         parallel=bool(ret.parallel),
         fusion_method=(ret.fusion_method or DEFAULT_FUSION_METHOD),
         fusion_k=int(ret.fusion_k),
+        reranker=build_reranker(ret.reranker),
         cache=retrieval_cache if enable_cache else None,  # type: ignore[arg-type]
     )
     return Executor(graph=graph_ret, deps=deps, config=config)
+
+
+def build_reranker(name: str | None) -> Reranker | None:
+    """Map the ``retrieval.reranker`` setting to a Reranker instance (D4)."""
+    from agentic_graphrag.retrieval.fusion import IdentityReranker, LexicalReranker
+
+    if (name or "identity").lower() == "lexical":
+        return LexicalReranker()
+    return IdentityReranker()
 
 
 def build_llm_for_service(

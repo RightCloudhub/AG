@@ -51,6 +51,9 @@ class RetrievalConfig(BaseModel):
     fulltext_top_k: int = 10
     fusion_method: str = "rrf"
     fusion_k: int = 60
+    # D4: "identity" preserves fused order; "lexical" re-ranks by query-token
+    # overlap (stable sort). Opt-in.
+    reranker: str = "identity"
     parallel: bool = True
     cache_answer_ttl_seconds: float = 3600.0
     graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)

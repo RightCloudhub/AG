@@ -74,6 +74,9 @@ class ExecutorConfig:
     fusion_limit: int | None = DEFAULT_FUSION_LIMIT
     cache: RetrievalCache | None = None
     reranker: Reranker | None = None
+    # Ablation knob (D9): False removes graph retrieval from tool selection,
+    # so the vector + BM25 channels measure the graph's true contribution.
+    enable_graph_tools: bool = True
 
 
 class Executor:

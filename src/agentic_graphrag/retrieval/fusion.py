@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from agentic_graphrag.generation.claim_support import content_tokens
 from agentic_graphrag.retrieval.contracts import (
     Candidate,
     CandidateSource,
@@ -18,6 +19,7 @@ from agentic_graphrag.retrieval.contracts import (
 __all__ = [
     "Reranker",
     "IdentityReranker",
+    "LexicalReranker",
     "fuse_candidates",
     "concat_candidates",
     "rrf_fuse",
@@ -37,6 +39,26 @@ class IdentityReranker:
     def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
         del query
         return list(candidates)
+
+
+class LexicalReranker:
+    """Query-aware lexical re-ranker (D4).
+
+    Boosts candidates that share more CJK-aware content tokens with the query;
+    the sort is stable, so candidates with equal overlap keep their fused (RRF)
+    order. Opt-in via ``retrieval.reranker: lexical`` — identity stays the
+    default so fused order is unchanged unless configured.
+    """
+
+    def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
+        tokens = content_tokens(query)
+        if not tokens or not candidates:
+            return list(candidates)
+
+        def overlap(candidate: Candidate) -> int:
+            return len(tokens & content_tokens(candidate.content))
+
+        return sorted(candidates, key=overlap, reverse=True)
 
 
 def fuse_candidates(
