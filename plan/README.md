@@ -1,7 +1,7 @@
 # AgenticGraphRAG 实施计划总览
 
 **关联文档**：[../PRD.md](../PRD.md) · [../lixiang.md](../lixiang.md)
-**版本**：V1.1（2026-07-20：新增 engineering/rules.md 硬性规则汇总；api-and-ui.md 补充实现现状与前端交付）
+**版本**：V1.2（2026-09-06：目录补齐 p5-ui-01/02；进度状态口径统一指向 docs/IMPORTANT.md §0）
 
 本目录是项目实施计划的唯一入口，按"阶段（时间维度）× 工作流（能力维度）"双视角组织。
 
@@ -17,7 +17,9 @@ plan/
 │   ├── phase-2-mvp.md            # 阶段二：MVP 构建（4-6周）
 │   ├── phase-3-optimization.md   # 阶段三：工程优化（3-4周）
 │   ├── phase-4-pilot.md          # 阶段四：试点上线（2-3周）
-│   └── phase-5-scale.md          # 阶段五：规模化推广（持续）
+│   ├── phase-5-scale.md          # 阶段五：规模化推广（持续）
+│   ├── p5-ui-01-vue-refactor.md  # P5-UI-01：Vue 3 零构建前端重构（[x] 已完成）
+│   └── p5-ui-02-console-replan.md # P5-UI-02：角色工作台控制台重规划（[~] 规划定稿，待评审后实施）
 ├── workstreams/                  # 按工作流的技术方案与任务分解（怎么做）
 │   ├── knowledge-graph.md        # 图谱构建：抽取、消歧、增量更新
 │   ├── retrieval.md              # 混合检索：向量/图/全文 + 融合排序
@@ -38,6 +40,7 @@ plan/
 ## 使用说明
 
 - **看进度/排期** → [roadmap.md](./roadmap.md)，每阶段有明确的 Go/No-Go 门禁。
+- **看当前进度 / 活跃工作项** → [`docs/IMPORTANT.md`](../docs/IMPORTANT.md) §0 状态快照（唯一状态口径）。
 - **领任务** → `phases/` 下对应阶段文件，任务带编号（如 `P1-KG-01`），编号规则：`P<阶段>-<工作流>-<序号>`。
 - **查技术方案** → `workstreams/` 下对应工作流文件，需求引用 PRD 编号（FR-*）。
 - **查硬性规则** → [engineering/rules.md](./engineering/rules.md)，代码指标、安全清单、架构边界、文档同步的强制约定及其强制机制（CI/脚本/评审）。

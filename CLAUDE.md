@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AgenticGraphRAG — a graph-augmented multi-hop reasoning QA system: knowledge graph as structured memory, an agent loop (plan → execute → reflect → guardrails) as the decision brain. Python 3.12+, Pydantic v2, LangGraph, FastAPI. Primary docs (README, PRD, plan/, docs/) are written in Chinese; code and comments are English.
 
+The complete documentation map — every doc with a one-line purpose, plus which doc is the authority for each kind of status — is [docs/README.md](docs/README.md).
+
 ## Commands
 
 ```bash
@@ -68,7 +70,7 @@ Every layer has two implementations, and the offline one is the default everywhe
 
 BM25 fulltext and the doc store have **no** live backend — `create_live_bundle()` uses the same in-memory BM25 store as offline, and falls back to the memory vector store if Qdrant is unreachable (graph only falls back with `allow_memory_graph_fallback`).
 
-**The two live switches are independent** (`api/service.py:250`): `AGR_ALLOW_LLM=1` swaps in the real LLM but leaves stores untouched; `AGR_USE_LIVE_STORES=1` swaps stores to Neo4j+Qdrant but leaves the LLM untouched. `agr-api` defaults to `QueryService.create_offline()` in the FastAPI lifespan; startup validation (`api/app.py:105`) rejects each flag if its prerequisites (Neo4j/Qdrant settings, a non-placeholder `LLM_API_KEY`) are missing. CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`.
+**The two live switches are independent** (`api/service.py:268`): `AGR_ALLOW_LLM=1` swaps in the real LLM but leaves stores untouched; `AGR_USE_LIVE_STORES=1` swaps stores to Neo4j+Qdrant but leaves the LLM untouched. `agr-api` defaults to `QueryService.create_offline()` in the FastAPI lifespan; startup validation (`api/app.py:105`) rejects each flag if its prerequisites (Neo4j/Qdrant settings, a non-placeholder `LLM_API_KEY`) are missing. CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`.
 
 The offline answer path (`generation/offline_answer.py` + `generation/offline_heuristics/rules_*.py`) is a large rule set hardcoded to the demo corpus in `data/raw/` — it exists to make `--no-llm` evals deterministic, is excluded from coverage, and is **not** the production path. Don't "fix" live-LLM behavior by editing it, and vice versa.
 
@@ -127,9 +129,10 @@ Datasets live in `evals/datasets/*.jsonl` (poc, dev/heldout/guardrail splits via
 
 ## Conventions
 
-- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review). Design-vs-implementation divergences are marked "⚠ 差异" in `plan/workstreams/` docs and ledgered in `docs/IMPORTANT.md`.
+- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review). Design-vs-implementation divergences are marked "⚠ 差异" in `plan/workstreams/` docs and ledgered in `docs/IMPORTANT.md`. The business-logic integrity audit (BL-01…14, file:line evidence + fix status in §7) lives in `docs/BUSINESS_LOGIC.md`.
 - **Architecture boundaries (review-enforced, `rules.md` §6).** LangGraph is confined to `agent/` at a pinned version; do **not** introduce LangChain retrieval/chain abstractions — retrieval and LLM calls go through this repo's `retrieval/` and `llm/` interfaces (ADR-005). Graph nodes are "state in → state out" so unit tests never need the LangGraph runtime. New features must run under `--no-llm` + in-memory backends or explicitly declare themselves live-only; never pull an online dependency into the CI path.
 - **`docs/IMPORTANT.md` is the debt/deferral ledger.** Every intentionally deferred, blocked, or not-doing item lives there. When you close or defer a task, update it *in the same change set* (plus the phase checklist in `plan/phases/` and any gate JSON / risk status). Task status markers are uniform: `[ ]` not started, `[~]` in progress, `[x]` done, `[-]` cancelled (state the reason). Task IDs like `P2-KG-01`, `P3-PERF-06`, `C1/C2/C3` refer to `plan/` phase files.
+- **The 2026-08-08 BL-fix changeset landed without running the gates** (the authoring environment had no Python/venv). Run the checklist in `docs/BL_FIX_VERIFICATION.md` before trusting those fixes, and archive that checklist once the gates pass.
 - **Changing a technology choice requires a new ADR in `plan/engineering/tech-stack.md` first**, then code.
 - **Engineering-done ≠ product-accepted.** Gates G1–G4 (`plan/roadmap.md`) require live-LLM/held-out evidence; offline synthetic results must not be presented as gate evidence. README's status table reflects this split — keep it honest when updating.
 - **Hard code metrics are enforced by `scripts/check_code_metrics.py`** (same limits as the table above). This is why modules are deliberately split (`loop` / `loop_handlers` / `loop_runtime`, `executor` / `executor_plan` / `executor_dispatch`, `service` / `service_helpers` / `service_query`). New modules target ~200–400 lines; put constants in module-level named constants, not inline literals.

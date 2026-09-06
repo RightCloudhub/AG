@@ -420,7 +420,7 @@ stateDiagram-v2
 
 > 状态口径与仓库约定一致：`[x]` 已完成、`[~]` 部分完成、`[ ]` 未开始、`[-]` 不做。
 > **全部为代码逻辑检查，未运行项目、未执行测试** —— 待执行的验证项见
-> [`IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md)。
+> [`BL_FIX_VERIFICATION.md`](./BL_FIX_VERIFICATION.md)。
 
 | 缺口 | 状态 | 落地内容 |
 |---|---|---|

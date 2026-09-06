@@ -189,9 +189,12 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20   # HTTP 压测�
 
 | 文档 | 内容 |
 |---|---|
+| [docs/README.md](./docs/README.md) | **文档地图** — 全部文档索引与状态口径归属（新文档在此登记） |
 | [PRD.md](./PRD.md) · [lixiang.md](./lixiang.md) | 产品需求（含 AC-1~7 验收项）· 立项建议书 |
 | [Spec.md](./Spec.md) | 系统级规则与不变量（架构 / 运行时 / 契约 / 安全） |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块地图、查询生命周期、离线/在线双轨 |
+| [docs/BUSINESS_LOGIC.md](./docs/BUSINESS_LOGIC.md) · [docs/BL_FIX_VERIFICATION.md](./docs/BL_FIX_VERIFICATION.md) | 业务逻辑完整性审计 BL-01…14 · 修复变更集待验证清单 |
+| [docs/UI_DESIGN.md](./docs/UI_DESIGN.md) · [docs/DESIGN_VS_IMPLEMENTATION.md](./docs/DESIGN_VS_IMPLEMENTATION.md) | P5-UI-02 角色工作台视觉规范 · 设计 vs 实现 diff |
 | [plan/README.md](./plan/README.md) · [plan/roadmap.md](./plan/roadmap.md) | 实施计划 · 路线图与 G1–G4 门禁判据 |
 | [plan/engineering/rules.md](./plan/engineering/rules.md) | 唯一工程规则汇总（代码指标 / 边界 / 评审） |
 | [docs/IMPORTANT.md](./docs/IMPORTANT.md) | **债务 / 延期 / 不做事项总账（必读）** |

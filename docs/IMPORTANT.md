@@ -308,7 +308,8 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
 | 企业级管控审计 / ENT 规划 | [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
 | 业务逻辑断链（BL-01…14） | [`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) |
-| BL 修复变更集待验证清单 | [`docs/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
+| BL 修复变更集待验证清单 | [`docs/BL_FIX_VERIFICATION.md`](./BL_FIX_VERIFICATION.md) |
+| 文档地图（全部文档索引） | [`docs/README.md`](./README.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
 
