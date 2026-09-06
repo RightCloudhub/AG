@@ -1,8 +1,8 @@
 # UI 视觉设计基准 —「制图室」方向（P5-UI-02 配套）
 
-**版本**：V1.0（2026-08-08）· **状态**：规范定稿，随 U-14/U-15 落地（[p5-ui-02-console-replan.md](../plan/phases/p5-ui-02-console-replan.md) M2b）
+**版本**：V1.1（2026-09-07）· **状态**：**已被 P5-UI-03 结构化视觉改造取代，未实施**——2026-09-07 实际落地的是「双主题暗色优先」方向（Vercel/Linear 风：`tokens.css` 双主题令牌、zinc 中性色 + 靛蓝 accent、系统 sans 字体栈、`prefers-reduced-motion` 全量降级），见 [p5-ui-02-console-replan.md](../plan/phases/p5-ui-02-console-replan.md) M2b 备注。本文件以下内容保留为历史设计提案（「制图室」：宋体标题 + 图纸网格 + 朱砂印章），若日后启用需按 §9 重新验收并先改本文件使之一致。
 **约束母文件**：[rules.md](../plan/engineering/rules.md) §8 · ADR-006（零构建，不变）
-**本文件是前端视觉规范的唯一权威**；`web/static/*.css` 的取值与本文件冲突时，先改其一使之一致再合入。
+**当前生效的视觉口径**：`web/static/tokens.css`（令牌唯一真源）+ 各 CSS 模块；`web/static/*.css` 与本文件历史提案冲突时以 tokens.css 实际值为准。
 
 ---
 

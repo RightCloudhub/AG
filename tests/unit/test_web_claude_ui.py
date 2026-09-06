@@ -17,9 +17,17 @@ STATIC = WEB / "static"
 
 REQUIRED_FILES = (
     WEB / "index.html",
-    STATIC / "app.css",
+    STATIC / "tokens.css",
+    STATIC / "rail.css",
+    STATIC / "shell.css",
+    STATIC / "controls.css",
+    STATIC / "primitives.css",
+    STATIC / "overlays.css",
     STATIC / "chat.css",
+    STATIC / "composer.css",
     STATIC / "panels.css",
+    STATIC / "reasoning.css",
+    STATIC / "console.css",
     STATIC / "app.js",
     STATIC / "js" / "api.js",
     STATIC / "js" / "chain-view.js",
@@ -79,10 +87,21 @@ def test_html_vue_shell_structure():
     assert 'id="app"' in html
     assert "v-cloak" in html
     assert 'type="module"' in html
-    assert "/web/static/app.css" in html
-    assert "/web/static/chat.css" in html
-    assert "/web/static/panels.css" in html
-    assert "/web/static/console.css" in html
+    # Stylesheet modules (P5-UI-03 structural pass): tokens → base → views.
+    for css in (
+        "tokens.css",
+        "rail.css",
+        "shell.css",
+        "controls.css",
+        "primitives.css",
+        "overlays.css",
+        "chat.css",
+        "composer.css",
+        "panels.css",
+        "reasoning.css",
+        "console.css",
+    ):
+        assert f"/web/static/{css}" in html
     assert "/web/static/app.js" in html
 
 
@@ -150,29 +169,45 @@ def test_injection_safety_no_vhtml_or_innerhtml():
 
 
 def test_css_tokens_and_new_classes():
-    app_css = _read(STATIC / "app.css")
-    chat_css = _read(STATIC / "chat.css")
+    """CSS module map (P5-UI-03 structural pass): tokens → rail/shell →
+    controls/primitives/overlays → chat/composer/panels/reasoning/console."""
+    tokens_css = _read(STATIC / "tokens.css")
+    rail_css = _read(STATIC / "rail.css")
+    shell_css = _read(STATIC / "shell.css")
+    controls_css = _read(STATIC / "controls.css")
+    primitives_css = _read(STATIC / "primitives.css")
+    composer_css = _read(STATIC / "composer.css")
     panels_css = _read(STATIC / "panels.css")
-    assert "--bg:" in app_css
-    assert "#f5f2eb" in app_css
-    assert "--warn" in app_css
-    assert "--avatar-w" in app_css
-    assert "[v-cloak]" in app_css
-    assert ".rail-health" in app_css
-    assert ".health-dot" in app_css
-    assert ".boot-error" in app_css
-    assert ".stop-btn" in chat_css
-    assert ".progress-state" in chat_css
-    assert ".progress-live" in chat_css
-    assert ".thinking-card" in chat_css
-    assert ".thinking-detail" in chat_css
+    reasoning_css = _read(STATIC / "reasoning.css")
+    # Dual-theme token system (P5-UI-03): dark is the :root default, light the
+    # html[data-theme="light"] override; both palettes must ship in tokens.css.
+    assert "--bg:" in tokens_css
+    assert "#09090b" in tokens_css  # dark bg
+    assert "#fafafa" in tokens_css  # light bg
+    assert 'data-theme="light"' in tokens_css
+    assert "--warn" in tokens_css
+    assert "--avatar-w" in tokens_css
+    assert "[v-cloak]" in tokens_css
+    assert ".rail-health" in rail_css
+    assert ".health-dot" in rail_css
+    assert ".boot-error" in shell_css
+    assert ".badge" in controls_css
+    assert ".mini-btn" in controls_css
+    assert ".skeleton" in controls_css
+    assert ".stat-card" in primitives_css
+    assert ".state-card" in primitives_css
+    assert ".data-table" in primitives_css
+    assert ".stop-btn" in composer_css
+    assert ".progress-state" in reasoning_css
+    assert ".progress-live" in reasoning_css
+    assert ".thinking-card" in reasoning_css
+    assert ".thinking-detail" in reasoning_css
+    assert ".path-overflow" in reasoning_css
     assert ".claim-active" in panels_css
-    assert ".mini-btn" in panels_css
     assert ".feedback-note" in panels_css
     assert ".retry-row" in panels_css
-    assert ".path-overflow" in panels_css
     # Must not be the old dark primary background
-    assert "--bg: #0f1419" not in app_css
+    assert "--bg: #0f1419" not in tokens_css
 
 
 def test_get_web_and_static_assets():
@@ -187,9 +222,16 @@ def test_get_web_and_static_assets():
     assert "/web/static/console.css" in body
 
     for path in (
-        "/web/static/app.css",
+        "/web/static/tokens.css",
+        "/web/static/rail.css",
+        "/web/static/shell.css",
+        "/web/static/controls.css",
+        "/web/static/primitives.css",
+        "/web/static/overlays.css",
         "/web/static/chat.css",
+        "/web/static/composer.css",
         "/web/static/panels.css",
+        "/web/static/reasoning.css",
         "/web/static/console.css",
         "/web/static/app.js",
         "/web/static/js/api.js",

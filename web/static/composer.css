@@ -1,0 +1,117 @@
+/* Composer: sticky ask box, send/stop buttons, shortcut hint. Thread styling
+ * is chat.css; the `#q` textarea override beats the generic textarea rules in
+ * controls.css via the .composer-inner scope. */
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  padding: 0.4rem 1.25rem 1rem;
+  background: linear-gradient(180deg, transparent, var(--bg) 42%);
+}
+
+.composer-inner {
+  max-width: var(--composer-max);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 0.55rem 0.55rem 0.55rem 0.95rem;
+  box-shadow: var(--shadow);
+  transition: border-color var(--speed), box-shadow var(--speed);
+}
+
+.composer-inner:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow), 0 0 0 3px var(--accent-soft);
+}
+
+.composer-inner textarea {
+  resize: none;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none;
+  min-height: 1.5rem;
+  max-height: 8rem;
+  padding: 0.45rem 0;
+  font-size: 0.96rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.composer-inner textarea::placeholder {
+  color: var(--muted);
+}
+
+.send-btn,
+.stop-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  padding: 0;
+  cursor: pointer;
+  transition: background var(--speed), transform var(--speed), opacity var(--speed);
+}
+
+.send-btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.send-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.send-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stop-btn {
+  background: var(--bad-bg);
+  border: 1px solid var(--bad-border);
+  color: var(--bad);
+}
+
+.stop-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.stop-btn:hover {
+  background: var(--bad);
+  color: #fff;
+}
+
+.composer-hint {
+  max-width: var(--composer-max);
+  margin: 0.5rem auto 0;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.composer-hint code {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}

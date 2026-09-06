@@ -1,0 +1,293 @@
+/* Reasoning widgets in the chat thread: progress timeline (ProgressLog),
+ * thinking panel (ThinkingPanel), plan tree (PlanTree), and graph paths
+ * (PathList / chain-view). Tokens and shared keyframes (pulse-dot,
+ * progress-pulse) live in tokens.css; disclosure folds around them are
+ * panels.css. */
+
+.progress-card,
+.thinking-card {
+  width: 100%;
+  max-width: var(--thread-max);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed);
+}
+
+.progress-card:hover,
+.thinking-card:hover {
+  border-color: var(--border-strong);
+}
+
+.progress-summary,
+.thinking-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.progress-summary::-webkit-details-marker,
+.thinking-summary::-webkit-details-marker {
+  display: none;
+}
+
+.progress-state,
+.thinking-state {
+  font-size: 0.74rem;
+  font-weight: 550;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.progress-state[data-status="streaming"],
+.thinking-state[data-status="streaming"] {
+  color: var(--accent);
+}
+
+.progress-state[data-status="done"],
+.thinking-state[data-status="done"] {
+  color: var(--good);
+}
+
+.progress-state[data-status="error"],
+.progress-state[data-status="aborted"] {
+  color: var(--bad);
+}
+
+.progress-list {
+  margin: 0.55rem 0 0.1rem;
+  padding: 0 0 0 0.85rem;
+  border-left: 1px solid var(--border);
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.progress-list li {
+  position: relative;
+  line-height: 1.5;
+}
+
+.progress-list li::before {
+  content: "";
+  position: absolute;
+  left: calc(-0.85rem - 3.5px);
+  top: 0.5em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.progress-list li.info::before {
+  background: var(--accent);
+}
+
+.progress-list li.live::before {
+  background: var(--accent);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.progress-list li.done::before {
+  background: var(--good);
+}
+
+.progress-list li.error::before {
+  background: var(--bad);
+}
+
+.progress-live {
+  margin: 0.5rem 0 0.15rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 550;
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── thinking panel ───────────────────────────────────────────────── */
+
+.thinking-card {
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg-elevated));
+}
+
+.thinking-state {
+  font-family: var(--font);
+}
+
+.thinking-body {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.thinking-placeholder {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.thinking-item {
+  padding: 0.45rem 0.6rem;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-elevated);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+.thinking-item[data-stage="retrieve"] {
+  border-left-color: var(--warn);
+}
+
+.thinking-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  align-items: baseline;
+}
+
+.thinking-stage {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.thinking-item[data-stage="retrieve"] .thinking-stage {
+  color: var(--warn);
+}
+
+.thinking-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.thinking-detail {
+  margin: 0.3rem 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  font: 0.78rem/1.5 var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* ── plan tree ────────────────────────────────────────────────────── */
+
+.plan-tree {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.plan-node {
+  border: 1px solid var(--border);
+  border-left-width: 2px;
+  border-radius: var(--radius-xs);
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-elevated);
+  font-size: 0.84rem;
+}
+
+.plan-node.status-ok {
+  border-left-color: var(--good);
+}
+
+.plan-node.status-partial {
+  border-left-color: var(--warn);
+}
+
+.plan-node.status-fail {
+  border-left-color: var(--bad);
+}
+
+.plan-node.status-open {
+  border-left-color: var(--border-strong);
+}
+
+.plan-head {
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+}
+
+.plan-q {
+  color: var(--text);
+  margin-top: 0.15rem;
+}
+
+.plan-c {
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+}
+
+.plan-deps {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+  font-family: var(--font-mono);
+}
+
+/* ── graph paths ──────────────────────────────────────────────────── */
+
+.path-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+}
+
+.path-node {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  color: var(--text);
+}
+
+.path-edge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 0.08rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.path-arrow {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.path-overflow {
+  margin-top: 0.25rem;
+  font-style: italic;
+}

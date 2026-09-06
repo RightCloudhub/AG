@@ -1,6 +1,8 @@
-/* Console presentational widgets (P5-UI-02 U-06): stat-card, state-card,
- * data-table, filter-bar. Options API pure objects — no Vue import, no
- * mustache bypass. Also hosts small formatting helpers shared by views.
+/* Console presentational widgets (P5-UI-02 U-06; P5-UI-03 visual pass):
+ * nav-icon, stat-card, state-card, data-table (badge columns + skeleton
+ * loading + keyboard-selectable rows), filter-bar. Options API pure objects
+ * — no Vue import, mustache/textContent only. Also hosts formatting helpers
+ * shared by views.
  */
 
 export function formatTimestamp(ts) {
@@ -37,6 +39,18 @@ export function errorState(err) {
   if (code === "SERVICE_UNAVAILABLE") return { kind: "error", title: "服务未就绪", detail };
   return { kind: "error", title: "请求失败", detail };
 }
+
+/* NavIcon renders a registry `icon` stroke path inside a 24×24 viewBox. */
+export const NavIcon = {
+  name: "NavIcon",
+  props: { d: { type: String, required: true } },
+  template: `
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path :d="d"></path>
+    </svg>
+  `,
+};
 
 export const StatCard = {
   name: "StatCard",
@@ -78,6 +92,31 @@ export const StateCard = {
   `,
 };
 
+const BADGE_TONES = Object.freeze({
+  pending: "warn",
+  waiting: "warn",
+  running: "accent",
+  in_progress: "accent",
+  streaming: "accent",
+  extraction: "accent",
+  resolution: "accent",
+  approved: "good",
+  done: "good",
+  ok: "good",
+  success: "good",
+  applied: "good",
+  rejected: "bad",
+  error: "bad",
+  fail: "bad",
+  failed: "bad",
+  skipped: "neutral",
+  aborted: "neutral",
+});
+
+function badgeTone(value) {
+  return BADGE_TONES[String(value || "").trim().toLowerCase()] || "neutral";
+}
+
 export const DataTable = {
   name: "DataTable",
   props: {
@@ -85,15 +124,20 @@ export const DataTable = {
     rows: { type: Array, default: () => [] },
     emptyText: { type: String, default: "暂无数据" },
     clickable: { type: Boolean, default: false },
+    loading: { type: Boolean, default: false },
   },
   emits: ["row-click"],
   methods: {
+    badgeTone,
     cellText(col, row) {
       const value = col.render ? col.render(row) : row[col.key];
       return value === null || value === undefined ? "" : String(value);
     },
     onRowClick(row) {
       if (this.clickable) this.$emit("row-click", row);
+    },
+    skeletonWidth(col) {
+      return `${28 + ((String(col.key).length * 17) % 52)}%`;
     },
   },
   template: `
@@ -102,13 +146,27 @@ export const DataTable = {
         <thead>
           <tr><th v-for="col in columns" :key="col.key" :scope="'col'">{{ col.label }}</th></tr>
         </thead>
-        <tbody>
-          <tr v-for="(row, ri) in rows" :key="ri" :class="{ clickable }" @click="onRowClick(row)">
-            <td v-for="col in columns" :key="col.key">{{ cellText(col, row) }}</td>
+        <tbody v-if="loading" aria-hidden="true">
+          <tr v-for="i in 4" :key="'sk' + i" class="skeleton-row">
+            <td v-for="col in columns" :key="col.key">
+              <span class="skeleton" :style="{ width: skeletonWidth(col) }"></span>
+            </td>
+          </tr>
+        </tbody>
+        <tbody v-else>
+          <tr v-for="(row, ri) in rows" :key="ri" :class="{ clickable }"
+            :tabindex="clickable ? 0 : null" @click="onRowClick(row)"
+            @keydown.enter.prevent="onRowClick(row)">
+            <td v-for="col in columns" :key="col.key">
+              <span v-if="col.badge" class="badge" :data-tone="badgeTone(cellText(col, row))">
+                <span class="badge-dot" aria-hidden="true"></span>{{ cellText(col, row) }}
+              </span>
+              <template v-else>{{ cellText(col, row) }}</template>
+            </td>
           </tr>
         </tbody>
       </table>
-      <p v-if="!rows.length" class="table-empty muted">{{ emptyText }}</p>
+      <p v-if="!loading && !rows.length" class="table-empty muted">{{ emptyText }}</p>
     </div>
   `,
 };

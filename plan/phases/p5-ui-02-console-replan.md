@@ -1,6 +1,6 @@
 # P5-UI-02：前端重规划——试用问答 → 角色感知控制台
 
-**任务 ID**：P5-UI-02 · **版本**：V1.0（2026-08-08）· **状态**：**[x] 已实施（2026-09-07）**——M0–M5 代码 + M6 收口交付；**M2b 视觉体系（U-14/U-15）未做**，tokens.css 未抽出
+**任务 ID**：P5-UI-02 · **版本**：V1.1（2026-09-07）· **状态**：**[x] 已实施（2026-09-07）**——M0–M5 代码 + M6 收口交付；**M2b 视觉体系已随 P5-UI-03 结构化改造落地（双主题暗色优先方向，非原「制图室」提案）**：U-14 tokens.css 抽出完成，U-15 组件视觉语言随新组件交付，方向切换详见 [UI_DESIGN.md](../../docs/UI_DESIGN.md) 状态头
 **关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.5 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md) · 账本 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §0/§5
 
 ---
@@ -65,7 +65,14 @@
 |---|---|---|---|
 | `index.html` | 壳 + 侧栏 + 视图容器（视图内容全部走组件 string template，压 in-DOM 模板体积） | ≤220 | 改（现 133） |
 | `static/app.js` | Vue 加载 + boot | ~65 | 不动 |
-| `static/tokens.css` | 设计令牌 + 纸面质感配方（[UI_DESIGN](../../docs/UI_DESIGN.md) §3–§5；自 app.css 抽出） | ≤140 | 新（U-14） |
+| `static/tokens.css` | 设计令牌（双主题 `:root` / `html[data-theme="light"]`）+ 基础元素样式 + 共享 keyframes（P5-UI-03 自 app.css 抽出；原「纸面质感配方」未采用） | ≤300 | 新（U-14，交付） |
+| `static/rail.css` | 侧栏导轨：品牌 / 健康点 / 导航 / 身份区（P5-UI-03） | ≤300 | 新 |
+| `static/shell.css` | 壳网格 / 顶栏 / 视图容器 / boot 错误 / 视图过渡 / 响应式（P5-UI-03） | ≤300 | 新 |
+| `static/controls.css` | 共享控件：chip / field / badge / skeleton / mini-btn / card-label（P5-UI-03） | ≤300 | 新 |
+| `static/primitives.css` | data-table / stat-card / state-card（P5-UI-03） | ≤300 | 新 |
+| `static/overlays.css` | 命令面板（⌘K）+ toast 通知（P5-UI-03） | ≤300 | 新 |
+| `static/composer.css` | 提问输入区（P5-UI-03 自 chat.css 拆出） | ≤300 | 新 |
+| `static/reasoning.css` | 推理过程：进度时间轴 / 思考面板 / 计划树 / 图路径（P5-UI-03 拆出） | ≤300 | 新 |
 | `static/js/api.js` | fetch/envelope/SSE/key 核心 + `/v1/me` + 401/403 归一 | ≤170 | 改（现 128） |
 | `static/js/api-console.js` | 知识 / 审核 / 可观测域 API 客户端 | ≤160 | 新 |
 | `static/js/router.js` | hash ↔ 当前视图同步（自研 ~40 行，零依赖） | ≤60 | 新 |
@@ -79,7 +86,7 @@
 | `static/js/components/console-widgets.js` | data-table / filter-bar / stat-card / state-card（空态 / 无权限 / 错误） | ≤220 | 新 |
 | `static/console.css` | 控制台视图样式（现有三 CSS 不动） | ≤300 | 新 |
 
-`chain-view.js`、`components/{widgets,answer-turn,index}.js` 原样复用；三个现有 CSS 随视觉体系**值级刷新**（改令牌值与装饰类，选择器结构不重写；`app.css` 抽出令牌后回落 ≤240）——视觉规范唯一权威见 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)。组件继续保持纯对象（零 Vue import）。
+`chain-view.js`、`components/{widgets,answer-turn,index}.js` 原样复用；`chat.css` / `panels.css` 随 P5-UI-03 **结构拆分**（composer / reasoning 拆出，全部 ≤300 行，`app.css` 拆为 tokens/rail/shell/controls/primitives/overlays 六模块后删除）——组件继续保持纯对象（零 Vue import）。
 
 ## 6. 里程碑与任务清单
 
@@ -92,9 +99,9 @@
 - **M2 视图骨架（行为冻结重构，先于一切新功能）**
   - [x] **U-05** `router.js` + `views/registry.js` + `root.js` 壳化；问答编排原样迁 `views/chat.js`（§8 SSE 回归清单护航）
   - [x] **U-06** `index.html` 导航 + 视图容器；`console.css` 基座；`console-widgets.js` 四组件
-- **M2b 视觉体系落地（「制图室」方向，随 M2 合入或紧随其后）**
-  - [ ] **U-14** `tokens.css` 抽出 + 令牌值刷新：墨青/朱砂色系、宋体展示层、动效令牌、纸面网格；`index.html` link 与测试清单同步 — 规范 [UI_DESIGN](../../docs/UI_DESIGN.md) §3–§6
-  - [ ] **U-15** 组件视觉规范随视图落地：印章状态语言（无权/通过/驳回/异常/已停止）、仪表卡、数据表、hop 墨线时间轴 — 规范 UI_DESIGN §7–§8
+- **M2b 视觉体系落地（2026-09-07 随 P5-UI-03 交付：**双主题暗色优先方向**；原「制图室」提案保留于 [UI_DESIGN](../../docs/UI_DESIGN.md) 未采用）**
+  - [x] **U-14** `tokens.css` 抽出 + 令牌值刷新：**实现为双主题令牌**（暗色默认 + `data-theme="light"` 覆盖、动效令牌、共享 keyframes、`prefers-reduced-motion` 全量降级）；非原案的墨青/朱砂/宋体/纸面网格；`index.html` link 与测试清单同步（文件清单 + CSS 断言改指新模块）
+  - [x] **U-15** 组件视觉规范随视图落地：**实现为 badge 五色调状态语言、命令面板（⌘K）、toast、骨架屏、stat/state 卡、hop 时间轴**；非原案印章语言
 - **M3 知识运维视图（operator+）**
   - [x] **U-07** `views/knowledge.js`：上传（前端预检 + 逐文件结果）+ 任务列表/轮询（间隔 ≥2s；页面隐藏即停）
   - [x] **U-08** `views/review.js`：队列 + 决策 + 409/404 显式态；**文案更新（BL-03 已于 2026-09-06 实现写回）**：决策响应携带 `graph_effects`，UI 展示「决策已记录 + 图谱写回结果」，不再使用本规划原稿「图谱写回待立项」的旧文案
@@ -117,7 +124,7 @@
 - 浏览器自动化 E2E 进 CI——保持结构断言 + TestClient；人工项走 §8 清单
 - 审核决策的图谱写回——BL-01/03 独立立项，非 UI 范畴
 - 密钥管理界面（key 的签发/轮换仍走 `AGR_API_KEYS` 环境变量，ENT-04 YAML 注册表待办不并入本计划）
-- 暗色主题（单主题做精，试用工具不维护双主题——UI_DESIGN §10）
+- ~~暗色主题（单主题做精，试用工具不维护双主题——UI_DESIGN §10）~~ **P5-UI-03 已交付双主题（暗色默认 + 亮色，`agr_theme` 持久化 + 系统偏好探测）；本条作废（2026-09-07）**
 - CDN 字体 / 任何外链静态资源（字体仅系统栈或 vendored 文件走 EXTERNAL_RUNTIMES 流程——UI_DESIGN §3）
 
 ## 8. 验证清单（实施时逐项执行；本规划文档本身无可运行项）
@@ -129,7 +136,7 @@ CI 断言（进 `test_web_console.py` / 沿用 `test_web_claude_ui.py`）：
 - [x] 请求形状与 Pydantic schema 一致：decision body / 上传 multipart / audit-events 过滤参数 / `me` 响应字段
 - [x] `views/registry.js` 的角色-视图映射与 §4 表一致（结构断言）
 - [x] `/web/static/js/views/*`、`console.css` 静态挂载 200
-- [x] 设计约束（UI_DESIGN §9）：`web/static/*.css` 无 `http` 外链；`@font-face` 仅指向 `vendor/fonts/`（或零命中）；tokens.css 未抽出（M2b 未做，U-14 时补清单）
+- [x] 设计约束（UI_DESIGN §9）：`web/static/*.css` 无 `http` 外链；`@font-face` 仅指向 `vendor/fonts/`（或零命中）；tokens.css 已抽出（U-14，2026-09-07，清单随 P5-UI-03 同步）
 
 人工浏览器矩阵（2026-09-07 冒烟执行：四角色显隐 / 越权友好态 / SSE 零回归 / 任务列表 / 决策写回 / 审计回查均通过；**上传文件选择器未在 IAB 自动化中验证**——multipart 请求形状由 CI 断言 + 后端测试覆盖）：
 
@@ -140,7 +147,7 @@ CI 断言（进 `test_web_console.py` / 沿用 `test_web_claude_ui.py`）：
 - [x] 已知 query_id 审计回查渲染完整链（角标 / 子问题树 / 路径 chips 与问答视图一致）
 - [x] 问答视图零回归：SSE 七事件（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`）+ 中止 / 重试 / 逐 turn 反馈 / 缓存命中 —— SSE 流式 + 回答 + 反馈经冒烟；中止/重试按钮在位，事件覆盖由 CI 断言
 - [x] 轮询防风暴：任务视图切走或标签页隐藏时轮询停止（`beforeUnmount` 清定时器 + `document.hidden` 跳过）
-- [ ] 视觉验收（UI_DESIGN §9）：对比度 AA 实测、`prefers-reduced-motion`、宋体回退栈——**随 M2b 一并执行**（当前为既有纸面主题直用）
+- [x] 视觉验收（P5-UI-03 口径，2026-09-07）：双主题（暗/亮）× 5 视图 × 命令面板 × 完整问答链路浏览器实测通过；`prefers-reduced-motion` 全量降级已实现（tokens.css）；CSS 模块全部 ≤300 行（测试强制）——宋体回退栈不适用（双主题走系统字体栈）；对比度 AA 未做仪器实测（zinc/靛蓝体系低对比风险小，留验证项）
 
 ## 9. 风险与开放点
 

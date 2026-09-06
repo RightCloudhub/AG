@@ -1,0 +1,204 @@
+/* Design tokens + base element styles (P5-UI-03 structural pass, U-14):
+ * dual-theme palettes (`html[data-theme="dark"|"light"]`, bootstrapped inline
+ * in index.html before first paint — no FOUC, persisted as `agr_theme`),
+ * global resets, and the keyframes shared across modules. Component styles
+ * live in rail/shell/controls/primitives/overlays/chat/composer/panels/
+ * reasoning/console.css; this file holds no component selectors.
+ */
+
+:root {
+  /* dark (default) */
+  color-scheme: dark;
+  --bg: #09090b;
+  --bg-elevated: #0e0e11;
+  --surface: #131317;
+  --surface-soft: #1b1b21;
+  --border: #232329;
+  --border-strong: #34343c;
+  --text: #ececee;
+  --text-secondary: #a4a4ae;
+  --muted: #7c7c88;
+  --accent: #7c86ff;
+  --accent-hover: #99a1ff;
+  --accent-active: #6a74e8;
+  --accent-soft: rgba(124, 134, 255, 0.13);
+  --accent-border: rgba(124, 134, 255, 0.35);
+  --good: #34d399;
+  --good-bg: rgba(52, 211, 153, 0.12);
+  --good-border: rgba(52, 211, 153, 0.3);
+  --bad: #f87171;
+  --bad-bg: rgba(248, 113, 113, 0.12);
+  --bad-border: rgba(248, 113, 113, 0.3);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.12);
+  --warn-border: rgba(251, 191, 36, 0.32);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --glow: radial-gradient(1100px 420px at 50% -12%, rgba(124, 134, 255, 0.08), transparent 62%);
+  --mark-grad: linear-gradient(135deg, #99a1ff 0%, #7c86ff 45%, #5e6ad2 100%);
+  --radius: 14px;
+  --radius-sm: 9px;
+  --radius-xs: 6px;
+  --speed: 0.16s;
+  --font: "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, Menlo,
+    Consolas, monospace;
+  --rail-w: 250px;
+  --avatar-w: 32px;
+  --composer-max: 768px;
+  --thread-max: 768px;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fafafa;
+  --bg-elevated: #f4f4f5;
+  --surface: #ffffff;
+  --surface-soft: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --text-secondary: #52525b;
+  --muted: #71717a;
+  --accent: #5e6ad2;
+  --accent-hover: #4f5ac4;
+  --accent-active: #4751b2;
+  --accent-soft: rgba(94, 106, 210, 0.1);
+  --accent-border: rgba(94, 106, 210, 0.32);
+  --good: #059669;
+  --good-bg: rgba(5, 150, 105, 0.09);
+  --good-border: rgba(5, 150, 105, 0.3);
+  --bad: #dc2626;
+  --bad-bg: rgba(220, 38, 38, 0.08);
+  --bad-border: rgba(220, 38, 38, 0.28);
+  --warn: #b45309;
+  --warn-bg: rgba(180, 83, 9, 0.09);
+  --warn-border: rgba(180, 83, 9, 0.3);
+  --shadow: 0 1px 2px rgba(24, 24, 27, 0.05), 0 10px 30px rgba(24, 24, 27, 0.07);
+  --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.05);
+  --glow: radial-gradient(1100px 420px at 50% -12%, rgba(94, 106, 210, 0.06), transparent 62%);
+  --mark-grad: linear-gradient(135deg, #7c86ff 0%, #5e6ad2 50%, #4751b2 100%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body.claude-app {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.55;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+[v-cloak] {
+  display: none !important;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* shared keyframes (health dot, progress timeline, shimmer, view rise-in) */
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes progress-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

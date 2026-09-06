@@ -4,6 +4,7 @@
  * tab is hidden or the view is unmounted.
  */
 import { fetchIngestTasks, uploadDocs } from "../api-console.js";
+import { pushToast } from "../components/toast.js";
 import { errorState, formatTimestamp, shortId } from "../components/console-widgets.js";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -23,10 +24,11 @@ export const KnowledgeView = {
       tasks: [],
       total: 0,
       offset: 0,
+      loading: false,
       error: null,
       taskColumns: [
         { key: "id", label: "任务", render: (row) => shortId(row.id) },
-        { key: "status", label: "状态" },
+        { key: "status", label: "状态", badge: true },
         {
           key: "docs",
           label: "文档数",
@@ -79,24 +81,31 @@ export const KnowledgeView = {
         await uploadDocs(this.validFiles);
         this.uploadOk = true;
         this.uploadMessage = "上传成功，已创建抽取任务（见下方列表）";
+        pushToast("上传成功，已创建抽取任务", "good");
         this.fileChecks = [];
         this.offset = 0;
         await this.loadTasks();
       } catch (err) {
         this.uploadOk = false;
         this.uploadMessage = `上传失败: ${(err && err.message) || "未知错误"}`;
+        pushToast(this.uploadMessage, "bad");
       } finally {
         this.uploading = false;
       }
     },
     async loadTasks(silent = false) {
-      if (!silent) this.error = null;
+      if (!silent) {
+        this.error = null;
+        this.loading = true;
+      }
       try {
         const env = await fetchIngestTasks({ limit: PAGE_SIZE, offset: this.offset });
         this.tasks = env.data || [];
         this.total = (env.meta && env.meta.total) || this.tasks.length;
       } catch (err) {
         if (!silent) this.error = errorState(err);
+      } finally {
+        if (!silent) this.loading = false;
       }
     },
     turnPage(delta) {
@@ -131,7 +140,7 @@ export const KnowledgeView = {
             <h2>抽取任务</h2>
             <button type="button" class="mini-btn" @click="loadTasks">刷新</button>
           </div>
-          <data-table :columns="taskColumns" :rows="tasks" empty-text="暂无任务"></data-table>
+          <data-table :columns="taskColumns" :rows="tasks" empty-text="暂无任务" :loading="loading"></data-table>
           <div class="pager">
             <span class="muted">第 {{ page }} / {{ pageCount }} 页 · 共 {{ total }} 条（自动轮询中，页面隐藏时暂停）</span>
             <span class="pager-btns">

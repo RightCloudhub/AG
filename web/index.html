@@ -1,12 +1,37 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
   <title>AgenticGraphRAG</title>
-  <link rel="stylesheet" href="/web/static/app.css" />
+  <script>
+    /* Theme bootstrap before first paint: stored choice > system preference
+     * > dark. Keep in sync with root.js (localStorage key `agr_theme`). */
+    (function () {
+      var theme = "dark";
+      try {
+        theme =
+          localStorage.getItem("agr_theme") ||
+          (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+            ? "light"
+            : "dark");
+      } catch (e) {}
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <!-- Stylesheet modules (P5-UI-03 structural pass): tokens → base → shell →
+       views. Order matters only for the composer/#q override of controls.css. -->
+  <link rel="stylesheet" href="/web/static/tokens.css" />
+  <link rel="stylesheet" href="/web/static/rail.css" />
+  <link rel="stylesheet" href="/web/static/shell.css" />
+  <link rel="stylesheet" href="/web/static/controls.css" />
+  <link rel="stylesheet" href="/web/static/primitives.css" />
+  <link rel="stylesheet" href="/web/static/overlays.css" />
   <link rel="stylesheet" href="/web/static/chat.css" />
+  <link rel="stylesheet" href="/web/static/composer.css" />
   <link rel="stylesheet" href="/web/static/panels.css" />
+  <link rel="stylesheet" href="/web/static/reasoning.css" />
   <link rel="stylesheet" href="/web/static/console.css" />
 </head>
 <body class="claude-app">

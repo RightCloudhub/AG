@@ -1,0 +1,267 @@
+/* Overlays (P5-UI-03): ⌘K command palette (trigger lives in the rail, dialog
+ * here) and the toast notification stack. Both are fixed-position, mounted
+ * once by the shell; components are components/command-palette.js and
+ * components/toast.js. */
+
+/* ── palette trigger (rail) + kbd hint ────────────────────────────── */
+
+.palette-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.83rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--speed), border-color var(--speed), background var(--speed);
+}
+
+.palette-trigger:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+
+.palette-trigger svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.palette-trigger span {
+  flex: 1;
+  text-align: left;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 0.05rem 0.35rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* ── command palette dialog ───────────────────────────────────────── */
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14vh 1rem 1rem;
+}
+
+html[data-theme="light"] .palette-overlay {
+  background: rgba(24, 24, 27, 0.35);
+}
+
+.palette {
+  width: min(34rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.palette-search svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.palette-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+.palette-search input:focus {
+  outline: none;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-xs);
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.palette-item.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.nav-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.palette-item.active .nav-icon {
+  color: var(--accent);
+}
+
+.palette-label {
+  flex-shrink: 0;
+}
+
+.palette-hint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-empty {
+  padding: 0.9rem 0.6rem;
+  text-align: center;
+}
+
+.palette-foot {
+  display: flex;
+  gap: 1rem;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+}
+
+.palette-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.palette-enter-active,
+.palette-leave-active {
+  transition: opacity 0.16s ease;
+}
+
+.palette-enter-active .palette {
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.palette-enter-from,
+.palette-leave-to {
+  opacity: 0;
+}
+
+.palette-enter-from .palette {
+  transform: translateY(6px) scale(0.99);
+  opacity: 0;
+}
+
+/* ── toasts ───────────────────────────────────────────────────────── */
+
+.toast-stack {
+  position: fixed;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.toast-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.toast[data-kind="good"] .toast-dot {
+  background: var(--good);
+}
+
+.toast[data-kind="bad"] .toast-dot {
+  background: var(--bad);
+}
+
+.toast-msg {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-x {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+}
+
+.toast-x:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+}

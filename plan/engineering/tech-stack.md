@@ -71,7 +71,7 @@
   - **Alpine.js**：指令式点缀适合开关，不适合引用角标切分、路径 chips 等列表密集渲染。
   - **htmx**：服务端返回 HTML 片段的范式；本项目 SSE 契约是 JSON 事件流，需重写服务端，否决。
 - **影响**：
-  - `web/` 模块化：`app.js` 加载器 + `js/root.js` / `js/api.js` / `js/chain-view.js` / `js/components/*`；CSS 拆为 `app.css` / `chat.css` / `panels.css`。
+  - `web/` 模块化：`app.js` 加载器 + `js/root.js` / `js/api.js` / `js/chain-view.js` / `js/components/*`；CSS 拆为 `tokens` / `rail` / `shell` / `controls` / `primitives` / `overlays` / `chat` / `composer` / `panels` / `reasoning` / `console` 十一模块（P5-UI-03，2026-09-07；各 ≤300 行）。
   - 注入安全：动态文本一律 mustache / `textContent`；**禁止 `v-html` 与任何 `innerHTML`**（替代原 `escapeHtml` 条款，见 rules.md §8 V1.1）。
   - 升级流程：改版本必须同步三处——本 ADR、`app.js` 的 `VUE_VERSION` 与加载清单、vendor 文件；过 [p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7 验证清单后合入。
   - 仍明确不做（V1）：多轮上下文、图谱编辑、移动端适配、路径编辑器。

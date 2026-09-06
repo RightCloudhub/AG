@@ -1,0 +1,221 @@
+/* Sidebar rail (P5-UI-03): brand mark, health line, view navigation, and the
+ * identity block (role pill + API key field). The ⌘K palette trigger lives in
+ * overlays.css with the palette it opens; page layout is shell.css. */
+
+.rail {
+  padding: 1.1rem 0.9rem 1rem;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--mark-grad);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 2px 8px rgba(94, 106, 210, 0.35);
+  flex-shrink: 0;
+}
+
+.brand-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+.brand-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.brand-name {
+  font-weight: 650;
+  font-size: 0.92rem;
+  letter-spacing: -0.015em;
+}
+
+.brand-tag {
+  font-size: 0.75rem;
+  color: var(--muted);
+  letter-spacing: -0.005em;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--speed), background var(--speed), border-color var(--speed);
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+  border-color: var(--border);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rail-health {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.health-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.health-dot.ok {
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good-border);
+}
+
+.health-dot.down {
+  background: var(--bad);
+  box-shadow: 0 0 6px var(--bad-border);
+}
+
+.health-dot.checking {
+  background: var(--warn);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* ── navigation ───────────────────────────────────────────────────── */
+
+.rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.42rem 0.6rem;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 0.87rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+  position: relative;
+  transition: color var(--speed), background var(--speed);
+}
+
+.nav-link .nav-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.nav-link:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.nav-link.active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+  font-weight: 550;
+}
+
+.nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: -0.55rem;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.nav-link.active .nav-icon {
+  color: var(--accent);
+}
+
+/* ── identity ─────────────────────────────────────────────────────── */
+
+.rail-identity {
+  margin-top: auto;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.identity-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.identity-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.06rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.identity-role[data-role="admin"] {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.identity-role[data-role="operator"] {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.identity-meta {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}

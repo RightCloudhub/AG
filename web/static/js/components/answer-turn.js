@@ -12,6 +12,7 @@ const COPY_IDLE = "复制";
 const COPY_OK = "已复制";
 const COPY_FAIL = "复制失败";
 const COPY_RESET_MS = 1600;
+const COPY_ANSWER_IDLE = "复制回答";
 /** Shown only when this turn was NOT already force_agentic. */
 const RETRY_FORCE_LABEL = "强制 Agentic 重问";
 /** Shown when this turn already used force_agentic (re-run without the force cue). */
@@ -22,7 +23,7 @@ export const AnswerTurn = {
   props: { turn: { type: Object, required: true } },
   emits: ["send-feedback", "retry-agentic"],
   data() {
-    return { copyState: COPY_IDLE, activeClaim: 0 };
+    return { copyState: COPY_IDLE, copyAnswerState: COPY_ANSWER_IDLE, activeClaim: 0 };
   },
   computed: {
     isError() {
@@ -91,6 +92,17 @@ export const AnswerTurn = {
         this.copyState = COPY_IDLE;
       }, COPY_RESET_MS);
     },
+    async copyAnswer() {
+      try {
+        await navigator.clipboard.writeText(this.payload.answer || "");
+        this.copyAnswerState = COPY_OK;
+      } catch {
+        this.copyAnswerState = COPY_FAIL;
+      }
+      window.setTimeout(() => {
+        this.copyAnswerState = COPY_ANSWER_IDLE;
+      }, COPY_RESET_MS);
+    },
     sendGood() {
       this.$emit("send-feedback", { turn: this.turn, accurate: true });
     },
@@ -112,7 +124,10 @@ export const AnswerTurn = {
           </div>
         </template>
         <template v-else>
-          <div class="bubble-meta">{{ metaLine }}</div>
+          <div class="bubble-meta-row">
+            <div class="bubble-meta">{{ metaLine }}</div>
+            <button type="button" class="mini-btn" @click="copyAnswer">{{ copyAnswerState }}</button>
+          </div>
           <div class="answer-text">
             <template v-for="(seg, i) in segments" :key="i">
               <span v-if="seg.type === 'text'">{{ seg.text }}</span>

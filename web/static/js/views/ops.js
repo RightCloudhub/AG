@@ -21,9 +21,11 @@ export const OpsView = {
     return {
       metrics: null,
       budget: null,
+      loadingMetrics: true,
       events: [],
       eventTotal: 0,
       offset: 0,
+      loadingEvents: false,
       filters: { window: "24h", tenant_id: "", action: "" },
       windowOptions: WINDOW_OPTIONS,
       lookupId: "",
@@ -37,7 +39,7 @@ export const OpsView = {
         { key: "tenant_id", label: "租户" },
         { key: "user_id", label: "用户", render: (row) => truncateText(row.user_id, 20) },
         { key: "target", label: "对象", render: (row) => truncateText(row.target, 28) },
-        { key: "outcome", label: "结果" },
+        { key: "outcome", label: "结果", badge: true },
       ],
     };
   },
@@ -100,12 +102,15 @@ export const OpsView = {
     },
     async loadAll() {
       this.error = null;
+      this.loadingMetrics = true;
       try {
         const [metrics, budget] = await Promise.all([fetchMetrics(), fetchBudgetSnapshot()]);
         this.metrics = metrics.data;
         this.budget = budget.data;
       } catch (err) {
         this.error = errorState(err);
+      } finally {
+        this.loadingMetrics = false;
       }
       await this.loadEvents();
     },
@@ -113,6 +118,7 @@ export const OpsView = {
       const sinceDays = { "24h": 1, "7d": 7 }[this.filters.window];
       const since =
         sinceDays !== undefined ? Date.now() / 1000 - sinceDays * 24 * HOUR_SECONDS : undefined;
+      this.loadingEvents = true;
       try {
         const env = await fetchAuditEvents({
           since,
@@ -128,6 +134,8 @@ export const OpsView = {
         this.events = [];
         this.eventTotal = 0;
         this.chainError = errorState(err).detail;
+      } finally {
+        this.loadingEvents = false;
       }
     },
     async lookup() {
@@ -155,10 +163,18 @@ export const OpsView = {
       <template v-else>
         <div class="panel">
           <div class="panel-head"><h2>指标</h2></div>
-          <div class="stat-grid">
-            <stat-card v-for="c in metricCards" :key="c.label" :label="c.label" :value="c.value"></stat-card>
+          <div v-if="loadingMetrics" class="stat-grid" aria-hidden="true">
+            <div v-for="i in 5" :key="'msk' + i" class="stat-card">
+              <span class="skeleton" style="width: 45%"></span>
+              <span class="skeleton" style="width: 72%; margin-top: 0.45rem"></span>
+            </div>
           </div>
-          <p class="muted">{{ routeLine }}</p>
+          <template v-else>
+            <div class="stat-grid">
+              <stat-card v-for="c in metricCards" :key="c.label" :label="c.label" :value="c.value"></stat-card>
+            </div>
+            <p class="muted">{{ routeLine }}</p>
+          </template>
         </div>
         <div class="panel">
           <div class="panel-head"><h2>预算快照（当前窗口）</h2></div>
@@ -185,7 +201,7 @@ export const OpsView = {
             @update="onFilter"
             @apply="applyFilters"
           ></filter-bar>
-          <data-table :columns="eventColumns" :rows="events" empty-text="窗口内暂无事件"></data-table>
+          <data-table :columns="eventColumns" :rows="events" empty-text="窗口内暂无事件" :loading="loadingEvents"></data-table>
           <div class="pager">
             <span class="muted">第 {{ page }} / {{ pageCount }} 页 · 共 {{ eventTotal }} 条</span>
             <span class="pager-btns">

@@ -84,8 +84,8 @@
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
 | 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
-| 模块 | `app.js`（boot）· `js/root.js`（壳：身份区 + 导航 + 视图分发）· `js/router.js` · `js/views/{registry,chat,knowledge,review,ops,graph}.js` · `js/api.js` · `js/api-console.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn,console-widgets}.js` |
-| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）· `console.css`（控制台组件/视图）；各 ≤300 行 |
+| 模块 | `app.js`（boot）· `js/root.js`（壳：身份区 + 导航 + 视图分发）· `js/router.js` · `js/views/{registry,chat,knowledge,review,ops,graph}.js` · `js/api.js` · `js/api-console.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn,console-widgets,command-palette,toast}.js` · `js/{icons,theme,palette-items}.js` |
+| 样式 | `tokens.css`（双主题令牌/基础样式/keyframes）· `rail.css`（侧栏）· `shell.css`（壳/顶栏/视图容器）· `controls.css`（chip/field/badge/skeleton）· `primitives.css`（表/卡）· `overlays.css`（命令面板/toast）· `chat.css`（线程/气泡）· `composer.css`（输入区）· `panels.css`（反馈/步骤/引用折叠面板）· `reasoning.css`（进度/思考/计划树/路径）· `console.css`（控制台视图）；各 ≤300 行（P5-UI-03 模块化，2026-09-07） |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
 | SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
 | 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（问答回归：文件全集、钉版、注入安全、静态资源 200）· `tests/unit/test_web_console.py`（控制台：文件清单/行数预算、注入安全、角色-视图映射、请求形状、静态挂载） |

@@ -1,0 +1,163 @@
+/* Console widget primitives (P5-UI-03): data-table, stat cards, state cards.
+ * These style the <data-table>/<stat-card>/<state-card> components registered
+ * in components/console-widgets.js; badges and skeletons are controls.css. */
+
+/* ── data table ───────────────────────────────────────────────────── */
+
+.data-table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom-color: var(--border-strong);
+}
+
+.data-table tbody tr {
+  transition: background var(--speed);
+}
+
+.data-table tbody tr:hover {
+  background: var(--bg-elevated);
+}
+
+.data-table tbody tr.clickable {
+  cursor: pointer;
+}
+
+.data-table tbody tr.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.skeleton-row td {
+  padding: 0.65rem 0.6rem;
+}
+
+.table-empty {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ── stat cards ───────────────────────────────────────────────────── */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+}
+
+.stat-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-elevated);
+  transition: border-color var(--speed), transform var(--speed);
+}
+
+.stat-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.stat-value {
+  font-size: 1.45rem;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.stat-label {
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.stat-hint {
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* ── state cards (info / forbidden / error) ───────────────────────── */
+
+.state-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 0.95rem;
+  background: var(--surface);
+}
+
+.state-card[data-kind="forbidden"] {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.state-card[data-kind="error"] {
+  border-color: var(--bad-border);
+  background: var(--bad-bg);
+}
+
+.state-glyph {
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+}
+
+.state-card[data-kind="forbidden"] .state-glyph {
+  color: var(--warn);
+  border-color: var(--warn-border);
+}
+
+.state-card[data-kind="error"] .state-glyph {
+  color: var(--bad);
+  border-color: var(--bad-border);
+}
+
+.state-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.state-detail {
+  margin: 0.2rem 0 0;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}

@@ -47,8 +47,9 @@ export const ChatView = {
       this.askQuestion(turn.question, { forceAgentic: true });
     },
     async askQuestion(question, opts) {
-      const turn = this.createTurn(question, opts);
-      this.turns.push(turn);
+      this.turns.push(this.createTurn(question, opts));
+      /* Reactive proxy (not raw): SSE handlers mutate the turn — proxy writes trigger re-render. */
+      const turn = this.turns[this.turns.length - 1];
       this.busy = true;
       this._controller = new AbortController();
       this.scrollThreadSoon();
@@ -206,7 +207,7 @@ export const ChatView = {
         <div class="empty-state" v-if="!turns.length">
           <div class="empty-icon" aria-hidden="true">✦</div>
           <h2>有什么想查的？</h2>
-          <p>像和 Claude 对话一样提问：系统会分诊复杂度，走 Fast Path 或 Agentic 多跳推理，并展示可审计的推理链。</p>
+          <p>直接提问：系统自动分诊复杂度，走 Fast Path 或 Agentic 多跳推理，并给出可审计、带证据引用的推理链。</p>
           <div class="suggestions">
             <button v-for="q in suggestions" :key="q" type="button" class="chip" @click="askSuggestion(q)">{{ q }}</button>
           </div>
@@ -229,10 +230,10 @@ export const ChatView = {
           <label class="sr-only" for="q">问题</label>
           <textarea id="q" ref="draftBox" rows="1" placeholder="向知识图谱提问…" v-model="draft"
             @keydown.enter.exact.prevent="submitAsk" @input="autoResize"></textarea>
-          <button v-if="busy" type="button" class="stop-btn" aria-label="停止" v-cloak @click="stopStreaming"><span>停止</span></button>
-          <button v-else id="askBtn" type="submit" class="send-btn" aria-label="发送"><span>发送</span></button>
+          <button v-if="busy" type="button" class="stop-btn" aria-label="停止" v-cloak @click="stopStreaming"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg></button>
+          <button v-else id="askBtn" type="submit" class="send-btn" aria-label="发送" :disabled="!draft.trim()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
         </form>
-        <p class="composer-hint">Enter 发送 · Shift+Enter 换行 · 走真实 <code>/v1/query</code> API</p>
+        <p class="composer-hint"><kbd class="kbd">Enter</kbd> 发送 · <kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd> 换行 · <kbd class="kbd">/</kbd> 聚焦输入框 · 真实 <code>/v1/query</code> API</p>
       </footer>
     </section>
   `,

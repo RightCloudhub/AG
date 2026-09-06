@@ -22,8 +22,22 @@ WEB = ROOT_DIR / "web"
 STATIC = WEB / "static"
 
 # spec §5 module table — path (relative to web/) → line budget (hard cap 300).
+# CSS modules (P5-UI-03 structural pass, U-14 tokens.css extraction) are part
+# of the inventory: the rules §1/§8 300-line cap applies to CSS like any other
+# frontend file.
 CONSOLE_FILES: tuple[tuple[str, int], ...] = (
     ("index.html", 220),
+    ("static/tokens.css", 300),
+    ("static/rail.css", 300),
+    ("static/shell.css", 300),
+    ("static/controls.css", 300),
+    ("static/primitives.css", 300),
+    ("static/overlays.css", 300),
+    ("static/chat.css", 300),
+    ("static/composer.css", 300),
+    ("static/panels.css", 300),
+    ("static/reasoning.css", 300),
+    ("static/console.css", 300),
     ("static/app.js", 65),
     ("static/js/api.js", 170),
     ("static/js/api-console.js", 160),
@@ -36,7 +50,6 @@ CONSOLE_FILES: tuple[tuple[str, int], ...] = (
     ("static/js/views/ops.js", 260),
     ("static/js/views/graph.js", 150),
     ("static/js/components/console-widgets.js", 220),
-    ("static/console.css", 300),
 )
 
 # spec §4 — view id → (hash, min nav role, component name).

@@ -1,0 +1,188 @@
+/* Shared controls & text primitives (P5-UI-03): chips, fields/inputs,
+ * status badges, skeleton placeholder, and the small label/button reused by
+ * chat panels and the console views. Layout belongs to shell.css. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color var(--speed), background var(--speed), color var(--speed),
+    transform var(--speed);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.check,
+.field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+}
+
+.field input[type="number"],
+.field input[type="text"],
+.field input[type="password"],
+.fb-input,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0.45rem 0.6rem;
+  transition: border-color var(--speed), box-shadow var(--speed), background var(--speed);
+}
+
+.field input:focus,
+.fb-input:focus,
+textarea:focus,
+.filter-field input:focus,
+.filter-field select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.check input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.field input[type="number"] {
+  width: 100%;
+}
+
+/* ── small shared text primitives ────────────────────────────────── */
+
+.card-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.mini-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+  padding: 0.12rem 0.5rem;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color var(--speed), color var(--speed), background var(--speed);
+}
+
+.mini-btn:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── status badges (data-table cells, identity) ───────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 550;
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.badge[data-tone="good"] {
+  color: var(--good);
+  background: var(--good-bg);
+  border-color: var(--good-border);
+}
+
+.badge[data-tone="good"] .badge-dot {
+  background: var(--good);
+}
+
+.badge[data-tone="bad"] {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+}
+
+.badge[data-tone="bad"] .badge-dot {
+  background: var(--bad);
+}
+
+.badge[data-tone="warn"] {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.badge[data-tone="warn"] .badge-dot {
+  background: var(--warn);
+}
+
+.badge[data-tone="accent"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.badge[data-tone="accent"] .badge-dot {
+  background: var(--accent);
+}
+
+/* ── skeleton loading placeholder (keyframes in tokens.css) ──────── */
+
+.skeleton {
+  display: block;
+  height: 0.85em;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-soft) 25%, var(--surface) 40%, var(--surface-soft) 60%);
+  background-size: 300% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}

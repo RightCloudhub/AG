@@ -4,6 +4,7 @@
  * both the recorded decision and the applied/failed graph write-back.
  */
 import { fetchReviewQueue, postReviewDecision } from "../api-console.js";
+import { pushToast } from "../components/toast.js";
 import { errorState, formatTimestamp, shortId, truncateText } from "../components/console-widgets.js";
 
 const STATUS_OPTIONS = [
@@ -32,6 +33,7 @@ export const ReviewView = {
       items: [],
       total: 0,
       offset: 0,
+      loading: false,
       selected: null,
       note: "",
       deciding: false,
@@ -42,7 +44,7 @@ export const ReviewView = {
       columns: [
         { key: "id", label: "ID", render: (row) => shortId(row.id) },
         { key: "type", label: "类型" },
-        { key: "status", label: "状态" },
+        { key: "status", label: "状态", badge: true },
         { key: "confidence", label: "置信度" },
         { key: "created", label: "创建时间", render: (row) => formatTimestamp(row.created_at) },
         { key: "payload", label: "上下文", render: (row) => truncateText(JSON.stringify(row.payload), 60) },
@@ -81,6 +83,7 @@ export const ReviewView = {
     },
     async load() {
       this.error = null;
+      this.loading = true;
       try {
         const env = await fetchReviewQueue({
           status: this.status,
@@ -92,6 +95,8 @@ export const ReviewView = {
         this.total = (env.meta && env.meta.total) || this.items.length;
       } catch (err) {
         this.error = errorState(err);
+      } finally {
+        this.loading = false;
       }
     },
     pick(row) {
@@ -110,6 +115,7 @@ export const ReviewView = {
           note: this.note || "",
         });
         this.lastDecision = this.describeWriteBack(decision, result);
+        pushToast(this.lastDecision.text, "good");
         await this.load();
       } catch (err) {
         const code = err && err.code;
@@ -120,6 +126,7 @@ export const ReviewView = {
         } else {
           this.lastDecision = { kind: "error", text: `决策失败: ${(err && err.message) || "未知错误"}` };
         }
+        if (this.lastDecision.kind === "error") pushToast(this.lastDecision.text, "bad");
       } finally {
         this.deciding = false;
       }
@@ -154,7 +161,7 @@ export const ReviewView = {
             @update="onFilter"
             @apply="applyFilters"
           ></filter-bar>
-          <data-table :columns="columns" :rows="items" empty-text="队列为空" clickable @row-click="pick"></data-table>
+          <data-table :columns="columns" :rows="items" empty-text="队列为空" clickable :loading="loading" @row-click="pick"></data-table>
           <div class="pager">
             <span class="muted">第 {{ page }} / {{ pageCount }} 页 · 共 {{ total }} 条</span>
             <span class="pager-btns">

@@ -14,6 +14,7 @@ export const GraphView = {
       total: 0,
       totalIsFloor: false,
       offset: 0,
+      loading: false,
       error: null,
       columns: [
         { key: "name", label: "实体" },
@@ -37,6 +38,7 @@ export const GraphView = {
   methods: {
     async load() {
       this.error = null;
+      this.loading = true;
       try {
         const env = await fetchGraphEntities({ limit: PAGE_SIZE, offset: this.offset });
         this.entities = env.data || [];
@@ -44,6 +46,8 @@ export const GraphView = {
         this.totalIsFloor = Boolean(env.meta && env.meta.extra && env.meta.extra.total_is_floor);
       } catch (err) {
         this.error = errorState(err);
+      } finally {
+        this.loading = false;
       }
     },
     turnPage(delta) {
@@ -61,7 +65,7 @@ export const GraphView = {
           <h2>图实体</h2>
           <button type="button" class="mini-btn" @click="load">刷新</button>
         </div>
-        <data-table :columns="columns" :rows="entities" empty-text="图谱为空"></data-table>
+        <data-table :columns="columns" :rows="entities" empty-text="图谱为空" :loading="loading"></data-table>
         <div class="pager">
           <span class="muted">
             第 {{ page }} / {{ pageCount }} 页 · 共 {{ total }}{{ totalIsFloor ? "+" : "" }} 条
