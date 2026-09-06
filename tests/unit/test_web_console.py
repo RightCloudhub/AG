@@ -39,6 +39,9 @@ CONSOLE_FILES: tuple[tuple[str, int], ...] = (
     ("static/reasoning.css", 300),
     ("static/console.css", 300),
     ("static/app.js", 65),
+    ("static/js/icons.js", 20),
+    ("static/js/theme.js", 30),
+    ("static/js/palette-items.js", 40),
     ("static/js/api.js", 170),
     ("static/js/api-console.js", 160),
     ("static/js/router.js", 60),
@@ -49,6 +52,8 @@ CONSOLE_FILES: tuple[tuple[str, int], ...] = (
     ("static/js/views/review.js", 220),
     ("static/js/views/ops.js", 260),
     ("static/js/views/graph.js", 150),
+    ("static/js/components/command-palette.js", 120),
+    ("static/js/components/toast.js", 60),
     ("static/js/components/console-widgets.js", 220),
 )
 

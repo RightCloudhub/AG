@@ -19,17 +19,28 @@ export const ToastStack = {
     return { toasts: [] };
   },
   mounted() {
+    this._timers = new Map();
     this._onToast = (toast) => {
       this.toasts.push(toast);
-      window.setTimeout(() => this.dismiss(toast.id), TOAST_MS);
+      this._timers.set(
+        toast.id,
+        window.setTimeout(() => this.dismiss(toast.id), TOAST_MS)
+      );
     };
     LISTENERS.add(this._onToast);
   },
   beforeUnmount() {
     LISTENERS.delete(this._onToast);
+    for (const id of this._timers.values()) window.clearTimeout(id);
+    this._timers.clear();
   },
   methods: {
     dismiss(id) {
+      const timer = this._timers.get(id);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        this._timers.delete(id);
+      }
       this.toasts = this.toasts.filter((t) => t.id !== id);
     },
   },

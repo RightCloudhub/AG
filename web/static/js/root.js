@@ -125,7 +125,7 @@ export const rootComponent = {
       }
     },
     onPaletteRun(item) {
-      if (item.kind === "nav") navigateToView(item.id.slice(4));
+      if (item.kind === "nav") navigateToView(item.view);
       else if (item.id === "act:theme") this.toggleTheme();
       else if (item.id === "act:clearkey") this.clearApiKey();
     },

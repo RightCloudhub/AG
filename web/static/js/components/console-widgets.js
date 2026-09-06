@@ -136,6 +136,8 @@ export const DataTable = {
     onRowClick(row) {
       if (this.clickable) this.$emit("row-click", row);
     },
+    /* Deterministic pseudo-random placeholder widths (28%–79%) keyed by the
+     * column name, so skeleton rows look organic but stable across renders. */
     skeletonWidth(col) {
       return `${28 + ((String(col.key).length * 17) % 52)}%`;
     },

@@ -1,7 +1,10 @@
 /* Command palette (⌘K / Ctrl+K): Linear-style quick switcher. Receives flat
- * items [{id, label, hint, icon, kind}] from the shell; emits run(item) and
- * close(). Owns filter text, arrow-key selection, Esc, and focus restore.
+ * items [{id, label, hint, icon, kind, view}] from the shell; emits run(item)
+ * and close(). Owns filter text, arrow-key selection, Esc, and focus
+ * restore — the trigger element regains focus when the palette closes.
  */
+import { SEARCH_ICON } from "../icons.js";
+
 export const CommandPalette = {
   name: "CommandPalette",
   props: {
@@ -10,7 +13,7 @@ export const CommandPalette = {
   },
   emits: ["close", "run"],
   data() {
-    return { query: "", active: 0 };
+    return { query: "", active: 0, searchIcon: SEARCH_ICON };
   },
   computed: {
     filtered() {
@@ -23,16 +26,24 @@ export const CommandPalette = {
   },
   watch: {
     open(isOpen) {
-      if (!isOpen) return;
-      this.query = "";
-      this.active = 0;
-      this.$nextTick(() => {
-        if (this.$refs.box) this.$refs.box.focus();
-      });
+      if (isOpen) {
+        this._lastFocus = document.activeElement;
+        this.query = "";
+        this.active = 0;
+        this.$nextTick(() => {
+          if (this.$refs.box) this.$refs.box.focus();
+        });
+      } else if (this._lastFocus && this._lastFocus.isConnected) {
+        this._lastFocus.focus();
+        this._lastFocus = null;
+      }
     },
     filtered() {
       this.active = 0;
     },
+  },
+  beforeUnmount() {
+    if (this._lastFocus && this._lastFocus.isConnected) this._lastFocus.focus();
   },
   methods: {
     onKey(event) {
@@ -63,7 +74,7 @@ export const CommandPalette = {
           <div class="palette-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0z"></path>
+              <path :d="searchIcon"></path>
             </svg>
             <input ref="box" v-model="query" type="text" placeholder="跳转视图或执行操作…"
               aria-label="搜索命令" @keydown="onKey" />

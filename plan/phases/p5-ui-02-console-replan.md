@@ -65,6 +65,9 @@
 |---|---|---|---|
 | `index.html` | 壳 + 侧栏 + 视图容器（视图内容全部走组件 string template，压 in-DOM 模板体积） | ≤220 | 改（现 133） |
 | `static/app.js` | Vue 加载 + boot | ~65 | 不动 |
+| `static/js/icons.js` | 共享 stroke 图标 path 常量（P5-UI-03） | ≤20 | 新 |
+| `static/js/theme.js` | 主题切换/持久化（`agr_theme`；配合 index.html 预绘脚本，P5-UI-03） | ≤30 | 新 |
+| `static/js/palette-items.js` | 命令面板条目构建（纯函数，P5-UI-03） | ≤40 | 新 |
 | `static/tokens.css` | 设计令牌（双主题 `:root` / `html[data-theme="light"]`）+ 基础元素样式 + 共享 keyframes（P5-UI-03 自 app.css 抽出；原「纸面质感配方」未采用） | ≤300 | 新（U-14，交付） |
 | `static/rail.css` | 侧栏导轨：品牌 / 健康点 / 导航 / 身份区（P5-UI-03） | ≤300 | 新 |
 | `static/shell.css` | 壳网格 / 顶栏 / 视图容器 / boot 错误 / 视图过渡 / 响应式（P5-UI-03） | ≤300 | 新 |
@@ -83,10 +86,12 @@
 | `static/js/views/review.js` | 队列 + 决策 | ≤220 | 新 |
 | `static/js/views/ops.js` | 指标 / 预算 / 事件 / 审计回查 | ≤260 | 新 |
 | `static/js/views/graph.js` | 实体分页表 | ≤150 | 新 |
+| `static/js/components/command-palette.js` | ⌘K 命令面板组件（过滤/键盘选择/焦点恢复，P5-UI-03） | ≤120 | 新 |
+| `static/js/components/toast.js` | toast 通知（pub-sub + 栈组件，P5-UI-03） | ≤60 | 新 |
 | `static/js/components/console-widgets.js` | data-table / filter-bar / stat-card / state-card（空态 / 无权限 / 错误） | ≤220 | 新 |
-| `static/console.css` | 控制台视图样式（现有三 CSS 不动） | ≤300 | 新 |
+| `static/console.css` | 控制台视图样式（面板 / 过滤 / 上传 / 决策；P5-UI-03 更新头注释指向新令牌模块） | ≤300 | 新 |
 
-`chain-view.js`、`components/{widgets,answer-turn,index}.js` 原样复用；`chat.css` / `panels.css` 随 P5-UI-03 **结构拆分**（composer / reasoning 拆出，全部 ≤300 行，`app.css` 拆为 tokens/rail/shell/controls/primitives/overlays 六模块后删除）——组件继续保持纯对象（零 Vue import）。
+`chain-view.js`、`components/widgets.js` 原样复用；`components/answer-turn.js`（复制回答按钮）与 `components/index.js`（新组件注册）随 P5-UI-03 小幅扩展；`chat.css` / `panels.css` 随 P5-UI-03 **结构拆分**（composer / reasoning 拆出，全部 ≤300 行，`app.css` 拆为 tokens/rail/shell/controls/primitives/overlays 六模块后删除）——组件继续保持纯对象（零 Vue import）。
 
 ## 6. 里程碑与任务清单
 
@@ -101,7 +106,7 @@
   - [x] **U-06** `index.html` 导航 + 视图容器；`console.css` 基座；`console-widgets.js` 四组件
 - **M2b 视觉体系落地（2026-09-07 随 P5-UI-03 交付：**双主题暗色优先方向**；原「制图室」提案保留于 [UI_DESIGN](../../docs/UI_DESIGN.md) 未采用）**
   - [x] **U-14** `tokens.css` 抽出 + 令牌值刷新：**实现为双主题令牌**（暗色默认 + `data-theme="light"` 覆盖、动效令牌、共享 keyframes、`prefers-reduced-motion` 全量降级）；非原案的墨青/朱砂/宋体/纸面网格；`index.html` link 与测试清单同步（文件清单 + CSS 断言改指新模块）
-  - [x] **U-15** 组件视觉规范随视图落地：**实现为 badge 五色调状态语言、命令面板（⌘K）、toast、骨架屏、stat/state 卡、hop 时间轴**；非原案印章语言
+  - [x] **U-15** 组件视觉规范随视图落地：**实现为 badge 五色调状态语言、命令面板（⌘K）、toast、骨架屏、stat/state 卡、hop 时间轴**；非原案印章语言。**随附小幅交互补全（已记录的范围扩展）**：回答复制按钮、发送键空草稿禁用、`/` 聚焦输入框、key 保存/清除 toast；`views/chat.js` 的 `askQuestion` 改从 reactive proxy 取 turn（SSE 处理器变更可触发重渲——缺陷修复，非行为变更）
 - **M3 知识运维视图（operator+）**
   - [x] **U-07** `views/knowledge.js`：上传（前端预检 + 逐文件结果）+ 任务列表/轮询（间隔 ≥2s；页面隐藏即停）
   - [x] **U-08** `views/review.js`：队列 + 决策 + 409/404 显式态；**文案更新（BL-03 已于 2026-09-06 实现写回）**：决策响应携带 `graph_effects`，UI 展示「决策已记录 + 图谱写回结果」，不再使用本规划原稿「图谱写回待立项」的旧文案
