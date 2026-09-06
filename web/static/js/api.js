@@ -1,18 +1,32 @@
-/* Backend client for the trial UI: envelope-aware JSON calls + manual SSE
+/* Backend client for the console UI: envelope-aware JSON calls + manual SSE
  * parsing. SSE uses fetch + ReadableStream (not EventSource) because the
  * stream endpoint requires POST with a JSON body. Framework-free module.
  *
  * Auth: optional API key from localStorage key `agr_api_key` (or window.AGR_API_KEY).
  * When set, sent as Authorization: Bearer <key> so AGR_REQUIRE_AUTH=1 works.
+ *
+ * Errors: envelope failures throw EnvelopeError carrying the envelope `code`
+ * and HTTP status (U-04) so views can render forbidden/unauthorized state
+ * cards instead of probing permissions.
  */
 const QUERY_URL = "/v1/query";
 const STREAM_URL = "/v1/query/stream";
 const FEEDBACK_URL = "/v1/feedback";
+const ME_URL = "/v1/me";
 const HEALTH_URL = "/healthz";
 const SSE_BLOCK_SEPARATOR = "\n\n";
 const SSE_EVENT_PREFIX = "event:";
 const SSE_DATA_PREFIX = "data:";
 const API_KEY_STORAGE = "agr_api_key";
+
+export class EnvelopeError extends Error {
+  constructor(message, code, status) {
+    super(message);
+    this.name = "EnvelopeError";
+    this.code = code || "";
+    this.status = status || 0;
+  }
+}
 
 export function getApiKey() {
   try {
@@ -45,25 +59,40 @@ export function friendlyError(err) {
   return message || "未知错误";
 }
 
-/* POST JSON and unwrap the unified envelope; throws on success=false. */
-async function postEnvelope(url, body) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
+/* Parse the unified envelope; throws EnvelopeError on success=false.
+ * Returns the full envelope so callers can read `meta` (totals, paging). */
+export async function unwrapEnvelope(res) {
   let env = null;
   try {
     env = await res.json();
   } catch {
     env = null;
   }
-  if (!env) throw new Error(`请求失败（HTTP ${res.status}）`);
+  if (!env) throw new EnvelopeError(`请求失败（HTTP ${res.status}）`, "", res.status);
   if (!env.success) {
     const error = env.error || {};
-    throw new Error(error.message || error.code || "请求失败");
+    throw new EnvelopeError(error.message || error.code || "请求失败", error.code, res.status);
   }
-  return env.data;
+  return env;
+}
+
+async function requestEnvelope(url, options) {
+  const res = await fetch(url, { headers: authHeaders(), ...options });
+  return unwrapEnvelope(res);
+}
+
+/* GET and return the full envelope ({data, meta, ...}). */
+export function fetchEnvelope(url) {
+  return requestEnvelope(url);
+}
+
+/* POST JSON and unwrap the envelope; returns `data` (pre-chat behavior). */
+async function postEnvelope(url, body) {
+  return (await requestEnvelope(url, { method: "POST", body: JSON.stringify(body) })).data;
+}
+
+export function postJson(url, body) {
+  return postEnvelope(url, body);
 }
 
 export function postQuery(body) {
@@ -72,6 +101,10 @@ export function postQuery(body) {
 
 export function postFeedback(body) {
   return postEnvelope(FEEDBACK_URL, body);
+}
+
+export async function fetchMe() {
+  return (await fetchEnvelope(ME_URL)).data;
 }
 
 export async function fetchHealth() {

@@ -7,126 +7,13 @@
   <link rel="stylesheet" href="/web/static/app.css" />
   <link rel="stylesheet" href="/web/static/chat.css" />
   <link rel="stylesheet" href="/web/static/panels.css" />
+  <link rel="stylesheet" href="/web/static/console.css" />
 </head>
 <body class="claude-app">
-  <!-- Vue 3 root; the markup below is the in-DOM root template (ADR-006). -->
-
-  <div id="app" v-cloak>
-    <div class="shell">
-      <aside class="rail" aria-label="Sidebar">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true"></div>
-          <div>
-            <div class="brand-name">AgenticGraphRAG</div>
-            <div class="brand-tag">多跳图谱问答 · 试用</div>
-          </div>
-        </div>
-        <p class="rail-blurb">
-          像和 Claude 对话一样提问。系统会分诊复杂度，走 Fast Path 或 Agentic 多跳推理，并展示可审计的推理链。
-        </p>
-        <p class="rail-health" v-cloak>
-          <span class="health-dot" :class="health.state" aria-hidden="true"></span>
-          <span>{{ health.label }}</span>
-        </p>
-        <details class="rail-settings">
-          <summary>高级选项</summary>
-          <div class="settings-body">
-            <label class="check">
-              <input type="checkbox" id="forceAgentic" v-model="settings.forceAgentic" />
-              <span>强制 Agentic</span>
-            </label>
-            <label class="field">
-              <span>最大跳数</span>
-              <input type="number" id="maxHops" min="1" max="10" v-model.number="settings.maxHops" />
-            </label>
-            <label class="check">
-              <input type="checkbox" id="useStream" v-model="settings.useStream" />
-              <span>SSE 流式进度</span>
-            </label>
-            <label class="field">
-              <span>API Key</span>
-              <input
-                type="password"
-                id="apiKey"
-                autocomplete="off"
-                placeholder="Bearer token（可选）"
-                v-model="settings.apiKey"
-                @change="saveApiKey"
-              />
-            </label>
-          </div>
-        </details>
-      </aside>
-
-      <div class="stage">
-        <header class="topbar">
-          <h1>对话</h1>
-          <p class="topbar-sub">单次独立提问 · 答案绑定证据引用</p>
-        </header>
-
-        <main class="thread" ref="thread" aria-live="polite" v-cloak>
-          <div class="empty-state" v-if="!turns.length">
-            <div class="empty-icon" aria-hidden="true">✦</div>
-            <h2>有什么想查的？</h2>
-            <p>试试多跳关系问题，例如公司母公司的 CEO。</p>
-            <div class="suggestions">
-              <button
-                v-for="q in suggestions"
-                :key="q"
-                type="button"
-                class="chip"
-                @click="askSuggestion(q)"
-              >{{ q }}</button>
-            </div>
-          </div>
-
-          <div class="messages" v-else>
-            <template v-for="turn in turns" :key="turn.id">
-              <article class="msg user">
-                <div class="avatar" aria-hidden="true">你</div>
-                <div class="bubble"><div class="user-text">{{ turn.question }}</div></div>
-              </article>
-              <progress-log :turn="turn"></progress-log>
-              <thinking-panel :turn="turn"></thinking-panel>
-              <answer-turn
-                v-if="turn.result || turn.error"
-                :turn="turn"
-                @send-feedback="sendFeedback"
-                @retry-agentic="retryAgentic"
-              ></answer-turn>
-            </template>
-          </div>
-        </main>
-
-        <footer class="composer">
-          <form id="askForm" class="composer-inner" autocomplete="off" @submit.prevent="submitAsk">
-            <label class="sr-only" for="q">问题</label>
-            <textarea
-              id="q"
-              ref="draftBox"
-              rows="1"
-              placeholder="向知识图谱提问…"
-              v-model="draft"
-              @keydown.enter.exact.prevent="submitAsk"
-              @input="autoResize"
-            ></textarea>
-            <button
-              v-if="busy"
-              type="button"
-              class="stop-btn"
-              aria-label="停止"
-              v-cloak
-              @click="stopStreaming"
-            ><span>停止</span></button>
-            <button v-else id="askBtn" type="submit" class="send-btn" aria-label="发送">
-              <span>发送</span>
-            </button>
-          </form>
-          <p class="composer-hint">Enter 发送 · Shift+Enter 换行 · 走真实 <code>/v1/query</code> API</p>
-        </footer>
-      </div>
-    </div>
-  </div>
+  <!-- Vue 3 root (ADR-006, p5-ui-02): this file is only the mount point —
+       the shell (sidebar / identity / nav / view dispatch) is the root.js
+       template, and every view is a component string template. -->
+  <div id="app" v-cloak></div>
 
   <script type="module" src="/web/static/app.js"></script>
 </body>

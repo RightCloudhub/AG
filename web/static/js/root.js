@@ -1,56 +1,62 @@
-/* Root chat component (Options API; template is the in-DOM markup under
- * #app in web/index.html). Holds conversation state and orchestrates the
- * query/stream/feedback flows. Each turn is an independent question — no
- * multi-turn context is ever sent to the server (V1 boundary).
+/* Console shell (P5-UI-02 U-03/U-05): identity state via /v1/me (probed at
+ * boot and on key change — never by forbidden-error probing), role-filtered
+ * navigation from the view registry, health dot, and hash-routed views.
  */
-import {
-  fetchHealth,
-  friendlyError,
-  getApiKey,
-  postFeedback,
-  postQuery,
-  setApiKey,
-  streamQuery,
-} from "./api.js";
-import { describeStreamEvent, describeThinkingEvent } from "./chain-view.js";
+import { fetchHealth, fetchMe, getApiKey, setApiKey } from "./api.js";
+import { currentViewHash, navigateToView } from "./router.js";
+import { DEFAULT_VIEW_ID, VIEWS, roleAllows, viewById } from "./views/registry.js";
 
-const DEFAULT_MAX_HOPS = 5;
-const MIN_HOPS = 1;
-const MAX_HOPS = 10;
-const COMPOSER_MAX_HEIGHT_PX = 128;
-const NEAR_BOTTOM_PX = 120;
-
-const SUGGESTED_QUESTIONS = Object.freeze([
-  "Who is the CEO of Apex Holdings?",
-  "Who is the CEO of the parent company of BrightLink Logistics?",
-  "What is the parent company of NovaTech Industries?",
-]);
+const ROLE_LABELS = Object.freeze({
+  admin: "管理员",
+  operator: "操作员",
+  reader: "读者",
+  anonymous: "未登录",
+});
 
 export const rootComponent = {
-  name: "AgrChatApp",
+  name: "AgrConsoleShell",
   data() {
     return {
-      draft: "",
-      busy: false,
-      turnSeq: 0,
-      turns: [],
-      suggestions: SUGGESTED_QUESTIONS,
-      settings: {
-        forceAgentic: false,
-        maxHops: DEFAULT_MAX_HOPS,
-        useStream: true,
-        apiKey: getApiKey(),
-      },
+      currentId: DEFAULT_VIEW_ID,
+      apiKey: getApiKey(),
       health: { state: "checking", label: "检测服务中…" },
+      identity: { tenantId: "", userId: "", role: "", ready: false },
     };
   },
+  computed: {
+    /* Before /v1/me answers, assume the server-default reader role so nav is
+     * never wider than the caller's real permissions. */
+    activeRole() {
+      return this.identity.ready ? this.identity.role || "reader" : "reader";
+    },
+    navViews() {
+      return VIEWS.filter((v) => roleAllows(v.minRole, this.activeRole));
+    },
+    currentView() {
+      return viewById(this.currentId) || viewById(DEFAULT_VIEW_ID);
+    },
+    currentAllowed() {
+      return roleAllows(this.currentView.minRole, this.activeRole);
+    },
+    roleLabel() {
+      return ROLE_LABELS[this.identity.role] || this.identity.role || "未知";
+    },
+    identityMeta() {
+      const user = this.identity.userId || "anonymous";
+      const shown = user.length > 18 ? `${user.slice(0, 18)}…` : user;
+      return `${this.identity.tenantId || "default"} / ${shown}`;
+    },
+  },
   mounted() {
+    window.addEventListener("hashchange", this.onHashChange);
+    this.onHashChange();
     this.checkHealth();
+    this.refreshIdentity();
+  },
+  beforeUnmount() {
+    window.removeEventListener("hashchange", this.onHashChange);
   },
   methods: {
-    saveApiKey() {
-      setApiKey((this.settings.apiKey || "").trim());
-    },
     async checkHealth() {
       try {
         const h = await fetchHealth();
@@ -61,177 +67,80 @@ export const rootComponent = {
         this.health = { state: "down", label: "服务不可用" };
       }
     },
-
-    submitAsk() {
-      const question = this.draft.trim();
-      if (!question || this.busy) return;
-      this.draft = "";
-      this.autoResize();
-      this.askQuestion(question, {});
-    },
-
-    askSuggestion(question) {
-      if (this.busy) return;
-      this.askQuestion(question, {});
-    },
-
-    retryAgentic(turn) {
-      if (this.busy) return;
-      this.askQuestion(turn.question, { forceAgentic: true });
-    },
-
-    async askQuestion(question, opts) {
-      const turn = this.createTurn(question, opts);
-      this.turns.push(turn);
-      this.busy = true;
-      this._controller = new AbortController();
-      this.scrollThreadSoon();
+    async refreshIdentity() {
       try {
-        if (this.settings.useStream) await this.runStream(turn);
-        else await this.runJson(turn);
-      } catch (err) {
-        this.finishWithError(turn, err);
-      } finally {
-        this.busy = false;
-        this._controller = null;
-        this.scrollThreadSoon();
+        const me = await fetchMe();
+        this.identity = {
+          tenantId: me.tenant_id || "default",
+          userId: me.user_id || "anonymous",
+          role: me.role || "reader",
+          ready: true,
+        };
+      } catch {
+        this.identity = { tenantId: "default", userId: "anonymous", role: "reader", ready: true };
       }
     },
-
-    createTurn(question, opts) {
-      this.turnSeq += 1;
-      return {
-        id: this.turnSeq,
-        question,
-        forceAgentic: Boolean(opts.forceAgentic) || this.settings.forceAgentic,
-        status: "streaming",
-        progress: [],
-        thinking: [],
-        result: null,
-        error: "",
-        feedback: { state: "idle", message: "" },
-        fbReason: "",
-      };
+    saveApiKey() {
+      setApiKey((this.apiKey || "").trim());
+      this.refreshIdentity();
     },
-
-    requestBody(turn) {
-      const hops = Number(this.settings.maxHops) || DEFAULT_MAX_HOPS;
-      return {
-        question: turn.question,
-        force_agentic: turn.forceAgentic,
-        max_hops: Math.min(MAX_HOPS, Math.max(MIN_HOPS, hops)),
-      };
+    clearApiKey() {
+      this.apiKey = "";
+      setApiKey("");
+      this.refreshIdentity();
     },
-
-    async runJson(turn) {
-      this.addProgress(turn, "info", "同步查询 /v1/query …");
-      const data = await postQuery(this.requestBody(turn));
-      this.finishWithResult(turn, data);
-    },
-
-    async runStream(turn) {
-      this.addProgress(turn, "info", "连接流式接口…");
-      await streamQuery({
-        body: this.requestBody(turn),
-        signal: this._controller.signal,
-        onEvent: (evt) => this.handleStreamEvent(turn, evt),
-      });
-      if (turn.status === "streaming") {
-        this.finishWithError(turn, new Error("流式连接提前结束（未收到 answer）"));
+    onHashChange() {
+      const id = currentViewHash();
+      const view = id ? viewById(id) : null;
+      if (view) {
+        this.currentId = view.id;
+        navigateToView(view.id);
+      } else {
+        this.currentId = DEFAULT_VIEW_ID;
       }
-    },
-
-    async handleStreamEvent(turn, evt) {
-      if (evt.type === "answer") {
-        this.finishWithResult(turn, evt.payload);
-        await this.$nextTick();
-        return;
-      }
-      if (evt.type === "error") {
-        const payload = evt.payload || {};
-        this.finishWithError(turn, new Error(payload.message || payload.code || "流式错误"));
-        await this.$nextTick();
-        return;
-      }
-      const thought = describeThinkingEvent(evt);
-      if (thought) this.addThinking(turn, thought);
-      const note = describeStreamEvent(evt);
-      if (note) this.addProgress(turn, note.kind, note.text);
-      // Paint between frames so batched TCP chunks still look incremental.
-      await this.$nextTick();
-      await new Promise((r) => requestAnimationFrame(r));
-    },
-
-    finishWithResult(turn, data) {
-      turn.result = data;
-      turn.status = "done";
-      this.addProgress(turn, "done", "完成");
-    },
-
-    finishWithError(turn, err) {
-      if (turn.status !== "streaming") return;
-      turn.error = friendlyError(err);
-      turn.status = "error";
-      this.addProgress(turn, "error", `错误: ${turn.error}`);
-    },
-
-    addProgress(turn, kind, text) {
-      turn.progress.push({ key: turn.progress.length, kind, text });
-      this.scrollThreadSoon();
-    },
-
-    addThinking(turn, thought) {
-      turn.thinking.push({
-        key: turn.thinking.length,
-        stage: thought.stage,
-        text: thought.text,
-        detail: thought.detail || "",
-      });
-      this.scrollThreadSoon();
-    },
-
-    stopStreaming() {
-      const turn = this.turns[this.turns.length - 1];
-      if (turn && turn.status === "streaming") {
-        turn.status = "aborted";
-        turn.error = "已停止（该问题未完成，可重试）";
-        this.addProgress(turn, "error", turn.error);
-      }
-      if (this._controller) this._controller.abort();
-    },
-
-    async sendFeedback(payload) {
-      const { turn, accurate } = payload;
-      if (!turn.result || turn.feedback.state === "sending") return;
-      turn.feedback = { state: "sending", message: "" };
-      try {
-        await postFeedback({
-          query_id: turn.result.query_id,
-          accurate,
-          reason: turn.fbReason || "",
-        });
-        turn.feedback = { state: accurate ? "good" : "bad", message: "反馈已提交，感谢" };
-      } catch (err) {
-        turn.feedback = { state: "idle", message: `反馈失败: ${friendlyError(err)}` };
-      }
-    },
-
-    /* Follow new output only when the user is already near the bottom. */
-    scrollThreadSoon() {
-      const el = this.$refs.thread;
-      if (!el) return;
-      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-      if (!nearBottom) return;
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    },
-
-    autoResize() {
-      const box = this.$refs.draftBox;
-      if (!box) return;
-      box.style.height = "auto";
-      box.style.height = `${Math.min(box.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
     },
   },
+  template: `
+    <div class="shell">
+      <aside class="rail" aria-label="Sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div>
+            <div class="brand-name">AgenticGraphRAG</div>
+            <div class="brand-tag">多跳图谱问答 · 工作台</div>
+          </div>
+        </div>
+        <p class="rail-health" v-cloak>
+          <span class="health-dot" :class="health.state" aria-hidden="true"></span>
+          <span>{{ health.label }}</span>
+        </p>
+        <nav class="rail-nav" aria-label="视图导航">
+          <a v-for="v in navViews" :key="v.id" class="nav-link"
+             :class="{ active: v.id === currentId }" :href="'#/' + v.id">{{ v.title }}</a>
+        </nav>
+        <div class="rail-identity">
+          <div class="card-label">身份</div>
+          <p class="identity-line" v-cloak>
+            <span class="identity-role" :data-role="identity.role">{{ roleLabel }}</span>
+            <span class="identity-meta">{{ identityMeta }}</span>
+          </p>
+          <label class="field">
+            <span>API Key</span>
+            <input type="password" id="apiKey" autocomplete="off" placeholder="Bearer token（可选）"
+              v-model="apiKey" @change="saveApiKey" />
+          </label>
+          <button v-if="apiKey" type="button" class="mini-btn" @click="clearApiKey">清除 Key（登出）</button>
+        </div>
+      </aside>
+      <div class="stage">
+        <header class="topbar">
+          <h1>{{ currentView.title }}</h1>
+          <p class="topbar-sub">{{ currentView.subtitle }}</p>
+        </header>
+        <component v-if="currentAllowed" :is="currentView.component"></component>
+        <state-card v-else class="console-view" kind="forbidden" title="无权限访问该视图"
+          detail="当前身份的角色不足以查看此视图；如需访问，请联系管理员调整 API Key 的角色。"></state-card>
+      </div>
+    </div>
+  `,
 };

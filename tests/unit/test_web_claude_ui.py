@@ -73,6 +73,8 @@ def test_required_web_files_exist():
 
 
 def test_html_vue_shell_structure():
+    """index.html is the mount shell only (p5-ui-02 U-05); chat markup moved
+    to views/chat.js and is asserted in test_chat_view_template_structure."""
     html = _read(WEB / "index.html")
     assert 'id="app"' in html
     assert "v-cloak" in html
@@ -80,15 +82,22 @@ def test_html_vue_shell_structure():
     assert "/web/static/app.css" in html
     assert "/web/static/chat.css" in html
     assert "/web/static/panels.css" in html
+    assert "/web/static/console.css" in html
     assert "/web/static/app.js" in html
-    assert 'id="q"' in html
-    assert 'id="askForm"' in html
-    assert "answer-turn" in html
-    assert "progress-log" in html
-    assert "thinking-panel" in html
-    assert 'id="forceAgentic"' in html
-    assert 'id="maxHops"' in html
-    assert 'id="useStream"' in html
+
+
+def test_chat_view_template_structure():
+    """Chat markup (ids/classes the old in-DOM template carried) now lives in
+    the chat view component template (U-12 test split)."""
+    src = _read(STATIC / "js" / "views" / "chat.js")
+    assert 'id="q"' in src
+    assert 'id="askForm"' in src
+    assert "answer-turn" in src
+    assert "progress-log" in src
+    assert "thinking-panel" in src
+    assert 'id="forceAgentic"' in src
+    assert 'id="maxHops"' in src
+    assert 'id="useStream"' in src
 
 
 def test_answer_turn_retry_label_depends_on_force_agentic():
@@ -127,9 +136,10 @@ def test_js_backend_endpoints_and_sse_events():
     chain = _read(STATIC / "js" / "chain-view.js")
     for name in CHAIN_EXPORTS:
         assert f"export function {name}" in chain or f"function {name}" in chain
+    chat = _read(STATIC / "js" / "views" / "chat.js")
     for evt in SSE_EVENTS:
-        # answer/error handled in root; progress events listed in chain-view
-        assert evt in chain or evt in _read(STATIC / "js" / "root.js")
+        # answer/error handled in chat view; progress events listed in chain-view
+        assert evt in chain or evt in chat
 
 
 def test_injection_safety_no_vhtml_or_innerhtml():
@@ -174,17 +184,22 @@ def test_get_web_and_static_assets():
     body = r.text
     assert 'id="app"' in body
     assert "claude-app" in body
-    assert 'id="q"' in body
+    assert "/web/static/console.css" in body
 
     for path in (
         "/web/static/app.css",
         "/web/static/chat.css",
         "/web/static/panels.css",
+        "/web/static/console.css",
         "/web/static/app.js",
         "/web/static/js/api.js",
         "/web/static/js/chain-view.js",
         "/web/static/js/root.js",
+        "/web/static/js/router.js",
+        "/web/static/js/api-console.js",
         "/web/static/js/components/index.js",
+        "/web/static/js/views/registry.js",
+        "/web/static/js/views/chat.js",
     ):
         resp = client.get(path)
         assert resp.status_code == HTTP_OK, path
