@@ -51,12 +51,12 @@
     }
   },
   "paths": {
-    "all": "/home/gentoo/AG/evals/datasets/g2_all.jsonl",
-    "dev": "/home/gentoo/AG/evals/datasets/g2_dev.jsonl",
-    "heldout": "/home/gentoo/AG/evals/datasets/g2_heldout.jsonl",
-    "guardrail": "/home/gentoo/AG/evals/datasets/g2_guardrail.jsonl",
-    "dev_alias": "/home/gentoo/AG/evals/datasets/dev.jsonl",
-    "heldout_alias": "/home/gentoo/AG/evals/datasets/heldout.jsonl",
-    "guardrail_alias": "/home/gentoo/AG/evals/datasets/guardrail.jsonl"
+    "all": "/home/gentoo/AG/evals/datasets/t2/g2_all.jsonl",
+    "dev": "/home/gentoo/AG/evals/datasets/t2/g2_dev.jsonl",
+    "heldout": "/home/gentoo/AG/evals/datasets/t2/g2_heldout.jsonl",
+    "guardrail": "/home/gentoo/AG/evals/datasets/t2/g2_guardrail.jsonl",
+    "dev_alias": "/home/gentoo/AG/evals/datasets/t2/dev.jsonl",
+    "heldout_alias": "/home/gentoo/AG/evals/datasets/t2/heldout.jsonl",
+    "guardrail_alias": "/home/gentoo/AG/evals/datasets/t2/guardrail.jsonl"
   }
 }

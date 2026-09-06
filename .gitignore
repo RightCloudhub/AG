@@ -26,6 +26,7 @@ data/processed/triples.jsonl
 data/processed/rejected_triples.jsonl
 data/processed/_single_case.jsonl
 # Pilot raw docs may be large/sensitive; keep template + README tracked
+data/temporal/**
 data/pilot/raw/**
 !data/pilot/raw/.gitkeep
 *.db
