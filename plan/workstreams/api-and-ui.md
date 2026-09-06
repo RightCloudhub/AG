@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.6（2026-09-07）— **P5-UI-02 控制台已实施**（M0–M6，M2b 视觉除外；§1.4 增 `/v1/me`、`/v1/ingest-tasks` 列表，§2.7 刷新交付形态）。前版 V1.5（2026-08-08）：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
+**版本**：V1.7（2026-09-07）— **P5-UI-02 控制台已实施**（M0–M6 + M2b 视觉随同日 P5-UI-03 结构重设计关闭；§1.4 增 `/v1/me`、`/v1/ingest-tasks` 列表；§2.7 刷新交付形态与 CSS 模块清单）。前版 V1.6（2026-09-07）：M0–M6 交付（M2b 视觉除外）。前版 V1.5（2026-08-08）：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -72,7 +72,7 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
 - 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 控制台已交付 2026-09-07，M2b 视觉除外）
+## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 控制台已交付 2026-09-07，M2b 视觉随 P5-UI-03 关闭）
 
 **定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
 
@@ -135,14 +135,14 @@
 - [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
 - [x] 全前端 `v-html` / `.innerHTML` 零命中
 
-### 2.7 P5-UI-02 前端重规划概要（2026-08-08 立项；**2026-09-07 已实施交付**，M2b 视觉除外）
+### 2.7 P5-UI-02 前端重规划概要（2026-08-08 立项；**2026-09-07 已实施交付**，M2b 视觉随同日 P5-UI-03 结构重设计一并关闭）
 
 试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策——**文案已随 BL-03 落地更新**：决策响应携带 `graph_effects`，UI 展示「已记录 + 写回结果」）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表）。
 
 - **交付形态**：`static/js/router.js` + `views/registry.js`（角色-视图唯一真源）+ `root.js` 壳化（身份区 + 导航显隐 + 视图分发）；视图 = `views/{chat,knowledge,review,ops,graph}.js` 组件 string template；`components/console-widgets.js` 四组件（data-table / filter-bar / stat-card / state-card）+ `static/console.css`；`api-console.js` 域客户端；`api.js` 增 `EnvelopeError`（envelope code + status，U-04）与 `/v1/me`。
 - **测试**：`tests/unit/test_web_console.py`（文件清单与行数预算 / 注入安全 / 角色-视图映射 / 请求形状 / 静态挂载 / CSS 外链策略）；`test_web_claude_ui.py` 保留问答回归，chat 标记断言已改指 `views/chat.js`。
-- **未做**：M2b 视觉体系（U-14/U-15，tokens.css 未抽出）——规划文档 §6 已如实留 `[ ]`。
+- **M2b 视觉体系（U-14/U-15）**：已随 P5-UI-03 交付（2026-09-07，双主题暗色优先方向）——`tokens.css` 抽出 + CSS 模块化（11 个 CSS 模块全部 ≤300 行并入测试清单）+ ⌘K 命令面板 / toast / 骨架屏 / badge 状态语言；规划文档 §6 已翻 `[x]`。
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
 - **API 前置两项**（M0，已交付）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页。
-- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)（当前交付直用既有纸面主题；U-14/U-15 时按该基准值级刷新）。
+- **视觉方向（V1.1 起）**：实际落地为双主题暗色优先（Vercel/Linear 风）；原「制图室」提案（宋体 + 纸面网格 + 朱砂印章）保留于 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md) 未采用——该文档 V1.1 状态头已记录取代关系。
 - 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。

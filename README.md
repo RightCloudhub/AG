@@ -252,7 +252,7 @@ python scripts/check_code_metrics.py    # 硬指标：文件≤300行 · 函数�
 |---|---|
 | 阶段一～三（代码） | ✅ 抽取入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计、增量与 复核队列 |
 | G1 → G2 过渡门禁 | ✅ 工程 PASS（2026-07-20，[`reports/G1_to_G2_status.json`](./reports/G1_to_G2_status.json)）；真域 / live 配额 caveat 仍开 |
-| 试用 Web UI + 控制台 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01；**P5-UI-02 角色控制台 2026-09-07 交付**，M2b 视觉除外）— `/web` 挂载：问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图按 RBAC 显隐 |
+| 试用 Web UI + 控制台 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01；**P5-UI-02 角色控制台 2026-09-07 交付**，M2b 视觉随 P5-UI-03 关闭）— `/web` 挂载：问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图按 RBAC 显隐 |
 | Live held-out（合成语料） | 🟡 合并语料（pilot+temporal 653 triples）重生成金标后 **agentic 85.11% vs baseline 12.77%** / 证据 recall **0.9021**（2026-09-06）；live LLM 重跑、生产 P95 ≤8s（AC-4）仍开，且语料为合成 |
 | 企业级管控（P5-ENT-01…08） | 🟢 工程交付（2026-07-25，ENT-07/RPA 除外）— JSON 日志、admin 排障端点、安全审计流、RBAC、租户配置化限额与摄取任务状态机、数据隔离 / 脱敏 / 保留清理、Prometheus + 可选 OTel；**Redis 多副本 / 真后端跨租户回归 / OTLP collector 仍待部署验证**（[docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) §3.5） |
 | 效果门禁 G2 / G3 / G4 | ⏳ 仍开：真域语料签字、live held-out 正式达标、生产 P95、灰度 与全套验收 |

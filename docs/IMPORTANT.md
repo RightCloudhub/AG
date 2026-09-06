@@ -156,7 +156,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
-| **P5-UI-02** | **[x] 代码交付（2026-09-07）** — 角色感知控制台：五视图（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）+ 身份区 hash 路由壳；M0 API：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；**M2b 视觉体系（U-14/U-15，tokens.css 未抽出）未做**；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md) |
+| **P5-UI-02** | **[x] 代码交付（2026-09-07）** — 角色感知控制台：五视图（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）+ 身份区 hash 路由壳；M0 API：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；**M2b 视觉体系（U-14/U-15）已随同日 P5-UI-03 结构重设计关闭**（双主题暗色优先，tokens.css 抽出——见 §0 2026-09-07 快照行）；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
