@@ -25,6 +25,7 @@ from agentic_graphrag.knowledge.incremental_conflicts import (
     split_by_conflict,
     triple_key,
 )
+from agentic_graphrag.knowledge.review.queue import ReviewQueue, ReviewType
 from agentic_graphrag.knowledge.schema_check import (
     SchemaDefinition,
     Triple,
@@ -49,6 +50,7 @@ class BatchResult:
     conflicts_review: int = 0
     conflicts_kept: int = 0
     review_items: list[dict[str, Any]] = field(default_factory=list)
+    review_item_ids: list[str] = field(default_factory=list)
     duration_ms: int = 0
     index_version: int | None = None
 
@@ -61,6 +63,7 @@ class BatchResult:
             "conflicts_review": self.conflicts_review,
             "conflicts_kept": self.conflicts_kept,
             "review_items": self.review_items,
+            "review_item_ids": self.review_item_ids,
             "duration_ms": self.duration_ms,
             "index_version": self.index_version,
         }
@@ -78,6 +81,7 @@ class IncrementalUpdater:
         auto_update_margin: float = 0.15,
         on_commit: Callable[[], None] | None = None,
         review_log: Path | str | None = None,
+        review_queue: ReviewQueue | None = None,
     ) -> None:
         self.store = store
         # ``None`` means "use the configured gate". The incremental path used to
@@ -90,6 +94,10 @@ class IncrementalUpdater:
         self.auto_update_margin = auto_update_margin
         self.on_commit = on_commit
         self.review_log = Path(review_log) if review_log else None
+        # When wired, REVIEW conflicts also land in the API-visible review
+        # queue — the legacy JSONL ``review_log`` was invisible to
+        # ``GET /v1/review-queue`` (docs/BUSINESS_LOGIC.md BL-03).
+        self.review_queue = review_queue
         self._lock = threading.RLock()
         # Index of active relations: (head_lower, rel, tail_lower) → RelationRecord
         self._rel_index: RelIndex = {}
@@ -125,20 +133,23 @@ class IncrementalUpdater:
         triples: list[Triple],
         *,
         batch_id: str | None = None,
+        tenant_id: str = "",
     ) -> BatchResult:
         """Gate → conflict detect → upsert accepted (no clear_first)."""
         bid = batch_id or str(uuid.uuid4())
         t0 = time.perf_counter()
         result = BatchResult(batch_id=bid)
         with self._lock:
-            self._apply_locked(triples, result)
+            self._apply_locked(triples, result, tenant_id=tenant_id)
         result.duration_ms = int((time.perf_counter() - t0) * 1000)
         return result
 
-    def _apply_locked(self, triples: list[Triple], result: BatchResult) -> None:
+    def _apply_locked(
+        self, triples: list[Triple], result: BatchResult, *, tenant_id: str = ""
+    ) -> None:
         accepted = self._gate(triples, result)
         clean, conflicts = self.detect_conflicts(accepted)
-        to_write = self._collect_writes(clean, conflicts, result)
+        to_write = self._collect_writes(clean, conflicts, result, tenant_id=tenant_id)
         # ``pre_gated``: ``_gate`` already applied schema + confidence, so
         # re-validating here would double-count rejections.
         stats = load_triples_into_graph(self.store, to_write, clear_first=False, pre_gated=True)
@@ -160,11 +171,13 @@ class IncrementalUpdater:
         clean: list[Triple],
         conflicts: list[Conflict],
         result: BatchResult,
+        *,
+        tenant_id: str = "",
     ) -> list[Triple]:
         to_write: list[Triple] = list(clean)
         seen = {triple_key(t) for t in clean}
         for c in conflicts:
-            self._count_conflict(c, result)
+            self._count_conflict(c, result, tenant_id=tenant_id)
             if c.action != ConflictAction.AUTO_UPDATE:
                 continue
             self._retire_conflicting_edges(c)
@@ -174,7 +187,9 @@ class IncrementalUpdater:
                 to_write.append(c.incoming)
         return to_write
 
-    def _count_conflict(self, conflict: Conflict, result: BatchResult) -> None:
+    def _count_conflict(
+        self, conflict: Conflict, result: BatchResult, *, tenant_id: str = ""
+    ) -> None:
         """Every conflict lands in exactly one counter so batch numbers conserve."""
         if conflict.action == ConflictAction.AUTO_UPDATE:
             result.conflicts_auto += 1
@@ -183,6 +198,15 @@ class IncrementalUpdater:
             item = conflict.to_dict()
             result.review_items.append(item)
             self._append_review(item)
+            if self.review_queue is not None:
+                queued = self.review_queue.enqueue(
+                    ReviewType.CONFLICT,
+                    item,
+                    confidence=conflict.incoming.confidence,
+                    batch_id=result.batch_id,
+                    tenant_id=tenant_id,
+                )
+                result.review_item_ids.append(queued.id)
         else:  # KEEP_OLD — previously neither written nor counted (BL-11)
             result.conflicts_kept += 1
 

@@ -118,7 +118,9 @@ class Neo4jGraphStore:
             "    r.tail_id = $tail_id, "
             "    r.head_name = $head_name, "
             "    r.tail_name = $tail_name, "
-            "    r.sources = $sources "
+            "    r.sources = $sources, "
+            "    r.valid_from = $valid_from, "
+            "    r.valid_to = $valid_to "
             "RETURN r.id AS id"
         )
         result = session.run(
@@ -132,6 +134,8 @@ class Neo4jGraphStore:
             tenant_id=rel.tenant_id,
             attributes=attrs_for_neo4j(rel.attributes),
             sources=sources_for_neo4j(rel.sources),
+            valid_from=rel.valid_from,
+            valid_to=rel.valid_to,
         )
         return result.single() is not None
 

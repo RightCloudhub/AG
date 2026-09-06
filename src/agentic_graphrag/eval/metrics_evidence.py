@@ -236,8 +236,7 @@ def _claims_fail_gate(claims: list, catalog: _Catalog) -> bool:
 
 def _claim_grounded(claim: dict[str, Any], catalog: _Catalog) -> bool:
     """One claim must cite a catalog id whose content shares a content token."""
-    ids = [str(i) for i in (claim.get("evidence_ids") or [])]
-    cited = [catalog[i] for i in ids if i in catalog]
+    cited = _cited_entries(claim, catalog)
     if not cited:
         return False
     claim_tokens = content_tokens(str(claim.get("text") or ""))
@@ -248,6 +247,11 @@ def _claim_grounded(claim: dict[str, Any], catalog: _Catalog) -> bool:
     # Truncated content: the token that satisfied the runtime gate may sit past
     # the persisted cut, so abstain instead of over-reporting fabrication.
     return any(entry.truncated for entry in cited)
+
+
+def _cited_entries(claim: dict[str, Any], catalog: _Catalog) -> list[_CatalogEntry]:
+    ids = [str(i) for i in (claim.get("evidence_ids") or [])]
+    return [catalog[i] for i in ids if i in catalog]
 
 
 def _catalog_by_id(chain: dict[str, Any]) -> _Catalog:

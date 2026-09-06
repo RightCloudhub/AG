@@ -17,6 +17,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.knowledge.graph_ingest import (
+    LLM_UNAVAILABLE,
+    GraphIngestPipeline,
+    GraphIngestResult,
+)
 from agentic_graphrag.knowledge.ingest import chunk_document
 from agentic_graphrag.knowledge.ingest_tasks import (
     DEFAULT_STALE_SECONDS,
@@ -28,6 +33,7 @@ from agentic_graphrag.stores.interfaces import DocStore, VectorStore
 logger = logging.getLogger(__name__)
 
 INDEXED_MESSAGE = "Indexed successfully"
+REVIEW_MESSAGE = "Graph extraction needs a live LLM; queued for offline extraction"
 
 
 def _new_worker_id() -> str:
@@ -41,6 +47,9 @@ class IngestResult:
     chunks_created: int = 0
     chunks_indexed: int = 0
     error: str | None = None
+    # Present when a graph pipeline is wired: the extract → conflict → graph
+    # outcome for this document (BL-01).
+    graph_result: GraphIngestResult | None = None
 
 
 @dataclass
@@ -71,6 +80,7 @@ class IngestWorker:
         task_store: IngestTaskStore | None = None,
         config: IngestWorkerConfig | None = None,
         worker_id: str | None = None,
+        graph_pipeline: GraphIngestPipeline | None = None,
     ) -> None:
         self.doc_store = doc_store
         self.vector_store = vector_store
@@ -79,12 +89,13 @@ class IngestWorker:
         self.config = config or IngestWorkerConfig()
         self.task_store = task_store
         self.worker_id = worker_id or _new_worker_id()
+        self.graph_pipeline = graph_pipeline
         self._processed: set[str] = set()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def process_doc(self, doc_id: str) -> IngestResult:
-        """Process a single document: chunk → embed → upsert."""
+        """Process a single document: chunk → embed → index → (graph) extract."""
         doc = self.doc_store.get(doc_id)
         if doc is None:
             return IngestResult(doc_id=doc_id, error="not_found")
@@ -99,12 +110,17 @@ class IngestWorker:
         embed_error = self._embed_chunks(chunks)
         indexed = self._index_chunks(doc_id, chunks)
         self._processed.add(doc_id)
-        return IngestResult(
+        result = IngestResult(
             doc_id=doc_id,
             chunks_created=len(chunks),
             chunks_indexed=indexed,
             error=embed_error,
         )
+        if self.graph_pipeline is not None:
+            result.graph_result = self.graph_pipeline.process_document(doc)
+            if result.graph_result.error:
+                result.error = result.graph_result.error
+        return result
 
     def _embed_chunks(self, chunks: list[Any]) -> str | None:
         """Embed every chunk; return an error when none of them succeeded.
@@ -186,6 +202,15 @@ class IngestWorker:
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
             return []
         failed = [result for result in results if result.error]
+        if failed and all(
+            result.graph_result is not None and result.graph_result.error == LLM_UNAVAILABLE
+            for result in failed
+        ):
+            # No live LLM: indexing succeeded but graph extraction cannot run.
+            # REVIEW (not FAILED) is the honest terminal state — it gives the
+            # status a producer and tells ops to extract offline (BL-01).
+            self._finalize(task.id, IngestStatus.REVIEW, REVIEW_MESSAGE)
+            return results
         message = (failed[0].error or "failed") if failed else INDEXED_MESSAGE
         self._finalize(task.id, IngestStatus.FAILED if failed else IngestStatus.DONE, message)
         return results
@@ -242,51 +267,26 @@ class IngestWorker:
         logger.info("IngestWorker stopped")
 
 
-def _build_cli_worker() -> IngestWorker:
-    """Wire the worker the way the docs promise: consuming the task queue.
-
-    Two defects lived here (docs/BUSINESS_LOGIC.md BL-05): ``task_store`` was
-    never passed, so ``run_once`` silently fell back to the legacy doc-store
-    scan and queued tasks stayed ``queued`` forever; and an in-memory doc store
-    means this process shares no data with the API, so the worker sees nothing.
-    """
-    from agentic_graphrag.config import get_config, get_settings, resolve_path
-    from agentic_graphrag.stores.factory import create_offline_bundle
-
-    cfg = get_config()
-    settings = get_settings()
-    bundle = create_offline_bundle(cfg=cfg, settings=settings)
-    if not bundle.docs.durable:
-        logger.warning(
-            "Doc store %s is process-local: this worker cannot see documents uploaded "
-            "through the API. Configure a file-backed doc store before relying on it.",
-            type(bundle.docs).__name__,
-        )
-    return IngestWorker(
-        doc_store=bundle.docs,
-        vector_store=bundle.vector,
-        fulltext_store=bundle.fulltext,
-        task_store=IngestTaskStore(resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"),
-        config=IngestWorkerConfig(
-            chunk_size_chars=cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=cfg.knowledge.chunk_overlap_chars,
-        ),
-    )
-
-
 if __name__ == "__main__":
     import argparse
+
+    from agentic_graphrag.knowledge.ingest_worker_cli import build_cli_worker
 
     parser = argparse.ArgumentParser(description="Run ingest worker")
     parser.add_argument("--once", action="store_true", help="Single poll then exit")
     args = parser.parse_args()
 
-    worker = _build_cli_worker()
+    worker = build_cli_worker()
 
     if args.once:
         results = worker.run_once()
         for r in results:
-            print(f"  {r.doc_id}: {r.chunks_created} chunks, {r.chunks_indexed} indexed")
+            graph = (
+                f", graph: {r.graph_result.triples_accepted} triples accepted"
+                if r.graph_result
+                else ""
+            )
+            print(f"  {r.doc_id}: {r.chunks_created} chunks, {r.chunks_indexed} indexed{graph}")
     else:
         worker.start()
         try:

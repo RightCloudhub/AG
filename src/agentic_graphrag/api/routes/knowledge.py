@@ -20,6 +20,7 @@ from agentic_graphrag.api.routes.knowledge_graph_browse import (
 )
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.knowledge.review.executor import ReviewExecutor
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
     ReviewDecision,
@@ -191,7 +192,15 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
             "reviewer": body.reviewer,
         },
     )
-    return ok(item.to_dict())
+    # BL-03: a recorded decision is not enough — approvals and rejections must
+    # produce the graph side effects the item implies. Executor failures do not
+    # undo the decision; they are reported so ops can re-apply consciously.
+    try:
+        graph_effects = ReviewExecutor(svc.bundle.graph).apply(item, dec.value)
+    except Exception as exc:  # noqa: BLE001
+        graph_effects = {"applied": False, "reason": f"executor error: {type(exc).__name__}"}
+    payload = {**item.to_dict(), "graph_effects": graph_effects}
+    return ok(payload)
 
 
 def _principal(request: Request) -> tuple[str, str]:

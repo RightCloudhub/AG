@@ -76,6 +76,16 @@
   - 升级流程：改版本必须同步三处——本 ADR、`app.js` 的 `VUE_VERSION` 与加载清单、vendor 文件；过 [p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7 验证清单后合入。
   - 仍明确不做（V1）：多轮上下文、图谱编辑、移动端适配、路径编辑器。
 
+### ADR-007：图谱关系引入时间有效期 valid_from / valid_to（已采纳，2026-09-06）
+- **背景**：BL-14 / DESIGN_VS_IMPLEMENTATION D3 —— 图谱无时间维度，同一事实的新旧版本按抽取置信度裁决（可能保留旧闻），时效性冲突无法表达「两者都对，分属不同时间区间」。BL-01（上传→图谱运行期通路）依赖该数据模型决策，按仓库约定先行决策再动代码。
+- **决策**：`Triple` 与 `RelationRecord` 增加可选 `valid_from` / `valid_to`（ISO-8601 粒度可混合：`YYYY` / `YYYY-MM` / `YYYY-MM-DD`，字典序即可比较）：
+  1. **关系 ID**：携带时间窗的三元组把窗口并入 rid（`head|rel|tail|from~to`），同一条事实的不同时间区间共存互不覆盖；无时间字段的三元组 rid 不变（seed 图 / Neo4j 既有数据 / 单测零迁移）。
+  2. **冲突裁决改为时间优先**（`incremental_conflicts.py`）：incoming 与既有边的时间窗**不相交** ⇒ 不构成冲突（共存）；相交或一方缺失时间窗时，若双方都有 `valid_from` 且不同 ⇒ 更晚者胜（AUTO_UPDATE / KEEP_OLD，reason 注明时间依据）；否则回落到既有置信度边际逻辑。值冲突（同 head+rel 不同 tail）的 rivals 先按时间窗过滤，不相交者不算矛盾、也不被退役。
+  3. **抽取提示词**（`configs/prompts/extract.md`）：文本明确给出日期 / 任期 / 生效期时输出 `valid_from` / `valid_to`；未给出则留空，**不猜测**。
+- **理由**：以可选字段实现「时间分区事实共存 + 新事实优先」的最小语义；零破坏性（全部既有调用与数据不动）。
+- **否决的备选**：完整 bitemporal 双轴（事务时间 + 有效时间）—— 试点规模收益不足，留待真实域上线后评估；把时间塞进 `attributes` 自由字典 —— 无法参与冲突裁决与 rid 语义，等于没做。
+- **影响**：`knowledge/schema_check.py`、`knowledge/graph_builder.py`、`knowledge/incremental_conflicts.py`、`stores/neo4j_store.py` / `neo4j_codec.py`（live 属性透传）、`configs/prompts/extract.md`、`configs/schema/domain_v0.yaml`；BL-01 运行期入图通路按此模型落地（`docs/BUSINESS_LOGIC.md` BL-14 关闭条件）。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）

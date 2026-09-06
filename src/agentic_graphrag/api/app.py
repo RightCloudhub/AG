@@ -43,9 +43,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.query_service = svc
         owns = True
     _validate_live_credentials(svc)
+    from agentic_graphrag.api.ingest_bootstrap import start_ingest_worker_if_enabled
+
+    worker = start_ingest_worker_if_enabled(svc)
     try:
         yield
     finally:
+        if worker is not None:
+            worker.stop()
         if owns and svc is not None:
             svc.close()
         _log.info("Application shutting down")

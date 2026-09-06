@@ -1,5 +1,11 @@
 # Domain Schema V0 — Company / Person / Product / Event (interim POC domain)
 # Adjust when pilot domain is confirmed (P1-GOV-01).
+#
+# Temporal validity (ADR-007 / BL-14): triples may carry optional valid_from /
+# valid_to (ISO-8601 YYYY | YYYY-MM | YYYY-MM-DD) whenever the source text
+# states an explicit date, term, or effective period. Edges with disjoint
+# windows are distinct, coexisting facts; conflicts inside an overlapping
+# window are adjudicated time-first, then by confidence.
 
 version: "0.1.0"
 name: corporate_relations_v0

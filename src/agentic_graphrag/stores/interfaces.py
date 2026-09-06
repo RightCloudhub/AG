@@ -36,6 +36,10 @@ class RelationRecord:
     attributes: dict[str, Any] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
     tenant_id: str = ""
+    # Temporal validity (ADR-007 / BL-14): ISO-8601 YYYY[-MM[-DD]], None when
+    # unknown. Edges with disjoint windows are distinct facts that coexist.
+    valid_from: str | None = None
+    valid_to: str | None = None
 
 
 @dataclass

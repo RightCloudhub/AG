@@ -28,8 +28,19 @@ def _entity_id(name: str, etype: str) -> str:
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
-def _relation_id(head_id: str, rel: str, tail_id: str) -> str:
+def _relation_id(
+    head_id: str,
+    rel: str,
+    tail_id: str,
+    *,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+) -> str:
     key = f"{head_id}|{rel}|{tail_id}"
+    # Temporal edges (ADR-007 / BL-14): the window is part of the identity so
+    # the same fact over disjoint periods coexists instead of overwriting.
+    if valid_from or valid_to:
+        key = f"{key}|{valid_from or ''}~{valid_to or ''}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
@@ -56,7 +67,7 @@ def triples_to_records(
         sources_by_entity[hid].append(source)
         sources_by_entity[tid].append(source)
 
-        rid = _relation_id(hid, t.relation, tid)
+        rid = _relation_id(hid, t.relation, tid, valid_from=t.valid_from, valid_to=t.valid_to)
         if rid not in relations or t.confidence > relations[rid].confidence:
             relations[rid] = RelationRecord(
                 id=rid,
@@ -68,6 +79,8 @@ def triples_to_records(
                 confidence=t.confidence,
                 attributes=t.attributes or {},
                 sources=[source],
+                valid_from=t.valid_from,
+                valid_to=t.valid_to,
             )
         else:
             relations[rid].sources.append(source)

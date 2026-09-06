@@ -124,4 +124,6 @@ def rel_to_record(
         attributes=attrs_from_neo4j(props.get("attributes")),
         sources=sources_from_neo4j(props.get("sources")),
         tenant_id=str(props.get("tenant_id") or ""),
+        valid_from=(str(props["valid_from"]) if props.get("valid_from") else None),
+        valid_to=(str(props["valid_to"]) if props.get("valid_to") else None),
     )

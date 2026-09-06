@@ -93,14 +93,22 @@ def _object_anchored(claim_tokens: set[str], candidate: Any) -> bool:
         return True
     kind = str(structured.get("kind") or "")
     if kind == "neighbor":
-        names = _neighbor_anchor_names(structured)
-        return not names or _names_touched(claim_tokens, names) >= 1
+        return _neighbor_anchored(claim_tokens, structured)
     if kind == "path":
-        nodes = [str(n) for n in (structured.get("nodes") or []) if str(n).strip()]
-        if not nodes:
-            return True
-        return _names_touched(claim_tokens, nodes) >= min(MIN_PATH_NODE_HITS, len(nodes))
+        return _path_anchored(claim_tokens, structured)
     return True
+
+
+def _neighbor_anchored(claim_tokens: set[str], structured: dict[str, Any]) -> bool:
+    names = _neighbor_anchor_names(structured)
+    return not names or _names_touched(claim_tokens, names) >= 1
+
+
+def _path_anchored(claim_tokens: set[str], structured: dict[str, Any]) -> bool:
+    nodes = [str(n) for n in (structured.get("nodes") or []) if str(n).strip()]
+    if not nodes:
+        return True
+    return _names_touched(claim_tokens, nodes) >= min(MIN_PATH_NODE_HITS, len(nodes))
 
 
 def _neighbor_anchor_names(structured: dict[str, Any]) -> list[Any]:

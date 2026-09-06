@@ -29,6 +29,10 @@ class Triple(BaseModel):
     source_doc_id: str = ""
     source_chunk_id: str = ""
     attributes: dict[str, Any] = Field(default_factory=dict)
+    # Temporal validity (ADR-007 / BL-14): ISO-8601 YYYY[-MM[-DD]]; None when
+    # the text does not state a period — the extractor must never guess.
+    valid_from: str | None = None
+    valid_to: str | None = None
 
 
 class ExtractResult(BaseModel):
