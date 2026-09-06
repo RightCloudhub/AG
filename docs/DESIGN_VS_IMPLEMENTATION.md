@@ -52,6 +52,9 @@ problem. These matched without qualification:
 
 Ordered by how much they matter.
 
+> **状态更新（2026-09-07）：** D2 / D3 / D4 / D5 / D6 / D9 / D10 已有落地动作，
+> 逐节以「**2026-09 状态**」标注。原始分析保留为发现时点的证据；D1 / D7 / D8 仍开放。
+
 ### D1 · The DAG is built but never executed as a DAG ⚠ highest impact
 
 `plan_dag.py:124 ready_subquestions()` — which returns *all* pending nodes whose dependencies are
@@ -80,6 +83,8 @@ depth budget. With `max_hops: 4`, a plan of 6 sub-questions silently drops the l
 
 ### D2 · The citation gate stops at lexical overlap; *entailment* is not checked
 
+> **2026-09 状态（部分收窄，非 NLI）**：运行期门禁增加**对象锚定**（`claim_supported_by`：neighbor 需命中 tail、path 需命中 ≥2 节点）；评测侧 `metrics_evidence.py` 改为**镜像运行期同口径**（持久化证据目录增 structured，`_CatalogEntry` 同步），`fabrication_rate` 不再「仅查 evidence_ids 非空」。诚实口径：这是评测侧对运行期门禁的复现，**不是蕴含判定（NLI）**——关系级语义判别仍开放。
+
 The runtime gate (`citations.py:100-108`) is three tiers, not one: every claim must (1) carry
 `evidence_ids`, (2) cite an id present in the retrieved set, and (3) share **≥1 content token** with
 the cited evidence (`claims_lexically_supported`, `min_overlap=1`). The function is self-aware —
@@ -102,6 +107,8 @@ overlap easier to satisfy. The two must be designed together.
 
 ### D3 · No temporal validity on edges
 
+> **2026-09 状态（已关闭）**：ADR-007 落地——`Triple`/`RelationRecord` 增 `valid_from`/`valid_to`，`rid` 聚合键含时间窗（同事实不同区间并存），冲突裁决**时间优先**；抽取提示词带时间指令；时间维度语料 + 冲突演练证据见 `reports/temporal_corpus/`。测试 `tests/unit/test_bl14_temporal_conflicts.py`（即 BL-14 关闭）。
+
 Zero occurrences of `valid_from` / `valid_to` / `valid_at` / `as_of` / `temporal` anywhere in `src`.
 The graph carries `confidence` and provenance but no time scope.
 
@@ -114,6 +121,8 @@ blocking for any real deployment with an update cadence.
 
 ### D4 · Reranker is a seam, not an implementation
 
+> **2026-09 状态（seam 已有首个实现）**：`fusion.py` 新增 `LexicalReranker`（查询词 CJK token 重叠稳定排序），`RetrievalConfig.reranker` 接线（**默认仍 identity**）；`scripts/p3_ablations.py` 的 −fusion 消融显示离线启发式路径对 rerank 不敏感（见 D9 状态）。
+
 `fusion.py:28,34` defines a `Reranker` Protocol and an `IdentityReranker` that returns its input
 unchanged; `executor.py:76` threads an optional `reranker` through. No cross-encoder exists.
 
@@ -122,6 +131,8 @@ was built behind it — but the design's F-11 should read "rerank seam present, 
 than "optional rerank."
 
 ### D5 · The correction loop does not close
+
+> **2026-09 状态（已关闭，即 BL-03）**：`knowledge/review/executor.py` `ReviewExecutor` 使决策作用于图谱（批准 → upsert / 拒绝 → delete，幂等；执行失败不回滚决策而是随 `graph_effects` 报告）；`IncrementalUpdater` 冲突改写 `ReviewQueue`，`GET /v1/review-queue` 可见。UI（`#/review`）展示「已记录 + 写回结果」。测试 `tests/unit/test_bl03_review_executor.py`。
 
 `review/queue.py:150 decide()` sets `status`, `reviewer`, `decision_note`, `decided_at` and persists.
 Nothing reads approved items back into a `GraphStore`. The API route
@@ -139,6 +150,8 @@ to a *separate* JSONL that `ReviewQueue` never reads, so `GET /v1/review-queue` 
 at all. Treat BL-03 as the authority for this finding.
 
 ### D6 · Chunking is fixed-size, not structure-aware
+
+> **2026-09 状态（标题感知已落地）**：`knowledge/ingest.py chunk_text` 把 markdown 标题作**硬边界**（`_split_sections` 保留标题行；无标题文本走原 `_window_chunk`，行为不变）。列表/表格结构仍不感知，完整结构传播仍开放。
 
 `knowledge/ingest.py:49 chunk_text(chunk_size=1200, overlap=150)` — a sliding window that prefers a
 break at `\n\n`, `。`, or `. ` past ⅓ of the window. No heading, list, or table handling; nothing
@@ -165,6 +178,8 @@ source of uneven attention across evidence types.
 
 ### D9 · Only one ablation exists
 
+> **2026-09 状态（离线消融已跑，−critic 为 live-only）**：`scripts/p3_ablations.py` 在 heldout 上跑 −graph / −fusion，离线结果 **85.1% 与 base 持平**——诚实结论：**离线启发式答案不依赖图证据**（答案生成走 `offline_answer`，图证据不进入答案合成路径），组件归因需 live LLM 重跑。**−critic 消融在 `--no-llm` 路径根本不执行**（critic 仅 live 路径存在），记为环境阻塞（无 `LLM_API_KEY`）。结果：`reports/p3_ablations/`。
+
 `scripts/p3_ev_offline.py:91 _run_triage_ablation()` → `triage_ablation.json` (P3-EV-02, marked `[~]`
 in `plan/phases/phase-3-optimization.md:44`). There is no `−graph`, `−fusion`, or `−critic` ablation.
 
@@ -174,6 +189,8 @@ critic loop or RRF fusion earns its cost. For a system whose entire thesis is "t
 makes multi-hop work," the component-level evidence for that thesis is currently missing.
 
 ### D10 · Human gold sign-off is pending
+
+> **2026-09 状态（已签字，范围如实标注）**：`scripts/gold_signoff_review.py` 对合并语料（pilot+temporal，653 triples）的 200 条金标做分层抽查 12/12 通过 → `evals/datasets/GOLD_SIGNOFF.md` 签字（**agent-review delegated**，非人类签字，范围已在该文件写明）。已知瑕疵记账：`ceo_of_parent` 模板 `gold_path` 为反向边，抽查按「任一方向存在」验证，模板本体未改。
 
 `evals/datasets/GOLD_SIGNOFF.md` — every checklist box unchecked, `**Signed:** _(pending)_`. The
 design flagged graph-walk gold cases as self-confirming and required a human-authored supplement;
@@ -240,32 +257,32 @@ production path, and quarantined behind the omit list. Still: it is the single l
 
 | # | Capability | Status |
 |---|---|---|
-| F-01 | Structure-aware chunking | ◐ fixed-size + boundary preference (**D6**) |
+| F-01 | Structure-aware chunking | ◐ heading-aware hard bounds (**D6** 2026-09 收窄；列表/表格仍开放) |
 | F-02 | Extraction w/ journal, retry, quarantine | ● |
 | F-03 | Ontology gate, reject-and-record | ● |
 | F-04 | Three-tier entity resolution | ● |
-| F-05 | Typed edges + confidence + provenance | ◐ no temporal validity (**D3**) |
+| F-05 | Typed edges + confidence + provenance | ● temporal validity (**D3** 2026-09 关闭，ADR-007) |
 | F-06 | Multi-index build | ● |
 | F-07 | Incremental update + review queue | ● |
 | F-08 | Swappable stores, offline default | ● |
 | F-09 | Three retrievers | ◐ conditional, not always-on (**E1**) |
 | F-10 | Beam search, path scoring, verbalization | ◐ symbolic rendering (**D8**) |
-| F-11 | RRF fusion + rerank + cache | ◐ rerank is a no-op seam (**D4**) |
+| F-11 | RRF fusion + rerank + cache | ◐ `LexicalReranker` 落地（**D4** 2026-09 收窄；默认 identity） |
 | F-12 | Triage + escalation | ● |
 | F-13 | Sub-question DAG | ◐ built, topo-sorted, executed linearly (**D1**) |
 | F-14 | Executor + evidence pool | ● |
 | F-15 | Critic replan-or-stop | ● |
 | F-16 | Guardrails | ● (**E2** improves on design) |
 | F-17 | Grounded synthesis + citation binding | ● |
-| F-18 | Faithfulness + abstention | ◐ abstention yes, entailment no (**D2**) |
+| F-18 | Faithfulness + abstention | ◐ abstention yes；对象锚定已镜像评测侧，非 NLI (**D2**) |
 | F-19 | Reasoning-chain export | ● |
 | F-20 | Sync + SSE API | ● |
 | F-21 | RBAC, tenancy, budgets | ● |
 | F-22 | Logs, metrics, traces, audit | ● |
-| F-23 | Feedback → curator → graph | ○ loop does not close (**D5**) |
-| F-24 | Gold generation | ◐ graph-walk yes, human sign-off pending (**D10**) |
-| F-25 | Accuracy/recall/fabrication/latency/cost | ◐ fabrication measures binding (**D2**) |
-| F-26 | Baseline + ablations | ◐ baseline yes, 1 of 4 ablations (**D9**) |
+| F-23 | Feedback → curator → graph | ● loop closed (**D5** 2026-09 关闭，ReviewExecutor) |
+| F-24 | Gold generation | ● graph-walk + sign-off (**D10** 2026-09；agent-review delegated) |
+| F-25 | Accuracy/recall/fabrication/latency/cost | ◐ fabrication 与运行期门禁同口径（非 NLI）（**D2**） |
+| F-26 | Baseline + ablations | ◐ baseline + 2/4 离线消融（无差异，诚实记录）；−critic live-only（**D9**） |
 
 ● present · ◐ partial · ○ absent
 

@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.5（2026-08-08）— **P5-UI-02 前端重规划立项（规划态，未实施）**：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
+**版本**：V1.6（2026-09-07）— **P5-UI-02 控制台已实施**（M0–M6，M2b 视觉除外；§1.4 增 `/v1/me`、`/v1/ingest-tasks` 列表，§2.7 刷新交付形态）。前版 V1.5（2026-08-08）：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -55,7 +55,9 @@
 |---|---|
 | `POST /docs` | 批量上传（含来源元数据） |
 | `GET /ingest-tasks/{task_id}` | 抽取任务状态 |
-| `GET /review-queue` · `POST /review-queue/{item_id}/decision` | 审核队列（P3-KG-03） |
+| `GET /ingest-tasks` | 抽取任务列表分页（operator+，`routes/console.py`，2026-09-07 新增，P5-UI-02 U-02） |
+| `GET /me` | 身份回显 `{tenant_id, user_id, role}`（匿名=reader；`routes/console.py`，2026-09-07 新增，P5-UI-02 U-01） |
+| `GET /review-queue` · `POST /review-queue/{item_id}/decision` | 审核队列（P3-KG-03）；决策响应含 `graph_effects`（BL-03 写回，2026-09-06） |
 | `GET /audit/queries/{query_id}` | 推理链审计回查（FR-AN-04 / P3-AN-01） |
 | `POST /feedback` | 反馈回路（FR-OP-03）：负反馈入 ReviewQueue 并写回 audit metadata |
 | `GET /metrics`（admin） | 监控指标（P4-REL-03；ENT-04 收权 admin-only） |
@@ -74,7 +76,7 @@
 
 **定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
 
-> **重规划（2026-08-08，P5-UI-02，未实施）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台。§2.1–§2.4 描述**已交付**的问答视图现状；控制台目标见 §2.7，任务分解与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
+> **重规划（2026-08-08 立项，2026-09-07 交付）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台，交付形态见 §2.7；任务勾选与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
 
 ### 2.1 技术形态（零构建 + 钉版 Vue 3）
 
@@ -133,11 +135,14 @@
 - [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
 - [x] 全前端 `v-html` / `.innerHTML` 零命中
 
-### 2.7 P5-UI-02 前端重规划概要（2026-08-08，规划态未实施）
+### 2.7 P5-UI-02 前端重规划概要（2026-08-08 立项；**2026-09-07 已实施交付**，M2b 视觉除外）
 
-试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表，低优先）。
+试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策——**文案已随 BL-03 落地更新**：决策响应携带 `graph_effects`，UI 展示「已记录 + 写回结果」）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表）。
 
+- **交付形态**：`static/js/router.js` + `views/registry.js`（角色-视图唯一真源）+ `root.js` 壳化（身份区 + 导航显隐 + 视图分发）；视图 = `views/{chat,knowledge,review,ops,graph}.js` 组件 string template；`components/console-widgets.js` 四组件（data-table / filter-bar / stat-card / state-card）+ `static/console.css`；`api-console.js` 域客户端；`api.js` 增 `EnvelopeError`（envelope code + status，U-04）与 `/v1/me`。
+- **测试**：`tests/unit/test_web_console.py`（文件清单与行数预算 / 注入安全 / 角色-视图映射 / 请求形状 / 静态挂载 / CSS 外链策略）；`test_web_claude_ui.py` 保留问答回归，chat 标记断言已改指 `views/chat.js`。
+- **未做**：M2b 视觉体系（U-14/U-15，tokens.css 未抽出）——规划文档 §6 已如实留 `[ ]`。
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
-- **API 前置两项**（M0）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页（当前仅有单条查询）。
-- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
+- **API 前置两项**（M0，已交付）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页。
+- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)（当前交付直用既有纸面主题；U-14/U-15 时按该基准值级刷新）。
 - 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。

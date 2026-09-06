@@ -32,8 +32,8 @@
 - 📡 **真·增量 SSE** — 基于 LangGraph `stream(updates)` 逐 hop 推送分诊 / 子问题 / 思考 过程，流中可中止
 - 🔐 **多租户与 RBAC** — API Key → 租户映射 + 三角色（admin/operator/reader）路由守卫与 key 过期、QPS 与并发限流（per-tenant 可配 `tenants:`）、三级预算与审计 / 缓存隔离、`tenant_id` 数据级隔离贯穿存储 / 检索 / Agent
 - 🏢 **企业级可观测与治理** — 结构化 JSON 日志（request/query/tenant/user 上下文贯穿）、安全事件审计流、admin 排障端点（trace / 预算快照 / 审计事件）、Prometheus `/metrics-prom`、可选 OTel OTLP + W3C traceparent、PII 脱敏与保留期清理
-- 🖥 **零构建试用 UI** — Vue 3 ESM（钉版 3.5.13、无 npm，ADR-006）对话界面：引用角标、推
-理链树、图路径 chips、逐 turn 反馈
+- 🖥 **零构建角色控制台** — Vue 3 ESM（钉版 3.5.13、无 npm，ADR-006）：问答（引用角标、推理
+  链树、图路径 chips、逐 turn 反馈）+ 知识运维 / 审核 / 可观测 / 图谱浏览视图，按 `/v1/me` 角色显隐
 
 
 ## 🏛 架构
@@ -169,8 +169,7 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 
 ## 🖥 试用 Web UI
 
-内部试用 SPA（`web/`，`agr-api` 静态挂载）：提问区（跳数 / 强制 Agentic / SSE 开关 + 健
-康点）、会话历史（仅展示，请求间无上下文）、真·增量进度区、答案引用角标（点击高亮）、推 理链树 + 图路径 chips + 可复制 JSON、逐 turn 准确性反馈、绕缓存重问。**V1 明确不做**：多轮对话上下文、图谱编辑、移动端适配。结构冒烟测试：`tests/unit/test_web_claude_ui.py`。
+内部试用 SPA（`web/`，`agr-api` 静态挂载），2026-09-07 起为**角色感知控制台**：侧栏身份区（`/v1/me` 回显 tenant/user/role + API Key 输入）+ hash 路由五视图——`#/chat`（跳数 / 强制 Agentic / SSE 开关、引用角标、推理链树 + 图路径 chips、逐 turn 反馈）、`#/knowledge`（operator：上传预检 5MB/20/md·txt、PDF 显式不支持、任务列表轮询）、`#/review`（operator：审核队列 + 决策，展示图谱写回结果）、`#/ops`（admin：指标卡、预算快照、安全事件浏览、query_id 审计回查）、`#/graph`（reader：实体分页表）。**V1 明确不做**：多轮对话上下文、图谱编辑、移动端适配。结构冒烟测试：`tests/unit/test_web_claude_ui.py` + `tests/unit/test_web_console.py`。
 
 ## 📊 评测与门禁
 
@@ -251,7 +250,7 @@ python scripts/check_code_metrics.py    # 硬指标：文件≤300行 · 函数�
 |---|---|
 | 阶段一～三（代码） | ✅ 抽取入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计、增量与 复核队列 |
 | G1 → G2 过渡门禁 | ✅ 工程 PASS（2026-07-20，[`reports/G1_to_G2_status.json`](./reports/G1_to_G2_status.json)）；真域 / live 配额 caveat 仍开 |
-| 试用 Web UI + 鉴权限流 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01）— `/web` 挂载 |
-| Live held-out（合成语料） | 🟡 agentic rescored **93.6%** / 相对基线 **+70pp** / 证据 recall **0.94**；但 **P95 ~92s 未达 AC-4（≤8s）**，且语料为合成 |
+| 试用 Web UI + 控制台 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01；**P5-UI-02 角色控制台 2026-09-07 交付**，M2b 视觉除外）— `/web` 挂载：问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图按 RBAC 显隐 |
+| Live held-out（合成语料） | 🟡 合并语料（pilot+temporal 653 triples）重生成金标后 **agentic 85.11% vs baseline 12.77%** / 证据 recall **0.9021**（2026-09-06）；live LLM 重跑、生产 P95 ≤8s（AC-4）仍开，且语料为合成 |
 | 企业级管控（P5-ENT-01…08） | 🟢 工程交付（2026-07-25，ENT-07/RPA 除外）— JSON 日志、admin 排障端点、安全审计流、RBAC、租户配置化限额与摄取任务状态机、数据隔离 / 脱敏 / 保留清理、Prometheus + 可选 OTel；**Redis 多副本 / 真后端跨租户回归 / OTLP collector 仍待部署验证**（[docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) §3.5） |
 | 效果门禁 G2 / G3 / G4 | ⏳ 仍开：真域语料签字、live held-out 正式达标、生产 P95、灰度 与全套验收 |

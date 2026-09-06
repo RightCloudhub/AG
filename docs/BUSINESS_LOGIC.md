@@ -15,12 +15,12 @@
 | 护栏与预算 | **完整** | 每条限制都有「计数 → 判定 → 降级出口」三段，且 answer 节点保证仍产出 `ReasoningChain` |
 | 检索链路 | **基本完整** | 三路检索共用 `Candidate` 契约，RRF 融合、缓存失效闭环 |
 | 输出契约 | **基本完整** | `ReasoningChain` 各路径均产出；但**在线**引用门禁存在语言性缺陷（见 BL-02），且门禁强度仅到词面重叠（见 BL-13） |
-| **知识写入链路（文档 → 图谱）** | **不完整（关键）** | **API 运行期不存在任何「上传文档 → 进入知识图谱」的通路**（见 BL-01） |
-| **人工复核闭环** | **不完整（关键）** | 复核「决策」只改状态，**没有任何代码把批准结果作用于图谱**（见 BL-03） |
+| **知识写入链路（文档 → 图谱）** | **已闭环（2026-09-06，BL-01 关闭，见 §7）** | 运行期入图通路已建成（`knowledge/graph_ingest.py` + worker `graph_pipeline`）；抽取产线在无 LLM 时落 REVIEW 而非静默丢图 |
+| **人工复核闭环** | **已闭环（2026-09-06，BL-03 关闭，见 §7）** | `ReviewExecutor` 把决策作用于图谱，decision 响应携带 `graph_effects`；UI 展示写回结果 |
 | 多租户隔离 | **不完整（关键）** | SSE 流式路径未把 `tenant_id` 注入 Agent 状态，导致跨租户检索 + 共享缓存（见 BL-04） |
 | 摄取任务状态机 | **部分完整** | `REVIEW` 态无生产者；`EXTRACTING` 崩溃后永久卡死（见 BL-05 / BL-06） |
 | 计划（DAG）执行语义 | **部分完整** | 计划是 DAG，执行是线性序；hop 预算与子问题数被混同，超量子问题静默丢弃（见 BL-12） |
-| 图谱时间维度 | **缺失** | 关系无有效期字段，时效冲突按置信度而非时间裁决（见 BL-14） |
+| 图谱时间维度 | **已落地（2026-09-06，BL-14 关闭，见 §7）** | ADR-007：Triple/RelationRecord 增 `valid_from/valid_to`，`rid` 含时间窗，时效冲突按时间优先裁决 |
 
 **一句话结论：** **读路径（查询/检索/生成/护栏）业务逻辑是闭环的；写路径（知识入图、人工复核、增量更新）在 API 运行期是断开的** —— 知识图谱目前只能由 CLI (`agr-build-graph`) 离线构建，产品叙事中的「上传 → 抽取 → 校验 → 复核 → 入图」在服务进程内没有实现通路。
 
@@ -424,9 +424,9 @@ stateDiagram-v2
 
 | 缺口 | 状态 | 落地内容 |
 |---|---|---|
-| BL-01 上传→图谱无通路 | `[ ]` | **未实施（需立项）**：属功能新建（抽取→消解→入图的运行期编排），且与 BL-14 的数据模型决策耦合，见 §6 |
+| BL-01 上传→图谱无通路 | `[x]` | **已实施（2026-09-06）**：`knowledge/graph_ingest.py` 运行期入图通路（chunk → LLM 抽取 → schema 门禁 → 消解 → `graph_builder` upsert），`IngestWorker.graph_pipeline` 消费任务队列；`AGR_INGEST_WORKER=1` 在 API 进程内起 worker（无外部进程依赖）。无 LLM 时任务落 `REVIEW`（显式人环）而非静默丢图。测试：`tests/unit/test_bl01_graph_ingest.py` |
 | BL-02 中文 claim 必然失败 | `[x]` | 新增 `generation/claim_support.py`：CJK 按**字符二元组**切词（一元过于常见、不具区分度）；`answer.py` 按 `validate_answered_claims` 的**具体失败原因**生成 repair 提示（`_REPAIR_HINTS`），重生成不再是确定性浪费 |
-| BL-03 复核决策无执行器 | `[ ]` | **未实施（需立项）**：需要「批准 → 写图 / 拒绝 → 归档」的执行器与幂等语义；本次仅补齐决策**本身**的正确性（终态保护、租户校验，见 BL-09/BL-11） |
+| BL-03 复核决策无执行器 | `[x]` | **已实施（2026-09-06）**：`knowledge/review/executor.py` `ReviewExecutor` —— 批准/拒绝作用于图谱（upsert / delete + 幂等），失败不回滚决策而是随响应报告（`graph_effects`），供运维有意识地重放；decision 端点（`routes/knowledge.py`）携带写回结果。`IncrementalUpdater` 的 REVIEW 冲突改写 `ReviewQueue`（两套存储合一，API 可见）。测试：`tests/unit/test_bl03_review_executor.py` |
 | BL-04 SSE 未传租户 | `[x]` | `loop_stream._initial_state` 补 `tenant_id`；`RetrievalCache.retrieval_key` 加入租户维度，`executor` 不再靠「绕过缓存」保隔离（隔离从**约定**变为**结构**） |
 | BL-05 worker 不消费队列 | `[x]` | `ingest_worker._build_cli_worker()` 注入 `IngestTaskStore`；doc store 非文件后端时显式告警（进程本地 = worker 看不到 API 上传的文档） |
 | BL-06 `extracting` 永久卡死 | `[x]` | 状态机允许 `EXTRACTING → QUEUED`；`IngestTaskStore.requeue_stale()`（默认 900s）由 `_run_task_batch` 每轮调用 |
@@ -437,5 +437,5 @@ stateDiagram-v2
 | BL-11 空分支 / 计数不闭合 | `[x]` | 删除无生产者的 `ConflictAction.SKIP`；`BatchResult.conflicts_kept` 使计数守恒；`accepted` 取 store 实际 upsert 数；`_TASKS` 改为有界 `OrderedDict`；`persist_embeddings` → `persist_cache_stats`；`InMemoryGraphStore.delete_relation` 补齐，AUTO_UPDATE 不再留双事实 |
 | BL-12 广度/深度预算混同 | `[~]` | 新增 `guardrails.max_sub_questions`（默认 6）与 `plan_dag.cap_plan_breadth`；被丢弃/未执行的节点记入 `chain.metadata`（`agent/plan_coverage.py`）；护栏文案区分「breadth stop」与「depth stop」。**并发分支执行未做** —— 需要仓库尚不具备的并发编排，见 V-17 |
 | BL-13 门禁只到词面重叠 | `[~]` | 图证据增加**对象锚定**：neighbor 需命中 tail、path 需命中 ≥2 个节点；`fabrication_rate` 收紧为「与运行期门禁同口径」，历史口径另立 `unbound_claim_rate` 保持序列可比。**真 NLI 判定未做**（评测侧亦无法复现对象锚定：持久化目录只留 id/content） |
-| BL-14 图谱无时间维度 | `[ ]` | **未实施（需先决策）**：schema + 抽取 + 打分三处联动的数据模型变更，按 §6 应在 BL-01 立项前决策 |
+| BL-14 图谱无时间维度 | `[x]` | **已实施（2026-09-06，ADR-007）**：`Triple`/`RelationRecord` 增 `valid_from`/`valid_to`，`rid` 聚合键含时间窗（同事实不同区间可并存）；冲突裁决**时间优先**（新窗口事实胜出，置信度仅在同窗内比较）；抽取提示词带时间抽取指令。语料侧：`scripts/generate_temporal_corpus.py`（41 时间窗冲突演练 PASS，`reports/temporal_corpus/bl14_drill.json`）。测试：`tests/unit/test_bl14_temporal_conflicts.py` |
 

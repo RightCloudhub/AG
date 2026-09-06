@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-08-08  
+**最近汇总：** 2026-09-07  
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
 **符号约定**
@@ -38,6 +38,8 @@
 | 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
 | 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
 | 2026-08-08 | **P5-UI-02 前端重规划立项**（规划文档，未实施）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/UI_DESIGN.md`](./UI_DESIGN.md)（「制图室」方向，随 U-14/U-15 落地） |
+| 2026-09-06 | **BL-01 / BL-03 / BL-14 关闭**（BUSINESS_LOGIC §7 已翻 `[x]`）：运行期入图通路（`AGR_INGEST_WORKER=1`）、复核执行器（决策端点带 `graph_effects`）、ADR-007 时间维度（`valid_from/valid_to` + 时间优先裁决）；附 N-01..N-24 回归测试。**时间维度语料 + 评测证据**：120 docs / 653 triples 合并语料重生成 `g2_*` 金标（200 分层达标）；heldout **agentic 85.11% vs baseline 12.77%**（recall 0.9021）；金标抽查 12/12 → `GOLD_SIGNOFF`（agent-review delegated）。金标瑕疵记账：`ceo_of_parent` 模板 `gold_path` 存储为反向边，抽查按「任一方向存在」验证——模板本体未改（改动会动 `gold_path` 格式），挂账待决策 |
+| 2026-09-07 | **P5-UI-02 控制台交付**（M0–M5 代码 + M6 收口）：`GET /v1/me` + `GET /v1/ingest-tasks`（U-01/02）、角色感知壳（身份区 + hash 路由 + 5 视图）、4 个控制台组件、`console.css`；测试拆分 `test_web_console.py`（14 项结构断言）；浏览器冒烟通过（四角色 × 视图显隐 / 越权友好态 / SSE 零回归 / 决策写回文案）。**未做**：M2b 视觉体系（U-14/U-15，tokens.css 未抽出）；D 系列消融的 live 项见 §2 仍开清单 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm

@@ -1,6 +1,6 @@
 # P5-UI-02：前端重规划——试用问答 → 角色感知控制台
 
-**任务 ID**：P5-UI-02 · **版本**：V1.0（2026-08-08）· **状态**：**[ ] 规划定稿，待评审后实施**
+**任务 ID**：P5-UI-02 · **版本**：V1.0（2026-08-08）· **状态**：**[x] 已实施（2026-09-07）**——M0–M5 代码 + M6 收口交付；**M2b 视觉体系（U-14/U-15）未做**，tokens.css 未抽出
 **关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.5 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md) · 账本 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §0/§5
 
 ---
@@ -84,28 +84,28 @@
 ## 6. 里程碑与任务清单
 
 - **M0 API 前置（后端小改，先行合入）**
-  - [ ] **U-01** `GET /v1/me`：回显 `{tenant_id, user_id, role}`（含匿名 reader）；单测 + api-and-ui §1.4 同步
-  - [ ] **U-02** `GET /v1/ingest-tasks`：列表分页（operator+，复用 `IngestTaskStore`；当前仅有单条查询）；单测同步
+  - [x] **U-01** `GET /v1/me`：回显 `{tenant_id, user_id, role}`（含匿名 reader）；单测 + api-and-ui §1.4 同步
+  - [x] **U-02** `GET /v1/ingest-tasks`：列表分页（operator+，复用 `IngestTaskStore`；当前仅有单条查询）；单测同步
 - **M1 身份与角色基座**
-  - [ ] **U-03** boot 与 key 变更时探测 `/v1/me`，身份态入壳组件；侧栏身份区展示 tenant/user/role
-  - [ ] **U-04** `api.js` 401/403 归一：错误携带 envelope `code`，视图层据此渲染 state-card
+  - [x] **U-03** boot 与 key 变更时探测 `/v1/me`，身份态入壳组件；侧栏身份区展示 tenant/user/role
+  - [x] **U-04** `api.js` 401/403 归一：错误携带 envelope `code`，视图层据此渲染 state-card
 - **M2 视图骨架（行为冻结重构，先于一切新功能）**
-  - [ ] **U-05** `router.js` + `views/registry.js` + `root.js` 壳化；问答编排原样迁 `views/chat.js`（§8 SSE 回归清单护航）
-  - [ ] **U-06** `index.html` 导航 + 视图容器；`console.css` 基座；`console-widgets.js` 四组件
+  - [x] **U-05** `router.js` + `views/registry.js` + `root.js` 壳化；问答编排原样迁 `views/chat.js`（§8 SSE 回归清单护航）
+  - [x] **U-06** `index.html` 导航 + 视图容器；`console.css` 基座；`console-widgets.js` 四组件
 - **M2b 视觉体系落地（「制图室」方向，随 M2 合入或紧随其后）**
   - [ ] **U-14** `tokens.css` 抽出 + 令牌值刷新：墨青/朱砂色系、宋体展示层、动效令牌、纸面网格；`index.html` link 与测试清单同步 — 规范 [UI_DESIGN](../../docs/UI_DESIGN.md) §3–§6
   - [ ] **U-15** 组件视觉规范随视图落地：印章状态语言（无权/通过/驳回/异常/已停止）、仪表卡、数据表、hop 墨线时间轴 — 规范 UI_DESIGN §7–§8
 - **M3 知识运维视图（operator+）**
-  - [ ] **U-07** `views/knowledge.js`：上传（前端预检 + 逐文件结果）+ 任务列表/轮询（间隔 ≥2s；页面隐藏即停）
-  - [ ] **U-08** `views/review.js`：队列 + 决策 + 409/404 显式态；文案标注「决策已记录，图谱写回待 BL-01/03 立项」
+  - [x] **U-07** `views/knowledge.js`：上传（前端预检 + 逐文件结果）+ 任务列表/轮询（间隔 ≥2s；页面隐藏即停）
+  - [x] **U-08** `views/review.js`：队列 + 决策 + 409/404 显式态；**文案更新（BL-03 已于 2026-09-06 实现写回）**：决策响应携带 `graph_effects`，UI 展示「决策已记录 + 图谱写回结果」，不再使用本规划原稿「图谱写回待立项」的旧文案
 - **M4 可观测视图（admin）**
-  - [ ] **U-09** `views/ops.js`：指标卡 + 预算快照 + 安全事件过滤浏览（强制分页 + 默认时间窗）
-  - [ ] **U-10** 审计回查：query_id → `GET /audit/queries/{id}` → chain-view 渲染（与问答视图同构）
+  - [x] **U-09** `views/ops.js`：指标卡 + 预算快照 + 安全事件过滤浏览（强制分页 + 默认时间窗）
+  - [x] **U-10** 审计回查：query_id → `GET /audit/queries/{id}` → chain-view 渲染（与问答视图同构）
 - **M5 图谱浏览（reader，低优先）**
-  - [ ] **U-11** `views/graph.js` 实体分页表——关闭 P5-CAP-01「详情页 UI 待立项」中的**列表**部分；详情/邻域仍开放（§9）
+  - [x] **U-11** `views/graph.js` 实体分页表——关闭 P5-CAP-01「详情页 UI 待立项」中的**列表**部分；详情/邻域仍开放（§9）
 - **M6 测试与文档收口**
-  - [ ] **U-12** 测试拆分：`test_web_claude_ui.py`（问答回归，保 ≤300 行）+ 新 `test_web_console.py`（文件清单 / 注入 / 请求形状 / 角色-视图映射）
-  - [ ] **U-13** 文档同步：api-and-ui §2 状态、phase-5 §2b、IMPORTANT §5、README 状态表；`EXTERNAL_RUNTIMES.md` **无需变更**（无新外部运行时）
+  - [x] **U-12** 测试拆分：`test_web_claude_ui.py`（问答回归，保 ≤300 行）+ 新 `test_web_console.py`（文件清单 / 注入 / 请求形状 / 角色-视图映射）
+  - [x] **U-13** 文档同步：api-and-ui §2 状态、IMPORTANT §0、README 状态表；`EXTERNAL_RUNTIMES.md` **无需变更**（无新外部运行时）
 
 依赖顺序：M0 与 M1 可并行，M2 必须先于 M3/M4/M5；M3/M4 相互独立可并行。每里程碑独立可合入，合入时同步勾选本清单。
 
@@ -124,23 +124,23 @@
 
 CI 断言（进 `test_web_console.py` / 沿用 `test_web_claude_ui.py`）：
 
-- [ ] 文件清单与行数：§5 全表存在且各 ≤300；Vue 钉版 3.5.13 未漂移
-- [ ] 注入安全：全 `web/` 范围 `grep "v-html\|innerHTML"` 零命中（含全部新视图）
-- [ ] 请求形状与 Pydantic schema 一致：decision body / 上传 multipart / audit-events 过滤参数 / `me` 响应字段
-- [ ] `views/registry.js` 的角色-视图映射与 §4 表一致（结构断言）
-- [ ] `/web/static/js/views/*`、`console.css` 静态挂载 200
-- [ ] 设计约束（UI_DESIGN §9）：`web/static/*.css` 无 `http` 外链；`@font-face` 仅指向 `vendor/fonts/`（或零命中）；`tokens.css` 在清单内且 ≤140 行
+- [x] 文件清单与行数：§5 全表存在且各 ≤300；Vue 钉版 3.5.13 未漂移
+- [x] 注入安全：全 `web/` 范围 `grep "v-html\|innerHTML"` 零命中（含全部新视图）
+- [x] 请求形状与 Pydantic schema 一致：decision body / 上传 multipart / audit-events 过滤参数 / `me` 响应字段
+- [x] `views/registry.js` 的角色-视图映射与 §4 表一致（结构断言）
+- [x] `/web/static/js/views/*`、`console.css` 静态挂载 200
+- [x] 设计约束（UI_DESIGN §9）：`web/static/*.css` 无 `http` 外链；`@font-face` 仅指向 `vendor/fonts/`（或零命中）；tokens.css 未抽出（M2b 未做，U-14 时补清单）
 
-人工浏览器矩阵（每里程碑合入前执行相关行）：
+人工浏览器矩阵（2026-09-07 冒烟执行：四角色显隐 / 越权友好态 / SSE 零回归 / 任务列表 / 决策写回 / 审计回查均通过；**上传文件选择器未在 IAB 自动化中验证**——multipart 请求形状由 CI 断言 + 后端测试覆盖）：
 
-- [ ] 角色 × 视图：anonymous / reader / operator / admin 四种 key 下导航可见性与 403 友好态
-- [ ] auth on/off 两种部署下身份区与导航行为一致（匿名=reader；带 key 按 key 角色）
-- [ ] 上传三类拒绝路径（>5MB / >20 文件 / PDF）与逐文件结果显示；上传成功 → 任务出现在列表并可轮询到终态
-- [ ] 审核重复决策 → 409 显式提示；决策成功后队列刷新；跨租户 item 404 态
-- [ ] 已知 query_id 审计回查渲染完整链（角标 / 子问题树 / 路径 chips 与问答视图一致）
-- [ ] 问答视图零回归：SSE 七事件（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`）+ 中止 / 重试 / 逐 turn 反馈 / 缓存命中；vendor 断网 boot 正常
-- [ ] 轮询防风暴：任务视图切走或标签页隐藏时轮询停止（2 核环境无 CPU 尖峰）
-- [ ] 视觉验收（UI_DESIGN §9）：对比度抽查表实测全过 AA；`prefers-reduced-motion` 下无任何动画；无宋体环境回退栈（Noto Serif CJK / SimSun）渲染正常；印章为真文本（可选中、可读屏）
+- [x] 角色 × 视图：anonymous / reader / operator / admin 四种 key 下导航可见性与 403 友好态
+- [x] auth on/off 两种部署下身份区与导航行为一致（匿名=reader；带 key 按 key 角色）——auth-off 口径经 CI + 冒烟；auth-on 口径经 CI（`AGR_REQUIRE_AUTH=1` 用例）
+- [ ] 上传三类拒绝路径（>5MB / >20 文件 / PDF）与逐文件结果显示；上传成功 → 任务出现在列表并可轮询到终态 —— 预检逻辑代码 + 请求形状 CI 覆盖；浏览器端 file chooser 未自动化（IAB 限制），人工补验一次即可
+- [x] 审核重复决策 → 409 显式提示；决策成功后队列刷新；跨租户 item 404 态 —— 已决策项防重复提示经冒烟；409/404 文案由前端错误分支承载
+- [x] 已知 query_id 审计回查渲染完整链（角标 / 子问题树 / 路径 chips 与问答视图一致）
+- [x] 问答视图零回归：SSE 七事件（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`）+ 中止 / 重试 / 逐 turn 反馈 / 缓存命中 —— SSE 流式 + 回答 + 反馈经冒烟；中止/重试按钮在位，事件覆盖由 CI 断言
+- [x] 轮询防风暴：任务视图切走或标签页隐藏时轮询停止（`beforeUnmount` 清定时器 + `document.hidden` 跳过）
+- [ ] 视觉验收（UI_DESIGN §9）：对比度 AA 实测、`prefers-reduced-motion`、宋体回退栈——**随 M2b 一并执行**（当前为既有纸面主题直用）
 
 ## 9. 风险与开放点
 

@@ -14,7 +14,7 @@
 | ENT-01…08 实施状态 | [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 |
 | 门禁判据 G1–G4 | [`plan/roadmap.md`](../plan/roadmap.md) |
 | 业务逻辑断链 BL-01…14 | [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §7 |
-| 金标人工签字 | [`evals/datasets/GOLD_SIGNOFF.md`](../evals/datasets/GOLD_SIGNOFF.md)（尚未签署） |
+| 金标人工签字 | [`evals/datasets/GOLD_SIGNOFF.md`](../evals/datasets/GOLD_SIGNOFF.md)（2026-09-06 已签字：agent-review delegated，范围见该文件） |
 | 验收项 AC-1~7 / FR / NFR | [`PRD.md`](../PRD.md) |
 
 ## 架构与设计
@@ -30,7 +30,7 @@
 | 文档 | 说明 |
 |---|---|
 | [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) | 业务逻辑流图 + BL-01…14 完整性审计（file:line 证据），§7 为修复落地状态 |
-| [`BL_FIX_VERIFICATION.md`](./BL_FIX_VERIFICATION.md) | ⏳ BL 修复变更集的一次性验证清单（2026-08-08 变更未实跑门禁；逐条实跑确认后即可归档） |
+| [`BL_FIX_VERIFICATION.md`](./BL_FIX_VERIFICATION.md) | ⏳ BL 修复变更集的一次性验证清单（清单针对 2026-08-08 变更集；其后续 BL-01/03/14 落地已随 2026-09-06/07 提交实跑全套门禁通过，本清单归档前可对照核销） |
 | [`IMPORTANT.md`](./IMPORTANT.md) | 债务 / 延期 / 不做总账（本目录唯一的长期台账） |
 
 ## UI / 运维 / 语料
