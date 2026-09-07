@@ -1,7 +1,7 @@
 # AgenticGraphRAG 实施计划总览
 
 **关联文档**：[../PRD.md](../PRD.md) · [../lixiang.md](../lixiang.md)
-**版本**：V1.2（2026-09-06：目录补齐 p5-ui-01/02；进度状态口径统一指向 docs/IMPORTANT.md §0）
+**版本**：V1.3（2026-09-07：p5-ui-02 目录行状态刷新——M2b 视觉随 P5-UI-03 关闭；前版 V1.2：目录补齐 p5-ui-01/02，进度状态口径统一指向 docs/IMPORTANT.md §0）
 
 本目录是项目实施计划的唯一入口，按"阶段（时间维度）× 工作流（能力维度）"双视角组织。
 
@@ -19,7 +19,7 @@ plan/
 │   ├── phase-4-pilot.md          # 阶段四：试点上线（2-3周）
 │   ├── phase-5-scale.md          # 阶段五：规模化推广（持续）
 │   ├── p5-ui-01-vue-refactor.md  # P5-UI-01：Vue 3 零构建前端重构（[x] 已完成）
-│   └── p5-ui-02-console-replan.md # P5-UI-02：角色工作台控制台重规划（[x] 已实施 2026-09-07，M2b 视觉未做）
+│   └── p5-ui-02-console-replan.md # P5-UI-02：角色工作台控制台重规划（[x] 已实施 2026-09-07；M2b 视觉随同日 P5-UI-03 结构重设计关闭）
 ├── workstreams/                  # 按工作流的技术方案与任务分解（怎么做）
 │   ├── knowledge-graph.md        # 图谱构建：抽取、消歧、增量更新
 │   ├── retrieval.md              # 混合检索：向量/图/全文 + 融合排序

@@ -37,7 +37,7 @@
 
 | 文档 | 说明 |
 |---|---|
-| [`UI_DESIGN.md`](./UI_DESIGN.md) | P5-UI-02 角色工作台的视觉规范（唯一视觉权威） |
+| [`UI_DESIGN.md`](./UI_DESIGN.md) | 「制图室」视觉提案（**历史**：2026-09-07 起被 P5-UI-03 双主题暗色优先实现取代，现行视觉口径以 `web/static/tokens.css` 为准——见其 V1.1 状态头） |
 | [`ops-runbook.md`](./ops-runbook.md) | 运维手册：启动、环境变量、错误码、worker、保留清理、告警建议 |
 | [`EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) | 无 Docker 环境的外部运行时（tarball Neo4j + JDK、Vue vendor 钉版） |
 | [`REAL_DOMAIN_PLAYBOOK.md`](./REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入剧本（决策清单 → 导入管线） |
