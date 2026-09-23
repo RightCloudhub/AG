@@ -1,0 +1,36 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f2e9;
+  --bg-elevated: #faf7f0;
+  --surface: #fff;
+  --surface-soft: #f2ede2;
+  --text: #22304c;
+  --text-secondary: #57627c;
+  --muted: #778099;
+  --border: #ded6c4;
+  --border-strong: #c9bfa9;
+  --accent: #c2401f;
+  --accent-hover: #a33517;
+  --accent-soft: #f6e2d9;
+  --good: #35694d;
+  --good-bg: #e7f1ea;
+  --bad: #9e2b25;
+  --bad-bg: #f7e7e4;
+  --warn: #c9a227;
+  --warn-text: #8a5a12;
+  --grid-line: rgba(34, 48, 76, 0.045);
+  --node-ink: #2f5d68;
+  --edge-ink: #8a5a12;
+  --stamp-red: #b23a24;
+  --shadow: 0 2px 5px rgba(34, 48, 76, 0.045), 0 12px 30px rgba(34, 48, 76, 0.07);
+  --radius: 14px;
+  --radius-sm: 8px;
+  --font-display: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", STSong, SimSun, Georgia, serif;
+  --font: "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --ease-draft: cubic-bezier(0.22, 0.8, 0.26, 1);
+  --thread-max: 860px;
+  --composer-max: 860px;
+}

@@ -115,12 +115,12 @@ async def _save_upload(
         metadata={
             "task_id": task_id,
             "source": "upload",
-            "bytes": len(text),
+            "bytes": len(content),
             "tenant_id": tenant_id,
         },
         tenant_id=tenant_id,
     )
-    row = {"doc_id": doc_id, "bytes": str(len(text)), "name": file.filename or ""}
+    row = {"doc_id": doc_id, "bytes": str(len(content)), "name": file.filename or ""}
     try:
         svc.bundle.docs.save(record)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch

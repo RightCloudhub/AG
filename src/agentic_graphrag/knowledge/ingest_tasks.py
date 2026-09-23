@@ -103,6 +103,21 @@ class IngestTaskStore:
                 return None
             return IngestTask.from_dict(task.to_dict())
 
+    def list(
+        self, *, tenant_id: str | None = None, limit: int = 50, offset: int = 0
+    ) -> tuple[list[IngestTask], int]:
+        """Return a tenant-scoped page, newest first, and its exact total."""
+        with self._lock:
+            tasks = [
+                task
+                for task in self._tasks.values()
+                if tenant_id is None or task.tenant_id == tenant_id
+            ]
+            tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+            total = len(tasks)
+            page = tasks[max(0, offset) : max(0, offset) + max(1, limit)]
+            return [IngestTask.from_dict(task.to_dict()) for task in page], total
+
     def pending(self, limit: int = 10) -> list[IngestTask]:
         with self._lock:
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]

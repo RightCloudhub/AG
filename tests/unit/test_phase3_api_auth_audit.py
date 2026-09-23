@@ -10,6 +10,8 @@ from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.api.sse import format_sse
 from agentic_graphrag.generation.audit_store import AuditStore
 from agentic_graphrag.generation.trace import ReasoningChain
+from agentic_graphrag.observability import audit_events
+from agentic_graphrag.observability.audit_events import AuditEventStore
 
 
 def test_parse_api_keys():
@@ -33,7 +35,9 @@ def test_audit_store_roundtrip(tmp_path):
     assert row["question"] == "q?"
 
 
-def test_api_query_and_audit():
+def test_api_query_and_audit(monkeypatch, tmp_path):
+    event_store = AuditEventStore(tmp_path / "events.jsonl")
+    monkeypatch.setattr(audit_events, "_STORE", event_store)
     svc = QueryService.create_offline()
     app = create_app(query_service=svc)
     client = TestClient(app)
@@ -61,6 +65,13 @@ def test_api_query_and_audit():
         json={"query_id": data["query_id"], "accurate": False, "reason": "test"},
     )
     assert r3.status_code == 200
+    feedback_events = event_store.list_events(
+        action="feedback_submitted",
+        tenant_id="default",
+    )
+    assert len(feedback_events) == 1
+    assert feedback_events[0].target == data["query_id"]
+    assert feedback_events[0].outcome == "inaccurate"
 
     # metrics
     r4 = client.get("/v1/metrics")

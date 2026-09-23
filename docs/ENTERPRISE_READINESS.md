@@ -57,7 +57,7 @@
 
 - API Key→租户映射、Bearer/X-Api-Key 双头、`AGR_REQUIRE_AUTH` 强制开关、租户级限流一体中间件 — `api/auth.py:115`
 - 用户预算身份默认绑定 key 摘要，客户端不可伪造 `X-User-Id`（`AGR_TRUST_X_USER_ID` 显式信任）— `api/auth.py:63,169`
-- 试用 UI API Key 输入（localStorage + Bearer）— `web/static/js/api.js:5`
+- Web 工作台 API Key 输入（localStorage + Bearer）— `web/static/js/api.js:5`
 
 缺口：
 

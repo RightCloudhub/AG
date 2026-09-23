@@ -36,7 +36,7 @@ agr-ingest
 agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm   # falls back to memory graph if Neo4j down; --memory-graph forces
 agr-index --no-embed
 
-# API + trial Web UI
+# API + Web workspace
 agr-api                                       # http://localhost:8000/web ; POST /v1/query ; POST /v1/query/stream (SSE); /healthz
 
 # Enterprise ops (ENT-01…08; offline-friendly)
@@ -46,9 +46,8 @@ PYTHONPATH=src python scripts/prune_data_files.py --dry-run                # ret
 # Infra (optional; only live paths need it)
 docker compose up -d                          # Neo4j 7474/7687 (neo4j/agentic-graphrag), Qdrant 6333
 
-# Gate / regression scripts
-./scripts/verify_all.sh                       # master pack — see "Gates" below (--quick / --with-tests / --with-llm / --target=URL)
-./scripts/g1_to_g2_gate.sh                    # C1/C2/C3 summary (--with-llm for live)
+# Verification scripts
+./scripts/verify_all.sh --help                 # master verification pack options
 PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py
 ```
 
@@ -101,9 +100,10 @@ The output contract is `ReasoningChain` (`generation/trace.py`); its JSON Schema
 All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps everything; role checks are per-route via `Depends(require_role(...))` from `api/rbac.py`; responses go through the shared success/error envelope (`api/envelope.py`, `api/errors.py`).
 
 - **query.py**: `POST /v1/query`, `POST /v1/query/stream` (SSE)
-- **knowledge.py**: `POST /v1/docs` (admin/operator), `GET /v1/ingest-tasks/{id}`, `GET /v1/review-queue`, `POST /v1/review-queue/{id}/decision` (admin/operator), `GET /v1/audit/queries/{id}`, `POST /v1/feedback`, `GET /v1/metrics` (admin), `GET /v1/graph/entities`
+- **knowledge.py**: `POST /v1/docs`, `GET /v1/ingest-tasks/{id}`, `GET /v1/review-queue`, `POST /v1/review-queue/{id}/decision` (admin/operator); `GET /v1/audit/queries/{id}`, `POST /v1/feedback`, `GET /v1/metrics` (admin)
+- **workspace.py**: `GET /v1/me` returns identity and role capabilities; `GET /v1/ingest-tasks` is tenant-scoped and paginated (admin/operator); `GET /v1/graph/entities` supports search, type filtering, and pagination.
 - **admin.py** (all admin-only): `GET /v1/traces/{id}`, `GET /v1/budget/snapshot`, `GET /v1/audit-events`
-- **app.py**: `GET /healthz`, `GET /metrics-prom` (Prometheus text), `GET /web` (trial UI)
+- **app.py**: `GET /healthz`, `GET /metrics-prom` (Prometheus text), `GET /web` (Vue workspace)
 
 `QueryService` is deliberately split across `service.py` / `service_helpers.py` / `service_query.py` / `service_stream.py` / `service_agent.py` / `service_telemetry.py` for the file-size gate.
 
@@ -113,27 +113,21 @@ All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps 
 
 `AGR_*` switches are read from `os.environ` directly (not `.env`) and are the **only** sanctioned direct-environ reads — new settings belong in `AppConfig` or `Settings`: `AGR_ALLOW_LLM`, `AGR_USE_LIVE_STORES`, `AGR_REQUIRE_AUTH`, `AGR_API_KEYS=tenant:key:role,...` (roles admin/operator/reader; bare `tenant:key` parses as reader), `AGR_RATE_LIMIT_QPS`, `AGR_RATE_LIMIT_CONCURRENT`, `AGR_TRUST_X_USER_ID` (default off — `X-User-Id` is not budget identity), `AGR_LOG_LEVEL/FILE`, `AGR_REDACTION_ENABLED/PATTERNS`, `AGR_OTEL_ENABLED/ENDPOINT/SAMPLE_RATE`, `AGR_API_HOST/PORT/RELOAD`.
 
-### Enterprise layer (ENT-01…08, 2026-07-25)
+### Enterprise layer
 
-Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, the three retrievers, and the agent loop (retrieval-cache keys are tenant-scoped, so tenant runs use the cache instead of bypassing it); uploads are governed (5MB/20 files/md|txt — PDF is rejected with an explicit "not supported yet" until a text extractor exists) and land in a durable `IngestTaskStore` consumed by a separately-run `ingest_worker`. ENT-07 (RPA/webhooks) is explicitly out of scope. Status authority: `docs/ENTERPRISE_READINESS.md` §3.5; ops procedures: `docs/ops-runbook.md`.
+Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. Uploads accept UTF-8 Markdown / text (5 MiB per file, 20 files per batch) and create durable ingest tasks. The separate worker chunks and indexes documents; it does not extract graph facts. Under default offline settings its vector and BM25 stores are process-local, so a standalone worker's indexes are not visible to the API process. Operations procedures: `docs/ops-runbook.md`.
 
 ### Evaluation
 
 Datasets live in `evals/datasets/*.jsonl` (poc, dev/heldout/guardrail splits via `eval/split_sets.py`, g2_* generated gold sets; spec in `ANNOTATION_SPEC.md`). Gold cases are generated deterministically from templates (`eval/gold_gen.py` + `eval/gold_templates/`) by walking the graph — no LLM. `run-cases` writes `reports/*.jsonl` + accuracy JSON; `run-baseline` (`eval/baseline_rag.py`) runs the pure-vector RAG baseline on the same cases with the same scoring helpers for a fair delta; `badcase` does attribution. Metrics (`eval/metrics.py`, `metrics_evidence.py`): accuracy, evidence recall, latency, cost, fabrication rate.
 
-### Gates
-
-`./scripts/verify_all.sh` is the master verification pack. It writes `reports/verify_all/VERIFY_ALL_status.{json,md}` and reports two **separate** verdicts: `engineering_pass` (offline suite: code metrics, ruff, tests, pilot corpus, P95 smoke, guardrails) and `formal_pass` (product/live AC gates — expected `false` until a real authorized domain, live held-out evidence, human gold sign-off and staging P95 exist). Offline results are never allowed to set `formal_pass`. Use `--with-tests`, `--with-llm`, `--target=http://127.0.0.1:8000` (the only way to close AC-4), `--require-formal` to fail on open product gates.
-
 ## Conventions
 
-- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review). Design-vs-implementation divergences are marked "⚠ 差异" in `plan/workstreams/` docs and ledgered in `docs/IMPORTANT.md`.
+- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review).
 - **Architecture boundaries (review-enforced, `rules.md` §6).** LangGraph is confined to `agent/` at a pinned version; do **not** introduce LangChain retrieval/chain abstractions — retrieval and LLM calls go through this repo's `retrieval/` and `llm/` interfaces (ADR-005). Graph nodes are "state in → state out" so unit tests never need the LangGraph runtime. New features must run under `--no-llm` + in-memory backends or explicitly declare themselves live-only; never pull an online dependency into the CI path.
-- **`docs/IMPORTANT.md` is the debt/deferral ledger.** Every intentionally deferred, blocked, or not-doing item lives there. When you close or defer a task, update it *in the same change set* (plus the phase checklist in `plan/phases/` and any gate JSON / risk status). Task status markers are uniform: `[ ]` not started, `[~]` in progress, `[x]` done, `[-]` cancelled (state the reason). Task IDs like `P2-KG-01`, `P3-PERF-06`, `C1/C2/C3` refer to `plan/` phase files.
 - **Changing a technology choice requires a new ADR in `plan/engineering/tech-stack.md` first**, then code.
-- **Engineering-done ≠ product-accepted.** Gates G1–G4 (`plan/roadmap.md`) require live-LLM/held-out evidence; offline synthetic results must not be presented as gate evidence. README's status table reflects this split — keep it honest when updating.
 - **Hard code metrics are enforced by `scripts/check_code_metrics.py`** (same limits as the table above). This is why modules are deliberately split (`loop` / `loop_handlers` / `loop_runtime`, `executor` / `executor_plan` / `executor_dispatch`, `service` / `service_helpers` / `service_query`). New modules target ~200–400 lines; put constants in module-level named constants, not inline literals.
 - **Coverage omit list in `pyproject.toml` is intentional** (CLI glue, `stores/neo4j_store.py`, live LLM client, `generation/answer.py`, offline heuristic `rules_*.py`, `otel_bridge.py`). If you add code to an omitted module, either cover it or keep the omission justified; don't silently expand the list.
-- **Trial UI (`web/`)**: zero-build — no npm, no bundler; Vue 3 ESM runtime only, vendored-first and pinned (ADR-006, mirrored in `docs/EXTERNAL_RUNTIMES.md`). Dynamic text goes through mustache or `textContent`; `v-html` and `.innerHTML` are forbidden. JS/CSS/HTML obey the same size and complexity limits as Python (review-enforced — the metrics script only scans Python). SSE consumers must handle every event type (`cache_hit/triage/thinking/sub_question/hop_done/answer/error`) and silently ignore unknown ones; SSE is true incremental via LangGraph `stream(updates)` (`agent/loop_stream.py` + `api/service_stream.py`). DOM/module changes must update the structure and injection-safety assertions in `tests/unit/test_web_claude_ui.py`.
+- **Web workspace (`web/`)**: zero-build — no npm, no bundler; Vue 3 ESM runtime only, vendored-first and pinned (ADR-006, mirrored in `docs/EXTERNAL_RUNTIMES.md`). Dynamic text goes through mustache or `textContent`; `v-html` and `.innerHTML` are forbidden. JS/CSS/HTML obey the same size and complexity limits as Python (review-enforced — the metrics script only scans Python). SSE consumers must handle every event type (`cache_hit/triage/thinking/sub_question/hop_done/answer/error`) and silently ignore unknown ones; SSE is true incremental via LangGraph `stream(updates)` (`agent/loop_stream.py` + `api/service_stream.py`). DOM/module changes must update the structure and injection-safety assertions in `tests/unit/test_web_claude_ui.py`.
 - Ruff: line length 100, target py312, rules `E,F,I,UP,B`. Tests: pytest with `asyncio_mode = "auto"`.
 - Some environments here have no Docker: Neo4j runs from a tarball under `/tmp` with a Temurin 17 `JAVA_HOME` (see `docs/EXTERNAL_RUNTIMES.md`), and the LLM gateway is prone to 403s — prefer offline paths unless the task requires live backends.

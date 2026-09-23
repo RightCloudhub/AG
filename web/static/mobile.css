@@ -1,0 +1,28 @@
+@media (max-width: 820px) {
+  .workspace-shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    width: min(290px, calc(100vw - 48px));
+    transform: translateX(-105%);
+    transition: transform var(--t-med) var(--ease-draft);
+    box-shadow: 15px 0 40px rgba(25, 35, 53, 0.12);
+  }
+  .sidebar.sidebar-open { transform: translateX(0); }
+  .mobile-menu { display: inline-grid; }
+  .mobile-scrim {
+    position: fixed;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: rgba(25, 35, 53, 0.24);
+    z-index: 15;
+  }
+  .workspace-topbar { min-height: 70px; padding-inline: 14px; }
+  .settings-button { padding-inline: 9px; }
+}
+
+@media (max-width: 520px) {
+  .topbar-health { max-width: 80px; }
+  .workspace-topbar { gap: 8px; }
+}

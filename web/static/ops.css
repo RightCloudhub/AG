@@ -1,0 +1,58 @@
+.ops-toolbar { align-items: center; }
+.ops-view > .inline-alert { margin: 0; }
+.ops-toolbar h2 { margin-top: 2px; }
+.ops-toolbar .button { flex: 0 0 auto; }
+.ops-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ops-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.ops-grid .panel { min-width: 0; }
+.ops-grid .panel-heading h3, .audit-panel .panel-heading h3, .trace-panel .panel-heading h3 { margin: 2px 0 0; font: 600 17px var(--font-display); }
+.budget-list { display: grid; gap: 0; margin: 0; }
+.budget-list > div, .route-row, .ops-substat { display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--border); }
+.budget-list dt, .route-row span, .ops-substat span { color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.budget-list dd, .route-row strong, .ops-substat strong { margin: 0; color: var(--text); font: 600 11px var(--font-mono); text-align: right; overflow-wrap: anywhere; }
+.ops-substat { margin-top: 12px; }
+.audit-filters { padding-top: 2px; }
+.audit-event-list { display: grid; margin-top: 7px; }
+.audit-event { border-bottom: 1px solid var(--border); }
+.audit-event summary { display: grid; grid-template-columns: 145px minmax(90px, 1fr) 95px 110px minmax(80px, 1.2fr); gap: 10px; align-items: center; padding: 10px 4px; color: var(--text-secondary); cursor: pointer; font-size: 10px; list-style: none; }
+.audit-event summary::-webkit-details-marker { display: none; }
+.audit-event summary:hover { color: var(--text); }
+.audit-event time, .audit-event code, .trace-row code { font: 9px var(--font-mono); }
+.event-action { width: fit-content; padding: 2px 7px; border-radius: 999px; background: var(--surface-soft); color: var(--text); }
+.event-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit-event .json-view { margin: 0 0 10px; }
+.lookup-form { display: flex; gap: 8px; max-width: 700px; }
+.audit-result { display: grid; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.audit-result-head { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.audit-result-head code { color: var(--text-secondary); font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.query-pair { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; }
+.query-pair > span { color: var(--muted); font-size: 10px; }
+.query-pair p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.forensic-steps { display: grid; gap: 8px; padding-left: 20px; }
+.forensic-steps li { padding: 10px 12px; border-left: 2px solid var(--accent); background: #fcfaf5; }
+.forensic-steps strong { font-size: 11px; }
+.forensic-steps p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; }
+.forensic-steps small { color: var(--muted); font: 9px var(--font-mono); }
+.trace-result { display: grid; gap: 0; margin-top: 12px; }
+.trace-result h4 { margin: 0 0 5px; font: 600 14px var(--font-display); }
+.trace-row { display: grid; grid-template-columns: minmax(100px, 1fr) 90px 70px 145px; gap: 9px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 10px; }
+.trace-row strong { color: var(--text); font: 10px var(--font-mono); }
+.trace-row time { color: var(--muted); font: 9px var(--font-mono); }
+
+@media (max-width: 900px) {
+  .ops-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-grid { grid-template-columns: 1fr; }
+  .audit-event summary { grid-template-columns: minmax(110px, 1fr) minmax(90px, 1fr) 80px; }
+  .audit-event summary code, .event-target { display: none; }
+}
+
+@media (max-width: 520px) {
+  .ops-toolbar { gap: 10px; }
+  .ops-toolbar .button { padding-inline: 8px; }
+  .lookup-form { align-items: stretch; flex-direction: column; }
+  .trace-row { grid-template-columns: minmax(0, 1fr) 72px; }
+  .trace-row code { display: none; }
+  .trace-row time { grid-column: 1 / -1; }
+  .audit-event summary { grid-template-columns: 1fr auto; }
+  .audit-event summary > span:nth-child(3) { display: none; }
+}

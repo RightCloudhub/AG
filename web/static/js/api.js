@@ -1,17 +1,3 @@
-/* Backend client for the trial UI: envelope-aware JSON calls + manual SSE
- * parsing. SSE uses fetch + ReadableStream (not EventSource) because the
- * stream endpoint requires POST with a JSON body. Framework-free module.
- *
- * Auth: optional API key from localStorage key `agr_api_key` (or window.AGR_API_KEY).
- * When set, sent as Authorization: Bearer <key> so AGR_REQUIRE_AUTH=1 works.
- */
-const QUERY_URL = "/v1/query";
-const STREAM_URL = "/v1/query/stream";
-const FEEDBACK_URL = "/v1/feedback";
-const HEALTH_URL = "/healthz";
-const SSE_BLOCK_SEPARATOR = "\n\n";
-const SSE_EVENT_PREFIX = "event:";
-const SSE_DATA_PREFIX = "data:";
 const API_KEY_STORAGE = "agr_api_key";
 
 export function getApiKey() {
@@ -28,101 +14,166 @@ export function setApiKey(key) {
     if (key) localStorage.setItem(API_KEY_STORAGE, key);
     else localStorage.removeItem(API_KEY_STORAGE);
   } catch {
-    /* private mode */
+    return;
   }
-}
-
-function authHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  const key = getApiKey();
-  if (key) headers.Authorization = `Bearer ${key}`;
-  return headers;
 }
 
 export function friendlyError(err) {
-  if (err && err.name === "AbortError") return "已中止";
-  const message = err && err.message ? err.message : String(err);
-  return message || "未知错误";
+  if (err && err.name === "AbortError") return "请求已取消";
+  if (err && err.status === 401) return "API Key 无效或已过期，请检查连接设置。";
+  if (err && err.status === 403) return "当前账号没有执行此操作的权限。";
+  if (err && err.status === 404) return "记录不存在，或已被移除。";
+  if (err && err.status === 409) return "记录已处理，请刷新后重试。";
+  return (err && err.message) || String(err || "未知错误");
 }
 
-/* POST JSON and unwrap the unified envelope; throws on success=false. */
-async function postEnvelope(url, body) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(body),
+export async function requestEnvelope(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const key = getApiKey();
+  if (key) headers.Authorization = `Bearer ${key}`;
+  if (options.body && !options.form) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, {
+    method: options.method || "GET",
+    headers,
+    body: options.form || (options.body ? JSON.stringify(options.body) : undefined),
+    signal: options.signal,
   });
-  let env = null;
+  let envelope;
   try {
-    env = await res.json();
+    envelope = await response.json();
   } catch {
-    env = null;
+    throw new Error(`服务器返回了无法读取的响应（HTTP ${response.status}）`);
   }
-  if (!env) throw new Error(`请求失败（HTTP ${res.status}）`);
-  if (!env.success) {
-    const error = env.error || {};
-    throw new Error(error.message || error.code || "请求失败");
+  if (!response.ok || !envelope.success) {
+    const detail = envelope.error || {};
+    const error = new Error(detail.message || `请求失败（HTTP ${response.status}）`);
+    error.status = response.status;
+    error.code = detail.code || "REQUEST_FAILED";
+    error.details = detail.details || null;
+    throw error;
   }
-  return env.data;
-}
-
-export function postQuery(body) {
-  return postEnvelope(QUERY_URL, body);
-}
-
-export function postFeedback(body) {
-  return postEnvelope(FEEDBACK_URL, body);
+  return { data: envelope.data, meta: envelope.meta || {} };
 }
 
 export async function fetchHealth() {
-  const res = await fetch(HEALTH_URL, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const response = await fetch("/healthz");
+  if (!response.ok) throw new Error(`健康检查失败（HTTP ${response.status}）`);
+  return response.json();
 }
 
-/* Consume the SSE stream; calls opts.onEvent({type, payload}) per frame.
- * onEvent may be async — we await it so the UI can paint between frames
- * even when multiple events arrive in one TCP chunk. */
-export async function streamQuery(opts) {
-  const res = await fetch(STREAM_URL, {
+export async function fetchMe() {
+  return (await requestEnvelope("/v1/me")).data;
+}
+
+export async function postQuery(body, signal) {
+  return (await requestEnvelope("/v1/query", { method: "POST", body, signal })).data;
+}
+
+export async function postFeedback(body) {
+  return (await requestEnvelope("/v1/feedback", { method: "POST", body })).data;
+}
+
+export async function streamQuery({ body, signal, onEvent }) {
+  const headers = { "Content-Type": "application/json" };
+  const key = getApiKey();
+  if (key) headers.Authorization = `Bearer ${key}`;
+  const response = await fetch("/v1/query/stream", {
     method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(opts.body),
-    signal: opts.signal,
+    headers,
+    body: JSON.stringify(body),
+    signal,
   });
-  if (!res.ok || !res.body) throw new Error(`stream failed: HTTP ${res.status}`);
-  const reader = res.body.getReader();
+  if (!response.ok || !response.body) {
+    const err = new Error(`流式查询失败（HTTP ${response.status}）`);
+    err.status = response.status;
+    throw err;
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
+  while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    buffer = await emitCompleteBlocks(buffer, opts.onEvent);
+    buffer = await emitCompleteBlocks(buffer, onEvent);
   }
+  if (buffer.trim()) await emitEventBlock(buffer, onEvent);
+}
+
+export async function uploadDocuments(files) {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file));
+  return requestEnvelope("/v1/docs", { method: "POST", form });
+}
+
+export async function listIngestTasks({ limit = 50, offset = 0 } = {}) {
+  return requestEnvelope(`/v1/ingest-tasks?limit=${limit}&offset=${offset}`);
+}
+
+export async function listReviewItems({ status = "pending", type = "", limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
+  if (type) params.set("type", type);
+  return requestEnvelope(`/v1/review-queue?${params}`);
+}
+
+export async function decideReview(itemId, body) {
+  return (await requestEnvelope(`/v1/review-queue/${encodeURIComponent(itemId)}/decision`, {
+    method: "POST",
+    body,
+  })).data;
+}
+
+export async function listGraphEntities({ query = "", type = "", limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (query) params.set("query", query);
+  if (type) params.set("entity_type", type);
+  return requestEnvelope(`/v1/graph/entities?${params}`);
+}
+
+export async function fetchMetrics() {
+  return (await requestEnvelope("/v1/metrics")).data;
+}
+
+export async function fetchBudget() {
+  return (await requestEnvelope("/v1/budget/snapshot")).data;
+}
+
+export async function fetchAuditEvents(filters = {}) {
+  const params = new URLSearchParams({ limit: String(filters.limit || 100) });
+  ["since", "until", "tenant_id", "action"].forEach((key) => {
+    if (filters[key] !== undefined && filters[key] !== "") params.set(key, String(filters[key]));
+  });
+  return (await requestEnvelope(`/v1/audit-events?${params}`)).data;
+}
+
+export async function fetchAuditQuery(queryId) {
+  return (await requestEnvelope(`/v1/audit/queries/${encodeURIComponent(queryId)}`)).data;
+}
+
+export async function fetchTrace(queryId) {
+  return (await requestEnvelope(`/v1/traces/${encodeURIComponent(queryId)}`)).data;
 }
 
 async function emitCompleteBlocks(buffer, onEvent) {
-  const parts = buffer.split(SSE_BLOCK_SEPARATOR);
-  const rest = parts.pop() || "";
-  for (const block of parts) {
-    const evt = parseSseBlock(block);
-    if (evt) await onEvent(evt);
-  }
-  return rest;
+  const blocks = buffer.split(/\r?\n\r?\n/);
+  const remainder = blocks.pop() || "";
+  for (const block of blocks) await emitEventBlock(block, onEvent);
+  return remainder;
 }
 
-function parseSseBlock(block) {
+async function emitEventBlock(block, onEvent) {
   let type = "message";
-  let dataLine = "";
-  for (const line of block.split("\n")) {
-    if (line.startsWith(SSE_EVENT_PREFIX)) type = line.slice(SSE_EVENT_PREFIX.length).trim();
-    else if (line.startsWith(SSE_DATA_PREFIX)) dataLine += line.slice(SSE_DATA_PREFIX.length).trim();
+  const data = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (line.startsWith("event:")) type = line.slice(6).trim();
+    if (line.startsWith("data:")) data.push(line.slice(5).trim());
   }
-  if (!dataLine) return null;
+  if (!data.length) return;
+  let payload;
   try {
-    return { type, payload: JSON.parse(dataLine) };
+    payload = JSON.parse(data.join("\n"));
   } catch {
-    return null;
+    return;
   }
+  await onEvent({ type, payload });
 }

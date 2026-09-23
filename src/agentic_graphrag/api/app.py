@@ -18,6 +18,7 @@ from agentic_graphrag.api.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.api.routes import admin as admin_routes
 from agentic_graphrag.api.routes import knowledge as knowledge_routes
 from agentic_graphrag.api.routes import query as query_routes
+from agentic_graphrag.api.routes import workspace as workspace_routes
 from agentic_graphrag.api.service import QueryService, build_default_service
 from agentic_graphrag.config import ROOT_DIR
 from agentic_graphrag.observability.logging_setup import get_logger, setup_logging
@@ -146,6 +147,7 @@ def _register_routes(app: FastAPI) -> None:
 
     app.include_router(query_routes.router)
     app.include_router(knowledge_routes.router)
+    app.include_router(workspace_routes.router)
     app.include_router(admin_routes.router)
 
 

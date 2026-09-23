@@ -1,4 +1,4 @@
-/* Answer panels: feedback, folds, citations, plan tree, paths (P5-UI-01). */
+/* Answer panels: feedback, citations, reasoning steps, and graph paths. */
 .feedback-row {
   display: flex;
   flex-wrap: wrap;

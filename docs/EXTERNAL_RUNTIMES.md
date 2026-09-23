@@ -79,7 +79,7 @@ rm -rf /tmp/jdk-17 /tmp/jdk17.tar.gz /tmp/neo4j-home /tmp/neo4j.tgz /tmp/binshim
 | **Vue 3 运行时** | 浏览器加载 / 可选 vendor | 钉版 **3.5.13** `vue.esm-browser.prod.js`；**非 npm**（见下方 §3.1） |
 | **系统包管理器装的 jdk-openjdk / neo4j** | 未使用 | Arch 上曾无 passwordless sudo，未走 `pacman` 安装 |
 
-### 3.1 Vue 3 运行时 vendor（试用 Web，ADR-006）
+### 3.1 Vue 3 运行时 vendor（Web 工作台，ADR-006）
 
 | 项 | 值 |
 |----|-----|

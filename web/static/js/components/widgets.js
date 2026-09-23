@@ -1,4 +1,4 @@
-/* Small presentational widgets for the trial chat UI (Options API, pure
+/* Small presentational widgets for chat (Options API, pure
  * objects — no Vue import). Templates use mustache / textContent only.
  */
 import {
