@@ -67,3 +67,19 @@ def test_graph_entities_respects_limit():
     assert len(data) <= 3
     assert len(data) >= 1
     svc.close()
+
+
+def test_graph_entities_search_filters_before_pagination():
+    svc = QueryService.create_offline()
+    client = TestClient(create_app(query_service=svc))
+    response = client.get(
+        "/v1/graph/entities",
+        params={"query": "Apex", "entity_type": "Company", "limit": 1},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]
+    assert all("apex" in row["name"].lower() for row in body["data"])
+    assert all(row["type"].lower() == "company" for row in body["data"])
+    assert body["meta"]["total"] >= len(body["data"])
+    svc.close()

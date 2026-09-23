@@ -32,20 +32,57 @@ class EntityPage:
     total_is_floor: bool = False
 
 
-def entity_page(store: object, *, limit: int, offset: int, tenant_id: str | None) -> EntityPage:
+def entity_page(
+    store: object,
+    *,
+    limit: int,
+    offset: int,
+    tenant_id: str | None,
+    query: str = "",
+    entity_type: str = "",
+) -> EntityPage:
     """Resolve one tenant-scoped page from whichever access shape the store offers.
 
     Every branch filters before it slices, so ``records`` is a real page of the
     tenant's rows and ``total`` counts the same set.
     """
+    rows = _tenant_entities(store, tenant_id)
+    rows = _filter_entities(rows, query=query, entity_type=entity_type)
+    return _slice_page(rows, limit=limit, offset=offset)
+
+
+def _tenant_entities(store: object, tenant_id: str | None) -> list:
     lister = getattr(store, "list_entities", None)
     if callable(lister) and _accepts(lister, "tenant_id"):
-        rows = _lister_rows(lister, tenant_id=tenant_id)  # store filters; page locally
-    elif callable(lister):
-        rows = filter_tenant(_lister_rows(lister, tenant_id=None), tenant_id)
-    else:
-        rows = filter_tenant(_rows_from_attrs(store), tenant_id)
-    return _slice_page(rows, limit=limit, offset=offset)
+        return _lister_rows(lister, tenant_id=tenant_id)
+    if callable(lister):
+        return filter_tenant(_lister_rows(lister, tenant_id=None), tenant_id)
+    return filter_tenant(_rows_from_attrs(store), tenant_id)
+
+
+def _filter_entities(rows: list, *, query: str, entity_type: str) -> list:
+    needle = query.casefold()
+    selected_type = entity_type.casefold()
+    return [
+        row
+        for row in rows
+        if _matches_search(row, needle) and _matches_type(row, selected_type)
+    ]
+
+
+def _matches_search(row: object, needle: str) -> bool:
+    if not needle:
+        return True
+    values = [
+        getattr(row, "name", ""),
+        getattr(row, "id", ""),
+        *(getattr(row, "aliases", None) or []),
+    ]
+    return any(needle in str(value).casefold() for value in values)
+
+
+def _matches_type(row: object, selected_type: str) -> bool:
+    return not selected_type or str(getattr(row, "type", "")).casefold() == selected_type
 
 
 def _slice_page(rows: list, *, limit: int, offset: int) -> EntityPage:

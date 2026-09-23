@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -13,12 +12,8 @@ from pydantic import BaseModel, Field
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.api.rbac import Role, require_role
-from agentic_graphrag.api.routes.knowledge_graph_browse import (
-    DEFAULT_ENTITY_PAGE,
-    MAX_ENTITY_PAGE,
-    entity_page,
-)
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
+from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
 from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
@@ -28,21 +23,9 @@ from agentic_graphrag.knowledge.review.queue import (
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
-# In-process compatibility index; durable state uses QueryService.ingest_tasks.
-# Bounded: it is a fallback cache, not the source of truth, so old rows are
-# evicted rather than accumulating for the process lifetime (BL-11).
-_TASKS: OrderedDict[str, dict[str, Any]] = OrderedDict()
-MAX_CACHED_TASKS = 500
 # Placeholder confidence for upload spot-checks until a real sampling policy
 # exists — named so it reads as a policy value, not a magic number (BL-11).
 UPLOAD_SPOTCHECK_CONFIDENCE = 0.5
-
-
-def _remember_task(task_id: str, row: dict[str, Any]) -> None:
-    _TASKS[task_id] = row
-    _TASKS.move_to_end(task_id)
-    while len(_TASKS) > MAX_CACHED_TASKS:
-        _TASKS.popitem(last=False)
 
 
 class DocUploadMeta(BaseModel):
@@ -83,7 +66,7 @@ async def upload_docs(
     row = task_row(task_id, tenant_id, saved)
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
-    _remember_task(task_id, row)
+    remember_task(task_id, row)
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
@@ -99,12 +82,15 @@ async def upload_docs(
     return ok(row, meta=MetaBody(request_id=task_id))
 
 
-@router.get("/ingest-tasks/{task_id}")
+@router.get(
+    "/ingest-tasks/{task_id}",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
 def get_ingest_task(task_id: str, request: Request) -> dict:
     tenant_id, _user_id = _principal(request)
     svc = _service(request)
     persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
-    task = persisted.to_dict() if persisted is not None else _TASKS.get(task_id)
+    task = persisted.to_dict() if persisted is not None else get_cached_task(task_id)
     if task is None:
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
     if task.get("tenant_id") not in {None, tenant_id}:
@@ -124,13 +110,16 @@ def _review_query(
     *,
     status: str | None = Query("pending"),
     type: str | None = Query(None),
-    limit: int = Query(50),
-    offset: int = Query(0),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ) -> ReviewQueueQuery:
-    return ReviewQueueQuery(status=status, type=type, limit=limit, offset=offset)
+    return ReviewQueueQuery(status=status or None, type=type, limit=limit, offset=offset)
 
 
-@router.get("/review-queue")
+@router.get(
+    "/review-queue",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
 def list_review_queue(
     request: Request,
     q: Annotated[ReviewQueueQuery, Depends(_review_query)],
@@ -139,7 +128,8 @@ def list_review_queue(
     if svc.review_queue is None:
         return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
     tenant_id, _user_id = _principal(request)
-    items = svc.review_queue.list(
+    pending_count = svc.review_queue.count(status="pending", tenant_id=tenant_id)
+    items, total = svc.review_queue.list_page(
         status=q.status,
         type=q.type,
         limit=q.limit,
@@ -148,7 +138,12 @@ def list_review_queue(
     )
     return ok(
         [i.to_dict() for i in items],
-        meta=MetaBody(total=len(items), limit=q.limit, page=q.offset // max(q.limit, 1) + 1),
+        meta=MetaBody(
+            total=total,
+            limit=q.limit,
+            page=q.offset // q.limit + 1,
+            extra={"pending_count": pending_count},
+        ),
     )
 
 
@@ -234,6 +229,14 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
         user_id=user_id,
         tenant_id=tenant_id,
     )
+    emit_audit(
+        request,
+        {
+            "action": "feedback_submitted",
+            "target": body.query_id,
+            "outcome": "accurate" if body.accurate else "inaccurate",
+        },
+    )
     return ok(result)
 
 
@@ -242,41 +245,3 @@ def get_metrics_summary() -> dict:
     from agentic_graphrag.observability.metrics import get_metrics
 
     return ok(get_metrics().summary())
-
-
-@router.get(
-    "/graph/entities",
-    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR, Role.READER))],
-)
-def list_graph_entities(request: Request, limit: int = 50, offset: int = 0) -> dict:
-    """Minimal graph browse API scaffold (P5-CAP-01).
-
-    Supports stores that expose ``list_entities`` (InMemoryGraphStore) or a
-    public/private entity map (``entities`` / ``_entities``). Tenant-scoped:
-    the store already accepts ``tenant_id`` — this route simply never passed it
-    (docs/BUSINESS_LOGIC.md BL-09). ``meta.total`` counts the tenant's rows, not
-    the whole graph, and is marked as a floor when the scan cap is reached.
-    """
-    svc = _service(request)
-    store = svc.bundle.graph
-    tenant_id, _user_id = _principal(request)
-    lim = max(0, min(int(limit or DEFAULT_ENTITY_PAGE), MAX_ENTITY_PAGE))
-    off = max(0, int(offset or 0))
-
-    page = entity_page(store, limit=lim, offset=off, tenant_id=tenant_id)
-    rows = [
-        {
-            "id": e.id,
-            "name": e.name,
-            "type": e.type,
-            "aliases": list(getattr(e, "aliases", None) or []),
-        }
-        for e in page.records
-    ]
-    meta = MetaBody(
-        total=page.total,
-        limit=lim,
-        page=(off // lim + 1) if lim else 1,
-        extra={"total_is_floor": True} if page.total_is_floor else {},
-    )
-    return ok(rows, meta=meta)

@@ -1,4 +1,4 @@
-"""Structural + smoke tests for Vue 3 zero-build trial UI (P5-UI-01 / ADR-006)."""
+"""Structural and API smoke tests for the Vue knowledge workspace."""
 
 from __future__ import annotations
 
@@ -14,31 +14,34 @@ HTTP_OK = 200
 VUE_PIN = "vue@3.5.13"
 WEB = ROOT_DIR / "web"
 STATIC = WEB / "static"
-
 REQUIRED_FILES = (
     WEB / "index.html",
+    STATIC / "tokens.css",
     STATIC / "app.css",
+    STATIC / "layout.css",
+    STATIC / "controls.css",
+    STATIC / "mobile.css",
+    STATIC / "conversation.css",
+    STATIC / "console.css",
+    STATIC / "ops.css",
     STATIC / "chat.css",
     STATIC / "panels.css",
     STATIC / "app.js",
     STATIC / "js" / "api.js",
     STATIC / "js" / "chain-view.js",
     STATIC / "js" / "root.js",
+    STATIC / "js" / "views" / "registry.js",
+    STATIC / "js" / "views" / "chat.js",
+    STATIC / "js" / "views" / "knowledge.js",
+    STATIC / "js" / "views" / "review.js",
+    STATIC / "js" / "views" / "graph.js",
+    STATIC / "js" / "views" / "ops.js",
     STATIC / "js" / "components" / "index.js",
     STATIC / "js" / "components" / "widgets.js",
     STATIC / "js" / "components" / "answer-turn.js",
     STATIC / "vendor" / "README.md",
 )
-
-SSE_EVENTS = (
-    "cache_hit",
-    "triage",
-    "thinking",
-    "sub_question",
-    "hop_done",
-    "answer",
-    "error",
-)
+SSE_EVENTS = ("cache_hit", "triage", "thinking", "sub_question", "hop_done", "answer", "error")
 CHAIN_EXPORTS = (
     "buildAnswerSegments",
     "buildPlanNodes",
@@ -46,182 +49,134 @@ CHAIN_EXPORTS = (
     "describeStreamEvent",
     "describeThinkingEvent",
 )
+VIEW_FILES = ("chat.js", "knowledge.js", "review.js", "graph.js", "ops.js")
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _all_frontend_text() -> str:
-    """Project-authored frontend sources only (exclude vendored Vue runtime)."""
-    chunks: list[str] = []
-    vendor = STATIC / "vendor"
-    for path in WEB.rglob("*"):
-        if not path.is_file() or path.suffix not in {".html", ".js", ".css", ".md"}:
-            continue
-        if vendor in path.parents or path.parent == vendor:
-            # Skip vue.esm-browser.prod.js; keep vendor/README.md for policy notes.
-            if path.name != "README.md":
-                continue
-        chunks.append(_read(path))
-    return "\n".join(chunks)
+def _frontend_sources() -> str:
+    files = [*WEB.rglob("*.html"), *WEB.rglob("*.js"), *WEB.rglob("*.css")]
+    return "\n".join(
+        _read(path) for path in files if STATIC / "vendor" not in path.parents
+    )
 
 
-def test_required_web_files_exist():
-    missing = [str(p.relative_to(ROOT_DIR)) for p in REQUIRED_FILES if not p.is_file()]
-    assert not missing, f"missing web files: {missing}"
+def test_required_workspace_files_and_size_budgets():
+    missing = [str(path.relative_to(ROOT_DIR)) for path in REQUIRED_FILES if not path.is_file()]
+    assert not missing, f"missing workspace files: {missing}"
+    checked = [*WEB.rglob("*.html"), *WEB.rglob("*.js"), *WEB.rglob("*.css")]
+    checked = [path for path in checked if STATIC / "vendor" not in path.parents]
+    oversized = [f"{path.relative_to(ROOT_DIR)}: {len(_read(path).splitlines())}" for path in checked if len(_read(path).splitlines()) > 300]
+    assert not oversized, f"frontend size budget exceeded: {oversized}"
+    assert len(_read(STATIC / "tokens.css").splitlines()) <= 140
 
 
-def test_html_vue_shell_structure():
+def test_html_shell_and_all_local_stylesheets():
     html = _read(WEB / "index.html")
-    assert 'id="app"' in html
-    assert "v-cloak" in html
-    assert 'type="module"' in html
-    assert "/web/static/app.css" in html
-    assert "/web/static/chat.css" in html
-    assert "/web/static/panels.css" in html
-    assert "/web/static/app.js" in html
-    assert 'id="q"' in html
-    assert 'id="askForm"' in html
-    assert "answer-turn" in html
-    assert "progress-log" in html
-    assert "thinking-panel" in html
-    assert 'id="forceAgentic"' in html
-    assert 'id="maxHops"' in html
-    assert 'id="useStream"' in html
+    assert 'lang="zh-CN"' in html
+    assert 'id="app"' in html and "v-cloak" in html
+    assert 'type="module"' in html and "/web/static/app.js" in html
+    for path in REQUIRED_FILES:
+        if path.suffix == ".css":
+            assert f"/web/static/{path.relative_to(STATIC).as_posix()}" in html
+    assert "知识推理工作台" in html
 
 
-def test_answer_turn_retry_label_depends_on_force_agentic():
-    """Unforced turns offer force-agentic retry; forced turns only show re-ask."""
-    src = _read(STATIC / "js" / "components" / "answer-turn.js")
-    assert 'RETRY_FORCE_LABEL = "强制 Agentic 重问"' in src
-    assert 'RETRY_AGAIN_LABEL = "再问一次"' in src
-    assert "alreadyForceAgentic" in src
-    assert "retryLabel" in src
-    assert "{{ retryLabel }}" in src
+def test_role_aware_views_and_api_contracts():
+    registry = _read(STATIC / "js" / "views" / "registry.js")
+    for view in ("chat", "knowledge", "review", "graph", "ops"):
+        assert f'id: "{view}"' in registry
+    assert "visibleViews" in registry and "capabilities" in registry
+    root = _read(STATIC / "js" / "root.js")
+    assert "fetchMe" in root and "canOpenView" in root
+    assert "keep-alive" in root
+    assert "identityFailure === 'auth'" in root
+    assert "无法连接工作区" in root
+
+    api = _read(STATIC / "js" / "api.js")
+    for endpoint in (
+        "/v1/me",
+        "/v1/query",
+        "/v1/query/stream",
+        "/v1/feedback",
+        "/v1/docs",
+        "/v1/ingest-tasks",
+        "/v1/review-queue",
+        "/v1/graph/entities",
+        "/v1/metrics",
+        "/v1/budget/snapshot",
+        "/v1/audit-events",
+        "/v1/audit/queries/",
+        "/v1/traces/",
+    ):
+        assert endpoint in api
+    chat = _read(STATIC / "js" / "views" / "chat.js")
+    for event in SSE_EVENTS:
+        assert event in chat or event in _read(STATIC / "js" / "chain-view.js")
 
 
-def test_app_js_pins_vue_vendor_first():
+def test_vue_runtime_remains_pinned_and_local_first():
     js = _read(STATIC / "app.js")
     assert 'VUE_VERSION = "3.5.13"' in js
-    # Runtime URL is built as `vue@${VUE_VERSION}` — pin constant must be present.
-    assert "VUE_VERSION" in js
-    assert "vue@" in js or VUE_PIN.split("@")[0] in js
     vendor = "/web/static/vendor/vue.esm-browser.prod.js"
-    assert vendor in js
-    vendor_pos = js.index(vendor)
-    cdn_pos = js.index("cdn.jsdelivr.net")
-    unpkg_pos = js.index("unpkg.com")
-    assert vendor_pos < cdn_pos < unpkg_pos
-    assert "registerComponents" in js
-    assert "createApp" in js
+    assert vendor in js and js.index(vendor) < js.index("cdn.jsdelivr.net") < js.index("unpkg.com")
+    assert "registerComponents" in js and "createApp" in js
 
 
-def test_js_backend_endpoints_and_sse_events():
-    api = _read(STATIC / "js" / "api.js")
-    assert '"/v1/query"' in api or "'/v1/query'" in api
-    assert "/v1/query/stream" in api
-    assert "/v1/feedback" in api
-    assert "/healthz" in api
-    assert "fetch(" in api
+def test_frontend_injection_and_external_asset_safety():
+    text = _frontend_sources()
+    assert "v-html" not in text
+    assert ".innerHTML" not in text
+    css = "\n".join(_read(path) for path in STATIC.glob("*.css"))
+    assert "http://" not in css and "https://" not in css
+    assert "prefers-reduced-motion" in css
+    assert ":focus-visible" in css
+
+
+def test_chat_and_answer_interactions_remain_available():
+    chat = _read(STATIC / "js" / "views" / "chat.js")
+    assert "stopStreaming" in chat and "retryAgentic" in chat
+    assert "sendFeedback" in chat and "exportConversation" in chat
+    answer = _read(STATIC / "js" / "components" / "answer-turn.js")
+    assert 'RETRY_FORCE_LABEL = "强制 Agentic 重问"' in answer
+    assert 'RETRY_AGAIN_LABEL = "再问一次"' in answer
     chain = _read(STATIC / "js" / "chain-view.js")
     for name in CHAIN_EXPORTS:
         assert f"export function {name}" in chain or f"function {name}" in chain
-    for evt in SSE_EVENTS:
-        # answer/error handled in root; progress events listed in chain-view
-        assert evt in chain or evt in _read(STATIC / "js" / "root.js")
 
 
-def test_injection_safety_no_vhtml_or_innerhtml():
-    """Mustache/textContent only — no Vue v-html directive or .innerHTML writes."""
-    text = _all_frontend_text()
-    assert "v-html" not in text
-    assert ".innerHTML" not in text
-
-
-def test_css_tokens_and_new_classes():
-    app_css = _read(STATIC / "app.css")
-    chat_css = _read(STATIC / "chat.css")
-    panels_css = _read(STATIC / "panels.css")
-    assert "--bg:" in app_css
-    assert "#f5f2eb" in app_css
-    assert "--warn" in app_css
-    assert "--avatar-w" in app_css
-    assert "[v-cloak]" in app_css
-    assert ".rail-health" in app_css
-    assert ".health-dot" in app_css
-    assert ".boot-error" in app_css
-    assert ".stop-btn" in chat_css
-    assert ".progress-state" in chat_css
-    assert ".progress-live" in chat_css
-    assert ".thinking-card" in chat_css
-    assert ".thinking-detail" in chat_css
-    assert ".claim-active" in panels_css
-    assert ".mini-btn" in panels_css
-    assert ".feedback-note" in panels_css
-    assert ".retry-row" in panels_css
-    assert ".path-overflow" in panels_css
-    # Must not be the old dark primary background
-    assert "--bg: #0f1419" not in app_css
-
-
-def test_get_web_and_static_assets():
+def test_workspace_and_static_assets_are_served():
     svc = QueryService.create_offline()
-    app = create_app(query_service=svc)
-    client = TestClient(app)
-    r = client.get("/web")
-    assert r.status_code == HTTP_OK
-    body = r.text
-    assert 'id="app"' in body
-    assert "claude-app" in body
-    assert 'id="q"' in body
-
-    for path in (
-        "/web/static/app.css",
-        "/web/static/chat.css",
-        "/web/static/panels.css",
-        "/web/static/app.js",
-        "/web/static/js/api.js",
-        "/web/static/js/chain-view.js",
-        "/web/static/js/root.js",
-        "/web/static/js/components/index.js",
-    ):
-        resp = client.get(path)
-        assert resp.status_code == HTTP_OK, path
+    client = TestClient(create_app(query_service=svc))
+    response = client.get("/web")
+    assert response.status_code == HTTP_OK
+    assert "知识推理工作台" in response.text
+    for path in REQUIRED_FILES:
+        if path.is_relative_to(STATIC):
+            asset = "/web/static/" + path.relative_to(STATIC).as_posix()
+            assert client.get(asset).status_code == HTTP_OK, asset
+    assert client.get("/v1/me").json()["data"]["role"] == "reader"
     svc.close()
 
 
 def test_web_query_feedback_and_stream_still_work():
-    """Drive real API the UI uses (query + feedback + SSE)."""
     svc = QueryService.create_offline()
-    app = create_app(query_service=svc)
-    client = TestClient(app)
-
-    r = client.post(
-        "/v1/query",
-        json={"question": "Who is the CEO of Apex Holdings?"},
-    )
-    assert r.status_code == HTTP_OK
-    env = r.json()
-    assert env["success"] is True
-    data = env["data"]
-    assert data["answer"]
-    assert data["query_id"]
-
-    fb = client.post(
+    client = TestClient(create_app(query_service=svc))
+    response = client.post("/v1/query", json={"question": "Who is the CEO of Apex Holdings?"})
+    assert response.status_code == HTTP_OK
+    data = response.json()["data"]
+    assert data["answer"] and data["query_id"]
+    feedback = client.post(
         "/v1/feedback",
         json={"query_id": data["query_id"], "accurate": True, "reason": "ui-test"},
     )
-    assert fb.status_code == HTTP_OK
-    assert fb.json()["success"] is True
-
+    assert feedback.status_code == HTTP_OK
     with client.stream(
-        "POST",
-        "/v1/query/stream",
-        json={"question": "Who is the CEO of Apex Holdings?"},
-    ) as resp:
-        assert resp.status_code == HTTP_OK
-        text = "".join(resp.iter_text())
-    assert "event:" in text
-    assert "answer" in text
+        "POST", "/v1/query/stream", json={"question": "Who is the CEO of Apex Holdings?"}
+    ) as response:
+        assert response.status_code == HTTP_OK
+        stream = "".join(response.iter_text())
+    assert "event:" in stream and "answer" in stream
     svc.close()

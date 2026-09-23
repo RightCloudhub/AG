@@ -1,6 +1,6 @@
 # Vue 3 runtime vendor (offline)
 
-The trial UI (ADR-006) loads Vue 3 via **runtime ESM** — no npm, no bundler.
+The Web workspace (ADR-006) loads Vue 3 via **runtime ESM** — no npm, no bundler.
 A locally vendored copy is preferred so `/web` works fully offline.
 
 ## Pin
@@ -28,7 +28,7 @@ curl -fsSL -o web/static/vendor/vue.esm-browser.prod.js \
   https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.esm-browser.prod.js
 ```
 
-**Recommendation:** commit the vendored file so CI and air-gapped demos need no CDN.
+**Recommendation:** keep the vendored runtime available so offline deployments do not rely on a CDN.
 
 ## Load order (`web/static/app.js`)
 
@@ -43,6 +43,6 @@ If all three fail, the boot error card points here.
 1. Bump `VUE_VERSION` in `web/static/app.js`
 2. Re-download the matching `vue.esm-browser.prod.js` into this directory
 3. Update ADR-006 in `plan/engineering/tech-stack.md`
-4. Run the verification checklist in `plan/phases/p5-ui-01-vue-refactor.md` §7
+4. Run the focused workspace tests in `tests/unit/test_web_claude_ui.py`
 
 See also: [docs/EXTERNAL_RUNTIMES.md](../../../docs/EXTERNAL_RUNTIMES.md) (Vue row + vendor note).

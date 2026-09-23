@@ -1,4 +1,4 @@
-/* Thread, messages, progress, and composer (P5-UI-01). */
+/* Shared chat thread, progress, and thinking primitives. */
 .thread {
   flex: 1;
   overflow-y: auto;

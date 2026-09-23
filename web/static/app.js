@@ -1,4 +1,4 @@
-/* AgenticGraphRAG trial UI bootstrap (P4-UI-01 / P5-UI-01, ADR-006).
+/* AgenticGraphRAG workspace bootstrap (ADR-006).
  *
  * Zero-build: no npm / bundler. The pinned Vue 3 ESM runtime is loaded at
  * runtime — a locally vendored copy first (fully offline once vendored, see

@@ -1,237 +1,212 @@
-/* Root chat component (Options API; template is the in-DOM markup under
- * #app in web/index.html). Holds conversation state and orchestrates the
- * query/stream/feedback flows. Each turn is an independent question — no
- * multi-turn context is ever sent to the server (V1 boundary).
- */
-import {
-  fetchHealth,
-  friendlyError,
-  getApiKey,
-  postFeedback,
-  postQuery,
-  setApiKey,
-  streamQuery,
-} from "./api.js";
-import { describeStreamEvent, describeThinkingEvent } from "./chain-view.js";
+import { fetchHealth, fetchMe, getApiKey, setApiKey } from "./api.js";
+import { canOpenView, findView, visibleViews } from "./views/registry.js";
 
-const DEFAULT_MAX_HOPS = 5;
-const MIN_HOPS = 1;
-const MAX_HOPS = 10;
-const COMPOSER_MAX_HEIGHT_PX = 128;
-const NEAR_BOTTOM_PX = 120;
-
-const SUGGESTED_QUESTIONS = Object.freeze([
-  "Who is the CEO of Apex Holdings?",
-  "Who is the CEO of the parent company of BrightLink Logistics?",
-  "What is the parent company of NovaTech Industries?",
-]);
+const ROLE_LABELS = Object.freeze({
+  admin: "管理员",
+  operator: "知识运营",
+  reader: "只读成员",
+});
 
 export const rootComponent = {
-  name: "AgrChatApp",
+  name: "AgrWorkspace",
+  template: `
+    <div class="workspace-shell">
+      <aside id="workspaceNavigation" class="sidebar" :class="{ 'sidebar-open': mobileNavOpen }" aria-label="主导航">
+        <a class="brand" href="#/chat" aria-label="AgenticGraphRAG 首页">
+          <span class="brand-mark" aria-hidden="true">AG</span>
+          <span class="brand-copy"><strong>AgenticGraphRAG</strong><small>知识推理工作台</small></span>
+        </a>
+        <div class="sidebar-section-label">工作区</div>
+        <nav class="primary-nav" aria-label="工作区视图">
+          <a v-for="view in navigation" :key="view.id" :href="'#/' + view.id"
+             class="nav-link" :class="{ active: activeView === view.id }"
+             :aria-current="activeView === view.id ? 'page' : null" @click="mobileNavOpen = false">
+            <span class="nav-icon" aria-hidden="true">{{ view.icon }}</span>
+            <span>{{ view.title }}</span>
+            <span v-if="view.id === 'review' && pendingReviews" class="nav-count">{{ pendingReviews }}</span>
+          </a>
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="service-card">
+          <span class="health-indicator" :class="health.state" aria-hidden="true"></span>
+          <span><strong>服务连接</strong><small>{{ health.label }}</small></span>
+          <button class="icon-button" type="button" aria-label="重新检查服务" @click="checkHealth">↻</button>
+        </div>
+        <div v-if="identity" class="identity-card">
+          <span class="identity-avatar" aria-hidden="true">{{ identity.role.slice(0, 1).toUpperCase() }}</span>
+          <span class="identity-copy"><strong>{{ ROLE_LABELS[identity.role] || identity.role }}</strong>
+            <small>{{ identity.tenant_id }} · {{ identity.user_id }}</small></span>
+          <button class="icon-button" type="button" aria-label="连接设置" @click="openSettings">⚙</button>
+        </div>
+        <button v-else class="button button-secondary sidebar-login" type="button" @click="openSettings">配置连接</button>
+        <p class="sidebar-footnote">安全连接 · 租户数据隔离</p>
+      </aside>
+
+      <button v-if="mobileNavOpen" class="mobile-scrim" aria-label="关闭导航" @click="mobileNavOpen = false"></button>
+      <section class="workspace-main">
+        <header class="workspace-topbar">
+          <button class="mobile-menu icon-button" type="button" aria-label="切换导航" aria-controls="workspaceNavigation" :aria-expanded="mobileNavOpen" @click="mobileNavOpen = !mobileNavOpen">☰</button>
+          <div class="page-heading">
+            <span class="eyebrow">AGENTIC GRAPHRAG</span>
+            <h1>{{ page.title }}</h1>
+          </div>
+          <div class="topbar-actions">
+            <span class="topbar-health" :class="health.state"><i aria-hidden="true"></i>{{ health.label }}</span>
+            <button class="button button-secondary settings-button" type="button" @click="openSettings">连接设置</button>
+          </div>
+        </header>
+
+        <div v-if="identityState === 'loading'" class="workspace-state" role="status">正在验证工作区身份…</div>
+        <section v-else-if="!identity" class="auth-gate" aria-labelledby="authTitle">
+          <div class="state-mark" aria-hidden="true">{{ identityFailure === 'auth' ? '钥' : '!' }}</div>
+          <p class="eyebrow">SECURE WORKSPACE</p>
+          <h2 id="authTitle">{{ identityFailure === 'auth' ? '需要有效的 API Key' : '无法连接工作区' }}</h2>
+          <p>{{ identityError || (identityFailure === 'auth' ? '此工作区已启用身份验证。输入服务管理员提供的 API Key 以继续。' : '请检查 API 服务和网络连接后重试。') }}</p>
+          <template v-if="identityFailure === 'auth'">
+            <label class="field-label" for="gateApiKey">API Key</label>
+            <input id="gateApiKey" v-model="keyDraft" type="password" autocomplete="current-password"
+                   placeholder="粘贴 API Key" @keydown.enter.prevent="saveAndConnect" />
+          </template>
+          <div class="auth-actions">
+            <button v-if="identityFailure === 'auth'" class="button button-primary" type="button" :disabled="!keyDraft.trim() || identityState === 'loading'" @click="saveAndConnect">验证并连接</button>
+            <button v-else class="button button-primary" type="button" @click="loadIdentity">重新连接</button>
+            <button v-if="identityFailure === 'auth'" class="button button-secondary" type="button" @click="loadIdentity">重试</button>
+            <button v-else class="button button-secondary" type="button" @click="openSettings">连接设置</button>
+          </div>
+          <p v-if="identityFailure === 'auth'" class="field-help">Key 仅保存在此浏览器，可随时在连接设置中清除。</p>
+        </section>
+        <template v-else>
+          <div v-if="accessMessage" class="inline-alert alert-warning" role="status">
+            <span>{{ accessMessage }}</span><button class="icon-button" aria-label="关闭提示" @click="accessMessage = ''">×</button>
+          </div>
+          <keep-alive>
+            <component :is="page.component" :identity="identity" @notify="notify" @pending-count="pendingReviews = $event"></component>
+          </keep-alive>
+        </template>
+      </section>
+
+      <div v-if="settingsOpen" class="modal-backdrop" @click.self="settingsOpen = false">
+        <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+          <div class="dialog-heading"><div><p class="eyebrow">CONNECTION</p><h2 id="settingsTitle">连接设置</h2></div>
+            <button class="icon-button" type="button" aria-label="关闭" @click="settingsOpen = false">×</button></div>
+          <p class="dialog-copy">API Key 用于识别租户与访问角色。请勿在共享设备上保存密钥。</p>
+          <label class="field-label" for="settingsApiKey">API Key</label>
+          <input id="settingsApiKey" v-model="keyDraft" type="password" autocomplete="off" placeholder="未配置" />
+          <div class="connection-summary" v-if="identity">
+            <span>当前身份</span><strong>{{ identity.tenant_id }} · {{ ROLE_LABELS[identity.role] || identity.role }}</strong>
+          </div>
+          <div class="dialog-actions">
+            <button class="button button-primary" type="button" :disabled="identityState === 'loading'" @click="saveAndConnect">保存并验证</button>
+            <button class="button button-danger-quiet" type="button" @click="clearKey">清除密钥</button>
+          </div>
+          <p class="field-help">使用 localStorage 保存；清除后将以匿名身份重连（若服务允许）。</p>
+        </section>
+      </div>
+      <div v-if="toast" class="toast" :class="'toast-' + toast.kind" role="status" aria-live="polite">{{ toast.message }}</div>
+    </div>
+  `,
   data() {
     return {
-      draft: "",
-      busy: false,
-      turnSeq: 0,
-      turns: [],
-      suggestions: SUGGESTED_QUESTIONS,
-      settings: {
-        forceAgentic: false,
-        maxHops: DEFAULT_MAX_HOPS,
-        useStream: true,
-        apiKey: getApiKey(),
-      },
-      health: { state: "checking", label: "检测服务中…" },
+      activeView: "chat",
+      identity: null,
+      identityState: "loading",
+      identityError: "",
+      identityFailure: "",
+      health: { state: "checking", label: "检查中" },
+      settingsOpen: false,
+      keyDraft: getApiKey(),
+      mobileNavOpen: false,
+      accessMessage: "",
+      pendingReviews: 0,
+      toast: null,
+      _toastTimer: null,
     };
   },
+  computed: {
+    navigation() {
+      return visibleViews(this.identity);
+    },
+    page() {
+      return findView(this.activeView) || findView("chat");
+    },
+  },
   mounted() {
+    window.addEventListener("hashchange", this.syncRoute);
+    this.loadIdentity();
     this.checkHealth();
   },
+  beforeUnmount() {
+    window.removeEventListener("hashchange", this.syncRoute);
+    window.clearTimeout(this._toastTimer);
+  },
   methods: {
-    saveApiKey() {
-      setApiKey((this.settings.apiKey || "").trim());
+    async loadIdentity() {
+      this.identityState = "loading";
+      this.identityError = "";
+      this.identityFailure = "";
+      try {
+        this.identity = await fetchMe();
+        this.identityState = "ready";
+        this.keyDraft = getApiKey();
+        this.syncRoute();
+      } catch (err) {
+        this.identity = null;
+        this.identityState = "error";
+        this.identityFailure = err && err.status === 401 ? "auth" : "connection";
+        this.identityError = this.identityFailure === "auth"
+          ? "请使用有效密钥登录。"
+          : (err && err.message) || "暂时无法连接身份服务。";
+      }
+    },
+    async saveAndConnect() {
+      setApiKey(this.keyDraft.trim());
+      await this.loadIdentity();
+      if (this.identity) {
+        this.settingsOpen = false;
+        this.notify("连接已验证", "success");
+      }
+    },
+    async clearKey() {
+      setApiKey("");
+      this.keyDraft = "";
+      await this.loadIdentity();
+      if (this.identity) this.settingsOpen = false;
+    },
+    openSettings() {
+      this.keyDraft = getApiKey();
+      this.settingsOpen = true;
+    },
+    syncRoute() {
+      if (!this.identity) return;
+      const requestedId = (window.location.hash || "#/chat").replace(/^#\/?/, "") || "chat";
+      const requested = findView(requestedId);
+      if (!requested) {
+        this.activeView = "chat";
+        window.history.replaceState(null, "", "#/chat");
+        return;
+      }
+      if (!canOpenView(this.identity, requested)) {
+        this.activeView = "chat";
+        this.accessMessage = `“${requested.title}”仅对授权角色开放。当前账号：${ROLE_LABELS[this.identity.role] || this.identity.role}。`;
+        window.history.replaceState(null, "", "#/chat");
+        return;
+      }
+      this.activeView = requested.id;
+      this.mobileNavOpen = false;
     },
     async checkHealth() {
       try {
-        const h = await fetchHealth();
-        const status = (h && h.status) || "ok";
-        if (status === "ok") this.health = { state: "ok", label: "服务正常" };
-        else this.health = { state: "warn", label: `服务${status}` };
+        const result = await fetchHealth();
+        const state = result.status === "ok" ? "ok" : "warning";
+        this.health = { state, label: state === "ok" ? "服务正常" : "部分依赖异常" };
       } catch {
-        this.health = { state: "down", label: "服务不可用" };
+        this.health = { state: "down", label: "无法连接" };
       }
     },
-
-    submitAsk() {
-      const question = this.draft.trim();
-      if (!question || this.busy) return;
-      this.draft = "";
-      this.autoResize();
-      this.askQuestion(question, {});
-    },
-
-    askSuggestion(question) {
-      if (this.busy) return;
-      this.askQuestion(question, {});
-    },
-
-    retryAgentic(turn) {
-      if (this.busy) return;
-      this.askQuestion(turn.question, { forceAgentic: true });
-    },
-
-    async askQuestion(question, opts) {
-      const turn = this.createTurn(question, opts);
-      this.turns.push(turn);
-      this.busy = true;
-      this._controller = new AbortController();
-      this.scrollThreadSoon();
-      try {
-        if (this.settings.useStream) await this.runStream(turn);
-        else await this.runJson(turn);
-      } catch (err) {
-        this.finishWithError(turn, err);
-      } finally {
-        this.busy = false;
-        this._controller = null;
-        this.scrollThreadSoon();
-      }
-    },
-
-    createTurn(question, opts) {
-      this.turnSeq += 1;
-      return {
-        id: this.turnSeq,
-        question,
-        forceAgentic: Boolean(opts.forceAgentic) || this.settings.forceAgentic,
-        status: "streaming",
-        progress: [],
-        thinking: [],
-        result: null,
-        error: "",
-        feedback: { state: "idle", message: "" },
-        fbReason: "",
-      };
-    },
-
-    requestBody(turn) {
-      const hops = Number(this.settings.maxHops) || DEFAULT_MAX_HOPS;
-      return {
-        question: turn.question,
-        force_agentic: turn.forceAgentic,
-        max_hops: Math.min(MAX_HOPS, Math.max(MIN_HOPS, hops)),
-      };
-    },
-
-    async runJson(turn) {
-      this.addProgress(turn, "info", "同步查询 /v1/query …");
-      const data = await postQuery(this.requestBody(turn));
-      this.finishWithResult(turn, data);
-    },
-
-    async runStream(turn) {
-      this.addProgress(turn, "info", "连接流式接口…");
-      await streamQuery({
-        body: this.requestBody(turn),
-        signal: this._controller.signal,
-        onEvent: (evt) => this.handleStreamEvent(turn, evt),
-      });
-      if (turn.status === "streaming") {
-        this.finishWithError(turn, new Error("流式连接提前结束（未收到 answer）"));
-      }
-    },
-
-    async handleStreamEvent(turn, evt) {
-      if (evt.type === "answer") {
-        this.finishWithResult(turn, evt.payload);
-        await this.$nextTick();
-        return;
-      }
-      if (evt.type === "error") {
-        const payload = evt.payload || {};
-        this.finishWithError(turn, new Error(payload.message || payload.code || "流式错误"));
-        await this.$nextTick();
-        return;
-      }
-      const thought = describeThinkingEvent(evt);
-      if (thought) this.addThinking(turn, thought);
-      const note = describeStreamEvent(evt);
-      if (note) this.addProgress(turn, note.kind, note.text);
-      // Paint between frames so batched TCP chunks still look incremental.
-      await this.$nextTick();
-      await new Promise((r) => requestAnimationFrame(r));
-    },
-
-    finishWithResult(turn, data) {
-      turn.result = data;
-      turn.status = "done";
-      this.addProgress(turn, "done", "完成");
-    },
-
-    finishWithError(turn, err) {
-      if (turn.status !== "streaming") return;
-      turn.error = friendlyError(err);
-      turn.status = "error";
-      this.addProgress(turn, "error", `错误: ${turn.error}`);
-    },
-
-    addProgress(turn, kind, text) {
-      turn.progress.push({ key: turn.progress.length, kind, text });
-      this.scrollThreadSoon();
-    },
-
-    addThinking(turn, thought) {
-      turn.thinking.push({
-        key: turn.thinking.length,
-        stage: thought.stage,
-        text: thought.text,
-        detail: thought.detail || "",
-      });
-      this.scrollThreadSoon();
-    },
-
-    stopStreaming() {
-      const turn = this.turns[this.turns.length - 1];
-      if (turn && turn.status === "streaming") {
-        turn.status = "aborted";
-        turn.error = "已停止（该问题未完成，可重试）";
-        this.addProgress(turn, "error", turn.error);
-      }
-      if (this._controller) this._controller.abort();
-    },
-
-    async sendFeedback(payload) {
-      const { turn, accurate } = payload;
-      if (!turn.result || turn.feedback.state === "sending") return;
-      turn.feedback = { state: "sending", message: "" };
-      try {
-        await postFeedback({
-          query_id: turn.result.query_id,
-          accurate,
-          reason: turn.fbReason || "",
-        });
-        turn.feedback = { state: accurate ? "good" : "bad", message: "反馈已提交，感谢" };
-      } catch (err) {
-        turn.feedback = { state: "idle", message: `反馈失败: ${friendlyError(err)}` };
-      }
-    },
-
-    /* Follow new output only when the user is already near the bottom. */
-    scrollThreadSoon() {
-      const el = this.$refs.thread;
-      if (!el) return;
-      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-      if (!nearBottom) return;
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    },
-
-    autoResize() {
-      const box = this.$refs.draftBox;
-      if (!box) return;
-      box.style.height = "auto";
-      box.style.height = `${Math.min(box.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+    notify(message, kind = "success") {
+      this.toast = { message, kind };
+      window.clearTimeout(this._toastTimer);
+      this._toastTimer = window.setTimeout(() => { this.toast = null; }, 3800);
     },
   },
 };

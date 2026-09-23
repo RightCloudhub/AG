@@ -162,6 +162,28 @@ class ReviewQueue:
         limit: int = 50,
         offset: int = 0,
     ) -> list[ReviewItem]:
+        return self.list_page(
+            status=status,
+            type=type,
+            min_confidence=min_confidence,
+            max_confidence=max_confidence,
+            tenant_id=tenant_id,
+            limit=limit,
+            offset=offset,
+        )[0]
+
+    def list_page(
+        self,
+        *,
+        status: str | None = ReviewStatus.PENDING.value,
+        type: str | None = None,
+        min_confidence: float | None = None,
+        max_confidence: float | None = None,
+        tenant_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ReviewItem], int]:
+        """Return one filtered page and its tenant-scoped total."""
         with self._lock:
             items = list(self._items.values())
         items = _filter_items(
@@ -173,7 +195,8 @@ class ReviewQueue:
             tenant_id=tenant_id,
         )
         items.sort(key=lambda i: i.created_at)
-        return items[offset : offset + limit]
+        total = len(items)
+        return items[offset : offset + limit], total
 
     def decide(
         self,
@@ -214,6 +237,26 @@ class ReviewQueue:
                 out[item.status] = out.get(item.status, 0) + 1
             out["total"] = len(self._items)
             return out
+
+    def count(
+        self,
+        *,
+        status: str | None = None,
+        type: str | None = None,
+        tenant_id: str | None = None,
+    ) -> int:
+        with self._lock:
+            items = list(self._items.values())
+        return len(
+            _filter_items(
+                items,
+                status=status,
+                type=type,
+                min_confidence=None,
+                max_confidence=None,
+                tenant_id=tenant_id,
+            )
+        )
 
 
 def _tenant_allows(item: ReviewItem, tenant_id: str | None) -> bool:

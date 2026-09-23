@@ -8,7 +8,7 @@
 [![LangGraph](https://img.shields.io/badge/agent-LangGraph-1C3C3C)](https://github.com/langchain-ai/langgraph)
 
 
-[✨ 特性](#-核心特性) · [🚀 快速开始](#-快速开始) · [🏛 架构](#-架构) · [🔌 API](#-api-一览) · [📊 评测](#-评测与门禁) · [📚 文档](#-文档导航) · [🗺 路线图](#-路线图)
+[✨ 特性](#-核心特性) · [🚀 快速开始](#-快速开始) · [🏛 架构](#-架构) · [🔌 API](#-api-一览) · [📊 评测](#-评测工具) · [📚 文档](#-文档导航)
 
 </div>
 
@@ -32,7 +32,7 @@
 - 📡 **真·增量 SSE** — 基于 LangGraph `stream(updates)` 逐 hop 推送分诊 / 子问题 / 思考 过程，流中可中止
 - 🔐 **多租户与 RBAC** — API Key → 租户映射 + 三角色（admin/operator/reader）路由守卫与 key 过期、QPS 与并发限流（per-tenant 可配 `tenants:`）、三级预算与审计 / 缓存隔离、`tenant_id` 数据级隔离贯穿存储 / 检索 / Agent
 - 🏢 **企业级可观测与治理** — 结构化 JSON 日志（request/query/tenant/user 上下文贯穿）、安全事件审计流、admin 排障端点（trace / 预算快照 / 审计事件）、Prometheus `/metrics-prom`、可选 OTel OTLP + W3C traceparent、PII 脱敏与保留期清理
-- 🖥 **零构建试用 UI** — Vue 3 ESM（钉版 3.5.13、无 npm，ADR-006）对话界面：引用角标、推
+- 🖥 **零构建 Web 工作台** — Vue 3 ESM（钉版 3.5.13、无 npm，ADR-006）多视图界面：引用角标、推
 理链树、图路径 chips、逐 turn 反馈
 
 
@@ -41,7 +41,7 @@
 ```mermaid
 flowchart TD
     subgraph L1["接入层"]
-        WEB["试用 Web /web<br/>(Vue 3 零构建)"]
+        WEB["Web 工作台 /web<br/>(Vue 3 零构建)"]
         API["FastAPI /v1/*<br/>鉴权 · 限流"]
         CLI["CLI agr-*"]
     end
@@ -90,7 +90,7 @@ agr-query --no-llm "Who is the CEO of Apex Holdings?"
 python -m agentic_graphrag score
 ```
 
-### API + 试用 Web UI
+### API + Web 工作台
 
 ```bash
 agr-api                     # 或 uvicorn agentic_graphrag.api.app:create_app --factory --port 8000
@@ -159,57 +159,37 @@ agr-ingest && agr-build-graph && agr-index && agr-run-cases
 | 端点 | 用途 |
 |---|---|
 | `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE 真·增量，流中可中止） |
-| `POST /v1/docs`（operator） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（≤5MB/文件、≤20/批、md/txt；pdf 暂不支持）与任务查询 |
+| `GET /v1/me` | 当前租户身份、角色与工作台功能权限 |
+| `POST /v1/docs` · `GET /v1/ingest-tasks` · `GET /v1/ingest-tasks/{task_id}`（admin/operator） | 文档接入（≤5 MiB/文件、≤20/批、UTF-8 md/txt）与租户隔离任务分页 / 查询 |
 | `GET /v1/audit/queries/{query_id}` | 推理链审计回查（AC-3，自租户） |
 | `POST /v1/feedback` | 反馈闭环 → 不准确项入复核队列 |
-| `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision`（operator） | 人工复核（列表自租户） |
+| `GET /v1/review-queue` · `POST /v1/review-queue/{item_id}/decision`（admin/operator） | 人工复核（列表自租户） |
 | `GET /v1/metrics` · `GET /v1/traces/{id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events`（均 admin） | 观测指标 / trace 回查 / 预算快照 / 安全事件（ENT-02/03） |
-| `GET /v1/graph/entities` | 图实体浏览 |
-| `GET /healthz` · `GET /metrics-prom` · `GET /web` | 健康检查 / Prometheus 抓取 / 试用 UI（均免鉴权） |
+| `GET /v1/graph/entities` | 图实体分页浏览；支持名称、别名、ID 搜索与类型筛选 |
+| `GET /healthz` · `GET /metrics-prom` · `GET /web` | 健康检查 / Prometheus 抓取 / Web 工作台（均免鉴权） |
 
-## 🖥 试用 Web UI
+## 🖥 Web 工作台
 
-内部试用 SPA（`web/`，`agr-api` 静态挂载）：提问区（跳数 / 强制 Agentic / SSE 开关 + 健
-康点）、会话历史（仅展示，请求间无上下文）、真·增量进度区、答案引用角标（点击高亮）、推 理链树 + 图路径 chips + 可复制 JSON、逐 turn 准确性反馈、绕缓存重问。**V1 明确不做**：多轮对话上下文、图谱编辑、移动端适配。结构冒烟测试：`tests/unit/test_web_claude_ui.py`。
+基于 Vue 3 的角色感知工作台，由 `agr-api` 静态挂载于 `/web`。包含知识问答、文档接入、人工审核、实体浏览和系统观测视图；导航按 `/v1/me` 返回的角色能力显示，服务端仍执行最终权限校验，并支持窄屏布局。问答提供流式推理、引用证据、反馈和审计回查；任务与审核队列支持分页，实体列表支持搜索、类型筛选和分页；管理员可查询进程指标、预算、安全事件及查询审计 / trace。
 
-## 📊 评测与门禁
+文档上传目前接收 UTF-8 Markdown / 纯文本并创建任务，不会自动抽取三元组或写入图谱；任务处理由单独的 ingest worker 执行。默认离线向量与 BM25 索引是进程内存，独立 worker 完成索引不代表 API 查询进程已获得这些索引。图谱浏览提供实体记录，不提供关系邻域详情；指标与 trace 也受服务进程生命周期限制。工作台会显示服务端状态与可用性错误。
+
+## 📊 评测工具
 
 ```bash
-agr-run-cases --no-llm                        # 20 case 离线评测（确定性）
+agr-run-cases --no-llm                        # 离线评测（确定性）
 python -m agentic_graphrag run-baseline --no-llm   # 纯向量 RAG 基线对照
 python -m agentic_graphrag badcase            # 坏例归因
-./scripts/g1_to_g2_gate.sh                    # G1→G2 门禁汇总（--with-llm 含 live）
-./scripts/g2_formal_eval.sh --with-llm        # G2 正式评测（live）
-PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20   # HTTP 压测（P95）
 ```
 
-数据集在 [`evals/datasets/`](./evals/datasets/)（poc / dev / heldout / guardrail 分集 + 确定性金标模板，标注规范见 [`ANNOTATION_SPEC.md`](./evals/datasets/ANNOTATION_SPEC.md)）。离线 interim 对比约 **+15pp / 高 recall（20 case）**，仅作趋势参考，**不能**作为 G2 held-out 证据。
+数据集位于 [`evals/datasets/`](./evals/datasets/)，包含不同用途的评测集与确定性金标模板；标注规范见 [`ANNOTATION_SPEC.md`](./evals/datasets/ANNOTATION_SPEC.md)。
 
 ## 📚 文档导航
 
 | 文档 | 内容 |
 |---|---|
-| [PRD.md](./PRD.md) · [lixiang.md](./lixiang.md) | 产品需求（含 AC-1~7 验收项）· 立项建议书 |
+| [PRD.md](./PRD.md) | 产品需求与验收标准 |
 | [Spec.md](./Spec.md) | 系统级规则与不变量（架构 / 运行时 / 契约 / 安全） |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块地图、查询生命周期、离线/在线双轨 |
-| [plan/README.md](./plan/README.md) · [plan/roadmap.md](./plan/roadmap.md) | 实施计划 · 路线图与 G1–G4 门禁判据 |
-| [plan/engineering/rules.md](./plan/engineering/rules.md) | 唯一工程规则汇总（代码指标 / 边界 / 评审） |
-| [docs/IMPORTANT.md](./docs/IMPORTANT.md) | **债务 / 延期 / 不做事项总账（必读）** |
-| [docs/ops-runbook.md](./docs/ops-runbook.md) | 运维手册（环境变量、故障、告警建议） |
-| [docs/REAL_DOMAIN_PLAYBOOK.md](./docs/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入剧本 |
-| [docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) | 企业级管控审计、ENT-01…08 实施状态与剩余部署验证 |
-| [docs/EXTERNAL_RUNTIMES.md](./docs/EXTERNAL_RUNTIMES.md) | 无 Docker 环境的外部运行时 （JDK / Neo4j） |
-
-## 🗺 路线图
-
-- [x] **G1 POC 出口** — Conditional-Go（20/20 interim case，[`reports/G1_review.md`](./reports/G1_review.md)）
-- [x] **G1 → G2 过渡** — 工程 PASS：合成语料 226 篇、live 自动化、Neo4j 回归（真域 / live 配额 caveat 挂账）
-- [ ] **G2 MVP 出口** — ≥200 条金标 held-out、真实试点条件下 Accuracy ≥ +15pp、证据 Recall ≥ 75%
-- [ ] **G3 优化出口** — live held-out 达标 + 生产级压测（Agentic P95 ≤ 8s / Fast Path ≤ 3s）
-- [ ] **G4 试点出口** — 灰度流程 + AC-1~7 全套验收
-- [ ] **P5 规模化** — 企业级管控轨道 P5-ENT-01…06/08 **工程交付**（2026-07-25：日志基座 / 排障闭环 / 审计事件 / RBAC / 调度配置化 / 数据隔离 / Prometheus+OTel；ENT-07 RPA 明确不做）；Redis 多副本、真后端回归、OTLP collector 部署验证仍开；其余规模化方向按试点效果另行立项
-
-**V1 明确不做**：开放域全网问答、多模态、面向消费者的开放注册、NebulaGraph 多集群（见 [docs/IMPORTANT.md](./docs/IMPORTANT.md) §9）。
 
 ## 📁 仓库布局
 
@@ -225,10 +205,10 @@ src/agentic_graphrag/
   generation/       # 答案生成 + ReasoningChain（offline_heuristics 仅演示）
   observability/    # trace·metrics·JSON 日志·安全审计流·PII 脱敏·OTel 桥接
   eval/ · cli/      # 金标 / 评分 / badcase · agr-* 入口
-web/                # 试用 Web UI（Vue 3 零构建）
+web/                # Web 工作台（Vue 3 零构建）
 data/ · evals/      # 语料与 seed 三元组 · 评测数据集
 tests/ · scripts/   # 单元测试 · 门禁 / 评测 / 压测脚本
-docs/ · plan/       # 权威文档 · 实施计划与工程规则
+docs/               # 架构、产品与运维文档
 .github/workflows/  # CI（lint + unit + coverage ≥80%）
 ```
 
@@ -241,14 +221,3 @@ python scripts/check_code_metrics.py    # 硬指标：文件≤300行 · 函数�
 ```
 
 技术选型（已采纳）：Neo4j 5 Community · Qdrant · rank_bm25 · LangGraph StateGraph（ADR-005）· Python 3.12 + Pydantic v2 · Vue 3 零构建（ADR-006）。约定：模块目标 200–400 行（deliberately split）、覆盖率 omit 清单有意维护（勿静默扩大）、提交前过 [`plan/engineering/rules.md`](./plan/engineering/rules.md) 安全清单。
-
-## 📌 当前状态
-
-| 面 | 状态 |
-|---|---|
-| 阶段一～三（代码） | ✅ 抽取入图、三路检索 + RRF、Agent 循环、SSE、护栏、审计、增量与 复核队列 |
-| G1 → G2 过渡门禁 | ✅ 工程 PASS（2026-07-20，[`reports/G1_to_G2_status.json`](./reports/G1_to_G2_status.json)）；真域 / live 配额 caveat 仍开 |
-| 试用 Web UI + 鉴权限流 | ✅ 代码完成（P4-UI-01/02 · P5-UI-01）— `/web` 挂载 |
-| Live held-out（合成语料） | 🟡 agentic rescored **93.6%** / 相对基线 **+70pp** / 证据 recall **0.94**；但 **P95 ~92s 未达 AC-4（≤8s）**，且语料为合成 |
-| 企业级管控（P5-ENT-01…08） | 🟢 工程交付（2026-07-25，ENT-07/RPA 除外）— JSON 日志、admin 排障端点、安全审计流、RBAC、租户配置化限额与摄取任务状态机、数据隔离 / 脱敏 / 保留清理、Prometheus + 可选 OTel；**Redis 多副本 / 真后端跨租户回归 / OTLP collector 仍待部署验证**（[docs/ENTERPRISE_READINESS.md](./docs/ENTERPRISE_READINESS.md) §3.5） |
-| 效果门禁 G2 / G3 / G4 | ⏳ 仍开：真域语料签字、live held-out 正式达标、生产 P95、灰度 与全套验收 |

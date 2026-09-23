@@ -1,4 +1,4 @@
-# 运维手册（P4-REL-04；ENT-01…08 增补 2026-07-25）
+# 运维手册
 
 ## 服务启动
 
@@ -10,7 +10,7 @@ agr-api
 uvicorn agentic_graphrag.api.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-试用界面：<http://localhost:8000/web>
+Web 工作台：<http://localhost:8000/web>
 
 启动期（lifespan）自动执行：`setup_logging()`（ENT-01）→ 可选 `setup_otel()`（ENT-08，
 `AGR_OTEL_ENABLED=1` 时）→ **凭据 fail-fast 校验**（ENT-06b）：
@@ -48,14 +48,15 @@ uvicorn agentic_graphrag.api.app:create_app --factory --host 0.0.0.0 --port 8000
 
 | 端点 | 最低角色 |
 |------|----------|
-| `POST /v1/query` · `/v1/query/stream` · `/v1/feedback` · `GET /v1/audit/queries/{id}`（自租户） · `GET /v1/review-queue`（自租户） · `GET /v1/ingest-tasks/{id}` · `GET /v1/graph/entities` | reader |
-| `POST /v1/docs` · `POST /v1/review-queue/{id}/decision` | operator |
+| `POST /v1/query` · `/v1/query/stream` · `/v1/feedback` · `GET /v1/audit/queries/{id}`（自租户） · `GET /v1/graph/entities` | reader |
+| `POST /v1/docs` · `GET /v1/ingest-tasks` · `GET /v1/ingest-tasks/{id}` · `GET /v1/review-queue` · `POST /v1/review-queue/{id}/decision` | admin / operator |
 | `GET /v1/metrics` · `GET /v1/traces/{id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events` | admin |
+| `GET /v1/me` | 当前身份策略允许时可用；启用强制鉴权后需有效 API Key |
 | `GET /healthz` · `GET /metrics-prom` · `/web` · `/docs` · `/openapi.json` | 公开（免鉴权） |
 
 角色不足返回 403 `FORBIDDEN`。Key 过期由 `KeyInfo.expires_at` 支持；
-`configs/api_keys.yaml` 注册表（过期/备注）目前是**独立组件未接入中间件**——生效路径是
-`AGR_API_KEYS` env（见 ENTERPRISE_READINESS §3.5 待办）。
+`configs/api_keys.yaml` 注册表（过期 / 备注）是独立组件；API 鉴权当前读取
+`AGR_API_KEYS` 环境变量。
 
 ## 全链路排障（ENT-01/02）
 

@@ -28,7 +28,7 @@ flowchart TD
 
 | 模块 | 当前职责 |
 |---|---|
-| `api/`、`cli/`、`web/` | HTTP、命令行与试用 UI 接入；API 通过 `QueryService` 调用应用流程。 |
+| `api/`、`cli/`、`web/` | HTTP、命令行与 Vue 知识工作台接入；API 通过 `QueryService` 调用应用流程。 |
 | `agent/` | 问题分诊、Fast Path、规划与执行状态机、反思、护栏及 SSE 进度事件。 |
 | `retrieval/`、`generation/` | 多路检索与融合；生成带证据引用的答案和统一推理链。 |
 | `knowledge/` | 文档切块、逐块抽取、schema/confidence gate、实体解析、增量冲突处理及人工复核。 |
@@ -79,20 +79,21 @@ API 文档上传：POST /v1/docs（md/txt）→ IngestTaskStore（JSONL 任务�
 
 图谱增量更新不清空既有图：新 triples 先通过 schema/confidence gate，再与现有边比较。完全相同的边仅在置信度有意义提升时更新；同一主体与关系出现不同对象时，按置信度差距自动更新、送人工复核或保留旧边，并在自动更新时退役被替代边。写入统计以存储实际接受的数量为准。
 
-上传接口当前只接受 UTF-8 Markdown 与纯文本，单文件上限 5 MiB、每批最多 20 个文件；PDF 尚无解析器，不支持上传。API 会创建任务，但**不会自动启动 worker**；使用 `python -m agentic_graphrag.knowledge.ingest_worker --once` 消费任务。当前任务文件存储与 worker 处理记录面向单机/单进程使用，不提供多节点队列所需的共享锁或原子租约保证。
+上传接口当前只接受 UTF-8 Markdown 与纯文本，单文件上限 5 MiB、每批最多 20 个文件；PDF 尚无解析器，不支持上传。API 会创建任务，但**不会自动启动 worker**；使用 `python -m agentic_graphrag.knowledge.ingest_worker` 持续消费，或附加 `--once` 单轮执行。默认离线 API 与 worker 的向量 / BM25 索引均为进程内存，因此独立 worker 更新不会同步到 API 查询进程；上传和 worker 也只做分块索引，不抽取三元组或更新图谱。任务文件与 worker 处理记录面向单机/单进程使用，不提供多节点队列所需的共享锁或原子租约保证。
 
 ## 5. API 与运维入口
 
 | 路由 | 用途 |
 |---|---|
 | `POST /v1/query`、`POST /v1/query/stream` | 同步问答、增量 SSE 问答。 |
-| `POST /v1/docs`、`GET /v1/ingest-tasks/{task_id}` | 上传文档并查询后台索引任务。 |
-| `GET /v1/review-queue`、`POST /v1/review-queue/{item_id}/decision` | 查看并处理人工复核项。 |
-| `GET /v1/graph/entities` | 分页浏览图实体。 |
+| `GET /v1/me` | 当前身份与工作台能力。 |
+| `POST /v1/docs`、`GET /v1/ingest-tasks`、`GET /v1/ingest-tasks/{task_id}` | 管理员 / 运营上传文档并分页查询租户任务。 |
+| `GET /v1/review-queue`、`POST /v1/review-queue/{item_id}/decision` | 管理员 / 运营筛选、分页查看并记录人工复核决策。 |
+| `GET /v1/graph/entities` | 按名称 / 别名 / ID 搜索、按类型筛选并分页浏览实体。 |
 | `GET /v1/audit/queries/{query_id}`、`POST /v1/feedback` | 按租户查询推理审计并提交反馈。 |
 | `GET /v1/traces/{query_id}`、`GET /v1/budget/snapshot`、`GET /v1/audit-events` | 管理员排障与安全事件查询。 |
 | `GET /v1/metrics`、`GET /metrics-prom` | 指标摘要与 Prometheus exposition。 |
-| `GET /healthz`、`GET /web` | 健康检查与试用 UI。 |
+| `GET /healthz`、`GET /web` | 健康检查与 Vue 知识推理工作台。 |
 
 角色守卫定义在 `api/rbac.py`；具体路由权限以路由声明为准。结构化日志、trace、Prometheus 指标、安全审计事件、PII 脱敏与可选 OTLP bridge 位于 `observability/`。CLI 入口由 `pyproject.toml` 声明，也可使用 `python -m agentic_graphrag <command>`。
 

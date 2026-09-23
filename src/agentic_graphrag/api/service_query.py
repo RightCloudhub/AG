@@ -21,6 +21,10 @@ from agentic_graphrag.api.service_telemetry import record_metrics as _record_met
 from agentic_graphrag.api.service_telemetry import save_chain_audit
 from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
 from agentic_graphrag.llm.budget import BudgetExceeded
+from agentic_graphrag.observability.audit_events import (
+    BUDGET_EXCEEDED as BUDGET_EVENT,
+    emit_audit_event,
+)
 from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
@@ -129,6 +133,10 @@ def _try_answer_cache(
 
 def _budget_api_error(exc: BudgetExceeded) -> ApiError:
     get_metrics().record_budget_trip()
+    try:
+        emit_audit_event(BUDGET_EVENT, outcome="denied")
+    except Exception:  # noqa: BLE001
+        pass
     return ApiError(
         BUDGET_EXCEEDED,
         "Query budget exceeded",
