@@ -1,145 +1,103 @@
 # 架构说明（ARCHITECTURE）
 
-**更新日期：** 2026-07-25（ENT-01…08 增补；§6 审计结论为 2026-07-23 快照）
-**定位：** 描述性文档 — 模块地图、查询生命周期、离线/在线双轨、边界规则，以及 2026-07-23 静态架构审计的结论与优化建议跟踪。强制性规则以 [`plan/engineering/rules.md`](../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](./IMPORTANT.md) 为准；ENT 企业级能力状态以 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 为准。
+**更新日期：** 2026-09-23
+**定位：** 描述当前代码中已实现的模块边界、运行路径与已知运行限制，不是目标架构或静态审计报告。强制性工程规则以 [`plan/engineering/rules.md`](../plan/engineering/rules.md) 为准；业务行为细节见 [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md)，企业能力状态见 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。
 
----
+## 1. 模块与依赖边界
 
-## 1. 分层总览
-
-```
-                    ┌─────────────────────────────┐
-  web/ (Vue 3 零构建) │  api/  FastAPI + auth/限流    │  cli/  agr-* 入口
-                    └──────────────┬──────────────┘
-                                   │ QueryService (api/service.py)
-                    ┌──────────────▼──────────────┐
-                    │  agent/  triage → fast_path  │
-                    │  或 LangGraph StateGraph:     │
-                    │  planner → executor → critic │
-                    │  → answer（guardrails 全程）  │
-                    └──────┬───────────────┬──────┘
-              retrieval/    │               │  generation/（answer 在线 /
-              vector·graph_beam·fulltext    │  offline_answer 离线；trace=
-              → fusion (RRF) → cache        │  ReasoningChain 输出契约）
-                    ┌──────▼───────────────▼──────┐
-                    │  stores/  Protocol 接口 +     │   llm/  provider·budget·
-                    │  factory 组合根（唯一入口）    │   budget_policy·circuit
-                    └─────────────────────────────┘
-  knowledge/  ingest → extract_* → graph_builder → incremental/resolution
-              → review/queue（人工复核）→ ingest_tasks/ingest_worker（ENT-05）
-  observability/（横切）logging_setup·trace·metrics·audit_events·redaction·otel_bridge
-  eval/  金标·评分·baseline        api/rbac.py  三角色路由守卫（ENT-04）
+```mermaid
+flowchart TD
+    WEB["web/ Vue 3 零构建"] --> API["api/ FastAPI 路由、中间件"]
+    CLI["cli/ 命令行入口"] --> DOMAIN
+    API --> SVC["api/service.py QueryService"]
+    SVC --> AGENT["agent/ 分诊、Fast Path、LangGraph"]
+    AGENT --> RET["retrieval/ 向量、图、BM25、RRF、缓存"]
+    AGENT --> GEN["generation/ 答案、引用、ReasoningChain"]
+    RET --> STORE["stores/ 协议与 factory 组合根"]
+    GEN --> AUDIT["generation/audit_store.py"]
+    DOMAIN["knowledge/ 文档、抽取、校验、增量建图"] --> STORE
+    DOMAIN --> REVIEW["knowledge/review/ 人工复核队列"]
+    API --> TASK["knowledge/ingest_tasks.py 上传任务"]
+    TASK --> WORKER["knowledge/ingest_worker.py"]
+    WORKER --> STORE
+    STORE --> BACKENDS["内存 / 文件 / Neo4j / Qdrant"]
+    LLM["llm/ provider、预算、熔断"] -.-> AGENT
+    OBS["observability/ 日志、trace、metrics、审计、脱敏、OTel"] -.-> API
+    OBS -.-> AGENT
 ```
 
-依赖方向自上而下单向；应用代码只依赖 `stores/interfaces.py` 的
-`GraphStore` / `VectorStore` / `FulltextStore` / `DocStore` 协议（自 ENT-06 起均接受
-`tenant_id` 过滤；调度侧协议 `LimiterStore`/`BudgetStore`/`AuditSink` 见
-`stores/scheduling_protocols.py`），
-Neo4j / Qdrant 客户端类型只允许出现在 `stores/` 内部（factory 内惰性导入）。
-
-## 2. 离线 / 在线双轨（默认离线）
-
-| 层 | 离线（默认） | 在线（显式开启） |
-|---|---|---|
-| 图 | `InMemoryGraphStore` + `data/processed/seed_triples.jsonl` | Neo4j（`AGR_USE_LIVE_STORES=1` 或 `--neo4j`） |
-| 向量 | 进程内 + 已持久化 embedding | Qdrant |
-| LLM | `MockLLMProvider` + `generation/offline_answer.py` 启发式 | 真实 provider（`AGR_ALLOW_LLM=1` + `LLM_API_KEY`） |
-| API | lifespan 中 `build_default_service()` → offline bundle | 同上两个开关叠加 |
-
-`generation/offline_heuristics/` 是**只服务演示语料**的确定性规则集（保 CI 与 20 case
-评测可复现），不是生产路径；在线行为的问题不要改它，反之亦然。
-
-## 3. 一次查询的生命周期
-
-1. `POST /v1/query`（`api/routes/query.py`）→ 中间件 `AuthRateLimitMiddleware`
-   （`api/auth.py`：API Key → tenant、QPS/并发限流、`Principal` 注入）。
-2. `QueryService.run_query`（`api/service.py`，持有 StoreBundle / audit store /
-   review queue / `RetrievalCache` / `MultiLevelBudget`）→ `service_query.execute_run_query`
-   （答案缓存按 tenant/user/params 取键；预算原子预扣）。
-3. `agent/triage.py` 分诊：Fast Path（`agent/fast_path.py`，弱证据时
-   `should_escalate_fast_path` 回退 Agentic）或 Agentic。
-4. Agentic = LangGraph `StateGraph`：`planner → executor → critic →（回 executor｜answer）`，
-   checkpointer（`agent/checkpointer.py`）保存状态；节点实现在
-   `loop_runtime.py` / `loop_handlers.py`，`loop.py` 只负责建图。
-5. Executor（`executor.py` + `executor_plan.py` / `executor_dispatch.py`）并行三路检索
-   （向量 / 图 beam / BM25）→ `retrieval/fusion.py` RRF 融合，经 `RetrievalCache`。
-6. Guardrails（`agent/guardrails.py`）全程约束：max hops、LLM 调用数、token 预算
-   （`llm/budget.py`，租户级 `llm/budget_policy.py`）、超时、递归上限。
-7. 输出 `ReasoningChain`（`generation/trace.py`；schema
-   `configs/schema/reasoning_chain_v1.json`）→ 写入 `AuditStore`；
-   SSE 变体 `POST /v1/query/stream`（`agent/loop_stream.py` + `api/service_stream.py`，
-   LangGraph `stream(updates)` 真增量）。
-8. `POST /v1/feedback` 把用户反馈挂到 chain，不准确的入 `knowledge/review/queue.py`。
-
-横切（ENT-01…08）：auth 中间件绑定日志 contextvars（request_id/query_id/tenant_id/user_id
-贯穿 JSON 日志）并 attach 入向 W3C traceparent；`tenant_id` 自 principal 透传 stores /
-三路检索 / agent loop（检索缓存键含租户，不再绕过缓存）；安全事件（鉴权失败/限流/上传/复核决议）
-写 `observability/audit_events.py`；trace span 可选桥接 OTel（`otel_bridge.py`）。
-
-## 4. API 面（实测自 `api/routes/`）
-
-| 端点 | 用途 |
+| 模块 | 当前职责 |
 |---|---|
-| `POST /v1/query` · `POST /v1/query/stream` | 问答（同步 / SSE） |
-| `POST /v1/docs`（operator+） · `GET /v1/ingest-tasks/{task_id}` | 文档接入（应用层限额 5MB/20/白名单 md·txt，ENT-06）与任务查询（`IngestTaskStore` 落盘，ENT-05） |
-| `GET /v1/review-queue`（自租户） · `POST /v1/review-queue/{item_id}/decision`（operator+） | 人工复核 |
-| `GET /v1/audit/queries/{query_id}` | 审计链回查（AC-3，自租户） |
-| `POST /v1/feedback` | 反馈闭环（FR-OP-03） |
-| `GET /v1/metrics`（admin） · `GET /v1/graph/entities` | 观测 / 图实体 |
-| `GET /v1/traces/{query_id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events`（均 admin） | 排障闭环（ENT-02）：trace / 预算快照 / 安全事件 |
-| `GET /healthz` · `GET /metrics-prom` · `GET /web` | 健康检查（含熔断器/复核积压/后端标识）/ Prometheus 抓取（ENT-08）/ 试用 UI —— 均免鉴权 |
+| `api/`、`cli/`、`web/` | HTTP、命令行与试用 UI 接入；API 通过 `QueryService` 调用应用流程。 |
+| `agent/` | 问题分诊、Fast Path、规划与执行状态机、反思、护栏及 SSE 进度事件。 |
+| `retrieval/`、`generation/` | 多路检索与融合；生成带证据引用的答案和统一推理链。 |
+| `knowledge/` | 文档切块、逐块抽取、schema/confidence gate、实体解析、增量冲突处理及人工复核。 |
+| `stores/`、`llm/` | 存储协议和后端组合；LLM provider、调用预算及熔断机制。 |
+| `observability/`、`eval/` | 日志、trace、指标、安全审计、脱敏、可选 OTel，以及离线评测。 |
 
-CLI：`agr-ingest / build-graph / index / run-cases / run-baseline / eval / gen-cases /
-pilot-triples / badcase / query / api`（`pyproject.toml [project.scripts]`，亦可
-`python -m agentic_graphrag <cmd>`）。
+应用层通过 `stores/interfaces.py` 中的 `GraphStore`、`VectorStore`、`FulltextStore`、`DocStore` 协议访问知识存储。`stores/factory.py` 是存储组合根；Neo4j、Qdrant 的具体客户端留在存储实现内。限流、预算与审计调度协议另见 `stores/scheduling_protocols.py`。
 
-## 5. 配置体系
+## 2. 存储与运行模式
 
-`config.py` 合并 `configs/default.yaml`（`AppConfig`，可调参数；ENT-05 起含 `tenants:`
-per-tenant 限额与 `retention:` 保留期，模型在 `config_enterprise.py`）与 `.env`
-（`Settings`，pydantic-settings，密钥/端点）；env 覆盖 YAML；路径经 `resolve_path()`
-锚定仓库根。**例外**：API 运行时开关（`AGR_ALLOW_LLM`、`AGR_USE_LIVE_STORES`、
-`AGR_REQUIRE_AUTH`、`AGR_API_KEYS`（三段式 `tenant:key:role`）、
-`AGR_RATE_LIMIT_QPS/CONCURRENT`、`AGR_TRUST_X_USER_ID`、`AGR_API_HOST/PORT/RELOAD`，
-以及 ENT 新增 `AGR_LOG_LEVEL/FILE`、`AGR_REDACTION_ENABLED/PATTERNS`、
-`AGR_OTEL_ENABLED/ENDPOINT/SAMPLE_RATE`）在调用点直读
-`os.environ` —— 有意为之（测试 monkeypatch 友好、进程内可翻转），见 §7 建议 P-A5。
+离线为默认路径；`AGR_ALLOW_LLM` 与 `AGR_USE_LIVE_STORES` 是**相互独立**的开关，可分别切换模型和图/向量后端。
 
-## 6. 静态架构审计结论（2026-07-23，未运行代码）
-
-以 grep / 逐文件阅读核实；本环境无 `.venv`，ruff / pytest / 指标脚本未运行（见 §8）。
-
-| # | 检查 | 结论 |
+| 能力 | 离线默认 | Live 配置与边界 |
 |---|---|---|
-| 1 | `neo4j` / `qdrant` 导入泄漏到 `stores/` 之外 | **无** |
-| 2 | 逆向分层导入（下层 import `api/`；`retrieval/stores/knowledge/llm` import `agent/`） | **无**；唯一例外是 `generation/offline_heuristics/mentions.py:8` 在函数内惰性导入 `agent.entities` —— 离线启发式专用，规避环依赖，可接受，勿改成模块级导入 |
-| 3 | 文件行数（≤300） | 全部合规；`stores/neo4j_store.py` **恰好 300 行**（顶格），`config.py` 294 行（接近顶格） |
-| 4 | `os.environ` 直读散布 | 集中在 `api/`（`app.py`、`auth.py`、`service.py`）共 9 处；truthy 判断习语 `in {"1","true","yes"}` 重复 **4 份**（`auth.py:55,60`、`service.py:52`、`app.py:168`） |
-| 5 | 内联魔法默认值 | `auth.py:130-131` 限流默认 `"20"`/`"10"`；`app.py:161-162` host/port 默认内联 |
-| 6 | 密钥硬编码 | 未发现（密钥走 `.env` / `Settings`） |
+| 图存储 | `InMemoryGraphStore`；离线 API 默认加载 seed triples | `AGR_USE_LIVE_STORES=1` 使用 Neo4j；图后端不可用时是否回退内存图由调用方策略决定。 |
+| 向量存储 | 进程内向量存储，可加载已保存 embeddings | Live bundle 使用 Qdrant；初始化失败时当前 factory 回退到内存向量存储。 |
+| 全文与文档 | BM25 全文索引、文件型 `DocStore` | 当前没有独立的在线全文服务或文档数据库后端；Live bundle 仍使用 BM25 与文件型文档存储。 |
+| LLM | `MockLLMProvider` 与确定性离线答案规则 | `AGR_ALLOW_LLM=1` 且提供有效 `LLM_API_KEY` 后启用真实 provider；不会因此自动切换存储。 |
 
-> **2026-07-25 增补：** 上表为 2026-07-23 快照。此后 ENT 变更：`neo4j_store.py` 已拆分
-> （269 行，查询构造拆出 `neo4j_queries.py`，P-A3 解除）；全部 src 文件 `wc -l` 复核 ≤300
-> （最大 `config.py` 298）；`os.environ` 直读点随 ENT 模块（logging_setup / redaction /
-> otel_bridge / app lifespan）增加，仍集中于运行时开关语义，P-A5 结论不变。
+`generation/offline_heuristics/` 面向仓库演示语料，保证无外部服务时可复现；它不是 Live LLM 的回答实现。反过来，调整在线提示词或 provider 也不会改变离线规则答案。
 
-## 7. 优化建议跟踪（P-A3 已解决；其余仅记录、未实施）
+## 3. 查询生命周期
 
-| ID | 建议 | 要点 |
-|---|---|---|
-| P-A1 | 归并 truthy env 习语：新建 ~15 行的 `api/env_flags.py` 提供 `env_flag(name)`（调用时读 env，保 monkeypatch 语义），替换 §6-4 的 4 处重复 | **必须**保留 `require_auth_enabled` / `trust_x_user_id_enabled` 函数（`tests/unit/test_security_budget_cache_config.py` 直接导入）；`service.py` 可 `import env_flag as _env_flag` 保内部名。不放进 `config.py`（已 294 行，加即破 300 上限） |
-| P-A2 | `auth.py` 限流默认值、`app.py` host/port 提取具名常量（`_DEFAULT_RATE_LIMIT_QPS` 等） | 注意 ruff line-length 100，长行需折行 |
-| P-A3 | ~~`stores/neo4j_store.py` 已顶格 300 行：下次任何改动前先拆分~~ — **已解决（ENT-06，2026-07-25）**：查询构造拆出 `neo4j_queries.py`，主文件现 269 行 | 先例 `neo4j_codec.py` / `neo4j_queries.py` 均按 读写/查询构造 维度拆分 |
-| P-A4 | `config.py` 294 行：同上，预留拆分方案（如 `config_paths.py`） | 无需立即动 |
-| P-A5 | 长期：评估把 `AGR_*` 收进 pydantic-settings `Settings` | 代价是失去调用时读取语义（测试与进程内翻转依赖它）；若收编需连带改造测试，收益有限，**低优先** |
+1. `POST /v1/query` 或 `POST /v1/query/stream` 经 `AuthRateLimitMiddleware` 处理。启用 API Key 鉴权时，中间件解析 `Principal`、租户与角色，并执行租户限流；未配置身份时使用默认匿名身份。
+2. `QueryService` 组装存储、Agent、答案/检索缓存、审计存储、复核队列和多级预算。非流式请求先查答案缓存，再预留预算；缓存键包含租户、用户及影响结果的请求参数。
+3. Agent 处理问候等无需检索的场景后进行 triage：简单问题尝试 Fast Path；证据不足时可升级到 Agentic。禁用 triage 或请求 `force_agentic` 时直接进入 Agentic。
+4. Agentic 使用 LangGraph `StateGraph`，由 planner 生成带依赖关系的子问题 DAG，executor 执行就绪节点，critic 决定继续探索或结束并生成答案。计划广度与 hop 深度分别受限；因预算未执行或未纳入计划的子问题会记录到推理链 metadata。
+5. Executor 并行执行向量、图 beam 与 BM25 检索，经 RRF 融合并可使用检索缓存。`tenant_id` 随请求进入 Agent、存储检索和租户范围的缓存键。
+6. Guardrails 限制 hop 数、子问题广度、LLM 调用数、token 与耗时，并设置 LangGraph 递归上限。生成阶段把事实 claim 绑定到检索证据；引用校验失败时最多重试一次，仍不满足时走保守回答/拒答路径。该校验是规则性证据支持检查，不等同于完整的自然语言蕴含判定。
+7. 返回 `ReasoningChain`（契约见 `configs/schema/reasoning_chain_v1.json`），持久化审计记录、结算预算并记录指标。SSE 端点额外逐步发送 triage、思考、子问题、hop 与最终答案事件；查询执行不跨整个 SSE 生命周期持有进程级全局锁。
 
-## 8. 验证清单（应用上述任何建议或恢复环境后执行）
+### 租户上下文
 
-- [ ] `uv venv .venv && uv pip install -e ".[dev]"`（当前环境 `.venv` 缺失，全部门禁未跑）
-- [ ] `ruff check src tests scripts` + `ruff format --check src tests scripts`
-- [ ] `pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q`
-- [ ] `python scripts/check_code_metrics.py`（文件/函数/嵌套/参数/圈复杂度）
-- [ ] P-A1 实施后重点回归 `tests/unit/test_security_budget_cache_config.py`（导入面不变）
-- [ ] P-A1/P-A2 实施后确认 `agr-api` 行为不变：`AGR_REQUIRE_AUTH` / `AGR_RATE_LIMIT_*` /
-      `AGR_API_RELOAD` 语义与默认值逐一比对（默认 QPS 20、并发 10、port 8000）
-- [ ] 本文档 §4 端点表与 `api/routes/` 保持同步（新增路由时更新）
+`tenant_id` / `user_id` 在 API 身份上下文中传递：租户用于预算、检索与答案缓存、推理审计、上传任务、复核队列及图实体浏览；用户标识用于预算、答案缓存与审计。缓存命中还有租户元数据二次校验；找不到资源与跨租户资源对外统一返回未找到，避免泄漏资源是否存在。具体数据隔离依赖各存储实现及其 `tenant_id` 过滤实现，不应把此应用层约束误认为独立数据库或物理分区。
+
+## 4. 知识构建与上传索引
+
+当前有两条用途不同的路径，不应将 API 文件上传等同于完整的图谱抽取：
+
+```text
+离线/CLI 图谱构建：文档 → chunk → extract pipeline（journal / retry / quarantine）
+    → schema 与置信度 gate → entity resolution → 增量冲突处理
+    → graph store；不确定冲突 → review queue → 人工决策
+
+API 文档上传：POST /v1/docs（md/txt）→ IngestTaskStore（JSONL 任务）
+    → 单独运行的 ingest worker → DocStore → chunk → vector / BM25 索引
+```
+
+图谱增量更新不清空既有图：新 triples 先通过 schema/confidence gate，再与现有边比较。完全相同的边仅在置信度有意义提升时更新；同一主体与关系出现不同对象时，按置信度差距自动更新、送人工复核或保留旧边，并在自动更新时退役被替代边。写入统计以存储实际接受的数量为准。
+
+上传接口当前只接受 UTF-8 Markdown 与纯文本，单文件上限 5 MiB、每批最多 20 个文件；PDF 尚无解析器，不支持上传。API 会创建任务，但**不会自动启动 worker**；使用 `python -m agentic_graphrag.knowledge.ingest_worker --once` 消费任务。当前任务文件存储与 worker 处理记录面向单机/单进程使用，不提供多节点队列所需的共享锁或原子租约保证。
+
+## 5. API 与运维入口
+
+| 路由 | 用途 |
+|---|---|
+| `POST /v1/query`、`POST /v1/query/stream` | 同步问答、增量 SSE 问答。 |
+| `POST /v1/docs`、`GET /v1/ingest-tasks/{task_id}` | 上传文档并查询后台索引任务。 |
+| `GET /v1/review-queue`、`POST /v1/review-queue/{item_id}/decision` | 查看并处理人工复核项。 |
+| `GET /v1/graph/entities` | 分页浏览图实体。 |
+| `GET /v1/audit/queries/{query_id}`、`POST /v1/feedback` | 按租户查询推理审计并提交反馈。 |
+| `GET /v1/traces/{query_id}`、`GET /v1/budget/snapshot`、`GET /v1/audit-events` | 管理员排障与安全事件查询。 |
+| `GET /v1/metrics`、`GET /metrics-prom` | 指标摘要与 Prometheus exposition。 |
+| `GET /healthz`、`GET /web` | 健康检查与试用 UI。 |
+
+角色守卫定义在 `api/rbac.py`；具体路由权限以路由声明为准。结构化日志、trace、Prometheus 指标、安全审计事件、PII 脱敏与可选 OTLP bridge 位于 `observability/`。CLI 入口由 `pyproject.toml` 声明，也可使用 `python -m agentic_graphrag <command>`。
+
+## 6. 配置与相关文档
+
+`configs/default.yaml` 提供应用参数，`config.py` / `config_enterprise.py` 将其解析为配置模型；`.env` 与 pydantic-settings 管理密钥和服务端点。部分 API/观测运行时开关按调用点直接读取 `AGR_*` 环境变量。部署与变量清单见 [`ops-runbook.md`](./ops-runbook.md)，Neo4j 外部运行时见 [`EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md)。
+
+本文只维护实现架构与路径说明：目标设计见 [`ARCHITECTURE_DESIGN.md`](./ARCHITECTURE_DESIGN.md)，实现差异盘点见 [`DESIGN_VS_IMPLEMENTATION.md`](./DESIGN_VS_IMPLEMENTATION.md)，业务规则及未解决缺口见 [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) 与 [`IMPORTANT.md`](./IMPORTANT.md)。
