@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AgenticGraphRAG 项目整体架构图：查询链路、知识构建、存储与运维能力。">
+  <title>AgenticGraphRAG · 系统架构</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f5f2eb;
+      --surface: #fff;
+      --surface-soft: #faf8f4;
+      --border: #e6e0d4;
+      --border-strong: #d4cbbd;
+      --ink: #1f1e1b;
+      --secondary: #5c574e;
+      --muted: #8a8478;
+      --accent: #c96442;
+      --accent-soft: #f3e0d8;
+      --blue: #496d9b;
+      --blue-soft: #e9f0f8;
+      --green: #2f6f4e;
+      --green-soft: #e6f2ea;
+      --purple: #705a91;
+      --purple-soft: #f0eaf6;
+      --gold: #9a7414;
+      --gold-soft: #f7f0dc;
+      --shadow: 0 12px 32px rgba(31, 30, 27, .055);
+      --radius: 18px;
+      --font: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+        "PingFang SC", "Noto Sans SC", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse at 12% 0%, rgba(201, 100, 66, .09), transparent 30rem),
+        var(--page);
+      font-family: var(--font);
+      line-height: 1.55;
+    }
+    a { color: inherit; }
+    code {
+      padding: .12rem .38rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-soft);
+      font-family: var(--mono);
+      font-size: .88em;
+    }
+    .page { width: min(1200px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 20px 0 12px;
+    }
+    .brand { display: flex; align-items: center; gap: .7rem; font-weight: 700; }
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 11px;
+      color: white;
+      background: linear-gradient(145deg, #d97757, #a84b2f);
+      box-shadow: 0 5px 14px rgba(169, 75, 47, .2);
+    }
+    .top-actions { display: flex; align-items: center; gap: .7rem; }
+    .date, .eyebrow {
+      color: var(--muted);
+      font-size: .78rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .button, .doc-link {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      padding: .45rem .8rem;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      color: var(--secondary);
+      background: rgba(255, 255, 255, .72);
+      font: inherit;
+      font-size: .84rem;
+      text-decoration: none;
+      cursor: pointer;
+      transition: border-color .18s ease, transform .18s ease, background .18s ease;
+    }
+    .button:hover, .doc-link:hover { border-color: var(--accent); background: white; transform: translateY(-1px); }
+    .hero { padding: 36px 0 25px; }
+    .hero h1 {
+      max-width: 800px;
+      margin: .35rem 0 .75rem;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      letter-spacing: -.055em;
+      line-height: 1.08;
+    }
+    .hero p { max-width: 770px; margin: 0; color: var(--secondary); font-size: 1.02rem; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.2rem; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .3rem .65rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--secondary);
+      background: rgba(255, 255, 255, .7);
+      font-size: .78rem;
+    }
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+    main { padding-bottom: 3rem; }
+    .section { margin-top: 1.3rem; }
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: 0 0 .8rem;
+    }
+    .section-head h2 { margin: 0; font-size: 1.25rem; letter-spacing: -.025em; }
+    .section-head p { margin: 0; color: var(--muted); font-size: .85rem; }
+    .surface {
+      padding: clamp(16px, 2.8vw, 28px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, .82);
+      box-shadow: var(--shadow);
+    }
+    .layer-label {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      margin-bottom: .75rem;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .layer-label::after { height: 1px; flex: 1; background: var(--border); content: ""; }
+    .entry-grid, .service-grid, .runtime-grid, .knowledge-grid, .ops-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .entry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .node {
+      position: relative;
+      min-width: 0;
+      padding: 15px 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+    .node h3 { margin: 0 0 .2rem; font-size: .97rem; }
+    .node p { margin: 0; color: var(--secondary); font-size: .82rem; }
+    .node .path { display: block; margin-top: .55rem; color: var(--muted); font: .72rem var(--mono); overflow-wrap: anywhere; }
+    .node-icon {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      margin-bottom: .6rem;
+      border-radius: 10px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      font-weight: 800;
+    }
+    .node.blue .node-icon { color: var(--blue); background: var(--blue-soft); }
+    .node.green .node-icon { color: var(--green); background: var(--green-soft); }
+    .node.purple .node-icon { color: var(--purple); background: var(--purple-soft); }
+    .node.gold .node-icon { color: var(--gold); background: var(--gold-soft); }
+    .connector {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 1.35rem;
+      line-height: 1;
+    }
+    .connector span {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      padding: .18rem .55rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--page);
+      font-size: .72rem;
+      line-height: 1.5;
+    }
+    .service-grid { grid-template-columns: 1.35fr .8fr .8fr; }
+    .service-main {
+      border-color: rgba(201, 100, 66, .45);
+      background: linear-gradient(135deg, #fff 0%, #fff8f4 100%);
+    }
+    .tag-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .7rem; }
+    .tag {
+      padding: .18rem .45rem;
+      border-radius: 6px;
+      color: var(--secondary);
+      background: var(--surface-soft);
+      font-size: .7rem;
+    }
+    .agent-shell {
+      padding: 18px;
+      border: 1px solid #ead2c8;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fffaf7, #fff);
+    }
+    .agent-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; }
+    .agent-head h3 { margin: 0; font-size: 1rem; }
+    .agent-head span { color: var(--muted); font-size: .75rem; }
+    .agent-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 2fr; align-items: stretch; gap: 9px; }
+    .agent-flow > .node { display: flex; flex-direction: column; justify-content: center; }
+    .mini-arrow { display: grid; place-items: center; color: var(--accent); font-size: 1.15rem; }
+    .loop-card {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border: 1px dashed #d9ac9b;
+      border-radius: 13px;
+      background: rgba(243, 224, 216, .32);
+    }
+    .loop-step { padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: white; text-align: center; }
+    .loop-step strong { display: block; font-size: .86rem; }
+    .loop-step small { color: var(--muted); font-size: .72rem; }
+    .loop-mark { grid-column: 1 / -1; color: var(--accent); font-size: .72rem; text-align: center; }
+    .agent-note { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 11px; }
+    .agent-note .pill { font-size: .72rem; }
+    .retrieve-generate { display: grid; grid-template-columns: 1.2fr auto .8fr; align-items: stretch; gap: 12px; }
+    .retrieval-box, .generation-box { padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: white; }
+    .retrieval-box h3, .generation-box h3 { margin: 0 0 .65rem; font-size: .94rem; }
+    .retrieval-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .lane { padding: 10px; border-radius: 10px; background: var(--blue-soft); }
+    .lane:nth-child(2) { background: var(--green-soft); }
+    .lane:nth-child(3) { background: var(--purple-soft); }
+    .lane strong { display: block; font-size: .82rem; }
+    .lane small { color: var(--secondary); font-size: .7rem; }
+    .fusion { display: flex; align-items: center; justify-content: center; gap: .45rem; margin-top: 9px; color: var(--secondary); font-size: .75rem; }
+    .fusion b { padding: .2rem .48rem; border-radius: 6px; color: #75452f; background: var(--accent-soft); font: .7rem var(--mono); }
+    .generate-flow { display: grid; gap: 8px; }
+    .generate-step { padding: 9px 10px; border-radius: 9px; color: var(--secondary); background: var(--surface-soft); font-size: .78rem; }
+    .generate-step strong { color: var(--ink); }
+    .generate-step.output { color: #25553b; background: var(--green-soft); }
+    .stores-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+    .store-card { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: white; }
+    .store-card strong { display: block; margin-bottom: .25rem; font-size: .82rem; }
+    .store-card span { display: block; color: var(--secondary); font-size: .73rem; }
+    .backend-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 11px; }
+    .backend { padding: .3rem .62rem; border: 1px solid var(--border); border-radius: 999px; color: var(--secondary); background: var(--surface-soft); font-size: .73rem; }
+    .backend.live { border-color: #c5d3e5; color: #365a86; background: var(--blue-soft); }
+    .runtime-grid { grid-template-columns: 1fr 1fr; }
+    .runtime-card { padding: 17px; border: 1px solid var(--border); border-radius: 14px; background: white; }
+    .runtime-card h3 { display: flex; align-items: center; gap: .5rem; margin: 0 0 .6rem; font-size: .95rem; }
+    .runtime-card p { margin: 0; color: var(--secondary); font-size: .82rem; }
+    .runtime-card.offline { border-top: 3px solid var(--green); }
+    .runtime-card.live-mode { border-top: 3px solid var(--blue); }
+    .switch-note { margin-top: 10px !important; padding: 9px 11px; border-radius: 9px; color: #75452f !important; background: var(--accent-soft); }
+    .knowledge-grid { grid-template-columns: 1fr 1fr; }
+    .pipeline {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: white;
+    }
+    .pipeline.graph { border-top: 3px solid var(--purple); }
+    .pipeline.upload { border-top: 3px solid var(--gold); }
+    .pipeline h3 { margin: 0 0 .25rem; font-size: .95rem; }
+    .pipeline > p { margin: 0 0 .9rem; color: var(--secondary); font-size: .78rem; }
+    .pipeline-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .pipe-step { padding: .36rem .52rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); font-size: .72rem; }
+    .pipe-arrow { color: var(--muted); font-size: .78rem; }
+    .pipeline-foot { margin-top: .85rem; padding-top: .7rem; border-top: 1px solid var(--border); color: var(--secondary); font-size: .74rem; }
+    .pipeline-foot strong { color: var(--ink); }
+    .ops-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .ops-card { padding: 15px; border: 1px solid var(--border); border-radius: 13px; background: white; }
+    .ops-card h3 { margin: 0 0 .35rem; font-size: .9rem; }
+    .ops-card p { margin: 0; color: var(--secondary); font-size: .78rem; }
+    .ops-card .path { display: block; margin-top: .55rem; color: var(--muted); font: .7rem var(--mono); }
+    .api-list { display: flex; flex-wrap: wrap; gap: .42rem; margin-top: .7rem; }
+    .api-list code { font-size: .68rem; }
+    .footnote {
+      display: flex;
+      align-items: flex-start;
+      gap: .55rem;
+      margin-top: 14px;
+      padding: 11px 13px;
+      border: 1px solid #e8d7a7;
+      border-radius: 11px;
+      color: #6e5b2a;
+      background: #fcf7e8;
+      font-size: .77rem;
+    }
+    footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: .8rem;
+      padding: 1.2rem 0 2rem;
+      border-top: 1px solid var(--border-strong);
+      color: var(--muted);
+      font-size: .78rem;
+    }
+    .footer-links { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+    @media (max-width: 820px) {
+      .agent-flow { grid-template-columns: 1fr; }
+      .mini-arrow { min-height: 16px; transform: rotate(90deg); }
+      .loop-card { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .retrieve-generate { grid-template-columns: 1fr; }
+      .retrieve-generate > .mini-arrow { transform: none; }
+      .stores-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .page { width: min(100% - 24px, 540px); }
+      .topbar { align-items: flex-start; }
+      .date { display: none; }
+      .hero { padding-top: 24px; }
+      .section-head { display: block; }
+      .section-head p { margin-top: .2rem; }
+      .entry-grid, .service-grid, .runtime-grid, .knowledge-grid, .ops-grid { grid-template-columns: 1fr; }
+      .retrieval-lanes { grid-template-columns: 1fr; }
+      .loop-card { grid-template-columns: 1fr; }
+      .loop-mark { grid-column: auto; }
+      .connector { min-height: 30px; }
+      .stores-grid { grid-template-columns: 1fr 1fr; }
+      .agent-head { align-items: flex-start; flex-direction: column; gap: .1rem; }
+      .top-actions { margin-left: auto; }
+    }
+    @media print {
+      :root { --page: white; }
+      body { background: white; }
+      .page { width: 100%; }
+      .top-actions, .button { display: none; }
+      .surface, .node, .pipeline, .runtime-card, .ops-card { box-shadow: none; break-inside: avoid; }
+      .section { break-inside: avoid; }
+      footer { padding-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">A</span><span>AgenticGraphRAG</span></div>
+      <div class="top-actions">
+        <span class="date">实现架构 · 2026-09-23</span>
+        <button class="button" type="button" onclick="window.print()">打印 / 导出 PDF</button>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="eyebrow">System Architecture</div>
+      <h1 id="page-title">从知识构建，到可审计的多跳问答</h1>
+      <p>AgenticGraphRAG 以图谱作为结构化记忆，通过 Agent 规划与多路检索回答问题。下图展示当前代码中的入口、查询主链、知识数据流及基础设施边界。</p>
+      <div class="hero-meta" aria-label="架构特征">
+        <span class="pill"><span class="pill-dot"></span>离线优先</span>
+        <span class="pill">Graph + Vector + BM25</span>
+        <span class="pill">FastAPI · LangGraph · Vue 3</span>
+        <span class="pill">租户上下文与审计</span>
+      </div>
+    </section>
+
+    <main>
+      <section class="section" aria-labelledby="overview-title">
+        <div class="section-head">
+          <h2 id="overview-title">整体结构</h2>
+          <p>实线表示主数据流；虚线表示横切能力或策略依赖。</p>
+        </div>
+        <div class="surface">
+          <div class="layer-label">01 · 入口层</div>
+          <div class="entry-grid">
+            <article class="node">
+              <div class="node-icon" aria-hidden="true">W</div>
+              <h3>Web 试用界面</h3>
+              <p>Vue 3 ESM，无构建工具；对话、引用、推理链与流式进度。</p>
+              <span class="path">web/</span>
+            </article>
+            <article class="node blue">
+              <div class="node-icon" aria-hidden="true">A</div>
+              <h3>HTTP API</h3>
+              <p>FastAPI 路由、API Key、RBAC、限流与 SSE。</p>
+              <span class="path">src/agentic_graphrag/api/</span>
+            </article>
+            <article class="node green">
+              <div class="node-icon" aria-hidden="true">$</div>
+              <h3>CLI 命令</h3>
+              <p>问答、知识导入、建图、索引与评测工作流。</p>
+              <span class="path">src/agentic_graphrag/cli/</span>
+            </article>
+          </div>
+
+          <div class="connector" aria-hidden="true">↓</div>
+          <div class="layer-label">02 · 应用服务层</div>
+          <div class="service-grid">
+            <article class="node service-main">
+              <div class="node-icon" aria-hidden="true">Q</div>
+              <h3>QueryService · 应用组合与请求编排</h3>
+              <p>组合 StoreBundle 与 Agent 执行依赖，并协调问答、流式响应和生命周期资源。</p>
+              <div class="tag-row">
+                <span class="tag">答案 / 检索缓存</span><span class="tag">多级预算</span>
+                <span class="tag">AuditStore</span><span class="tag">ReviewQueue</span>
+              </div>
+              <span class="path">api/service.py</span>
+            </article>
+            <article class="node blue">
+              <div class="node-icon" aria-hidden="true">⇄</div>
+              <h3>身份与租户</h3>
+              <p>Principal、tenant_id、user_id、角色守卫及租户级限流。</p>
+              <span class="path">api/auth.py · api/rbac.py</span>
+            </article>
+            <article class="node gold">
+              <div class="node-icon" aria-hidden="true">◎</div>
+              <h3>预算与护栏</h3>
+              <p>请求预算预留、LLM/token 上限、hop、耗时与递归上限。</p>
+              <span class="path">llm/budget* · agent/guardrails.py</span>
+            </article>
+          </div>
+
+          <div class="connector"><span>QueryService 调用 Agent；身份、预算与观测能力贯穿请求</span></div>
+          <div class="layer-label">03 · 推理与决策层</div>
+          <div class="agent-shell">
+            <div class="agent-head">
+              <h3>Agent · 先判断路径，再逐步获取证据</h3>
+              <span>同步调用与 SSE 共享核心查询流程</span>
+            </div>
+            <div class="agent-flow">
+              <article class="node">
+                <h3>Triage</h3>
+                <p>识别问候、简单问题与复杂问题。</p>
+              </article>
+              <div class="mini-arrow" aria-hidden="true">→</div>
+              <article class="node green">
+                <h3>Fast Path</h3>
+                <p>轻量检索与快速回答；证据较弱时升级。</p>
+              </article>
+              <div class="mini-arrow" aria-hidden="true">⇢</div>
+              <div class="loop-card" aria-label="Agentic 推理循环">
+                <div class="loop-step"><strong>Planner</strong><small>子问题 DAG</small></div>
+                <div class="loop-step"><strong>Executor</strong><small>检索与执行</small></div>
+                <div class="loop-step"><strong>Critic</strong><small>检查覆盖 / 继续</small></div>
+                <div class="loop-mark">↻ 有缺口则继续执行；满足条件后进入回答生成</div>
+              </div>
+            </div>
+            <div class="agent-note">
+              <span class="pill">LangGraph StateGraph</span>
+              <span class="pill">计划广度与 hop 深度分别受限</span>
+              <span class="pill">记录未执行 / 被裁剪子问题</span>
+              <span class="pill">证据不足时允许保守回答或拒答</span>
+            </div>
+          </div>
+
+          <div class="connector" aria-hidden="true">↓</div>
+          <div class="layer-label">04 · 检索、生成与持久化</div>
+          <div class="retrieve-generate">
+            <article class="retrieval-box">
+              <h3>Executor：多路召回 → 融合</h3>
+              <div class="retrieval-lanes">
+                <div class="lane"><strong>向量检索</strong><small>语义相似与改写</small></div>
+                <div class="lane"><strong>图 Beam</strong><small>实体关系与多跳路径</small></div>
+                <div class="lane"><strong>BM25 全文</strong><small>精确词项与专名</small></div>
+              </div>
+              <div class="fusion"><span>候选证据</span><b>RRF</b><span>检索缓存</span></div>
+            </article>
+            <div class="mini-arrow" aria-hidden="true">→</div>
+            <article class="generation-box">
+              <h3>答案生成与证据校验</h3>
+              <div class="generate-flow">
+                <div class="generate-step"><strong>生成 claim</strong> · 绑定检索证据 ID</div>
+                <div class="generate-step"><strong>引用支持检查</strong> · 不足时最多重试一次</div>
+                <div class="generate-step output"><strong>ReasoningChain</strong> · 答案、引用、状态、审计 metadata</div>
+              </div>
+            </article>
+          </div>
+
+          <div class="connector"><span>存储实现由 factory 组合；应用层依赖 Protocol</span></div>
+          <div class="stores-grid">
+            <div class="store-card"><strong>GraphStore</strong><span>实体、关系、路径查询</span></div>
+            <div class="store-card"><strong>VectorStore</strong><span>文本 chunk 与向量召回</span></div>
+            <div class="store-card"><strong>FulltextStore</strong><span>BM25 索引与检索</span></div>
+            <div class="store-card"><strong>DocStore</strong><span>源文档与元数据</span></div>
+          </div>
+          <div class="backend-strip" aria-label="后端类型">
+            <span class="backend">In-memory Graph / Vector</span>
+            <span class="backend">文件型 DocStore</span>
+            <span class="backend">进程内 BM25</span>
+            <span class="backend live">Neo4j · 可选</span>
+            <span class="backend live">Qdrant · 可选</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="knowledge-title">
+        <div class="section-head">
+          <h2 id="knowledge-title">知识数据流</h2>
+          <p>图谱抽取与 API 文档上传后的搜索索引是两条不同的路径。</p>
+        </div>
+        <div class="knowledge-grid">
+          <article class="pipeline graph">
+            <h3>图谱构建 · CLI / 知识管线</h3>
+            <p>将语料转成通过校验、可追溯的结构化关系。</p>
+            <div class="pipeline-steps">
+              <span class="pipe-step">文档 / chunk</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">逐块抽取</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">schema / confidence gate</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">实体解析</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">增量冲突处理</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">GraphStore</span>
+            </div>
+            <div class="pipeline-foot"><strong>复核分支：</strong>歧义或置信度差距不足 → ReviewQueue → 人工 approve / reject / skip。抽取任务支持 journal、retry 与 quarantine。</div>
+          </article>
+          <article class="pipeline upload">
+            <h3>文档上传 · API 后台索引</h3>
+            <p>上传内容作为文档与检索 chunk；当前不会在此流程中自动抽取图关系。</p>
+            <div class="pipeline-steps">
+              <span class="pipe-step">POST /v1/docs</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">JSONL TaskStore</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">手动运行 Worker</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">DocStore</span><span class="pipe-arrow">→</span>
+              <span class="pipe-step">chunk → Vector / BM25</span>
+            </div>
+            <div class="pipeline-foot"><strong>当前边界：</strong>仅 UTF-8 .md / .txt；最多 20 个文件/批、5 MiB/文件；API 不会自动启动 worker。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="runtime-title">
+        <div class="section-head">
+          <h2 id="runtime-title">运行模式与基础设施</h2>
+          <p>离线是默认值；模型与存储可独立切换。</p>
+        </div>
+        <div class="runtime-grid">
+          <article class="runtime-card offline">
+            <h3><span class="pill-dot" style="background: var(--green)"></span>Offline · 默认</h3>
+            <p><code>MockLLMProvider</code>、确定性离线答案规则、内存图/向量、BM25 与文件型文档。无需 API Key、Docker 或外部服务，适合本地开发和可复现评测。</p>
+          </article>
+          <article class="runtime-card live-mode">
+            <h3><span class="pill-dot" style="background: var(--blue)"></span>Live · 显式启用</h3>
+            <p><code>AGR_ALLOW_LLM=1</code> 启用真实 LLM；<code>AGR_USE_LIVE_STORES=1</code> 切换 Neo4j / Qdrant。两项独立；BM25 与文件型 DocStore 仍由本地实现提供。</p>
+            <p class="switch-note">离线启发式服务演示语料，不是 Live LLM 的回答路径。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="crosscut-title">
+        <div class="section-head">
+          <h2 id="crosscut-title">横切能力与运维入口</h2>
+          <p>围绕查询、知识操作和发布评测提供治理与诊断能力。</p>
+        </div>
+        <div class="ops-grid">
+          <article class="ops-card">
+            <h3>身份、安全与隔离</h3>
+            <p>API Key → Principal；角色路由守卫；租户上下文进入预算、缓存、审计与资源访问。</p>
+            <span class="path">api/auth.py · api/rbac.py</span>
+          </article>
+          <article class="ops-card">
+            <h3>Observability</h3>
+            <p>结构化日志、trace、Prometheus 指标、安全审计事件、PII 脱敏与可选 OTLP。</p>
+            <span class="path">observability/</span>
+          </article>
+          <article class="ops-card">
+            <h3>评测与改进</h3>
+            <p>离线 cases、baseline、证据评分与回归评测；审计推理链可用于排查和复核。</p>
+            <span class="path">eval/ · scripts/</span>
+          </article>
+        </div>
+        <div class="footnote"><span aria-hidden="true">ⓘ</span><span>租户隔离由身份上下文、缓存键、API 访问检查和存储过滤共同实现；当前存储组合不是按租户独立部署的数据库分区。上传任务文件及 worker 的多进程协调也不等同于分布式队列。</span></div>
+      </section>
+
+      <section class="section" aria-labelledby="api-title">
+        <div class="section-head">
+          <h2 id="api-title">主要 HTTP 面</h2>
+          <p>实际权限以各路由的声明为准。</p>
+        </div>
+        <div class="surface">
+          <div class="api-list">
+            <code>POST /v1/query</code><code>POST /v1/query/stream</code>
+            <code>POST /v1/docs</code><code>GET /v1/ingest-tasks/{task_id}</code>
+            <code>GET /v1/review-queue</code><code>GET /v1/graph/entities</code>
+            <code>GET /v1/audit/queries/{query_id}</code><code>POST /v1/feedback</code>
+            <code>GET /v1/traces/{query_id}</code><code>GET /v1/budget/snapshot</code>
+            <code>GET /v1/audit-events</code><code>GET /v1/metrics</code>
+            <code>GET /metrics-prom</code><code>GET /healthz</code><code>GET /web</code>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>架构视图对应仓库当前实现 · 最后整理：2026-09-23</span>
+      <nav class="footer-links" aria-label="相关文档">
+        <a class="doc-link" href="./ARCHITECTURE.md">架构说明</a>
+        <a class="doc-link" href="../README.md">项目 README</a>
+      </nav>
+    </footer>
+  </div>
+</body>
+</html>
