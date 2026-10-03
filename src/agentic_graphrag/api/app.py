@@ -260,6 +260,9 @@ def run_server() -> None:
     import os
 
     import uvicorn
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     logging.getLogger("uvicorn.error").addFilter(_DropInvalidHttpWarnings())
 

@@ -58,17 +58,18 @@ def _read(path: Path) -> str:
 
 def _frontend_sources() -> str:
     files = [*WEB.rglob("*.html"), *WEB.rglob("*.js"), *WEB.rglob("*.css")]
-    return "\n".join(
-        _read(path) for path in files if STATIC / "vendor" not in path.parents
-    )
+    return "\n".join(_read(path) for path in files if STATIC / "vendor" not in path.parents)
 
 
 def test_required_workspace_files_and_size_budgets():
     missing = [str(path.relative_to(ROOT_DIR)) for path in REQUIRED_FILES if not path.is_file()]
     assert not missing, f"missing workspace files: {missing}"
     checked = [*WEB.rglob("*.html"), *WEB.rglob("*.js"), *WEB.rglob("*.css")]
-    checked = [path for path in checked if STATIC / "vendor" not in path.parents]
-    oversized = [f"{path.relative_to(ROOT_DIR)}: {len(_read(path).splitlines())}" for path in checked if len(_read(path).splitlines()) > 300]
+    oversized = [
+        f"{path.relative_to(ROOT_DIR)}: {len(_read(path).splitlines())}"
+        for path in checked
+        if len(_read(path).splitlines()) > 300
+    ]
     assert not oversized, f"frontend size budget exceeded: {oversized}"
     assert len(_read(STATIC / "tokens.css").splitlines()) <= 140
 

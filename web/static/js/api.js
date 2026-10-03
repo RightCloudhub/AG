@@ -1,179 +1,198 @@
-const API_KEY_STORAGE = "agr_api_key";
+/**
+ * API client — typed fetch wrapper for AgenticGraphRAG backend.
+ * All responses follow the envelope: { success, data, error, meta }.
+ */
+
+const BASE = '';
 
 export function getApiKey() {
-  try {
-    if (typeof window !== "undefined" && window.AGR_API_KEY) return String(window.AGR_API_KEY);
-    return localStorage.getItem(API_KEY_STORAGE) || "";
-  } catch {
-    return "";
-  }
+  return localStorage.getItem('agr_api_key') || '';
 }
 
 export function setApiKey(key) {
-  try {
-    if (key) localStorage.setItem(API_KEY_STORAGE, key);
-    else localStorage.removeItem(API_KEY_STORAGE);
-  } catch {
-    return;
-  }
+  if (key) localStorage.setItem('agr_api_key', key.trim());
+  else localStorage.removeItem('agr_api_key');
 }
 
-export function friendlyError(err) {
-  if (err && err.name === "AbortError") return "请求已取消";
-  if (err && err.status === 401) return "API Key 无效或已过期，请检查连接设置。";
-  if (err && err.status === 403) return "当前账号没有执行此操作的权限。";
-  if (err && err.status === 404) return "记录不存在，或已被移除。";
-  if (err && err.status === 409) return "记录已处理，请刷新后重试。";
-  return (err && err.message) || String(err || "未知错误");
-}
-
-export async function requestEnvelope(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
+/** Unwrap the envelope; throw on error. */
+async function request(path, options = {}) {
+  const url = `${BASE}${path}`;
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
   const key = getApiKey();
-  if (key) headers.Authorization = `Bearer ${key}`;
-  if (options.body && !options.form) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {
-    method: options.method || "GET",
+  if (key) headers['Authorization'] = `Bearer ${key}`;
+
+  const res = await fetch(url, {
+    ...options,
     headers,
-    body: options.form || (options.body ? JSON.stringify(options.body) : undefined),
-    signal: options.signal,
   });
-  let envelope;
-  try {
-    envelope = await response.json();
-  } catch {
-    throw new Error(`服务器返回了无法读取的响应（HTTP ${response.status}）`);
+  if (!res.ok && !res.headers.get('content-type')?.includes('json')) {
+    throw new Error(`HTTP ${res.status}`);
   }
-  if (!response.ok || !envelope.success) {
-    const detail = envelope.error || {};
-    const error = new Error(detail.message || `请求失败（HTTP ${response.status}）`);
-    error.status = response.status;
-    error.code = detail.code || "REQUEST_FAILED";
-    error.details = detail.details || null;
-    throw error;
-  }
-  return { data: envelope.data, meta: envelope.meta || {} };
-}
-
-export async function fetchHealth() {
-  const response = await fetch("/healthz");
-  if (!response.ok) throw new Error(`健康检查失败（HTTP ${response.status}）`);
-  return response.json();
-}
-
-export async function fetchMe() {
-  return (await requestEnvelope("/v1/me")).data;
-}
-
-export async function postQuery(body, signal) {
-  return (await requestEnvelope("/v1/query", { method: "POST", body, signal })).data;
-}
-
-export async function postFeedback(body) {
-  return (await requestEnvelope("/v1/feedback", { method: "POST", body })).data;
-}
-
-export async function streamQuery({ body, signal, onEvent }) {
-  const headers = { "Content-Type": "application/json" };
-  const key = getApiKey();
-  if (key) headers.Authorization = `Bearer ${key}`;
-  const response = await fetch("/v1/query/stream", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!response.ok || !response.body) {
-    const err = new Error(`流式查询失败（HTTP ${response.status}）`);
-    err.status = response.status;
+  const envelope = await res.json();
+  if (!envelope.success) {
+    const err = new Error(envelope.error?.message || 'Unknown error');
+    err.code = envelope.error?.code;
+    err.details = envelope.error?.details;
     throw err;
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    buffer = await emitCompleteBlocks(buffer, onEvent);
-  }
-  if (buffer.trim()) await emitEventBlock(buffer, onEvent);
+  return { data: envelope.data, meta: envelope.meta };
 }
 
-export async function uploadDocuments(files) {
-  const form = new FormData();
-  files.forEach((file) => form.append("files", file));
-  return requestEnvelope("/v1/docs", { method: "POST", form });
+/* ── Identity ──────────────────────────────────────────────────────── */
+
+export function fetchMe() {
+  return request('/v1/me');
 }
 
-export async function listIngestTasks({ limit = 50, offset = 0 } = {}) {
-  return requestEnvelope(`/v1/ingest-tasks?limit=${limit}&offset=${offset}`);
-}
+/* ── Query ─────────────────────────────────────────────────────────── */
 
-export async function listReviewItems({ status = "pending", type = "", limit = 50, offset = 0 } = {}) {
-  const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
-  if (type) params.set("type", type);
-  return requestEnvelope(`/v1/review-queue?${params}`);
-}
-
-export async function decideReview(itemId, body) {
-  return (await requestEnvelope(`/v1/review-queue/${encodeURIComponent(itemId)}/decision`, {
-    method: "POST",
-    body,
-  })).data;
-}
-
-export async function listGraphEntities({ query = "", type = "", limit = 50, offset = 0 } = {}) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  if (query) params.set("query", query);
-  if (type) params.set("entity_type", type);
-  return requestEnvelope(`/v1/graph/entities?${params}`);
-}
-
-export async function fetchMetrics() {
-  return (await requestEnvelope("/v1/metrics")).data;
-}
-
-export async function fetchBudget() {
-  return (await requestEnvelope("/v1/budget/snapshot")).data;
-}
-
-export async function fetchAuditEvents(filters = {}) {
-  const params = new URLSearchParams({ limit: String(filters.limit || 100) });
-  ["since", "until", "tenant_id", "action"].forEach((key) => {
-    if (filters[key] !== undefined && filters[key] !== "") params.set(key, String(filters[key]));
+export function postQuery(body) {
+  return request('/v1/query', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
-  return (await requestEnvelope(`/v1/audit-events?${params}`)).data;
 }
 
-export async function fetchAuditQuery(queryId) {
-  return (await requestEnvelope(`/v1/audit/queries/${encodeURIComponent(queryId)}`)).data;
+/**
+ * SSE streaming query — calls handlers for each event type.
+ * Returns an AbortController so caller can cancel.
+ */
+export function streamQuery(body, handlers = {}) {
+  const ctrl = new AbortController();
+  const run = async () => {
+    const headers = { 'Content-Type': 'application/json' };
+    const key = getApiKey();
+    if (key) headers['Authorization'] = `Bearer ${key}`;
+
+    const res = await fetch(`${BASE}/v1/query/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          const raw = line.slice(6);
+          let payload;
+          try { payload = JSON.parse(raw); } catch { payload = raw; }
+          const handler = handlers[currentEvent] || handlers.unknown;
+          if (handler) handler(payload, currentEvent);
+        }
+      }
+    }
+    if (handlers.done) handlers.done();
+  };
+  run().catch(err => {
+    if (err.name !== 'AbortError' && handlers.error) {
+      handlers.error({ code: 'STREAM_ERROR', message: err.message });
+    }
+  });
+  return ctrl;
 }
 
-export async function fetchTrace(queryId) {
-  return (await requestEnvelope(`/v1/traces/${encodeURIComponent(queryId)}`)).data;
+/* ── Health ─────────────────────────────────────────────────────────── */
+
+export async function fetchHealth() {
+  const res = await fetch(`${BASE}/healthz`);
+  return res.json();
 }
 
-async function emitCompleteBlocks(buffer, onEvent) {
-  const blocks = buffer.split(/\r?\n\r?\n/);
-  const remainder = blocks.pop() || "";
-  for (const block of blocks) await emitEventBlock(block, onEvent);
-  return remainder;
+/* ── Graph ──────────────────────────────────────────────────────────── */
+
+export function fetchEntities(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', params.limit);
+  if (params.offset != null) qs.set('offset', params.offset);
+  if (params.query) qs.set('query', params.query);
+  if (params.entity_type) qs.set('entity_type', params.entity_type);
+  return request(`/v1/graph/entities?${qs}`);
 }
 
-async function emitEventBlock(block, onEvent) {
-  let type = "message";
-  const data = [];
-  for (const line of block.split(/\r?\n/)) {
-    if (line.startsWith("event:")) type = line.slice(6).trim();
-    if (line.startsWith("data:")) data.push(line.slice(5).trim());
-  }
-  if (!data.length) return;
-  let payload;
-  try {
-    payload = JSON.parse(data.join("\n"));
-  } catch {
-    return;
-  }
-  await onEvent({ type, payload });
+/* ── Knowledge ─────────────────────────────────────────────────────── */
+
+export function fetchIngestTasks(params = {}) {
+  const qs = new URLSearchParams();
+  qs.set('limit', params.limit || 50);
+  qs.set('offset', params.offset || 0);
+  return request(`/v1/ingest-tasks?${qs}`);
+}
+
+export function fetchIngestTask(taskId) {
+  return request(`/v1/ingest-tasks/${taskId}`);
+}
+
+export async function uploadDocs(files) {
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+  const res = await fetch(`${BASE}/v1/docs`, { method: 'POST', body: form });
+  const envelope = await res.json();
+  if (!envelope.success) throw new Error(envelope.error?.message);
+  return { data: envelope.data, meta: envelope.meta };
+}
+
+/* ── Review Queue ──────────────────────────────────────────────────── */
+
+export function fetchReviewQueue(params = {}) {
+  const qs = new URLSearchParams();
+  qs.set('limit', params.limit || 50);
+  qs.set('offset', params.offset || 0);
+  if (params.status) qs.set('status', params.status);
+  return request(`/v1/review-queue?${qs}`);
+}
+
+export function decideReview(itemId, body) {
+  return request(`/v1/review-queue/${itemId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/* ── Feedback ──────────────────────────────────────────────────────── */
+
+export function postFeedback(body) {
+  return request('/v1/feedback', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/* ── Audit ─────────────────────────────────────────────────────────── */
+
+export function fetchAuditQuery(queryId) {
+  return request(`/v1/audit/queries/${queryId}`);
+}
+
+/* ── Admin / Ops ───────────────────────────────────────────────────── */
+
+export function fetchMetrics() {
+  return request('/v1/metrics');
+}
+
+export function fetchBudgetSnapshot() {
+  return request('/v1/budget/snapshot');
+}
+
+export function fetchAuditEvents(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', params.limit);
+  if (params.action) qs.set('action', params.action);
+  return request(`/v1/audit-events?${qs}`);
+}
+
+export function fetchTrace(queryId) {
+  return request(`/v1/traces/${queryId}`);
 }

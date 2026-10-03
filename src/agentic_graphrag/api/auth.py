@@ -161,8 +161,28 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
             self.limiter.release(principal.tenant_id)
             _clear_request_context()
 
+    def _try_reload_key(self, key: str) -> None:
+        latest = parse_api_keys_with_roles()
+        if key in latest:
+            self._key_infos.update(latest)
+            self.api_keys.update(_tenant_map(latest))
+            return
+        try:
+            from dotenv import dotenv_values
+
+            vals = dotenv_values(".env")
+            env_keys = vals.get("AGR_API_KEYS", "")
+            if env_keys:
+                parsed = parse_api_keys_with_roles(env_keys)
+                self._key_infos.update(parsed)
+                self.api_keys.update(_tenant_map(parsed))
+        except Exception:
+            pass
+
     def _authenticate(self, request: Request) -> tuple[Principal, Response | None]:
         key = extract_api_key(request)
+        if key and key not in self.api_keys:
+            self._try_reload_key(key)
         if self.require_auth:
             if not key or key not in self.api_keys:
                 return (
