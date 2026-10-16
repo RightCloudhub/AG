@@ -12,6 +12,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.knowledge.review.filters import filter_items, tenant_allows
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +66,8 @@ class ReviewItem:
     decision_note: str = ""
     batch_id: str = ""
     tenant_id: str = ""
+    # BL-03: what the review executor did with the decision (empty until run).
+    execution: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -81,6 +85,7 @@ class ReviewItem:
             "decision_note": (str, ""),
             "batch_id": (str, ""),
             "tenant_id": (str, ""),
+            "execution": (dict, {}),
         }
         normalized = dict(data)
         for key, (cast, default) in coerce.items():
@@ -186,7 +191,7 @@ class ReviewQueue:
         """Return one filtered page and its tenant-scoped total."""
         with self._lock:
             items = list(self._items.values())
-        items = _filter_items(
+        items = filter_items(
             items,
             status=status,
             type=type,
@@ -218,7 +223,7 @@ class ReviewQueue:
         """
         with self._lock:
             item = self._items.get(item_id)
-            if item is None or not _tenant_allows(item, tenant_id):
+            if item is None or not tenant_allows(item, tenant_id):
                 raise KeyError(item_id)
             if item.status != ReviewStatus.PENDING.value:
                 raise ReviewAlreadyDecided(item)
@@ -229,6 +234,15 @@ class ReviewQueue:
             item.decided_at = time.time()
             self._persist(item)
             return item
+
+    def record_execution(self, item_id: str, outcome: dict[str, Any]) -> None:
+        """Attach the executor's outcome to a decided item (persisted, last write wins)."""
+        with self._lock:
+            item = self._items.get(item_id)
+            if item is None:
+                return
+            item.execution = dict(outcome)
+            self._persist(item)
 
     def counts(self) -> dict[str, int]:
         with self._lock:
@@ -244,48 +258,18 @@ class ReviewQueue:
         status: str | None = None,
         type: str | None = None,
         tenant_id: str | None = None,
+        batch_id: str | None = None,
     ) -> int:
         with self._lock:
             items = list(self._items.values())
         return len(
-            _filter_items(
+            filter_items(
                 items,
                 status=status,
                 type=type,
                 min_confidence=None,
                 max_confidence=None,
                 tenant_id=tenant_id,
+                batch_id=batch_id,
             )
         )
-
-
-def _tenant_allows(item: ReviewItem, tenant_id: str | None) -> bool:
-    """True when ``tenant_id`` may act on ``item`` (empty item tenant = legacy row)."""
-    if tenant_id is None or not item.tenant_id:
-        return True
-    return item.tenant_id == tenant_id
-
-
-def _filter_items(
-    items: list[ReviewItem],
-    *,
-    status: str | None,
-    type: str | None,
-    min_confidence: float | None,
-    max_confidence: float | None,
-    tenant_id: str | None,
-) -> list[ReviewItem]:
-    preds = []
-    if status:
-        preds.append(lambda i, s=status: i.status == s)
-    if type:
-        preds.append(lambda i, t=type: i.type == t)
-    if min_confidence is not None:
-        preds.append(lambda i, m=min_confidence: i.confidence >= m)
-    if max_confidence is not None:
-        preds.append(lambda i, m=max_confidence: i.confidence <= m)
-    if tenant_id is not None:
-        preds.append(lambda i, t=tenant_id: i.tenant_id == t)
-    if not preds:
-        return items
-    return [i for i in items if all(p(i) for p in preds)]

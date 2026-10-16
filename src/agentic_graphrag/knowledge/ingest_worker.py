@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +27,7 @@ from agentic_graphrag.stores.interfaces import DocStore, VectorStore
 logger = logging.getLogger(__name__)
 
 INDEXED_MESSAGE = "Indexed successfully"
+REVIEW_MESSAGE_PREFIX = "Indexed; "
 
 
 def _new_worker_id() -> str:
@@ -41,6 +41,13 @@ class IngestResult:
     chunks_created: int = 0
     chunks_indexed: int = 0
     error: str | None = None
+    # BL-01: what the document contributed to the knowledge graph, when the
+    # worker runs a graph stage.
+    graph: dict[str, Any] | None = None
+
+    @property
+    def review_items(self) -> int:
+        return int((self.graph or {}).get("conflicts_review", 0))
 
 
 @dataclass
@@ -52,6 +59,26 @@ class IngestWorkerConfig:
     chunk_size_chars: int = 1200
     chunk_overlap_chars: int = 150
     stale_task_seconds: float = DEFAULT_STALE_SECONDS
+
+
+def task_outcome(results: list[IngestResult]) -> tuple[IngestStatus, str]:
+    """Terminal status of a task: FAILED on any error, REVIEW while conflicts await
+    a human (the review executor moves it on to DONE), else DONE."""
+    failed = [r for r in results if r.error or (r.graph or {}).get("error")]
+    if failed:
+        first = failed[0]
+        return IngestStatus.FAILED, first.error or str((first.graph or {}).get("error"))
+    pending = sum(r.review_items for r in results)
+    if pending:
+        return IngestStatus.REVIEW, f"{REVIEW_MESSAGE_PREFIX}{pending} conflict(s) await review"
+    return IngestStatus.DONE, _done_message(results)
+
+
+def _done_message(results: list[IngestResult]) -> str:
+    facts = sum(int((r.graph or {}).get("accepted", 0)) for r in results)
+    if any(r.graph is not None for r in results):
+        return f"{INDEXED_MESSAGE}; {facts} graph fact(s) written"
+    return INDEXED_MESSAGE
 
 
 class IngestWorker:
@@ -71,7 +98,9 @@ class IngestWorker:
         task_store: IngestTaskStore | None = None,
         config: IngestWorkerConfig | None = None,
         worker_id: str | None = None,
+        graph_ingestor: Any | None = None,
     ) -> None:
+        self.graph_ingestor = graph_ingestor
         self.doc_store = doc_store
         self.vector_store = vector_store
         self.fulltext_store = fulltext_store
@@ -83,8 +112,8 @@ class IngestWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def process_doc(self, doc_id: str) -> IngestResult:
-        """Process a single document: chunk → embed → upsert."""
+    def process_doc(self, doc_id: str, *, batch_id: str = "") -> IngestResult:
+        """Process a single document: chunk → embed → upsert → graph (when wired)."""
         doc = self.doc_store.get(doc_id)
         if doc is None:
             return IngestResult(doc_id=doc_id, error="not_found")
@@ -104,7 +133,21 @@ class IngestWorker:
             chunks_created=len(chunks),
             chunks_indexed=indexed,
             error=embed_error,
+            graph=self._ingest_graph(chunks, doc.tenant_id, batch_id),
         )
+
+    def _ingest_graph(self, chunks: list[Any], tenant_id: str, batch_id: str) -> dict | None:
+        """Graph stage (BL-01); a failure is reported, never silently dropped."""
+        if self.graph_ingestor is None:
+            return None
+        try:
+            outcome = self.graph_ingestor.ingest_chunks(
+                chunks, tenant_id=tenant_id, batch_id=batch_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Graph ingest failed: %s", exc)
+            return {"error": f"graph_ingest_failed: {type(exc).__name__}"}
+        return outcome.to_dict()
 
     def _embed_chunks(self, chunks: list[Any]) -> str | None:
         """Embed every chunk; return an error when none of them succeeded.
@@ -185,16 +228,14 @@ class IngestWorker:
         except Exception as exc:  # noqa: BLE001
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
             return []
-        failed = [result for result in results if result.error]
-        message = (failed[0].error or "failed") if failed else INDEXED_MESSAGE
-        self._finalize(task.id, IngestStatus.FAILED if failed else IngestStatus.DONE, message)
+        self._finalize(task.id, *task_outcome(results))
         return results
 
     def _process_task_docs(self, task: Any) -> list[IngestResult]:
         """Index every document, refreshing the lease between documents."""
         results: list[IngestResult] = []
         for row in task.docs:
-            results.append(self.process_doc(row["doc_id"]))
+            results.append(self.process_doc(row["doc_id"], batch_id=task.id))
             self._queue.touch(task.id, owner=self.worker_id)
         return results
 
@@ -242,55 +283,7 @@ class IngestWorker:
         logger.info("IngestWorker stopped")
 
 
-def _build_cli_worker() -> IngestWorker:
-    """Wire the worker the way the docs promise: consuming the task queue.
-
-    Two defects lived here (docs/design/BUSINESS_LOGIC.md BL-05): ``task_store`` was
-    never passed, so ``run_once`` silently fell back to the legacy doc-store
-    scan and queued tasks stayed ``queued`` forever; and an in-memory doc store
-    means this process shares no data with the API, so the worker sees nothing.
-    """
-    from agentic_graphrag.config import get_config, get_settings, resolve_path
-    from agentic_graphrag.stores.factory import create_offline_bundle
-
-    cfg = get_config()
-    settings = get_settings()
-    bundle = create_offline_bundle(cfg=cfg, settings=settings)
-    if not bundle.docs.durable:
-        logger.warning(
-            "Doc store %s is process-local: this worker cannot see documents uploaded "
-            "through the API. Configure a file-backed doc store before relying on it.",
-            type(bundle.docs).__name__,
-        )
-    return IngestWorker(
-        doc_store=bundle.docs,
-        vector_store=bundle.vector,
-        fulltext_store=bundle.fulltext,
-        task_store=IngestTaskStore(resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"),
-        config=IngestWorkerConfig(
-            chunk_size_chars=cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=cfg.knowledge.chunk_overlap_chars,
-        ),
-    )
-
-
 if __name__ == "__main__":
-    import argparse
+    from agentic_graphrag.knowledge.ingest_worker_cli import main
 
-    parser = argparse.ArgumentParser(description="Run ingest worker")
-    parser.add_argument("--once", action="store_true", help="Single poll then exit")
-    args = parser.parse_args()
-
-    worker = _build_cli_worker()
-
-    if args.once:
-        results = worker.run_once()
-        for r in results:
-            print(f"  {r.doc_id}: {r.chunks_created} chunks, {r.chunks_indexed} indexed")
-    else:
-        worker.start()
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            worker.stop()
+    main()

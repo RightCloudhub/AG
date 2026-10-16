@@ -12,11 +12,16 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
+from agentic_graphrag.knowledge.cardinality import sides_resolver
+from agentic_graphrag.knowledge.graph_builder import (
+    load_triples_into_graph,
+    stamp_tenant,
+    triples_to_records,
+)
 from agentic_graphrag.knowledge.incremental_conflicts import (
     Conflict,
     ConflictAction,
@@ -32,9 +37,12 @@ from agentic_graphrag.knowledge.schema_check import (
     default_schema,
     gate_triples,
 )
+from agentic_graphrag.knowledge.temporal import VALID_FROM, closed
 from agentic_graphrag.stores.interfaces import GraphStore, RelationRecord
 
 logger = logging.getLogger(__name__)
+
+TEMPORAL_ACTIONS = frozenset({ConflictAction.SUCCEED, ConflictAction.HISTORICAL})
 
 # Re-exported so callers keep importing conflict types from this module.
 __all__ = ["BatchResult", "Conflict", "ConflictAction", "IncrementalUpdater"]
@@ -48,6 +56,7 @@ class BatchResult:
     conflicts_auto: int = 0
     conflicts_review: int = 0
     conflicts_kept: int = 0
+    conflicts_temporal: int = 0
     review_items: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
     index_version: int | None = None
@@ -60,6 +69,7 @@ class BatchResult:
             "conflicts_auto": self.conflicts_auto,
             "conflicts_review": self.conflicts_review,
             "conflicts_kept": self.conflicts_kept,
+            "conflicts_temporal": self.conflicts_temporal,
             "review_items": self.review_items,
             "duration_ms": self.duration_ms,
             "index_version": self.index_version,
@@ -78,8 +88,16 @@ class IncrementalUpdater:
         auto_update_margin: float = 0.15,
         on_commit: Callable[[], None] | None = None,
         review_log: Path | str | None = None,
+        review_queue: Any | None = None,
+        tenant_id: str = "",
     ) -> None:
         self.store = store
+        # BL-03: conflicts needing a human land in the same ``ReviewQueue`` the
+        # API serves, not only in a side JSONL nobody reads.
+        self.review_queue = review_queue
+        # Conflicts are scoped to one tenant: a tenant upload must never retire
+        # another tenant's (or the shared seed's) edges.
+        self.tenant_id = tenant_id
         # ``None`` means "use the configured gate". The incremental path used to
         # treat it as "no gate", so new triples entered the graph with neither
         # schema nor confidence validation (docs/design/BUSINESS_LOGIC.md BL-07).
@@ -99,6 +117,8 @@ class IncrementalUpdater:
         """Best-effort index from store (memory list or Neo4j list_relations)."""
         self._rel_index.clear()
         for r in self._iter_store_relations():
+            if (r.tenant_id or "") != self.tenant_id:
+                continue
             self._rel_index[index_key(r.head_name, r.type, r.tail_name)] = r
 
     def _iter_store_relations(self) -> list[RelationRecord]:
@@ -118,7 +138,12 @@ class IncrementalUpdater:
 
     def detect_conflicts(self, triples: list[Triple]) -> tuple[list[Triple], list[Conflict]]:
         """Split into clean inserts vs conflicts against existing edges."""
-        return split_by_conflict(triples, self._rel_index, margin=self.auto_update_margin)
+        return split_by_conflict(
+            triples,
+            self._rel_index,
+            margin=self.auto_update_margin,
+            sides_for=sides_resolver(self.schema),
+        )
 
     def apply_batch(
         self,
@@ -130,6 +155,8 @@ class IncrementalUpdater:
         bid = batch_id or str(uuid.uuid4())
         t0 = time.perf_counter()
         result = BatchResult(batch_id=bid)
+        for triple in triples:
+            stamp_tenant(triple, self.tenant_id)
         with self._lock:
             self._apply_locked(triples, result)
         result.duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -165,9 +192,12 @@ class IncrementalUpdater:
         seen = {triple_key(t) for t in clean}
         for c in conflicts:
             self._count_conflict(c, result)
-            if c.action != ConflictAction.AUTO_UPDATE:
+            if c.action in TEMPORAL_ACTIONS:
+                self._close_superseded(c)
+            elif c.action == ConflictAction.AUTO_UPDATE:
+                self._retire_conflicting_edges(c)
+            else:
                 continue
-            self._retire_conflicting_edges(c)
             key = triple_key(c.incoming)
             if key not in seen:
                 seen.add(key)
@@ -178,11 +208,13 @@ class IncrementalUpdater:
         """Every conflict lands in exactly one counter so batch numbers conserve."""
         if conflict.action == ConflictAction.AUTO_UPDATE:
             result.conflicts_auto += 1
+        elif conflict.action in TEMPORAL_ACTIONS:
+            result.conflicts_temporal += 1
         elif conflict.action == ConflictAction.REVIEW:
             result.conflicts_review += 1
             item = conflict.to_dict()
             result.review_items.append(item)
-            self._append_review(item)
+            self._append_review(item, result.batch_id)
         else:  # KEEP_OLD — previously neither written nor counted (BL-11)
             result.conflicts_kept += 1
 
@@ -191,6 +223,17 @@ class IncrementalUpdater:
         for old in conflict.edges_to_retire():
             self._rel_index.pop(index_key(old.head_name, old.type, old.tail_name), None)
             self._delete_relation(old)
+
+    def _close_superseded(self, conflict: Conflict) -> None:
+        """BL-14: end older facts at the incoming start instead of deleting them."""
+        start = conflict.incoming.attributes.get(VALID_FROM)
+        updated = [
+            replace(old, attributes=closed(old.attributes, start)) for old in conflict.superseded
+        ]
+        if updated:
+            self.store.upsert_relations(updated)
+        for rec in updated:
+            self._rel_index[index_key(rec.head_name, rec.type, rec.tail_name)] = rec
 
     def _delete_relation(self, old: RelationRecord) -> None:
         deleter = getattr(self.store, "delete_relation", None)
@@ -203,7 +246,7 @@ class IncrementalUpdater:
 
     def _call_deleter(self, deleter: Callable[[str], Any], old: RelationRecord) -> None:
         try:
-            deleter(old.id)
+            deleter(old.id, tenant_id=old.tenant_id)
         except Exception:
             # Swallowing this left the old edge in the graph while the new one
             # was written — two contradictory facts, silently (BL-10).
@@ -224,7 +267,17 @@ class IncrementalUpdater:
         for r in rels:
             self._rel_index[index_key(r.head_name, r.type, r.tail_name)] = r
 
-    def _append_review(self, item: dict[str, Any]) -> None:
+    def _append_review(self, item: dict[str, Any], batch_id: str) -> None:
+        if self.review_queue is not None:
+            from agentic_graphrag.knowledge.review.queue import ReviewType
+
+            self.review_queue.enqueue(
+                ReviewType.CONFLICT,
+                item,
+                confidence=float(item["incoming"].get("confidence") or 0.0),
+                batch_id=batch_id,
+                tenant_id=self.tenant_id,
+            )
         if not self.review_log:
             return
         self.review_log.parent.mkdir(parents=True, exist_ok=True)

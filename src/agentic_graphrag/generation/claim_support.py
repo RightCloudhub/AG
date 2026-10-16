@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentic_graphrag.generation.relation_consistency import relation_consistent
+
 MIN_LATIN_TOKEN_LEN = 2
 CJK_BIGRAM_SIZE = 2
 MIN_PATH_NODE_HITS = 2
@@ -82,6 +84,14 @@ def claim_supported_by(
     return _object_anchored(claim_tokens, candidate)
 
 
+def claim_supported(claim_text: str, candidate: Any, **kw: Any) -> bool:
+    """Full rule gate for one claim/candidate pair: lexical + anchor + relation (BL-13)."""
+    content = getattr(candidate, "content", "") or ""
+    if not relation_consistent(claim_text, content):
+        return False
+    return claim_supported_by(content_tokens(claim_text), candidate, **kw)
+
+
 def _object_anchored(claim_tokens: set[str], candidate: Any) -> bool:
     """Graph evidence must be anchored on the entity the edge asserts (BL-13).
 
@@ -96,11 +106,15 @@ def _object_anchored(claim_tokens: set[str], candidate: Any) -> bool:
         names = _neighbor_anchor_names(structured)
         return not names or _names_touched(claim_tokens, names) >= 1
     if kind == "path":
-        nodes = [str(n) for n in (structured.get("nodes") or []) if str(n).strip()]
-        if not nodes:
-            return True
-        return _names_touched(claim_tokens, nodes) >= min(MIN_PATH_NODE_HITS, len(nodes))
+        return _path_anchored(claim_tokens, structured)
     return True
+
+
+def _path_anchored(claim_tokens: set[str], structured: dict[str, Any]) -> bool:
+    nodes = [str(n) for n in (structured.get("nodes") or []) if str(n).strip()]
+    if not nodes:
+        return True
+    return _names_touched(claim_tokens, nodes) >= min(MIN_PATH_NODE_HITS, len(nodes))
 
 
 def _neighbor_anchor_names(structured: dict[str, Any]) -> list[Any]:

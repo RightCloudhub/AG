@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 
+from agentic_graphrag.knowledge.temporal import temporal_weight
 from agentic_graphrag.stores.interfaces import EntityRecord, RelationRecord
 
 RelationEmbedSim = Callable[[str, str | None], float | None]
@@ -149,7 +150,9 @@ def edge_score(
     conf = float(rel.confidence) if rel.confidence is not None else 1.0
     conf = max(0.0, min(1.0, conf))
     rel_score = blend_relation_score(relation_relevance(rel.type, sub_question), embed_sim)
-    return conf * rel_score
+    # BL-14: a closed (historical) fact ranks below the current one unless the
+    # question asks about the past.
+    return conf * rel_score * temporal_weight(rel.attributes, sub_question)
 
 
 def path_signature(nodes: list[EntityRecord], rels: list[RelationRecord]) -> str:

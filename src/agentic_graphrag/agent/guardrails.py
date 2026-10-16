@@ -44,6 +44,9 @@ class GuardrailConfig:
     # bind — the hop cap would truncate the plan mid-run instead, which is the
     # failure BL-12 set out to remove. Both constructors clamp it to max_hops.
     max_sub_questions: int = 5
+    # BL-12: independent ready DAG nodes are retrieved concurrently and share a hop.
+    parallel_branches: bool = True
+    max_parallel_branches: int = 3
 
     @classmethod
     def from_app_config(
@@ -85,6 +88,8 @@ class GuardrailConfig:
             recursion_limit=rec,
             hard_max_hops=hard,
             max_sub_questions=max(1, min(int(g.max_sub_questions), hops)),
+            parallel_branches=bool(getattr(g, "parallel_branches", True)),
+            max_parallel_branches=max(1, int(getattr(g, "max_parallel_branches", 3))),
         )
 
     def with_overrides(
@@ -142,6 +147,10 @@ class Guardrails:
 
     def on_hop_start(self) -> None:
         self.state.hop += 1
+        self._check()
+
+    def check_branch(self) -> None:
+        """Timeout/budget check for a parallel branch at the current hop (BL-12)."""
         self._check()
 
     def _check(self) -> None:

@@ -15,6 +15,7 @@ from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
 from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.api.service_ingest import review_executor_for
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
     ReviewDecision,
@@ -70,7 +71,12 @@ async def upload_docs(
     if svc.review_queue is not None and saved:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
-            {"task_id": task_id, "doc_count": len(saved)},
+            {
+                "task_id": task_id,
+                "doc_count": len(saved),
+                # Rejecting the spot-check rolls back facts sourced from these docs (BL-03).
+                "doc_ids": [row["doc_id"] for row in saved if row.get("doc_id")],
+            },
             confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
             batch_id=task_id,
             tenant_id=tenant_id,
@@ -177,6 +183,10 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
             f"Review item already decided: {exc.item.status}",
             status_code=409,
         ) from exc
+    executor = review_executor_for(svc)
+    if executor is not None:
+        # BL-03: the decision takes effect on the graph, not only on the ledger.
+        executor.execute(item)
     emit_audit(
         request,
         {
@@ -184,6 +194,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
             "target": item_id,
             "outcome": dec.value,
             "reviewer": body.reviewer,
+            "effect": item.execution.get("effect", "none"),
         },
     )
     return ok(item.to_dict())

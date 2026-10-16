@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from agentic_graphrag.knowledge.cardinality import HEAD, TAIL, SidesFn, legacy_sides
 from agentic_graphrag.knowledge.schema_check import Triple
+from agentic_graphrag.knowledge.temporal import VALID_FROM, closed, is_newer
 from agentic_graphrag.stores.interfaces import RelationRecord
 
 # (head_lower, relation, tail_lower) → active relation
@@ -24,6 +26,10 @@ class ConflictAction(StrEnum):
     AUTO_UPDATE = "auto_update"
     REVIEW = "review"
     KEEP_OLD = "keep_old"
+    # BL-14: dated facts are decided by time. The newer fact becomes current and
+    # the older one is closed (``valid_to``) instead of deleted.
+    SUCCEED = "succeed"
+    HISTORICAL = "historical"
 
 
 @dataclass
@@ -87,12 +93,13 @@ def split_by_conflict(
     index: RelIndex,
     *,
     margin: float,
+    sides_for: SidesFn = legacy_sides,
 ) -> tuple[list[Triple], list[Conflict]]:
     """Split into clean inserts vs conflicts against existing edges."""
     clean: list[Triple] = []
     conflicts: list[Conflict] = []
     for triple in triples:
-        conflict = _conflict_for(triple, index, margin=margin)
+        conflict = _conflict_for(triple, index, margin=margin, sides_for=sides_for)
         if conflict is None:
             clean.append(triple)
         else:
@@ -100,10 +107,12 @@ def split_by_conflict(
     return clean, conflicts
 
 
-def _conflict_for(triple: Triple, index: RelIndex, *, margin: float) -> Conflict | None:
+def _conflict_for(
+    triple: Triple, index: RelIndex, *, margin: float, sides_for: SidesFn
+) -> Conflict | None:
     existing = index.get(triple_key(triple))
     if existing is None:
-        return _value_conflict(triple, index, margin=margin)
+        return _value_conflict(triple, index, margin=margin, sides=sides_for(triple.relation))
     # Exact same edge — only upgrade when confidence is meaningfully higher.
     if triple.confidence <= existing.confidence + _CONFIDENCE_EPSILON:
         return None  # equal or lower confidence: never overwrite
@@ -118,17 +127,31 @@ def _conflict_for(triple: Triple, index: RelIndex, *, margin: float) -> Conflict
     )
 
 
-def _value_conflict(triple: Triple, index: RelIndex, *, margin: float) -> Conflict | None:
-    """Same head + relation, different tail — one decision over *all* old edges."""
+def find_rivals(triple: Triple, index: RelIndex, sides: frozenset[str]) -> list[RelationRecord]:
+    """Existing edges that contradict ``triple`` on a single-valued side."""
     head = triple.head.name.lower()
     tail = triple.tail.name.lower()
-    rivals = [
-        rec
-        for (h, rel, _), rec in index.items()
-        if h == head and rel == triple.relation and (rec.tail_name or "").lower() != tail
-    ]
+    rivals: list[RelationRecord] = []
+    for (h, rel, t), rec in index.items():
+        if rel != triple.relation or (h == head and t == tail):
+            continue
+        same_head = HEAD in sides and h == head
+        same_tail = TAIL in sides and t == tail
+        if same_head or same_tail:
+            rivals.append(rec)
+    return rivals
+
+
+def _value_conflict(
+    triple: Triple, index: RelIndex, *, margin: float, sides: frozenset[str]
+) -> Conflict | None:
+    """Single-valued relation got a different value — one decision over *all* rivals."""
+    rivals = find_rivals(triple, index, sides) if sides else []
     if not rivals:
         return None
+    temporal = _temporal_conflict(triple, rivals)
+    if temporal is not None:
+        return temporal
     # Decide against the strongest rival: a new triple must beat the best
     # existing evidence, not merely the first one the index happened to yield.
     strongest = max(rivals, key=lambda r: r.confidence)
@@ -140,4 +163,37 @@ def _value_conflict(triple: Triple, index: RelIndex, *, margin: float) -> Confli
         action=action,
         reason=reason,
         superseded=rivals,
+    )
+
+
+def _temporal_conflict(triple: Triple, rivals: list[RelationRecord]) -> Conflict | None:
+    """Decide by dates when every party is dated (BL-14); else ``None``."""
+    verdicts = [is_newer(triple.attributes, rec.attributes) for rec in rivals]
+    if not verdicts or any(v is None for v in verdicts):
+        return None
+    latest = max(rivals, key=lambda r: str(r.attributes.get(VALID_FROM)))
+    key = f"{triple.head.name}|{triple.relation}|*"
+    if all(verdicts):
+        return Conflict(
+            relation_key=key,
+            existing=latest,
+            incoming=triple,
+            action=ConflictAction.SUCCEED,
+            reason="incoming fact starts later; older facts closed",
+            superseded=rivals,
+        )
+    first_later = min(
+        (r for r, newer in zip(rivals, verdicts, strict=True) if not newer),
+        key=lambda r: str(r.attributes.get(VALID_FROM)),
+    )
+    historic = triple.model_copy(deep=True)
+    historic.attributes = closed(triple.attributes, first_later.attributes.get(VALID_FROM))
+    return Conflict(
+        relation_key=key,
+        existing=first_later,
+        incoming=historic,
+        action=ConflictAction.HISTORICAL,
+        reason="incoming fact predates the current one; stored as history",
+        # Rivals that started even earlier still end where the incoming fact begins.
+        superseded=[r for r, newer in zip(rivals, verdicts, strict=True) if newer],
     )

@@ -26,14 +26,18 @@ class InMemoryGraphStore:
             self._relations[_key(relation.tenant_id, relation.id)] = relation
         return len(relations)
 
-    def delete_relation(self, relation_id: str) -> bool:
-        """Remove an edge by id across tenants; mirrors ``Neo4jGraphStore``.
+    def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
+        """Remove an edge by id (one tenant's copy when ``tenant_id`` is given).
 
         Needed by the incremental updater: without it an auto-merged conflict
         wrote the new edge while the superseded one stayed, leaving two
         contradictory facts on the offline path (docs/design/BUSINESS_LOGIC.md BL-10).
         """
-        keys = [k for k, rec in self._relations.items() if rec.id == relation_id]
+        keys = [
+            k
+            for k, rec in self._relations.items()
+            if rec.id == relation_id and (tenant_id is None or rec.tenant_id == tenant_id)
+        ]
         for key in keys:
             del self._relations[key]
         return bool(keys)

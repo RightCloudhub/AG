@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentic_graphrag.knowledge.temporal import validity_label
 from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Citation
 from agentic_graphrag.retrieval.graph_beam import (
     BeamConfig,
@@ -178,6 +179,7 @@ class GraphRetriever:
                         "neighbor": ent.name,
                         "neighbor_type": ent.type,
                         "attributes": ent.attributes,
+                        "relation_attributes": rel.attributes,
                         "preferred_relations": preferred,
                     },
                     citations=[Citation(entity_id=ent.id, relation_id=rel.id, span=content)],
@@ -261,7 +263,7 @@ def _edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tu
     tail = rel.tail_name or ent.name
     if not rel.head_name and not rel.tail_name:
         head, tail = entity_name, ent.name
-    content = f"{head} -[{rel.type}]-> {tail} ({ent.type})"
+    content = f"{head} -[{rel.type}]-> {tail} ({ent.type}){validity_label(rel.attributes)}"
     return head, tail, content
 
 

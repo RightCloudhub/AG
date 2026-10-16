@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.generation.claim_support import content_tokens
+from agentic_graphrag.generation.relation_consistency import relation_consistent
 
 
 def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
@@ -235,19 +236,31 @@ def _claims_fail_gate(claims: list, catalog: _Catalog) -> bool:
 
 
 def _claim_grounded(claim: dict[str, Any], catalog: _Catalog) -> bool:
-    """One claim must cite a catalog id whose content shares a content token."""
-    ids = [str(i) for i in (claim.get("evidence_ids") or [])]
-    cited = [catalog[i] for i in ids if i in catalog]
+    """One claim must cite a catalog id whose content shares a content token and
+    states a compatible relation (same relation rule as the runtime gate, BL-13)."""
+    cited = _cited_entries(claim, catalog)
     if not cited:
         return False
-    claim_tokens = content_tokens(str(claim.get("text") or ""))
+    text = str(claim.get("text") or "")
+    claim_tokens = content_tokens(text)
     if not claim_tokens:
         return True  # nothing lexical to check — mirrors the runtime gate
-    if any(claim_tokens & content_tokens(entry.content) for entry in cited):
+    if any(_entry_supports(text, claim_tokens, entry) for entry in cited):
         return True
     # Truncated content: the token that satisfied the runtime gate may sit past
     # the persisted cut, so abstain instead of over-reporting fabrication.
     return any(entry.truncated for entry in cited)
+
+
+def _cited_entries(claim: dict[str, Any], catalog: _Catalog) -> list[_CatalogEntry]:
+    ids = [str(i) for i in (claim.get("evidence_ids") or [])]
+    return [catalog[i] for i in ids if i in catalog]
+
+
+def _entry_supports(text: str, claim_tokens: set[str], entry: _CatalogEntry) -> bool:
+    if not relation_consistent(text, entry.content):
+        return False
+    return bool(claim_tokens & content_tokens(entry.content))
 
 
 def _catalog_by_id(chain: dict[str, Any]) -> _Catalog:

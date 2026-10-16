@@ -10,9 +10,9 @@
 
 - **分诊双路径**：简单问题走 Fast Path，复杂问题走 LangGraph 循环（Planner → Executor → Critic → Answer）
 - **三路混合检索**：向量 / 图 Beam Search / BM25 并行召回，RRF 融合 + 缓存
-- **知识管线**：抽取 → Schema 校验 → 实体消歧 → 增量冲突处理 → 人工复核
+- **知识管线**：上传 → 抽取（LLM / 离线规则）→ Schema 校验 → 实体对齐 → 增量入图（按基数、时间、置信度裁决冲突）→ 人工复核并作用于图谱
 - **护栏与预算**：跳数、LLM 调用、token、超时上限；租户 / 用户 / 查询三级预算与熔断
-- **可审计**：每次回答产出 `ReasoningChain`，claim 绑定证据，可按 query ID 回查
+- **可审计**：每次回答产出 `ReasoningChain`，claim 须通过引用、关系一致与蕴含校验，可按 query ID 回查
 - **企业能力**：多租户、RBAC、限流、JSON 日志、Prometheus、可选 OTel、PII 脱敏
 
 ## 快速开始
@@ -24,6 +24,7 @@ uv pip install -e ".[dev]"
 agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
 agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测
 agr-api                                                          # http://127.0.0.1:8000/web
+AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
 
 在线模式（真实 LLM / Neo4j / Qdrant）：

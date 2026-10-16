@@ -91,7 +91,7 @@ flowchart LR
 
 - **鉴权与租户**：`auth.py` 解析 `AGR_API_KEYS=tenant:key:role`，`rbac.py` 提供 admin / operator / reader 三角色路由守卫。
 - **QueryService**（`service.py` + `service_query.py` / `service_stream.py`）：查答案缓存 → 预留预算 → 调用 Agent → 落审计 → 结算预算；流式请求经 `loop_stream.py` 逐 hop 推送事件。
-- **上传**：`POST /v1/docs` 只创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批），需单独运行 `ingest_worker` 消费，且只做分块索引、不抽取三元组。
+- **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行）完成分块索引并抽取三元组入图，冲突进入复核队列，决策由复核执行器作用于图谱（见 §4.4）。
 - **web/**：Vue 3 ESM 零构建，`api.js` 调用上述接口，视图位于 `static/js/views/`（chat / knowledge / review / graph / ops）。
 
 ---
@@ -129,7 +129,7 @@ stateDiagram-v2
 | 节点 | 实现 | 说明 |
 |---|---|---|
 | planner | `planner.py` `plan_dag.py` `planner_patterns.py` | 问题 → 带依赖的子问题 DAG，`{from:sqN}` 占位由上游结论物化；广度受 `max_sub_questions` 限制，被裁剪项写入 metadata |
-| executor | `executor.py` `executor_plan.py` `executor_dispatch.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），并行执行后 RRF 融合 |
+| executor | `executor.py` `executor_plan.py` `executor_dispatch.py` `parallel_branches.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），并行执行后 RRF 融合；就绪且互不依赖的 DAG 节点并发检索、共享同一 hop |
 | critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
 | answer | `generation/answer.py` | 引用绑定生成答案，失败重试一次后走保守回答 |
 
@@ -146,7 +146,7 @@ flowchart LR
     RT --> REG["tools/registry.py<br/>外部工具注册（预留）"]
 ```
 
-默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
+hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
 
 ---
 
@@ -207,30 +207,46 @@ flowchart LR
     IDX --> VS[("Vector / Fulltext")]
 ```
 
-### 4.3 增量冲突决策（`incremental_conflicts.py`）
+### 4.3 增量冲突决策（`incremental_conflicts.py`，只在本租户范围内比较）
 
 ```mermaid
 flowchart TD
-    T["新三元组"] --> K{"已存在同 head + relation?"}
-    K -->|否| W["直接写入"]
-    K -->|完全相同| U["置信度显著提升才更新"]
-    K -->|对象不同| D{"new ≥ old + margin?"}
+    T["新三元组（已打租户标）"] --> F{"同一条边?"}
+    F -->|是| U["置信度显著提升才更新"]
+    F -->|否| K{"单值侧有其他值?<br/>schema functional_on"}
+    K -->|否 / 多值关系| W["直接写入"]
+    K -->|是| TM{"双方都带日期?"}
+    TM -->|是| TS["SUCCEED / HISTORICAL<br/>旧事实设 valid_to"]
+    TM -->|否| D{"new ≥ old + margin?"}
     D -->|是| AU["AUTO_UPDATE<br/>写新边，退役旧边"]
     D -->|"new > old"| RV["REVIEW → 复核队列"]
     D -->|否| KO["KEEP_OLD"]
 ```
 
-### 4.4 API 上传路径
+### 4.4 运行期写入路径（上传 → 图谱 → 复核）
 
 ```mermaid
 flowchart LR
-    UP["POST /v1/docs"] --> TS["ingest_tasks.py<br/>JSONL 任务 queued"]
-    TS --> WK["ingest_worker.py<br/>python -m ...ingest_worker [--once]"]
-    WK --> DS[("DocStore")]
-    WK --> CH["chunk"] --> IX[("Vector + BM25")]
+    UP["POST /v1/docs"] --> TS["ingest_tasks.py<br/>queued + spotcheck 复核项"]
+    TS --> WK["ingest_worker.py<br/>API 内联（AGR_INGEST_INLINE=1）<br/>或 python -m ...ingest_worker"]
+    WK --> IX[("Vector + BM25")]
+    WK --> GI["graph_ingest.py<br/>LLM 抽取 | extract_rules.py 离线抽取"]
+    GI --> UPD["IncrementalUpdater<br/>本租户 · 基数 · 时间 · 置信度"]
+    UPD --> GS[("GraphStore")]
+    UPD -->|"需人工"| RQ["ReviewQueue"]
+    RQ --> DEC["/v1/review-queue/{id}/decision"]
+    DEC --> EXE["review/executor.py<br/>写入 · 退役 · 合并 · 回滚"]
+    EXE --> GS
+    EXE --> DONE["批次结清 → 任务 review → done"]
+    UPD --> CM["on_graph_commit<br/>缓存失效 + 实体词表刷新"]
+    EXE --> CM
 ```
 
-> 上传路径只做分块索引，不抽取三元组、不更新图谱；离线模式下 worker 与 API 进程的内存索引互不共享。
+> 离线模式下图谱与向量在进程内存，应使用 API 内联 worker；在线模式（Neo4j/Qdrant）独立 worker 与 API 共享存储。
+
+### 4.5 时间维度（`knowledge/temporal.py`）
+
+关系可带 `valid_from` / `valid_to`（ISO 年 / 年-月 / 日期）。同一条边重复出现时较新日期优先；单值关系出现新值且双方都带日期时，按时间裁决（`SUCCEED` / `HISTORICAL`），旧事实写入 `valid_to` 而非删除。检索时已结束的事实降权（问题含「以前 / 曾 / previously」时不降），证据文本标注区间，如 `[2010–2016]`。
 
 ---
 
@@ -311,11 +327,13 @@ flowchart TD
     EV["融合证据 Candidate[]"] --> MODE{"allow_llm?"}
     MODE -->|是| LLMA["answer.py<br/>LLM 生成 claims + evidence_ids"]
     MODE -->|否| OFF["offline_answer.py<br/>offline_heuristics/ 确定性规则"]
-    LLMA --> CIT["citations.py + claim_support.py<br/>claim ↔ 证据绑定校验"]
+    LLMA --> CIT["citations.py + claim_support.py<br/>引用 · 绑定 · 词面+锚定<br/>relation_consistency.py 关系一致"]
+    CIT -->|通过| NLI["entailment.py<br/>LIGHT 档蕴含判定"]
+    NLI -->|不蕴含| RETRY
     CIT -->|失败| RETRY["按失败原因重生成一次"]
     RETRY --> CIT
     CIT -->|仍失败| SAFE["保守回答 / 拒答"]
-    CIT -->|通过| CONF["confidence.py 置信度分级"]
+    NLI -->|蕴含 / 判定器弃权| CONF["confidence.py 置信度分级"]
     OFF --> CONF
     SAFE --> CONF
     CONF --> CHAIN["trace.py ReasoningChain<br/>steps · claims · cost · metadata"]

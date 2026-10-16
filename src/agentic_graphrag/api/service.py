@@ -85,6 +85,8 @@ class QueryService:
     retrieval_cache: RetrievalCache | None = None
     multi_budget: MultiLevelBudget | None = None
     ingest_tasks: IngestTaskStore | None = None
+    # BL-03: applies review decisions to the graph (set by ``attach_write_path``).
+    review_executor: Any | None = None
     # Legacy field retained for tests that monkeypatch it; query paths no longer
     # hold this lock across agent/SSE lifetimes (see service_query / service_stream).
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -158,7 +160,7 @@ class QueryService:
                 max_tokens=tcfg.max_tokens or 5_000_000,
                 max_cost_units=tcfg.max_cost_units or 1000.0,
             )
-        return cls(
+        svc = cls(
             cfg=cfg,
             settings=settings,
             bundle=bundle,
@@ -175,6 +177,10 @@ class QueryService:
                 resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"
             ),
         )
+        from agentic_graphrag.api.service_ingest import attach_write_path
+
+        attach_write_path(svc)
+        return svc
 
     def close(self) -> None:
         self.bundle.close()

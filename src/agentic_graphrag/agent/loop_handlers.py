@@ -6,10 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.agent.critic import CriticAction, CriticResult
-from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
 from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.parallel_branches import (
+    PARALLEL_GROUPS_KEY,
+    PREFETCH_KEY,
+    hints_for,
+    retrieve_for_node,
+)
 from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
 from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
@@ -50,11 +55,7 @@ class CriticApplyCtx:
 
 
 def collect_entity_hints(ctx: ExecutorNodeCtx) -> list[str]:
-    known = ctx.executor.known_entities or None
-    hints = extract_entity_mentions(ctx.state["question"] + " " + ctx.sq.text, known)
-    for conc in ctx.memory.conclusions_by_subquestion.values():
-        hints.extend(extract_entity_mentions(conc, known))
-    return hints
+    return hints_for(ctx, ctx.sq.text)
 
 
 def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
@@ -91,14 +92,7 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
 def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
     memory, guards, sq = ctx.memory, ctx.guards, ctx.sq
     memory.mark_subquestion(sq.text)
-    allow_llm = bool(ctx.state.get("allow_llm", True))
-    tenant_id = ctx.state.get("tenant_id") or None
-    candidates, traces = ctx.executor.run(
-        sq.text,
-        entities_hint=collect_entity_hints(ctx),
-        allow_llm=allow_llm and ctx.llm is not None,
-        tenant_id=tenant_id,
-    )
+    (candidates, traces), prefetch, group = retrieve_for_node(ctx)
     added = memory.add_evidence(candidates)
     step = ReasoningStep(
         hop=guards.state.hop,
@@ -110,8 +104,12 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
     chain = ReasoningChain.model_validate(ctx.state["chain"])
     chain.steps.append(step)
     chain.explored_paths = sorted(memory.explored_paths)
+    if len(group) > 1:
+        groups = list((chain.metadata or {}).get(PARALLEL_GROUPS_KEY) or [])
+        chain.metadata = {**(chain.metadata or {}), PARALLEL_GROUPS_KEY: [*groups, group]}
     return {
         **ctx.state,
+        PREFETCH_KEY: prefetch,
         "sub_questions": ctx.sqs,
         "hop": guards.state.hop,
         "evidence": [c.model_dump() for c in memory.evidence_list()],

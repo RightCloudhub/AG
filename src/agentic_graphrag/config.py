@@ -31,6 +31,8 @@ class GuardrailsConfig(BaseModel):
     # Breadth budget (plan nodes) — BL-12. Kept ≤ max_hops because one hop runs
     # one sub-question; GuardrailConfig clamps it if configured higher.
     max_sub_questions: int = 5
+    parallel_branches: bool = True
+    max_parallel_branches: int = 3
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -84,6 +86,8 @@ class LLMConfig(BaseModel):
     temperature: float = 0.0
     max_retries: int = 2
     timeout_seconds: int = 60
+    # BL-13: LIGHT-tier entailment judge over answer claims (live LLM path only).
+    entailment_check: bool = True
 
 
 class PathsConfig(BaseModel):

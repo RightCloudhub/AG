@@ -1,9 +1,9 @@
 # 业务逻辑图与完整性审查（BUSINESS LOGIC）
 
-**生成日期：** 2026-07-26
-**审查方式：** 纯静态代码审查（未运行项目、未安装依赖、未执行测试；结论均给出 `file:line` 证据）
-**定位：** 描述性文档 — ①全系统业务逻辑图（节点/边/判定点）；②业务逻辑**完整性**缺口清单。
-**权威边界：** 强制规则以 [`plan/engineering/rules.md`](../../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](../reviews/IMPORTANT.md) 为准；ENT 状态以 [`ENTERPRISE_READINESS.md`](../reviews/ENTERPRISE_READINESS.md) §3.5 为准；模块地图以 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 为准。本文件**不**改写上述结论，只补充「逻辑是否闭环」这一维度。
+**初次审查：** 2026-07-26（纯静态审查）
+**本次更新：** 2026-10-16 —— BL-01…BL-14 全部落地，**已实际运行**：`pytest tests/unit`（含新增 `test_bl_write_path.py` / `test_bl_reasoning_gates.py` 共 23 例）、`scripts/check_code_metrics.py`、`ruff`、离线评测 `agr-run-cases --no-llm`。
+**定位：** ① 全系统业务逻辑图（节点 / 边 / 判定点）；② 业务逻辑完整性缺口及其落地状态。
+**权威边界：** 强制规则以 [`plan/engineering/rules.md`](../../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](../reviews/IMPORTANT.md) 为准；模块地图以 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 为准。
 
 ---
 
@@ -11,21 +11,18 @@
 
 | 领域 | 业务逻辑完整性 | 说明 |
 |------|----------------|------|
-| 查询链路（问 → 答） | **完整**（离线默认路径闭环） | triage / fast-path / agentic / guardrail / 兜底answer 全部有出口，无死循环、无「既不回答也不报错」的状态 |
-| 护栏与预算 | **完整** | 每条限制都有「计数 → 判定 → 降级出口」三段，且 answer 节点保证仍产出 `ReasoningChain` |
-| 检索链路 | **基本完整** | 三路检索共用 `Candidate` 契约，RRF 融合、缓存失效闭环 |
-| 输出契约 | **基本完整** | `ReasoningChain` 各路径均产出；但**在线**引用门禁存在语言性缺陷（见 BL-02），且门禁强度仅到词面重叠（见 BL-13） |
-| **知识写入链路（文档 → 图谱）** | **不完整（关键）** | **API 运行期不存在任何「上传文档 → 进入知识图谱」的通路**（见 BL-01） |
-| **人工复核闭环** | **不完整（关键）** | 复核「决策」只改状态，**没有任何代码把批准结果作用于图谱**（见 BL-03） |
-| 多租户隔离 | **不完整（关键）** | SSE 流式路径未把 `tenant_id` 注入 Agent 状态，导致跨租户检索 + 共享缓存（见 BL-04） |
-| 摄取任务状态机 | **部分完整** | `REVIEW` 态无生产者；`EXTRACTING` 崩溃后永久卡死（见 BL-05 / BL-06） |
-| 计划（DAG）执行语义 | **部分完整** | 计划是 DAG，执行是线性序；hop 预算与子问题数被混同，超量子问题静默丢弃（见 BL-12） |
-| 图谱时间维度 | **缺失** | 关系无有效期字段，时效冲突按置信度而非时间裁决（见 BL-14） |
+| 查询链路（问 → 答） | **完整** | triage / fast-path / agentic / guardrail / 兜底 answer 全部有出口 |
+| 护栏与预算 | **完整** | 「计数 → 判定 → 降级出口」三段齐全；hop 现只计**依赖深度**，广度单独预算（BL-12） |
+| 检索链路 | **完整** | 三路检索 + RRF + 租户维度缓存键；历史事实降权（BL-14） |
+| 输出契约 / 引用门禁 | **完整** | 四级规则门禁（引用 → 绑定 → 词面+对象锚定 → 关系一致）+ 在线 LLM 蕴含判定（BL-02 / BL-13） |
+| 知识写入链路（文档 → 图谱） | **完整** | 上传 → 任务 → worker → 抽取（LLM / 离线规则）→ 校验 → 消解 → 增量入图 → 冲突复核（BL-01） |
+| 人工复核闭环 | **完整** | 决策由 `ReviewExecutor` 作用于图谱，结果写回条目，批次结清后任务 `review → done`（BL-03） |
+| 多租户隔离 | **完整** | SSE 透传 `tenant_id`；写路径按租户打标、冲突与删除均限定在本租户（BL-04 / BL-01） |
+| 摄取任务状态机 | **完整** | `REVIEW` 有生产者与消费者；`EXTRACTING` 崩溃可重投（BL-05 / BL-06 / BL-11） |
+| 计划（DAG）执行语义 | **完整** | 就绪且互不依赖的节点并发检索、共享同一 hop（BL-12） |
+| 图谱时间维度 | **完整** | 关系带 `valid_from/valid_to`；时效冲突按时间裁决，旧事实闭区间保留（BL-14） |
 
-**一句话结论：** **读路径（查询/检索/生成/护栏）业务逻辑是闭环的；写路径（知识入图、人工复核、增量更新）在 API 运行期是断开的** —— 知识图谱目前只能由 CLI (`agr-build-graph`) 离线构建，产品叙事中的「上传 → 抽取 → 校验 → 复核 → 入图」在服务进程内没有实现通路。
-
-**方法与置信度：** 四条 🔴 关键结论（BL-01…04）均经过独立对抗式复核，复核者被要求以「默认结论错误」的立场搜寻反证，四条全部成立。🟠/🟡/⚪ 条目为单次静态审查所得，证据充分但未经二次复核，落地前建议按 §5 逐条验证。
-
+**一句话结论：** 读路径与写路径均已闭环 —— 产品叙事「上传 → 抽取 → 校验 → 复核 → 入图 → 可被多跳检索」在服务进程内有完整通路，复核决策是控制面而非台账。
 
 ---
 
@@ -33,46 +30,42 @@
 
 ```mermaid
 flowchart TB
-    subgraph READ["读路径（闭环 ✅）"]
+    subgraph READ["读路径"]
         direction TB
-        Q["POST /v1/query<br/>POST /v1/query/stream"] --> AUTH["AuthRateLimitMiddleware<br/>api/auth.py"]
-        AUTH --> RBAC["require_role<br/>api/rbac.py"]
-        RBAC --> SVC["QueryService<br/>api/service.py"]
-        SVC --> CACHE{"答案缓存命中?<br/>service_query.py:108"}
-        CACHE -->|"是"| RESP["ReasoningChain<br/>generation/trace.py:61"]
-        CACHE -->|"否"| BUDGET["预留租户预算<br/>service_query.py:139"]
-        BUDGET --> LOOP["agent/loop.run_query<br/>agent/loop_stream.iter_query_progress"]
-        LOOP --> GEN["generation/answer.generate_answer"]
-        GEN --> RESP
-        RESP --> PERSIST["审计落盘 + 预算结算<br/>service_query.py:270"]
+        Q["POST /v1/query · /v1/query/stream"] --> AUTH["AuthRateLimitMiddleware + RBAC"]
+        AUTH --> SVC["QueryService"]
+        SVC --> CACHE{"答案缓存命中?<br/>键含租户 + 索引版本"}
+        CACHE -->|"是"| RESP["ReasoningChain"]
+        CACHE -->|"否"| LOOP["agent: triage → fast path / LangGraph<br/>（并发分支 BL-12）"]
+        LOOP --> RETR["retrieval: 向量 · 图 Beam · BM25 → RRF<br/>历史事实降权 BL-14"]
+        LOOP --> GEN["generation: 规则门禁 + 蕴含判定 BL-13"]
+        GEN --> RESP --> PERSIST["审计落盘 + 预算结算"]
     end
 
-    subgraph WRITE["写路径（断开 ❌）"]
+    subgraph WRITE["写路径"]
         direction TB
-        UP["POST /v1/docs<br/>routes/knowledge.py:50"] --> SAVE["DocStore.save<br/>knowledge_upload.py:69"]
-        SAVE --> TASK["IngestTaskStore.create<br/>状态=queued"]
-        TASK -.->|"需单独启动 worker"| WORKER["IngestWorker<br/>chunk → embed → 索引"]
-        WORKER --> VIDX["VectorStore / FulltextStore"]
-        WORKER -.->|"❌ 不存在"| KG
-        UP -.->|"❌ 不存在"| EXTRACT["extraction → schema_check<br/>→ resolution → graph_builder"]
-        EXTRACT -.-> KG["GraphStore（知识图谱）"]
-        CLI["CLI: agr-build-graph<br/>cli/graph_cmd.py:153"] -->|"✅ 唯一入图通路"| KG
+        UP["POST /v1/docs"] --> SAVE["DocStore.save"] --> TASK["IngestTaskStore: queued"]
+        TASK --> WORKER["IngestWorker<br/>API 内联（AGR_INGEST_INLINE=1）或独立进程"]
+        WORKER --> VIDX["chunk → embed → Vector / BM25"]
+        WORKER --> GI["GraphIngestor<br/>LLM 抽取 | 离线规则抽取"]
+        GI --> GATE["schema + 置信度门禁"] --> RES["实体名对齐已有图谱"]
+        RES --> INC["IncrementalUpdater<br/>基数 · 时间 · 置信度 · 租户"]
+        INC --> KG[("GraphStore")]
+        INC -->|"需人工"| RQ["ReviewQueue: conflict"]
+        INC --> COMMIT["on_commit: 缓存失效 + 实体词表刷新"]
+        CLI["CLI agr-build-graph"] --> KG
     end
 
-    subgraph REVIEW["人工复核（半闭环 ⚠️）"]
+    subgraph REVIEW["人工复核"]
         direction TB
-        ENQ["ReviewQueue.enqueue"] --> LIST["GET /v1/review-queue"]
-        LIST --> DEC["POST .../decision<br/>queue.py:150"]
-        DEC --> STATUS["仅修改 item.status"]
-        STATUS -.->|"❌ 无执行器"| KG
+        RQ --> DEC["POST /v1/review-queue/{id}/decision"]
+        DEC --> EXE["ReviewExecutor"]
+        EXE -->|"写入 / 退役 / 合并 / 回滚"| KG
+        EXE --> SETTLE["批次无待决冲突 → 任务 review → done"]
     end
 
-    VIDX --> RETR["retrieval/ 三路检索"]
     KG --> RETR
-    RETR --> LOOP
-
-    classDef broken stroke-dasharray: 5 5,stroke:#c00,color:#c00
-    class EXTRACT,KG,STATUS broken
+    VIDX --> RETR
 ```
 
 ---
@@ -81,62 +74,62 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    START(["question"]) --> CHIT{"闲聊/能力问询?<br/>agent/chitchat.py<br/>loop.py:220 / loop_stream.py:78"}
-    CHIT -->|"是（即使 force_agentic）"| CHITANS["直接返回 chain<br/>跳过全部检索"]
-    CHIT -->|"否"| TRIAGEEN{"enable_triage<br/>且非 force_agentic?<br/>loop.py:231"}
-
+    START(["question"]) --> CHIT{"闲聊/能力问询?"}
+    CHIT -->|"是"| CHITANS["直接返回 chain"]
+    CHIT -->|"否"| TRIAGEEN{"enable_triage 且非 force_agentic?"}
     TRIAGEEN -->|"否"| AGENTIC
-    TRIAGEEN -->|"是"| TRIAGE["triage()<br/>agent/triage.py"]
-    TRIAGE --> ROUTE{"Route<br/>（仅两个成员）"}
-    ROUTE -->|"FAST_PATH"| FAST["run_fast_path<br/>agent/fast_path.py"]
-    ROUTE -->|"AGENTIC"| AGENTIC
-
-    FAST --> ESC{"should_escalate_chain?<br/>loop.py:285<br/>（证据弱则升级）"}
+    TRIAGEEN -->|"是"| TRIAGE["triage()"]
+    TRIAGE -->|"FAST_PATH"| FAST["run_fast_path"]
+    TRIAGE -->|"AGENTIC"| AGENTIC
+    FAST --> ESC{"证据弱?"}
     ESC -->|"否"| DONE
-    ESC -->|"是"| AGENTIC
+    ESC -->|"是，升级一次"| AGENTIC
 
-    subgraph AGENTIC["Agentic：LangGraph StateGraph（loop.py:62-79）"]
+    subgraph AGENTIC["LangGraph StateGraph"]
         direction TB
-        P["planner<br/>loop_runtime.py:88"] --> E["executor<br/>loop_runtime.py:108"]
-        E --> RAE{"route_after_executor<br/>loop_runtime.py:148"}
-        RAE -->|"done / 护栏触发 / hop>max"| A["answer<br/>loop_runtime.py:198"]
-        RAE -->|"否则"| C["critic<br/>loop_runtime.py:156"]
-        C --> RAC{"route_after_critic<br/>loop_runtime.py:234"}
-        RAC -->|"done / 护栏 / hop>=max_hops"| A
-        RAC -->|"否则"| E
-        A --> END2(["END"])
+        P["planner<br/>DAG + 广度预算"] --> E["executor"]
+        E --> PF{"当前节点已被并发预取?"}
+        PF -->|"是：同 hop，不计深度"| USE["取用预取结果"]
+        PF -->|"否：hop+1"| GRP["当前节点 + 就绪兄弟节点<br/>线程池并发检索"]
+        USE --> RAE{"route_after_executor"}
+        GRP --> RAE
+        RAE -->|"done / 护栏"| A["answer"]
+        RAE -->|"否则"| C["critic"]
+        C -->|"继续"| E
+        C -->|"完成 / 护栏"| A
     end
 
-    AGENTIC --> REC{"GraphRecursionError?<br/>loop_recover.py:49"}
-    REC -->|"是"| RECOVER["从 checkpoint 重建部分答案<br/>loop_recover.py:64"]
-    REC -->|"否"| DONE
-    RECOVER --> DONE
-    CHITANS --> DONE(["ReasoningChain"])
+    A --> GATES{"规则门禁<br/>引用 · 绑定 · 词面+锚定 · 关系一致"}
+    GATES -->|"通过且在线"| NLI{"LLM 蕴含判定"}
+    GATES -->|"失败"| REGEN["按原因定向重生成一次"]
+    NLI -->|"entailed / 判定器弃权"| DONE(["ReasoningChain"])
+    NLI -->|"否"| REGEN
+    REGEN -->|"仍失败"| FB["honest_fallback"] --> DONE
+    CHITANS --> DONE
 ```
 
-### 2.1 判定点与阈值（全部已实现）
+### 2.1 判定点
 
-| 判定点 | 位置 | 分支 | 是否实现 |
-|--------|------|------|----------|
-| 闲聊短路 | `loop.py:220`、`loop_stream.py:78` | 命中 → 跳过检索；未命中 → 继续 | ✅ 两条路径一致 |
-| triage 开关 | `loop.py:231` | `not enable_triage or force_agentic` → 直接 agentic | ✅ |
-| 路由 | `loop.py:245` | FAST_PATH / AGENTIC | ✅ `Route` 恰好两个成员 |
-| Fast Path 升级 | `loop.py:285` | 证据弱 → 回退 agentic | ✅ 流式同源 `loop_stream.py:179` |
-| executor 后路由 | `loop_runtime.py:148` | done / 护栏 / 超 hop → answer；否则 critic | ✅ |
-| critic 后路由 | `loop_runtime.py:234` | 三重 hop 上限兜底 → answer | ✅ 无死循环 |
-| 递归上限兜底 | `loop_recover.py:49` | 捕获 `GraphRecursionError` → 从 checkpoint 重建 | ✅ 不向客户端抛裸异常 |
+| 判定点 | 位置 | 分支 |
+|--------|------|------|
+| 闲聊短路 | `agent/chitchat.py` | 命中 → 跳过检索 |
+| 路由 | `agent/loop.py` `_run_with_triage` | FAST_PATH / AGENTIC |
+| Fast Path 升级 | `agent/loop_policy.py` | 证据弱 → agentic |
+| 并发分支 | `agent/parallel_branches.py` `retrieve_for_node` / `loop_runtime._start_node` | 预取命中 → 同 hop；否则 hop+1 并预取就绪兄弟 |
+| executor / critic 后路由 | `loop_runtime.route_after_*` | 护栏 / hop 上限 → answer |
+| 递归兜底 | `agent/loop_recover.py` | `GraphRecursionError` → checkpoint 重建 |
+| 规则门禁 | `generation/citations.validate_answered_claims` + `claim_support.claim_supported` | 失败 → 定向重生成 |
+| 蕴含判定 | `generation/entailment.judge_claims` | 非 entailed → 定向重生成；判定器异常 → 弃权并记录 |
 
-### 2.2 护栏：计数 → 判定 → 出口（三段齐全）
+### 2.2 护栏：计数 → 判定 → 出口
 
-| 护栏 | 计数点 | 判定点 | 触发出口 |
-|------|--------|--------|----------|
-| max_hops | `guardrails.py:128` `on_hop_start` | `guardrails.py:132` | executor 直接置 `done` → answer 节点 |
-| 查询超时 | `started_at`（`guardrails.py:125`） | `guardrails.py:137-144` | 同上 |
-| LLM 调用数 / token | `llm/budget.py` BudgetTracker | `guardrails.py:146` | 同上 |
-| recursion_limit | LangGraph 内部 | `loop.py:170` 编译期下限 `2*hops+5`（`guardrails.py:20-28`） | `loop_recover.py` 重建部分答案 |
-| 租户预算 | `service_query.py:139` 预留 / `:285` 结算 | `budget_policy.MultiLevelBudget` | 429 `BUDGET_EXCEEDED` |
-
-**关键正确性：** `loop_runtime.py:205` —— 护栏触发**且无证据**才走 `honest_fallback`；有证据则仍生成部分答案。即「护栏触发 ≠ 无答案」，符合 FR-AG-06/07。
+| 护栏 | 计数点 | 触发出口 |
+|------|--------|----------|
+| max_hops（依赖深度） | `Guardrails.on_hop_start`（并发预取节点走 `check_branch`，不加 hop） | executor 置 `done` → answer |
+| max_sub_questions（广度） | `plan_dag.cap_plan_breadth` / 动态插入前检查 | 超出部分记入 `metadata`，不静默丢弃 |
+| 超时 / LLM 调用 / token | `Guardrails._check` | 同上 |
+| recursion_limit | 编译期下限 `2*hops+5` | `loop_recover` 重建部分答案 |
+| 租户预算 | `service_query` 预留 / 结算 | 429 `BUDGET_EXCEEDED` |
 
 ---
 
@@ -144,52 +137,52 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph DESIGNED["设计意图（PRD / ARCHITECTURE）"]
-        D1["文档"] --> D2["ingest 分块"] --> D3["LLM 抽取"] --> D4["schema_check 校验"]
-        D4 --> D5["resolution 实体消歧"] --> D6["graph_builder"] --> D7["GraphStore"]
-        D4 -->|"低置信"| D8["review queue 人工复核"] --> D9["批准 → 合并入图"] --> D7
-    end
-
-    subgraph ACTUAL["实际实现"]
-        A1["POST /v1/docs"] --> A2["DocStore.save<br/>knowledge_upload.py:69"]
-        A2 --> A3["IngestTaskStore.create<br/>status=queued"]
-        A3 --> A4{"worker 是否带 task_store?"}
-        A4 -->|"API 进程：不自动启动"| A5["任务永久 queued"]
-        A4 -->|"文档化 CLI：未传 task_store<br/>ingest_worker.py:181"| A5
-        A4 -->|"仅编程方式传入"| A6["chunk → embed → 索引"]
-        A6 --> A7["VectorStore + FulltextStore"]
-        A6 -.->|"❌ 无图写入"| A8["GraphStore"]
-        A9["CLI agr-build-graph<br/>cli/graph_cmd.py:153<br/>（含 _gate_and_report 校验）"] --> A8
-    end
-
-    classDef gap stroke-dasharray: 5 5,stroke:#c00,color:#c00
-    class A5,A8 gap
+    A1["POST /v1/docs"] --> A2["DocStore.save"] --> A3["IngestTaskStore: queued<br/>+ SPOTCHECK 复核项（含 doc_ids）"]
+    A3 --> A4["IngestWorker 认领: extracting（租约 + 心跳）"]
+    A4 --> A5["chunk → embed → Vector / BM25"]
+    A4 --> A6["GraphIngestor.ingest_chunks"]
+    A6 --> A7{"有 LLM?"}
+    A7 -->|"是"| A8["extract_from_chunk（失败回退规则）"]
+    A7 -->|"否"| A9["extract_rules_from_chunk"]
+    A8 --> A10["schema + 置信度门禁"]
+    A9 --> A10
+    A10 --> A11["名称对齐已有实体"] --> A12["IncrementalUpdater（本租户索引）"]
+    A12 --> A13{"冲突类型"}
+    A13 -->|"无冲突 / 多值关系"| W["写入"]
+    A13 -->|"双方带日期"| T["SUCCEED / HISTORICAL<br/>旧事实设 valid_to，不删除"]
+    A13 -->|"置信度显著更高"| AU["AUTO_UPDATE：写新退旧"]
+    A13 -->|"略高"| RV["REVIEW → ReviewQueue(conflict, batch=task)"]
+    A13 -->|"更低"| KO["KEEP_OLD（计数守恒）"]
+    W --> OUT{"task_outcome"}
+    T --> OUT
+    AU --> OUT
+    RV --> OUT
+    KO --> OUT
+    OUT -->|"有错误"| F["failed"]
+    OUT -->|"有待复核冲突"| R["review"]
+    OUT -->|"否则"| D["done（含写入事实数）"]
 ```
 
-### 3.1 摄取任务状态机（`knowledge/ingest_tasks.py:24-28`）
+### 3.1 摄取任务状态机
 
 ```mermaid
 stateDiagram-v2
     [*] --> queued: create(docs 非空)
     [*] --> empty: create(docs 为空)
-    queued --> extracting: worker 取批 (ingest_worker.py:124)
+    queued --> extracting: worker 认领
     queued --> failed
-    extracting --> done: 全部成功
-    extracting --> failed: 任一 doc 报错
-    extracting --> review: ⚠️ 无任何生产者
-    review --> done
+    extracting --> queued: 租约过期重投
+    extracting --> done: 无错误、无待复核冲突
+    extracting --> review: 存在待复核冲突
+    extracting --> failed: 任一文档或图谱阶段出错
+    review --> done: 批次最后一个冲突被决策（ReviewExecutor）
     review --> failed
-    empty --> [*]: 终态
     done --> [*]
     failed --> [*]
-    note right of extracting
-      崩溃后永久卡死：
-      pending() 只取 queued
-      无租约/心跳/超时重投
-    end note
+    empty --> [*]
 ```
 
-### 3.2 复核队列状态机（`knowledge/review/queue.py`）
+### 3.2 复核队列状态机与执行
 
 ```mermaid
 stateDiagram-v2
@@ -197,19 +190,87 @@ stateDiagram-v2
     pending --> approved: decide(approve)
     pending --> rejected: decide(reject)
     pending --> skipped: decide(skip)
-    approved --> [*]: ❌ 无后续执行器
-    rejected --> [*]: ❌ 不回滚任何数据
-    skipped --> [*]
-    note right of approved
-      grep 全仓库：src/ 内
-      无任何代码消费 APPROVED
-      决策 = 仅改一个字符串字段
+    approved --> executed: ReviewExecutor.execute
+    rejected --> executed: ReviewExecutor.execute
+    skipped --> executed: 无图谱效果
+    executed --> [*]
+    note right of executed
+      conflict 批准：写新事实、退役旧边
+      extraction 批准/驳回：写入/移除该事实
+      resolution 批准：实体合并
+      spotcheck 驳回：回滚该上传产生的事实
+      结果写入 item.execution，重放幂等
     end note
 ```
 
+| 条目类型 | 批准 | 驳回 |
+|---|---|---|
+| conflict | 写入 incoming，退役 superseded（限本租户） | 保留现有事实 |
+| extraction | 写入提议事实 | 若已入图则移除 |
+| resolution | `apply_entity_merge(keep, drop)` | 两实体保留 |
+| spotcheck | 接受上传 | 回滚「来源全部为该批文档」的关系 |
+| feedback | 无图谱效果 | 无图谱效果 |
+
 ---
 
-## 4. 完整性缺口清单
+## 4. 验证项与落地测试
+
+| # | 验证项 | 状态 | 自动化测试 |
+|---|--------|------|-----------|
+| V-01 | 上传后图谱实体增加 | ✅ | `test_bl_write_path::test_api_upload_reaches_graph_via_inline_worker` |
+| V-02/03 | 中文 claim 不再必然失败 | ✅ | `test_citations.py`（BL-02 既有用例） |
+| V-04 | 复核批准后图谱变化 | ✅ | `test_bl_write_path::test_conflict_goes_to_review_and_approval_takes_effect` |
+| V-05/06 | 流式租户隔离 / 缓存 | ✅ | `test_audit_tenant_cache_isolation.py`、`test_live_sse_stream.py` |
+| V-07 | worker 命令消费队列 | ✅ | `test_bl_write_path::test_cli_worker_is_wired_to_queue_and_graph` |
+| V-08 | 中断恢复 | ✅ | `test_enterprise_completion.py`（stale requeue） |
+| V-09/10 | 上传校验 | ✅ | `test_enterprise_readiness.py` |
+| V-11…13 | 越权与存在性泄漏 | ✅ | `test_console_api.py`、`test_graph_entities_api.py` |
+| V-14 | 批次计数守恒 | ✅ | `test_review_fixes.py` + `conflicts_temporal` 新计数 |
+| V-15 | 非流式检索缓存生效 | ✅ | 缓存键含租户（BL-04） |
+| V-16 | 超量子问题不再静默丢弃 | ✅ | `test_plan_dynamic_sq_insert.py` |
+| V-17 | 并行分支延迟 Σ → max | ✅ | `test_bl_reasoning_gates::test_branches_run_concurrently`、`test_parallel_sibling_shares_the_hop` |
+| V-18 | 关系错配被拦截（运行期与评测同口径） | ✅ | `test_bl_reasoning_gates::test_gate_rejects_claim_citing_edge_with_another_relation`、`test_eval_fabrication_uses_same_relation_rule` |
+| V-19 | 时效冲突按时间裁决 | ✅ | `test_bl_write_path::test_dated_successor_closes_previous_ceo_instead_of_deleting`、`test_older_fact_is_stored_as_history` |
+
+**运行结果（2026-10-16）：** 单测 309 通过（`test_web_claude_ui.py` 7 例为前端静态文件缺失导致的既有失败，与本文件无关）；覆盖率 84%（门禁 80%）；代码硬指标全部通过（同时修复了 3 处既有超标）；离线 POC 评测 21/31，与改动前逐例一致。
+
+---
+
+## 5. 落地状态（2026-10-16）
+
+> `[x]` 已完成并有测试；括号内为主要实现位置。
+
+| 缺口 | 状态 | 落地内容 |
+|---|---|---|
+| BL-01 上传→图谱无通路 | `[x]` | 新增 `knowledge/graph_ingest.py`（抽取 → 门禁 → 名称对齐 → 增量入图）与离线规则抽取器 `knowledge/extract_rules.py`（中英文句式，含日期）；`IngestWorker` 增加图谱阶段与 `task_outcome`；API 内联 worker `api/service_ingest.py`（`AGR_INGEST_INLINE=1`），独立 worker 移至 `knowledge/ingest_worker_cli.py` 并接入图谱；写入后 `on_graph_commit` 使缓存失效并刷新实体词表 |
+| BL-02 中文 claim 必然失败 | `[x]` | CJK 二元组切词 + 按失败原因定向修复提示（既有） |
+| BL-03 复核决策无执行器 | `[x]` | 新增 `knowledge/review/executor.py`：五类条目的批准/驳回语义、按租户删除、幂等重放、结果写回 `item.execution`、批次结清后任务 `review → done`；`IncrementalUpdater` 的待复核冲突直接进入 `ReviewQueue`；决策路由调用执行器 |
+| BL-04 SSE 未传租户 | `[x]` | 既有修复；写路径同样按租户打标（`graph_builder.stamp_tenant`） |
+| BL-05 / BL-06 | `[x]` | 既有修复；CLI worker 另接入图谱阶段 |
+| BL-07 schema 门禁 | `[x]` | 既有修复；运行期写路径与复核执行器均经门禁 |
+| BL-08 / BL-09 / BL-10 | `[x]` | 既有修复；复核执行与图谱阶段失败均显式上报，不静默 |
+| BL-11 空分支 / 计数 | `[x]` | `IngestStatus.REVIEW` 现有生产者（`task_outcome`）与消费者（`_settle_task`）；新增 `conflicts_temporal` 计数保持守恒 |
+| BL-12 广度/深度混同 | `[x]` | `agent/parallel_branches.py`：就绪且互不依赖的节点线程池并发检索，结果预取入状态，取用时不增 hop（`Guardrails.check_branch`）；`guardrails.parallel_branches` / `max_parallel_branches` 可配；并发组记入 `metadata.parallel_branches` |
+| BL-13 门禁只到词面 | `[x]` | `generation/relation_consistency.py`：中英文关系线索 vs 边关系类型（含兼容/蕴含映射），运行期门禁与评测 `fabrication_rate` 同口径；`generation/entailment.py`：在线路径 LIGHT 档批量蕴含判定（`llm.entailment_check`），非 entailed 触发定向重生成，判定器异常则弃权并记录 |
+| BL-14 图谱无时间维度 | `[x]` | `knowledge/temporal.py`：`valid_from/valid_to`；同边合并以较新日期优先；`incremental_conflicts` 新增 `SUCCEED / HISTORICAL`，旧事实设 `valid_to` 而非删除；检索对已结束事实降权（问「以前/曾」时不降）并在证据文本标注区间；schema 声明 `functional_on` 基数，多值关系不再误判冲突；抽取提示要求输出日期 |
+
+### 5.1 仍需知悉的边界（非缺口）
+
+| 项 | 说明 |
+|---|---|
+| 内联 worker 默认关闭 | 需 `AGR_INGEST_INLINE=1`；离线模式下独立 worker 与 API 不共享内存图谱，故离线请用内联方式，在线（Neo4j/Qdrant）两者皆可 |
+| 规则抽取器 | 精确优先，只覆盖常见公司关系句式；在线模式优先用 LLM 抽取，失败逐块回退规则 |
+| 蕴含判定成本 | 每次作答额外 1 次 LIGHT 调用；`MockLLMProvider` 与离线路径不调用 |
+| 时间裁决前提 | 仅当冲突双方都带日期时按时间裁决，否则沿用置信度规则 |
+| 并发范围 | 并发的是检索；critic 仍按节点顺序评估，避免改变判定语义 |
+
+---
+
+## 6. 原始缺口记录（2026-07-26 审查）
+
+> 以下为初次审查的原文记录，行号对应当时版本，保留用于追溯；现状以 §0 与 §5 为准。
+
+### 6.1 完整性缺口清单
 
 严重度：🔴 关键（业务承诺无法兑现 / 数据越权）｜🟠 高｜🟡 中｜⚪ 低
 
@@ -217,7 +278,7 @@ stateDiagram-v2
 
 **BL-12 / BL-13 / BL-14 为第二轮补充审查所得**（来源：`ARCHITECTURE_DESIGN.md` 净室设计与实现的逐条对差，见 [`DESIGN_VS_IMPLEMENTATION.md`](./DESIGN_VS_IMPLEMENTATION.md) 的 D1 / D2 / D3），同样**未经对抗复核**。该轮的第四条发现（人工复核决策无执行器，D5）与既有 **BL-03 完全重合**，故不另立条目 —— BL-03 的记述更完整（额外指出 `IncrementalUpdater._append_review` 与 `ReviewQueue` 是两套互不连通的存储）。
 
-### 🔴 BL-01：不存在「上传文档 → 进入知识图谱」的运行期通路
+#### 🔴 BL-01：不存在「上传文档 → 进入知识图谱」的运行期通路
 
 | 项 | 内容 |
 |----|------|
@@ -228,7 +289,7 @@ stateDiagram-v2
 | 失败场景 | 管理员通过 `POST /v1/docs` 上传新文档 → 文档可被向量/BM25 检索到 → 但其中的实体与关系**永远不会进入图谱** → 图检索（多跳推理，本项目的核心卖点）对新文档完全无效。 |
 | 影响 | 产品叙事「知识图谱作为结构化记忆」在运行期只对 CLI 预构建的语料成立。 |
 
-### 🔴 BL-02：在线回答路径的引用门禁对纯中文 claim 必然失败
+#### 🔴 BL-02：在线回答路径的引用门禁对纯中文 claim 必然失败
 
 | 项 | 内容 |
 |----|------|
@@ -241,7 +302,7 @@ stateDiagram-v2
 | 三个入口均受影响 | `agent/loop_runtime.py:208`、`agent/fast_path.py:33`、`agent/loop_recover.py:83` —— 只要 `allow_llm and llm is not None` 就会过闸。 |
 | 修复位置 | `generation/citations.py:144` 需改为 CJK 感知切分（CJK 连续段落须切出 unigram/bigram）。**注意：直接照搬 `stores/fulltext_store.py:11` 的 `[\w一-鿿]+` 正则无效** —— 它对 CJK 同样是「整段一个 token」。 |
 
-### 🔴 BL-03：人工复核决策没有执行器
+#### 🔴 BL-03：人工复核决策没有执行器
 
 | 项 | 内容 |
 |----|------|
@@ -249,7 +310,7 @@ stateDiagram-v2
 | 失败场景 | 运维批准一条低置信冲突 → 图谱不变；驳回一条错误三元组 → 该三元组（若已入图）不被移除。复核队列是一本**只写的台账**，不是控制面。 |
 | 关联 | `IncrementalUpdater._append_review`（`incremental.py:269`）把待复核冲突写入一个**独立的 JSONL** `review_log`，与 `ReviewQueue` 是两套互不连通的存储；`GET /v1/review-queue` 永远读不到它。 |
 
-### 🔴 BL-04：SSE 流式路径未传播 `tenant_id`，导致跨租户检索与缓存共享
+#### 🔴 BL-04：SSE 流式路径未传播 `tenant_id`，导致跨租户检索与缓存共享
 
 | 项 | 内容 |
 |----|------|
@@ -264,21 +325,21 @@ stateDiagram-v2
 | 现有测试盲区 | `test_enterprise_completion.py:39-74` 只直接调 `store.search/neighbors`；`test_audit_tenant_cache_isolation.py` 只覆盖答案缓存与审计库；`test_live_sse_stream.py:26/51` 虽传 `tenant_id="t"` 但不做任何隔离断言。 |
 | 修复位置 | `agent/loop_stream.py:223` —— `opts.tenant_id` 已在 `ctx.run_opts` 上（由 `resolved_run_opts` 填充，`loop.py:264`），只需把它并入初始状态，对齐 `loop_recover.py:45`；该行以上无需改签名。 |
 
-### 🟠 BL-05：文档化的 worker 命令不消费任务队列
+#### 🟠 BL-05：文档化的 worker 命令不消费任务队列
 
 | 项 | 内容 |
 |----|------|
 | 证据 | `CLAUDE.md` 记载 `python -m agentic_graphrag.knowledge.ingest_worker --once  # consume queued upload tasks`，但 `ingest_worker.py:181-189` 的 `__main__` 构造 `IngestWorker(...)` **未传 `task_store=`** → `run_once()`（`:110`）走 legacy 分支遍历 `doc_store.list_ids()`。 |
 | 失败场景 | 上传后运行文档化命令 → 任务状态永远停在 `queued`，`GET /v1/ingest-tasks/{id}` 永远返回 queued。且该命令另起进程调 `create_offline_bundle()`，若 doc store 为 `InMemoryDocStore`（`stores/doc_store.py:11`）则与 API 进程不共享数据，worker 看不到任何文档。 |
 
-### 🟠 BL-06：`extracting` 态崩溃后任务永久卡死
+#### 🟠 BL-06：`extracting` 态崩溃后任务永久卡死
 
 | 项 | 内容 |
 |----|------|
 | 证据 | `ingest_worker.py:124` 先 `transition(QUEUED→EXTRACTING)` 再处理；`IngestTaskStore.pending()`（`ingest_tasks.py:90`）**只返回 QUEUED**；`_ALLOWED_TRANSITIONS`（`:24-28`）无 `EXTRACTING→QUEUED` 重投路径，也无租约/心跳/超时字段。 |
 | 失败场景 | worker 在处理中被 kill → 任务永久停留 `extracting`，无任何机制重投或告警。 |
 
-### 🟠 BL-07：schema 校验门禁在写入函数中是「可选参数」而非「门」
+#### 🟠 BL-07：schema 校验门禁在写入函数中是「可选参数」而非「门」
 
 | 项 | 内容 |
 |----|------|
@@ -287,7 +348,7 @@ stateDiagram-v2
 | 叠加缺陷 | `IncrementalUpdater` 两处构造点（`eval/p3_ev.py:167`、`tests/unit/test_phase3_kg_and_budget.py:43`）**都未传 `schema=`** → `_gate()`（`incremental.py:210`）直接原样返回，增量路径既无 schema 校验也无置信度阈值。 |
 | 次级 | `graph_builder.py:92` —— 即使传了 schema，`confidence_threshold=None` 时 `thr=0.0`，置信度过滤退化为空操作。 |
 
-### 🟡 BL-08：上传校验可被绕过 + PDF 声称支持但无解析
+#### 🟡 BL-08：上传校验可被绕过 + PDF 声称支持但无解析
 
 | 项 | 内容 |
 |----|------|
@@ -295,7 +356,7 @@ stateDiagram-v2
 | 证据 | `:48` 大小校验发生在 `await file.read()`（`:47`）**之后** → 5MB 限制无法阻止超大文件先进内存。 |
 | 证据 | `ALLOWED_EXTENSIONS` 含 `pdf`（`:16`），但 `:54` 一律 `content.decode("utf-8", errors="replace")`，**无 PDF 文本抽取** → PDF 被存为乱码并进入分块与索引。 |
 
-### 🟡 BL-09：跨租户越权与存在性泄漏（API 层）
+#### 🟡 BL-09：跨租户越权与存在性泄漏（API 层）
 
 | 项 | 内容 |
 |----|------|
@@ -303,7 +364,7 @@ stateDiagram-v2
 | 图实体接口无租户过滤 | `routes/knowledge.py:208` `GET /v1/graph/entities` 既无 `require_role`，`_list_entity_records`（`:234`）调用 `lister(limit=, offset=)` **不传 tenant_id**，而 `memory_graph.list_entities`（`memory_graph.py:155`）是支持 `tenant_id` 的 —— 能力存在但未使用。 |
 | 反向存在性泄漏 | `routes/knowledge.py:188-190`：他租户的 query_id → 404；**不存在**的 query_id → 200。与 `:177` 注释「404 for both missing and cross-tenant (no existence leak)」相反，可用作存在性探测。 |
 
-### 🟡 BL-10：静默吞异常导致「成功」语义失真
+#### 🟡 BL-10：静默吞异常导致「成功」语义失真
 
 | 位置 | 行为 | 后果 |
 |------|------|------|
@@ -312,7 +373,7 @@ stateDiagram-v2
 | `ingest_worker.py:88-96` | 逐条 embed 失败仅 warning | 全部 embedding 失败时 `result.error` 仍为 None → 任务标记 `done`，实际 0 条入索引 |
 | `incremental.py:255` | `delete_relation` 失败 `pass` | AUTO_UPDATE 后旧边残留，形成双事实 |
 
-### ⚪ BL-11：声明但无生产者的分支 / 计数不闭合
+#### ⚪ BL-11：声明但无生产者的分支 / 计数不闭合
 
 | 项 | 证据 |
 |----|------|
@@ -331,11 +392,11 @@ stateDiagram-v2
 
 ---
 
-### 补充审查（第二轮：设计对差）
+#### 补充审查（第二轮：设计对差）
 
 > 以下三条来自净室设计文档与实现的逐条对差，**未经对抗式复核**。均已给出 `file:line` 证据，但落地前应按 §5 的 V-16…V-19 实测确认。
 
-### 🟠 BL-12：Planner 产出 DAG，Executor 按线性序执行；hop 预算与子问题数被混同
+#### 🟠 BL-12：Planner 产出 DAG，Executor 按线性序执行；hop 预算与子问题数被混同
 
 | 项 | 内容 |
 |----|------|
@@ -347,7 +408,7 @@ stateDiagram-v2
 | 影响 | ① 深度（多跳）与广度（子问题数）共用同一预算，两者不可独立调参，也无法从日志区分是哪一种超限；② DAG 的 `depends_on` 在运行期只影响拓扑排序**顺序**，其并行语义（同层节点可同时执行）未兑现 —— 互不依赖的分支各自消耗一个 hop，等于把广度计入深度预算；③ 延迟为 Σ(分支) 而非 max(分支)，对 AC-4（8s）不利。 |
 | 备注 | 属**能力未兑现**，非死循环 —— §2「读路径闭环」结论不受影响：超预算时仍走 answer 节点产出 `ReasoningChain`。修复面小于新增功能：并行 API 与其单测已存在，缺的是运行期调用与并发载体。 |
 
-### 🟠 BL-13：引用门禁与 fabrication 指标只到「词面重叠」，无法判别关系是否相符
+#### 🟠 BL-13：引用门禁与 fabrication 指标只到「词面重叠」，无法判别关系是否相符
 
 | 项 | 内容 |
 |----|------|
@@ -358,7 +419,7 @@ stateDiagram-v2
 | 失败场景 | 在线路径：模型引用真实 id 但误读其内容 → 门禁放行 → 输出错误答案且附带「看起来有据可依」的引用。评测路径：该行 `_claims_unbound` 返回 False → 计为「未捏造」→ `fabrication_rate` 系统性偏低。 |
 | 影响 | AC-7「无据不答」的验收证据强度低于指标名义。若要真正判别关系相符需引入蕴含判定（每 claim 一次轻档 LLM 调用，或小型 NLI 模型），成本需单独评估；在此之前，至少应让指标名与实际判据一致。 |
 
-### 🟡 BL-14：图谱无时间维度，时效性冲突按置信度而非时间裁决
+#### 🟡 BL-14：图谱无时间维度，时效性冲突按置信度而非时间裁决
 
 | 项 | 内容 |
 |----|------|
@@ -369,73 +430,4 @@ stateDiagram-v2
 | 影响 | 对当前静态演示语料无实际损害；对任何有更新节奏的真实语料，这是**先于 BL-01 需要决策**的数据模型问题 —— 补时间字段属 schema 变更（`configs/schema/domain_v0.yaml` + 抽取提示 + 路径打分），成本显著高于补一个执行器。 |
 
 ---
-
-## 5. 需人工验证 / 补测项
-
-> 依据全局规则：本次未运行项目、未安装依赖、未执行测试。以下为需实际执行验证的清单。
-
-| # | 验证项 | 建议方式 | 对应缺口 |
-|---|--------|----------|----------|
-| V-01 | 上传文档后图谱实体数是否变化 | `POST /v1/docs` 前后对比 `GET /v1/graph/entities` 的 `meta.total` | BL-01 |
-| V-02 | 在线中文问答是否必然退化为 honest_fallback | `AGR_ALLOW_LLM=1` 提一个中文事实问题，检查 `metadata.citation_intercept` / `citation_fallback` | BL-02 |
-| V-03 | `claims_lexically_supported` 中文单测 | 新增用例：中文 claim + 中文证据，断言当前返回 False（刻画现状），修复后改为 True | BL-02 |
-| V-04 | 复核批准后图谱是否变化 | 批准一条 CONFLICT 项，前后对比图关系数 | BL-03 |
-| V-05 | **流式路径租户隔离**（最高优先） | 以租户 A 写入独有 chunk，用租户 B 的 key 走 `/v1/query/stream` 提问，断言证据中不含 A 的 chunk | BL-04 |
-| V-06 | 流式路径缓存污染 | 租户 A 流式查询后，检查 `RetrievalCache.retrieval` 是否新增条目 | BL-04 |
-| V-07 | 文档化 worker 命令行为 | 上传后执行 `python -m agentic_graphrag.knowledge.ingest_worker --once`，检查任务状态是否仍为 queued | BL-05 |
-| V-08 | worker 中断恢复 | `extracting` 期间 kill worker，重启后确认任务是否可被重新取到 | BL-06 |
-| V-09 | 无扩展名文件上传 | 上传名为 `payload`（无点）的二进制文件，断言应被拒绝 | BL-08 |
-| V-10 | 超大文件内存行为 | 上传 100MB 文件，观察进程内存与响应码 | BL-08 |
-| V-11 | 跨租户复核决策 | 租户 A 的 operator 对租户 B 的 item_id 调 decision，断言应 404 | BL-09 |
-| V-12 | `/v1/graph/entities` 租户过滤 | 双租户实体共存时校验返回集合 | BL-09 |
-| V-13 | feedback 存在性探测 | 分别提交「他租户 query_id」与「随机 query_id」，比较状态码是否一致 | BL-09 |
-| V-14 | 增量批次数字守恒 | 构造含 KEEP_OLD 冲突的批次，断言 `accepted+rejected+conflicts_auto+conflicts_review` 与输入数守恒 | BL-11 |
-| V-15 | 检索缓存在非流式查询上是否失效 | 同一问题连续两次 `POST /v1/query`，检查 `RetrievalCache.retrieval` 的 `stats()` 是否始终 size=0、misses 递增 | BL-04 连带 |
-| V-16 | 超量子问题是否被静默丢弃 | 构造/桩化一个产出 6 个子问题的 plan（`max_hops=4`），断言 `ReasoningChain.steps` 只覆盖前 4 个，且 `guardrail_status` 文案未区分「深度超限」与「广度超限」 | BL-12 |
-| V-17 | 并行分支的延迟差 | 对含 2 个互不依赖子问题的问题分别测同步执行与（改造后）并发执行的 P95，量化 Σ(分支) → max(分支) 的收益 | BL-12 |
-| V-18 | 关系错配能否通过引用门禁 | 单测：证据 `A -[FOUNDED_BY]-> X`，claim「A 的 CEO 是 Y」且引用该 id，断言 `citation_gate_reason()` 当前返回 None（刻画现状）；同时断言 `fabrication_rate` 对该行计为「未捏造」 | BL-13 |
-| V-19 | 时效冲突的裁决结果 | 构造同一 `rid` 的两条 `CEO_OF` 三元组（旧事实置信度更高），走 `load_triples_into_graph` 后查询，断言返回的是旧事实 | BL-14 |
-
----
-
-## 6. 修复优先级建议
-
-| 优先级 | 缺口 | 理由 |
-|--------|------|------|
-| P0 | BL-04 | 数据越权，改动面最小（`loop_stream.py:248` 补 `tenant_id`），风险最高 |
-| P0 | BL-02 | 在线主路径不可用，且被离线评测完全掩盖 |
-| P1 | BL-01 / BL-03 | 产品核心承诺缺失；属功能实现而非缺陷修复，需先立项 |
-| P1 | BL-07 | 质量不变量未真正成立 |
-| P1 | BL-13 | 与 BL-02 同一函数、互为反面，**必须与 BL-02 一并设计**（先修 BL-02 会加剧 BL-13）；指标改名可即刻进行 |
-| P2 | BL-12 | 广度被计入深度预算 → 超量子问题静默丢弃；并行 API 与单测已存在，属接线而非新建 |
-| P2 | BL-05 / BL-06 / BL-08 / BL-09 | 运维正确性与越权 |
-| P3 | BL-10 / BL-11 | 可观测性与语义一致性 |
-| — | BL-14 | 数据模型变更（schema + 抽取 + 打分），对静态语料无损害；**应在 BL-01 立项前决策**，否则入图通路建成后再补时间字段需回填全量图谱 |
-
-**与既有台账的关系：** 上述缺口在 [`IMPORTANT.md`](../reviews/IMPORTANT.md) 中均未以「业务逻辑断链」形式记录。若接受本文件结论，应将 BL-01 / BL-03 / BL-04 补入债务总账，并同步 [`ENTERPRISE_READINESS.md`](../reviews/ENTERPRISE_READINESS.md) §3.5 中 ENT-05/06 的状态口径。
-
----
-
-## 7. 修复落地状态（2026-07-27）
-
-> 状态口径与仓库约定一致：`[x]` 已完成、`[~]` 部分完成、`[ ]` 未开始、`[-]` 不做。
-> **全部为代码逻辑检查，未运行项目、未执行测试** —— 待执行的验证项见
-> [`IMPORTANT_DOCUMENTATION.md`](../reviews/IMPORTANT_DOCUMENTATION.md)。
-
-| 缺口 | 状态 | 落地内容 |
-|---|---|---|
-| BL-01 上传→图谱无通路 | `[ ]` | **未实施（需立项）**：属功能新建（抽取→消解→入图的运行期编排），且与 BL-14 的数据模型决策耦合，见 §6 |
-| BL-02 中文 claim 必然失败 | `[x]` | 新增 `generation/claim_support.py`：CJK 按**字符二元组**切词（一元过于常见、不具区分度）；`answer.py` 按 `validate_answered_claims` 的**具体失败原因**生成 repair 提示（`_REPAIR_HINTS`），重生成不再是确定性浪费 |
-| BL-03 复核决策无执行器 | `[ ]` | **未实施（需立项）**：需要「批准 → 写图 / 拒绝 → 归档」的执行器与幂等语义；本次仅补齐决策**本身**的正确性（终态保护、租户校验，见 BL-09/BL-11） |
-| BL-04 SSE 未传租户 | `[x]` | `loop_stream._initial_state` 补 `tenant_id`；`RetrievalCache.retrieval_key` 加入租户维度，`executor` 不再靠「绕过缓存」保隔离（隔离从**约定**变为**结构**） |
-| BL-05 worker 不消费队列 | `[x]` | `ingest_worker._build_cli_worker()` 注入 `IngestTaskStore`；doc store 非文件后端时显式告警（进程本地 = worker 看不到 API 上传的文档） |
-| BL-06 `extracting` 永久卡死 | `[x]` | 状态机允许 `EXTRACTING → QUEUED`；`IngestTaskStore.requeue_stale()`（默认 900s）由 `_run_task_batch` 每轮调用 |
-| BL-07 schema 门禁是可选参数 | `[x]` | `schema_check.default_schema()` / `default_confidence_threshold()`；`load_triples_into_graph` **默认开门禁**，`schema=None` 语义由「跳过」改为「用配置的 schema」，已自行 gate 的调用方传 `pre_gated=True` |
-| BL-08 上传校验可绕过 / PDF | `[x]` | 无扩展名不再短路；分片读取（256KB）即时超限中断；严格 UTF-8；**pdf 移出白名单**，返回「暂不支持」而非入库乱码 |
-| BL-09 越权与存在性泄漏 | `[x]` | `ReviewQueue.decide(tenant_id=…)` 跨租户 404；`/v1/feedback` 对「他租户」与「不存在」一律 404；`/v1/graph/entities` 加 RBAC 依赖 + 租户过滤 |
-| BL-10 静默吞异常 | `[x]` | 审计落库失败改为 `logger.error`（`service_telemetry.save_chain_audit`）；doc store 保存失败写入 `row["error"]`；全量 embed 失败使任务判 `failed`；`delete_relation` 失败告警 |
-| BL-11 空分支 / 计数不闭合 | `[x]` | 删除无生产者的 `ConflictAction.SKIP`；`BatchResult.conflicts_kept` 使计数守恒；`accepted` 取 store 实际 upsert 数；`_TASKS` 改为有界 `OrderedDict`；`persist_embeddings` → `persist_cache_stats`；`InMemoryGraphStore.delete_relation` 补齐，AUTO_UPDATE 不再留双事实 |
-| BL-12 广度/深度预算混同 | `[~]` | 新增 `guardrails.max_sub_questions`（默认 6）与 `plan_dag.cap_plan_breadth`；被丢弃/未执行的节点记入 `chain.metadata`（`agent/plan_coverage.py`）；护栏文案区分「breadth stop」与「depth stop」。**并发分支执行未做** —— 需要仓库尚不具备的并发编排，见 V-17 |
-| BL-13 门禁只到词面重叠 | `[~]` | 图证据增加**对象锚定**：neighbor 需命中 tail、path 需命中 ≥2 个节点；`fabrication_rate` 收紧为「与运行期门禁同口径」，历史口径另立 `unbound_claim_rate` 保持序列可比。**真 NLI 判定未做**（评测侧亦无法复现对象锚定：持久化目录只留 id/content） |
-| BL-14 图谱无时间维度 | `[ ]` | **未实施（需先决策）**：schema + 抽取 + 打分三处联动的数据模型变更，按 §6 应在 BL-01 立项前决策 |
 

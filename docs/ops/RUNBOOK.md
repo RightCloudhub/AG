@@ -28,6 +28,7 @@ Web 工作台：<http://localhost:8000/web>
 | `NEO4J_*` / `QDRANT_*` | 外部存储（`.env`；live 模式启动期强校验） |
 | `AGR_ALLOW_LLM=1` | API 启用真实 LLM |
 | `AGR_USE_LIVE_STORES=1` | API 使用 Neo4j / Qdrant |
+| `AGR_INGEST_INLINE=1` | API 进程内启动 ingest worker：上传 → 索引 → 抽取入图 → 冲突复核（离线模式下上传入图的唯一方式）；`AGR_INGEST_POLL_SECONDS` 调轮询间隔（默认 2） |
 | `AGR_REQUIRE_AUTH=1` | 强制 API Key（生产必开；未设时匿名归入 `default` 租户） |
 | `AGR_API_KEYS=tenant:key:role,...` | 租户密钥表；role ∈ `admin`/`operator`/`reader`（ENT-04）；兼容旧两段式 `tenant:key`（默认 reader） |
 | `AGR_RATE_LIMIT_QPS` / `AGR_RATE_LIMIT_CONCURRENT` | 全局默认限流（20 / 10）；per-tenant 覆盖见下方 `tenants:` 配置 |

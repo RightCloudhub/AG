@@ -206,6 +206,9 @@ class LLMProvider:
 class MockLLMProvider(LLMProvider):
     """Deterministic stub for unit tests — no network."""
 
+    # A canned stub cannot judge entailment; the answer gate skips the judge.
+    supports_entailment = False
+
     def __init__(
         self,
         responses: dict[str, str] | None = None,

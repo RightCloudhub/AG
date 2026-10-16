@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from agentic_graphrag.generation.claim_support import (
     DEFAULT_MIN_OVERLAP,
-    claim_supported_by,
+    claim_supported,
+    claim_supported_by,  # noqa: F401 — re-exported for older imports
     content_tokens,
 )
 from agentic_graphrag.generation.trace import Claim
@@ -100,8 +101,9 @@ def validate_answered_claims(
     - every claim needs ≥1 evidence_id
     - every claim must reference a retrieved candidate id
     - optional lexical support: claim tokens must overlap cited evidence text,
-      and graph evidence must be anchored on the entity it asserts
-      (not a full NLI check — see docs/design/BUSINESS_LOGIC.md BL-13)
+      graph evidence must be anchored on the entity it asserts, and the
+      relation the claim states must match the edge's relation (BL-13); the
+      live path adds an LLM entailment judge (``generation/entailment.py``)
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -149,13 +151,12 @@ def _any_candidate_supports(
     min_overlap: int,
     require_object_anchor: bool,
 ) -> bool:
-    claim_toks = content_tokens(claim.text)
     for eid in claim.evidence_ids:
         cand = by_id.get(eid)
         if cand is None:
             continue
-        if claim_supported_by(
-            claim_toks,
+        if claim_supported(
+            claim.text,
             cand,
             min_overlap=min_overlap,
             require_object_anchor=require_object_anchor,

@@ -18,6 +18,8 @@ from agentic_graphrag.generation.citations import (
     filter_claim_evidence_ids,
     validate_answered_claims,
 )
+from agentic_graphrag.generation.entailment import REPAIR_HINTS as ENTAILMENT_REPAIR_HINTS
+from agentic_graphrag.generation.entailment import judge_claims
 from agentic_graphrag.generation.offline_answer import offline_answer
 from agentic_graphrag.generation.trace import Claim, QueryStatus, ReasoningChain
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
@@ -62,6 +64,7 @@ _REPAIR_HINTS: dict[str, str] = {
         "evidence states it, drop the claim and lower status to partial or no_answer."
     ),
 }
+_REPAIR_HINTS.update(ENTAILMENT_REPAIR_HINTS)
 _DEFAULT_REPAIR_HINT = "Re-ground every claim in the evidence above, citing ids exactly as shown."
 
 
@@ -114,6 +117,8 @@ def _apply_payload(
     chain: ReasoningChain,
     payload: AnswerPayload,
     evidence: list[Candidate],
+    *,
+    llm: LLMProvider | None = None,
 ) -> tuple[ReasoningChain | None, str]:
     """Apply a validated payload.
 
@@ -129,6 +134,9 @@ def _apply_payload(
     claims = filter_claim_evidence_ids(payload.claims, evidence)
     require = payload.status in (QueryStatus.ANSWERED, QueryStatus.PARTIAL)
     reason = validate_answered_claims(claims, evidence, require_claims=require)
+    if not reason:  # rule gates passed → real entailment check on the live path (BL-13)
+        reason, report = judge_claims(claims, evidence, llm)
+        chain.metadata = {**(chain.metadata or {}), **report}
     if reason:
         return None, reason
 
@@ -240,7 +248,7 @@ def _generate_with_llm(
         guardrail_status=guardrail_status,
         tier=tier,
     )
-    applied, reason = _apply_payload(chain, payload, evidence)
+    applied, reason = _apply_payload(chain, payload, evidence, llm=llm)
     if applied is not None:
         return applied
     return _regenerate_after_intercept(
@@ -276,7 +284,7 @@ def _regenerate_after_intercept(
         repair_reason=reason,
         tier=tier,
     )
-    applied, retry_reason = _apply_payload(chain, retry, evidence)
+    applied, retry_reason = _apply_payload(chain, retry, evidence, llm=llm)
     if applied is not None:
         chain.metadata["citation_regenerated"] = True
         return applied

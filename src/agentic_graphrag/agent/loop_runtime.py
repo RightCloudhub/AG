@@ -23,6 +23,7 @@ from agentic_graphrag.agent.loop_handlers import (
 )
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps, CritiqueContext
+from agentic_graphrag.agent.parallel_branches import is_prefetched
 from agentic_graphrag.agent.plan_coverage import annotate_plan_coverage
 from agentic_graphrag.agent.plan_dag import cap_plan_breadth
 from agentic_graphrag.agent.planner import SubQuestion, plan
@@ -48,6 +49,7 @@ class AgentState(TypedDict, total=False):
     allow_llm: bool
     tenant_id: str
     dropped_sub_questions: list[str]
+    prefetched: dict[str, Any]
 
 
 class AgentRuntime:
@@ -115,7 +117,7 @@ class AgentRuntime:
 
     def node_executor(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
-        self.guards.on_hop_start()
+        self._start_node(state)
         hop = self.guards.state.hop
         if self.guards.state.tripped:
             return {
@@ -152,6 +154,16 @@ class AgentRuntime:
         if skipped is not None:
             return skipped
         return execute_subquestion(ctx)
+
+    def _start_node(self, state: AgentState) -> None:
+        """A node whose branch was retrieved concurrently stays on the current hop:
+        hops measure dependency depth, not breadth (BL-12)."""
+        sqs = list(state.get("sub_questions") or [])
+        idx = int(state.get("current_index") or 0)
+        if idx < len(sqs) and is_prefetched(state, str(sqs[idx].get("id"))):
+            self.guards.check_branch()
+        else:
+            self.guards.on_hop_start()
 
     def route_after_executor(self, state: AgentState) -> str:
         """Skip critic when hop already terminal (saves recursion budget)."""
