@@ -68,6 +68,18 @@
 | 5 | 状态外置（StateStore / TenantScope / outbox），部署拆分 | ⏳ |
 | 6 | LLM 中间件管道、检索管线化、GraphTraversal 下推、Evidence 分型 | ⏳ |
 
+## CI 门禁
+
+`.github/workflows/ci.yml` 与上述每阶段门禁一致，push 到 `main/master`、`feat/**`、`refactor/**` 以及所有 PR 时触发，三个 job 并行：
+
+| Job | 内容 |
+|---|---|
+| `lint` | `ruff check` + `ruff format --check`（src tests scripts）+ `scripts/check_code_metrics.py` |
+| `test` | `pytest tests/unit` + 覆盖率 ≥80%（忽略 `test_web_claude_ui.py`，见下） |
+| `eval-offline` | `agr-run-cases --no-llm --memory-graph`，agentic 与 `--enable-triage` 两条路径各须 ≥21/31（`scripts/check_eval_floor.py`），报告作为 artifact 上传 |
+
+全程离线：不启动 Neo4j/Qdrant，不需要 LLM key。`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` 等变量，避免外部环境覆盖用例自己设定的 Profile（此前在 `AGR_PROFILE` 已导出的 shell 里 `test_live_credentials_fail_fast` 会失败）。
+
 ## 兼容性
 
 - 旧导入路径全部保留为模块别名（`sys.modules` 指向同一模块对象），monkeypatch 任意一侧效果相同。

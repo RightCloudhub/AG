@@ -19,12 +19,17 @@ ruff check src tests scripts
 ruff format --check src tests scripts
 
 # Tests (CI gate: unit tests + coverage ≥80%). tests/ contains only tests/unit.
+# CI ignores tests/unit/test_web_claude_ui.py (pre-existing: web/static/* missing).
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 pytest tests/unit/test_scoring.py -q          # single file
 pytest tests/unit -k "guardrails" -q          # by keyword
 
-# Hard code-metrics gate (file ≤300 lines, function ≤50, nesting ≤3, ≤3 positional params, CC ≤10)
+# Hard code-metrics gate (file ≤300 lines, function ≤50, nesting ≤3, ≤3 positional params, CC ≤10) — CI-enforced
 python scripts/check_code_metrics.py
+
+# Offline eval floor (CI job eval-offline): ≥21/31 on poc_cases, with and without --enable-triage
+agr-run-cases --no-llm --memory-graph --cases evals/datasets/poc_cases.jsonl
+python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 21 --total 31
 
 # Offline dev loop — deterministic, no LLM, no Docker (run-cases loads seed triples itself)
 agr-run-cases --no-llm                        # 20 cases → reports/poc_run.jsonl + accuracy

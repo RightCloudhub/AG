@@ -1,15 +1,15 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.1（2026-07-21）
+**版本**：V1.2（2026-10-16，CI 增加代码指标与离线评测下限）
 
 | 强制层级 | 机制 |
 |---|---|
-| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`：ruff lint + format check + 单测 + 覆盖率 ≥80% |
-| 门禁脚本（提交前自查） | `scripts/check_code_metrics.py`、`scripts/g1_to_g2_gate.sh` |
+| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`，3 个并行 job：`lint`（ruff lint + format check + `check_code_metrics.py`）、`test`（单测 + 覆盖率 ≥80%）、`eval-offline`（`poc_cases` 离线评测，agentic 与 triage 两条路径均 ≥21/31，`scripts/check_eval_floor.py`） |
+| 门禁脚本（提交前自查） | `scripts/check_code_metrics.py`、`scripts/check_eval_floor.py`、`scripts/g1_to_g2_gate.sh` |
 | 评审约定（人工核查） | 本文件 §4~§9 |
 
-## 1. 代码硬指标（脚本强制）
+## 1. 代码硬指标（脚本 + CI 强制）
 
 对 `src/agentic_graphrag` 下所有 Python 代码生效，`python scripts/check_code_metrics.py` 必须通过：
 
@@ -34,6 +34,8 @@
 - `pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80` 必须通过。
 - **确定性优先**：单测一律不打真实 LLM / 真实网络——离线路径（内存图 + seed + MockLLM）或 stub。真实后端只进集成/回归脚本（`scripts/neo4j_regression.sh` 等）。
 - 覆盖率 **omit 名单**（`pyproject.toml`）是显式记录的债务：不得为规避覆盖率悄悄扩充；新增 omit 必须写明理由并在 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6 挂账。
+- 单测不得依赖外部环境变量：`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` / `AGR_USE_LIVE_STORES` / `AGR_ALLOW_LLM`，需要时在用例内 `monkeypatch.setenv`。
+- 离线评测下限（CI 强制）：`agr-run-cases --no-llm --memory-graph`（± `--enable-triage`）在 `evals/datasets/poc_cases.jsonl` 上不得低于 21/31；准确率提升后同步上调 `ci.yml` 中的 `POC_MIN_CORRECT`。
 - 每个 bugfix 附回归测试（先写失败测试复现，再修）。
 - Prompt（`configs/prompts/*.md`）变更不阻塞单测门禁，但**必须**跑 dev 评测集回归后合入。
 
