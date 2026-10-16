@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore
 
 
 @dataclass

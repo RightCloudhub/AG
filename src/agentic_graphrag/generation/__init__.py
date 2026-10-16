@@ -1,6 +1,6 @@
 """Answer generation and reasoning chain."""
 
-from agentic_graphrag.generation.trace import (
+from agentic_graphrag.core.reasoning import (
     SCHEMA_VERSION,
     ReasoningChain,
     ReasoningStep,

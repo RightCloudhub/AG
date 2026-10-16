@@ -13,11 +13,12 @@ import hashlib
 import json
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.versioning import IndexVersion
 
 _DEFAULT_TENANT = "default"
 _DEFAULT_USER = "anonymous"
@@ -94,23 +95,6 @@ class MemoryCache:
                 "hits": self.hits,
                 "misses": self.misses,
             }
-
-
-@dataclass
-class IndexVersion:
-    """Monotonic index version — bump after graph / vector / fulltext updates."""
-
-    version: int = 0
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def current(self) -> int:
-        with self._lock:
-            return self.version
-
-    def bump(self) -> int:
-        with self._lock:
-            self.version += 1
-            return self.version
 
 
 class RetrievalCache:

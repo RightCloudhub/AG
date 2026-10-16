@@ -20,8 +20,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from agentic_graphrag.generation.trace import Claim
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import Claim
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,12 @@ REPAIR_HINTS: dict[str, str] = {
     ),
 }
 
-_SYSTEM = (
-    "You are a strict fact-checker. For each numbered claim decide whether the cited "
-    "evidence ENTAILS it. Answer 'entailed' only if the evidence states the claim, "
-    "'contradicted' if it states otherwise, and 'not_enough_info' if it does not say. "
-    'Return JSON: {"verdicts": [{"index": 0, "label": "entailed"}]}'
-)
+
+def _system_prompt() -> str:
+    """Fact-checker system prompt from the prompt registry (configs/prompts/entailment.md)."""
+    from agentic_graphrag.config import load_prompt
+
+    return load_prompt("entailment").replace("# System", "", 1).strip()
 
 
 class Verdict(BaseModel):
@@ -70,7 +70,7 @@ def judge_claims(claims: list[Claim], evidence: list[Candidate], llm: Any) -> tu
     try:
         payload = _ask(claims, evidence, llm)
     except Exception as exc:  # noqa: BLE001 — abstain, never fail the answer on judge error
-        from agentic_graphrag.llm.budget import BudgetExceeded
+        from agentic_graphrag.governance.budget import BudgetExceeded
 
         if isinstance(exc, BudgetExceeded):
             raise
@@ -88,7 +88,7 @@ def _ask(claims: list[Claim], evidence: list[Candidate], llm: Any) -> VerdictPay
     by_id = {c.id: c for c in evidence}
     blocks = [_claim_block(i, claim, by_id) for i, claim in enumerate(claims)]
     messages = [
-        Message(role="system", content=_SYSTEM),
+        Message(role="system", content=_system_prompt()),
         Message(role="user", content="\n\n".join(blocks)),
     ]
     return complete_structured(llm, messages, VerdictPayload, tier=Tier.LIGHT, max_retries=1)

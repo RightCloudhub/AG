@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 from agentic_graphrag.config import AppConfig, resolve_path
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 def load_or_build_chunks(

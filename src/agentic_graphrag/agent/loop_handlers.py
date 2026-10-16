@@ -17,11 +17,10 @@ from agentic_graphrag.agent.parallel_branches import (
 )
 from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
-from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.retrieval.contracts import Candidate
-
-AgentState = dict[str, Any]
 
 
 @dataclass

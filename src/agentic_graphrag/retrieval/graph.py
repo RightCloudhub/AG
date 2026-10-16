@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, RelationRecord
 from agentic_graphrag.knowledge.temporal import validity_label
-from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Citation
 from agentic_graphrag.retrieval.graph_beam import (
     BeamConfig,
     BeamExpander,
@@ -22,7 +23,6 @@ from agentic_graphrag.retrieval.graph_beam import (
     relation_relevance,
 )
 from agentic_graphrag.retrieval.graph_paths import path_candidates, score_paths
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GraphRetrievalConfig

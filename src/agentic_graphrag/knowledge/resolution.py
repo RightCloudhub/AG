@@ -15,10 +15,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore
 from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore
 
 _ALIAS_SCORE = 0.95
 _NGRAM_N = 3

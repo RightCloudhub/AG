@@ -9,11 +9,11 @@ Focused multi-hop heuristics: :mod:`agentic_graphrag.generation.offline_heuristi
 
 from __future__ import annotations
 
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
 from agentic_graphrag.generation.citations import bind_claims_to_evidence
 from agentic_graphrag.generation.offline_edges import parse_edges
 from agentic_graphrag.generation.offline_heuristics import focused_extract
-from agentic_graphrag.generation.trace import Claim, QueryStatus, ReasoningChain
-from agentic_graphrag.retrieval.contracts import Candidate
 
 
 def offline_answer(

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agentic_graphrag.cli._common import _open_graph_store
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import (
     SchemaDefinition,
@@ -16,7 +17,6 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
     load_schema,
 )
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 def build_graph_main(argv: list[str] | None = None) -> None:
@@ -68,8 +68,8 @@ def _extract_triples(
     schema: SchemaDefinition,
 ) -> list[Triple]:
     from agentic_graphrag.config import build_llm_provider
+    from agentic_graphrag.governance.budget import BudgetTracker
     from agentic_graphrag.knowledge.extraction import RetryPolicy, run_extract_pipeline
-    from agentic_graphrag.llm.budget import BudgetTracker
     from agentic_graphrag.stores.doc_store import FileDocStore
 
     chunks_path = resolve_path(args.chunks or f"{cfg.paths.processed_dir}/chunks.jsonl")

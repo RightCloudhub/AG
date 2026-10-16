@@ -6,7 +6,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from agentic_graphrag.stores.interfaces import ChunkRecord, DocumentRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord, DocumentRecord
 
 _SUPPORTED = {".md", ".txt", ".html", ".htm"}
 

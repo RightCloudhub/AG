@@ -1,5 +1,16 @@
 """Storage adapters (Repository pattern — P2-ARCH-02 / NFR-10)."""
 
+from agentic_graphrag.core.ports.stores import (
+    ChunkRecord,
+    DocStore,
+    DocumentRecord,
+    EntityRecord,
+    FulltextStore,
+    GraphStore,
+    PathRecord,
+    RelationRecord,
+    VectorStore,
+)
 from agentic_graphrag.stores.factory import (
     GraphBackend,
     StoreBundle,
@@ -10,17 +21,6 @@ from agentic_graphrag.stores.factory import (
     create_live_bundle,
     create_offline_bundle,
     create_vector_store,
-)
-from agentic_graphrag.stores.interfaces import (
-    ChunkRecord,
-    DocStore,
-    DocumentRecord,
-    EntityRecord,
-    FulltextStore,
-    GraphStore,
-    PathRecord,
-    RelationRecord,
-    VectorStore,
 )
 
 __all__ = [

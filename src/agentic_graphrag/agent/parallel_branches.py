@@ -20,8 +20,8 @@ from typing import Any
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner import SubQuestion
-from agentic_graphrag.generation.trace import ToolCallTrace
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ToolCallTrace
 
 PREFETCH_KEY = "prefetched"
 PARALLEL_GROUPS_KEY = "parallel_branches"

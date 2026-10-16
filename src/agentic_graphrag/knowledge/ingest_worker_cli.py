@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import time
 
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
@@ -23,17 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 def build_cli_worker() -> IngestWorker:
+    from agentic_graphrag.bootstrap import build_stores, resolve_runtime_profile
     from agentic_graphrag.config import get_config, get_settings, resolve_path
-    from agentic_graphrag.stores.factory import create_live_bundle, create_offline_bundle
 
     cfg = get_config()
     settings = get_settings()
-    live = os.environ.get("AGR_USE_LIVE_STORES", "").lower() in {"1", "true"}
-    bundle = (
-        create_live_bundle(cfg=cfg, settings=settings)
-        if live
-        else create_offline_bundle(cfg=cfg, settings=settings)
-    )
+    rp = resolve_runtime_profile(llm_api_key=settings.llm_api_key)
+    bundle = build_stores(rp, cfg=cfg, settings=settings)
     if not bundle.docs.durable:
         logger.warning(
             "Doc store %s is process-local: this worker cannot see documents uploaded "

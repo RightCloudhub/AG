@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from agentic_graphrag.stores.interfaces import PathRecord
+from agentic_graphrag.core.ports.stores import PathRecord
 from agentic_graphrag.stores.neo4j_codec import node_to_entity, rel_to_record
 
 

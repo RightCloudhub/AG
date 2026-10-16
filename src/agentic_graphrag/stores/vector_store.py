@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
-from agentic_graphrag.stores.interfaces import ChunkRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord
 
 
 class QdrantVectorStore:
@@ -15,6 +15,10 @@ class QdrantVectorStore:
         self._client = QdrantClient(url=url)
         self._collection = collection
         self._dim: int | None = None
+
+    def ping(self) -> None:
+        """Raise if Qdrant is unreachable (used by the factory to fail fast)."""
+        self._client.get_collections()
 
     def ensure_collection(self, dim: int) -> None:
         from qdrant_client.http import models as qm

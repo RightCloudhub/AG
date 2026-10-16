@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
-from agentic_graphrag.stores.interfaces import GraphStore, RelationRecord
+from agentic_graphrag.core.ports.stores import GraphStore, RelationRecord
 
 logger = logging.getLogger(__name__)
 

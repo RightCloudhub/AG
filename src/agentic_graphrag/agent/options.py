@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor
     from agentic_graphrag.agent.guardrails import GuardrailConfig
-    from agentic_graphrag.llm.budget import BudgetTracker
+    from agentic_graphrag.governance.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
 
 

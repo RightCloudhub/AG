@@ -11,7 +11,7 @@ from agentic_graphrag.agent.critic_offline_rel import (
     hit_relevance,
 )
 from agentic_graphrag.agent.options import CritiqueContext
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
 
 _EVIDENCE_ID_CAP = 8
 _PARTIAL_CONTENT_MAX_LEN = 80

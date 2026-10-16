@@ -8,7 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
-from agentic_graphrag.api.errors import ApiError
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.knowledge_graph_browse import (
     DEFAULT_ENTITY_PAGE,
@@ -16,7 +15,8 @@ from agentic_graphrag.api.routes.knowledge_graph_browse import (
     entity_page,
 )
 from agentic_graphrag.api.routes.workspace_tasks import list_cached_tasks
-from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.app.errors import ApiError
+from agentic_graphrag.app.query_service import QueryService
 
 router = APIRouter(prefix="/v1", tags=["workspace"])
 

@@ -9,8 +9,8 @@ from typing import Any
 
 from fastapi import Request, UploadFile
 
-from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
-from agentic_graphrag.stores.interfaces import DocumentRecord
+from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.core.ports.stores import DocumentRecord
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ def task_row(task_id: str, tenant_id: str, saved: list[dict[str, str]]) -> dict[
 def emit_audit(request: Request, event: dict[str, Any]) -> None:
     """Best-effort audit emission; audit storage must not break the API operation."""
     try:
-        from agentic_graphrag.observability.audit_events import emit_audit_event
+        from agentic_graphrag.governance.audit_events import emit_audit_event
 
         principal = getattr(request.state, "principal", None)
         tenant_id = principal.tenant_id if principal else "default"

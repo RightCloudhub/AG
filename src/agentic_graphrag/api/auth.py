@@ -23,8 +23,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from agentic_graphrag.api.envelope import fail
-from agentic_graphrag.api.errors import RATE_LIMITED
 from agentic_graphrag.api.rbac import KeyInfo, Role, parse_api_keys_with_roles
+from agentic_graphrag.app.errors import RATE_LIMITED
 from agentic_graphrag.observability.otel_bridge import extract_otel_context
 
 _USER_ID_DIGEST_LEN = 16
@@ -253,7 +253,7 @@ def _clear_request_context() -> None:
 
 def _emit_auth_failure(request: Request, tenant_id: str) -> None:
     try:
-        from agentic_graphrag.observability.audit_events import AUTH_FAILURE, emit_audit_event
+        from agentic_graphrag.governance.audit_events import AUTH_FAILURE, emit_audit_event
 
         emit_audit_event(
             AUTH_FAILURE,
@@ -267,8 +267,8 @@ def _emit_auth_failure(request: Request, tenant_id: str) -> None:
 
 def _emit_rate_limit(principal: Principal) -> None:
     try:
-        from agentic_graphrag.observability.audit_events import RATE_LIMITED as RL_EVENT
-        from agentic_graphrag.observability.audit_events import emit_audit_event
+        from agentic_graphrag.governance.audit_events import RATE_LIMITED as RL_EVENT
+        from agentic_graphrag.governance.audit_events import emit_audit_event
 
         emit_audit_event(
             RL_EVENT,

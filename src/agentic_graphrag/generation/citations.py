@@ -7,14 +7,14 @@ actually exist in the retrieved candidate set. Failures trigger regenerate
 
 from __future__ import annotations
 
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import Claim
 from agentic_graphrag.generation.claim_support import (
     DEFAULT_MIN_OVERLAP,
     claim_supported,
     claim_supported_by,  # noqa: F401 — re-exported for older imports
     content_tokens,
 )
-from agentic_graphrag.generation.trace import Claim
-from agentic_graphrag.retrieval.contracts import Candidate
 
 
 def evidence_id_set(evidence: list[Candidate]) -> set[str]:

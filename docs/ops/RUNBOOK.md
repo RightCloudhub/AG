@@ -13,9 +13,23 @@ uvicorn agentic_graphrag.api.app:create_app --factory --host 0.0.0.0 --port 8000
 Web 工作台：<http://localhost:8000/web>
 
 启动期（lifespan）自动执行：`setup_logging()`（ENT-01）→ 可选 `setup_otel()`（ENT-08，
-`AGR_OTEL_ENABLED=1` 时）→ **凭据 fail-fast 校验**（ENT-06b）：
-`AGR_USE_LIVE_STORES=1` 要求 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 全非空；
-`AGR_ALLOW_LLM=1` 要求 `LLM_API_KEY` 非空且非占位符 —— 缺失直接 `RuntimeError` 拒绝启动。
+`AGR_OTEL_ENABLED=1` 时）→ **解析运行 Profile 并按能力矩阵装配**（`bootstrap/`）→ **凭据 fail-fast 校验**（ENT-06b）：
+`live` Profile（或旧开关 `AGR_USE_LIVE_STORES=1`）要求 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 全非空，
+`hybrid` 要求 `NEO4J_*`；`AGR_ALLOW_LLM=1` 要求 `LLM_API_KEY` 非空且非占位符 —— 缺失直接拒绝启动。
+
+**不再有隐式回退**：Neo4j 或 Qdrant 不可达时启动失败（`ProfileError`），不会悄悄换成内存图或内存向量。
+需要“Neo4j + 内存向量”时请显式设置 `AGR_PROFILE=hybrid`。
+
+### 运行 Profile
+
+| `AGR_PROFILE` | 图 | 向量 | 缓存 | seed 图 | 说明 |
+|---|---|---|---|---|---|
+| `offline`（默认） | 内存 | 内存 | 开 | 加载 | 本地 / CI |
+| `live` | Neo4j | Qdrant | 开 | 不加载 | 生产；旧开关 `AGR_USE_LIVE_STORES=1` 等价 |
+| `hybrid` | Neo4j | 内存 | 开 | 不加载 | 显式混合部署 |
+| `eval` | 内存 | 内存 | 关 | 加载 | `agr-run-cases` 默认使用 |
+
+`AGR_ALLOW_LLM=1`（且 `LLM_API_KEY` 有效）在所有 Profile 下都会启用真实 LLM；`eval` 下真实 LLM 的响应可从 `data/cache/llm` 磁盘缓存回放。
 
 ## 环境变量
 
@@ -26,8 +40,9 @@ Web 工作台：<http://localhost:8000/web>
 |------|------|
 | `LLM_API_KEY` / `LLM_BASE_URL` | 聊天 LLM（`.env`） |
 | `NEO4J_*` / `QDRANT_*` | 外部存储（`.env`；live 模式启动期强校验） |
-| `AGR_ALLOW_LLM=1` | API 启用真实 LLM |
-| `AGR_USE_LIVE_STORES=1` | API 使用 Neo4j / Qdrant |
+| `AGR_PROFILE` | 运行 Profile：`offline`（默认）/ `live` / `hybrid` / `eval`，非法值拒绝启动 |
+| `AGR_ALLOW_LLM=1` | 启用真实 LLM（需有效 `LLM_API_KEY`） |
+| `AGR_USE_LIVE_STORES=1` | 旧开关，等价于 `AGR_PROFILE=live`（未设置 `AGR_PROFILE` 时生效） |
 | `AGR_INGEST_INLINE=1` | API 进程内启动 ingest worker：上传 → 索引 → 抽取入图 → 冲突复核（离线模式下上传入图的唯一方式）；`AGR_INGEST_POLL_SECONDS` 调轮询间隔（默认 2） |
 | `AGR_REQUIRE_AUTH=1` | 强制 API Key（生产必开；未设时匿名归入 `default` 租户） |
 | `AGR_API_KEYS=tenant:key:role,...` | 租户密钥表；role ∈ `admin`/`operator`/`reader`（ENT-04）；兼容旧两段式 `tenant:key`（默认 reader） |

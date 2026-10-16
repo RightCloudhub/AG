@@ -31,6 +31,10 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     from agentic_graphrag.agent.guardrails import GuardrailConfig
     from agentic_graphrag.eval.scoring import write_accuracy_summary
 
+    if not args.direct:
+        _run_cases_via_app(args, cases_path, report_dir)
+        return
+
     triples = load_seed_triples(resolve_path(args.seed_triples))
     known_entities = known_entity_names(triples)
     use_memory = args.memory_graph or (args.no_llm and not args.neo4j)
@@ -89,11 +93,51 @@ def _parse_run_cases(argv: list[str] | None) -> argparse.Namespace:
         help="Force agentic path even when triage is enabled.",
     )
     parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="Legacy: call the agent loop directly instead of the production QueryApp path.",
+    )
+    parser.add_argument(
         "--run-name",
         default="poc_run",
         help="Output JSONL stem (default: poc_run).",
     )
     return parser.parse_args(argv)
+
+
+def _run_cases_via_app(args: argparse.Namespace, cases_path, report_dir) -> None:
+    from agentic_graphrag.cli.cases_run import build_eval_app, run_case_row_via_app
+    from agentic_graphrag.eval.scoring import write_accuracy_summary
+
+    use_neo4j = bool(args.neo4j)
+    app = build_eval_app(
+        no_llm=args.no_llm,
+        use_neo4j=use_neo4j,
+        seed_triples=resolve_path(args.seed_triples),
+        enable_triage=args.enable_triage and not args.force_agentic,
+    )
+    print(f"Eval via QueryApp (profile={app.profile}, llm={'live' if app.allow_llm else 'off'})")
+    cases = [
+        json.loads(line)
+        for line in cases_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    report_path = report_dir / f"{args.run_name}.jsonl"
+    with report_path.open("w", encoding="utf-8") as out:
+        for case in cases:
+            row = run_case_row_via_app(case, app=app, force_agentic=args.force_agentic)
+            out.write(json.dumps(row, ensure_ascii=False) + "\n")
+            print(
+                f"[{case.get('id')}] {row.get('status') or 'error'} "
+                f"route={row.get('route', '-')} steps={row.get('steps')} "
+                f"graph={row.get('graph_evidence', 0)} — "
+                f"{case['question'][:50]}"
+            )
+    app.close()
+    print(f"Report written to {report_path}")
+    acc_path = report_dir / "poc_accuracy.json"
+    acc = write_accuracy_summary(report_path, acc_path)
+    print(f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
 
 
 def _write_case_report(

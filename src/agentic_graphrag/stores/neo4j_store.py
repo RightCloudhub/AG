@@ -12,7 +12,7 @@ from typing import Any
 
 from neo4j import Driver, GraphDatabase
 
-from agentic_graphrag.stores.interfaces import EntityRecord, PathRecord, RelationRecord
+from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.stores.neo4j_codec import (
     attrs_for_neo4j,
     attrs_from_neo4j,
@@ -240,6 +240,27 @@ class Neo4jGraphStore:
             nodes = session.run("MATCH (n) RETURN count(n) AS c").single()["c"]
             rels = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
         return {"nodes": int(nodes), "relationships": int(rels)}
+
+    def list_entities(
+        self, *, limit: int = 50, offset: int = 0, tenant_id: str | None = None
+    ) -> list[EntityRecord]:
+        """Page through entities; same tenant semantics as the in-memory store.
+
+        ``tenant_id=None`` lists everything; untagged (seed) entities are shared;
+        ``default`` sees only ``default``-tagged entities plus shared ones.
+        """
+        lim = max(0, min(int(limit), 100_000))
+        off = max(0, int(offset))
+        if lim == 0:
+            return []
+        query = (
+            "MATCH (e) WHERE e.name IS NOT NULL "
+            "AND ($tenant_id IS NULL OR coalesce(e.tenant_id, '') IN [$tenant_id, '']) "
+            "RETURN e ORDER BY head(labels(e)), toLower(e.name) SKIP $offset LIMIT $limit"
+        )
+        with self._driver.session() as session:
+            rows = session.run(query, tenant_id=tenant_id, offset=off, limit=lim)
+            return [node_to_entity(rec["e"]) for rec in rows]
 
     def list_relations(self, limit: int = 50_000) -> list[RelationRecord]:
         """Enumerate relations for incremental conflict indexing."""

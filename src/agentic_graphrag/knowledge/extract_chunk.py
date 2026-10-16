@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.extract_core import llm_extract_raw, stamp_provenance
 from agentic_graphrag.knowledge.extract_types import (
     ChunkExtractResult,
@@ -19,7 +20,6 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
 )
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 _MS_PER_S = 1000
 

@@ -6,8 +6,8 @@ import argparse
 import json
 
 from agentic_graphrag.config import get_config, get_settings, resolve_path
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 def index_main(argv: list[str] | None = None) -> None:

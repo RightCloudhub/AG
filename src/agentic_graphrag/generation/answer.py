@@ -11,6 +11,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
 
 # Re-export for older imports / tests
 from agentic_graphrag.generation.citations import (
@@ -20,11 +22,16 @@ from agentic_graphrag.generation.citations import (
 )
 from agentic_graphrag.generation.entailment import REPAIR_HINTS as ENTAILMENT_REPAIR_HINTS
 from agentic_graphrag.generation.entailment import judge_claims
+from agentic_graphrag.generation.evidence_catalog import (  # noqa: F401 — re-exported
+    EVIDENCE_CATALOG_LIMIT,
+    EVIDENCE_CONTENT_CHARS,
+    _attach_evidence_catalog,
+    _catalog_entry,
+)
 from agentic_graphrag.generation.offline_answer import offline_answer
-from agentic_graphrag.generation.trace import Claim, QueryStatus, ReasoningChain
+from agentic_graphrag.generation.verdict import report_gap
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.retrieval.contracts import Candidate
 
 
 class AnswerPayload(BaseModel):
@@ -32,11 +39,6 @@ class AnswerPayload(BaseModel):
     status: QueryStatus
     claims: list[Claim] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
-
-
-# Persisted-evidence caps: bound audit-row size without dropping citable rows.
-EVIDENCE_CATALOG_LIMIT = 50
-EVIDENCE_CONTENT_CHARS = 800
 
 
 # Keyed by the exact reasons ``validate_answered_claims`` returns. The regenerate
@@ -78,32 +80,6 @@ def _format_evidence(evidence: list[Candidate]) -> str:
     for c in evidence:
         lines.append(f"[{c.id}] ({c.type}, score={c.score:.3f}) {c.content[:500]}")
     return "\n".join(lines) if lines else "(no evidence)"
-
-
-def _attach_evidence_catalog(chain: ReasoningChain, evidence: list[Candidate]) -> None:
-    """Persist evidence id+content so API/UI can resolve citation clicks."""
-    catalog = [_catalog_entry(c) for c in evidence[:EVIDENCE_CATALOG_LIMIT]]
-    chain.metadata = {**(chain.metadata or {}), "evidence": catalog}
-
-
-def _catalog_entry(candidate: Candidate) -> dict[str, object]:
-    """One catalog row, flagged when its content was cut.
-
-    ``truncated`` is load-bearing downstream: ``eval/metrics_evidence.py``
-    re-checks claim↔evidence overlap against *this* persisted text, so a
-    supporting token living past the cut would make the eval gate stricter than
-    the runtime gate it exists to mirror (BL-13). The flag lets it abstain
-    instead of accusing the row of fabricating.
-    """
-    content = candidate.content or ""
-    source = candidate.source
-    return {
-        "id": candidate.id,
-        "content": content[:EVIDENCE_CONTENT_CHARS],
-        "truncated": len(content) > EVIDENCE_CONTENT_CHARS,
-        "source": source.value if hasattr(source, "value") else str(source),
-        "score": candidate.score,
-    }
 
 
 def _split(text: str) -> tuple[str, str]:
@@ -186,8 +162,13 @@ def generate_answer(
     guardrail_status: str = "ok",
     allow_llm: bool = True,
     tier: Tier = Tier.STRONG,
+    report_evidence_gaps: bool = False,
 ) -> ReasoningChain:
-    """Generate final answer into the reasoning chain with citation intercept."""
+    """Generate the answer with citation intercept.
+
+    ``report_evidence_gaps``: report missing-evidence rejections as
+    ``metadata.evidence_gap`` (see :mod:`.verdict`) instead of regenerating.
+    """
     _attach_evidence_catalog(chain, evidence)
     if not evidence:
         chain.honest_fallback("no evidence retrieved")
@@ -215,20 +196,27 @@ def generate_answer(
             conclusions=conclusions,
             guardrail_status=guardrail_status,
             tier=tier,
+            report_evidence_gaps=report_evidence_gaps,
         )
     except Exception as exc:  # noqa: BLE001 — degrade, do not 500 the API
-        # Upstream LLM timeouts / 5xx / circuit open: still answer extractively.
-        from agentic_graphrag.llm.budget import BudgetExceeded
+        return _degrade(exc, chain, evidence, conclusions=conclusions)
 
-        if isinstance(exc, BudgetExceeded):
-            raise
-        chain.metadata = {
-            **(chain.metadata or {}),
-            "llm_degraded": True,
-            "llm_error": type(exc).__name__,
-            "llm_error_msg": str(exc)[:200],
-        }
-        return offline_answer(chain, evidence, conclusions)
+
+def _degrade(
+    exc: Exception, chain: ReasoningChain, evidence: list[Candidate], *, conclusions: str
+) -> ReasoningChain:
+    """Upstream LLM timeouts / 5xx / circuit open: still answer extractively."""
+    from agentic_graphrag.governance.budget import BudgetExceeded
+
+    if isinstance(exc, BudgetExceeded):
+        raise exc
+    chain.metadata = {
+        **(chain.metadata or {}),
+        "llm_degraded": True,
+        "llm_error": type(exc).__name__,
+        "llm_error_msg": str(exc)[:200],
+    }
+    return offline_answer(chain, evidence, conclusions)
 
 
 def _generate_with_llm(
@@ -239,6 +227,7 @@ def _generate_with_llm(
     conclusions: str,
     guardrail_status: str,
     tier: Tier,
+    report_evidence_gaps: bool = False,
 ) -> ReasoningChain:
     payload = _llm_answer(
         chain,
@@ -251,6 +240,8 @@ def _generate_with_llm(
     applied, reason = _apply_payload(chain, payload, evidence, llm=llm)
     if applied is not None:
         return applied
+    if report_evidence_gaps and report_gap(chain, reason, payload.missing_info):
+        return chain  # rewording cannot fix missing evidence: back to retrieval
     return _regenerate_after_intercept(
         chain,
         evidence,

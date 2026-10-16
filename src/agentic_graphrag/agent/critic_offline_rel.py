@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
 
 _PARENT_RELS = frozenset({"PARENT_OF", "OWNS"})
 _SUBSIDIARY_RELS = frozenset({"SUBSIDIARY_OF"})

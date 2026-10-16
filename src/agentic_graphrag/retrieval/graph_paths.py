@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.ports.stores import PathRecord
 from agentic_graphrag.retrieval.graph_beam import edge_score, path_signature
-from agentic_graphrag.stores.interfaces import PathRecord
 
 _PATH_LENGTH_BONUS = 0.01
 

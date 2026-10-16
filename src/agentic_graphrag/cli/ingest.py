@@ -7,9 +7,9 @@ import json
 
 from agentic_graphrag.cli._common import _ensure_dirs
 from agentic_graphrag.config import get_config, resolve_path
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
 from agentic_graphrag.stores.doc_store import FileDocStore
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 def ingest_main(argv: list[str] | None = None) -> None:

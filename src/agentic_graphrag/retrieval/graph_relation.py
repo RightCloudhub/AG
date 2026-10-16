@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 
+from agentic_graphrag.core.ports.stores import EntityRecord, RelationRecord
 from agentic_graphrag.knowledge.temporal import temporal_weight
-from agentic_graphrag.stores.interfaces import EntityRecord, RelationRecord
 
 RelationEmbedSim = Callable[[str, str | None], float | None]
 

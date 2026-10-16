@@ -9,6 +9,7 @@ from typing import Any
 
 from agentic_graphrag.cli._common import _open_graph_store
 from agentic_graphrag.config import AppConfig, Settings, resolve_path
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
@@ -16,7 +17,6 @@ from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
-from agentic_graphrag.stores.interfaces import ChunkRecord
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore, QdrantVectorStore
 
 
@@ -230,3 +230,51 @@ def _error_row(case: dict[str, Any], q: str, exc: Exception) -> dict[str, Any]:
         },
         "error": str(exc),
     }
+
+
+def build_eval_app(*, no_llm: bool, use_neo4j: bool, seed_triples: Path, enable_triage: bool):
+    """QueryApp wired by the ``eval`` profile (or ``hybrid`` for ``--neo4j``).
+
+    Refactor §8.1: evaluation runs the production path (budget, pipeline,
+    audit, metrics) with answer/retrieval caches off.
+    """
+    from agentic_graphrag.app import QueryApp
+    from agentic_graphrag.bootstrap import (
+        CAPABILITY_MATRIX,
+        LLMMode,
+        Profile,
+        RuntimeProfile,
+    )
+    from agentic_graphrag.config import get_settings
+
+    profile = Profile.HYBRID if use_neo4j else Profile.EVAL
+    key = get_settings().llm_api_key
+    live = (not no_llm) and bool(key) and "your-key" not in key
+    rp = RuntimeProfile(
+        profile=profile,
+        caps=CAPABILITY_MATRIX[profile],
+        llm_mode=LLMMode.LIVE if live else LLMMode.OFF,
+    )
+    app = QueryApp.create_for_profile(rp, seed_triples=seed_triples)
+    app.enable_cache = False
+    if app.retrieval_cache is not None and not CAPABILITY_MATRIX[profile].retrieval_cache:
+        app.retrieval_cache = None
+    app.enable_triage = enable_triage
+    return app
+
+
+def run_case_row_via_app(
+    case: dict[str, Any], *, app: Any, force_agentic: bool = False
+) -> dict[str, Any]:
+    from agentic_graphrag.app.contracts import QueryRequest
+
+    q = case["question"]
+    try:
+        chain = app.run_query_chain(
+            QueryRequest(question=q, force_agentic=force_agentic),
+            tenant_id="eval",
+            user_id="eval",
+        )
+        return _success_row(case, q, chain)
+    except Exception as exc:
+        return _error_row(case, q, exc)

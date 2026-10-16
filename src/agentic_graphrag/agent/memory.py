@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
 
 
 def _normalize(text: str) -> str:

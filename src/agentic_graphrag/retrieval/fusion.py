@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from agentic_graphrag.retrieval.contracts import (
+from agentic_graphrag.core.evidence import (
     Candidate,
     CandidateSource,
     concat_candidates,

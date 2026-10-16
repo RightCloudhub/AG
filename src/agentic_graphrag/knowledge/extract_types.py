@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.schema_check import ExtractResult, SchemaDefinition, Triple
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 class ExtractStatus(StrEnum):

@@ -1,7 +1,7 @@
 """Shared agent-loop routing policy."""
 
 from agentic_graphrag.agent.triage import should_escalate_fast_path
-from agentic_graphrag.generation.trace import ReasoningChain
+from agentic_graphrag.core.reasoning import ReasoningChain
 
 
 def should_escalate_chain(chain: ReasoningChain) -> bool:

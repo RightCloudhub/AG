@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.agent.entities import is_stopword_entity
-from agentic_graphrag.generation.trace import ToolCallTrace
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ToolCallTrace
 from agentic_graphrag.retrieval.fusion import fuse_candidates
 
 if TYPE_CHECKING:
@@ -34,11 +34,13 @@ def dispatch(
     sub_question: str,
     tenant_id: str | None = None,
 ) -> list[Candidate]:
-    handler = TOOL_HANDLERS.get(tool)
-    if handler is None:
+    """Route a tool call through the executor's registry (single dispatch point)."""
+    registry = executor.tools
+    if not registry.has(tool):
         return []
-    # tenant_id MUST be passed by keyword — handlers declare it keyword-only.
-    return handler(executor, args, sub_question, tenant_id=tenant_id)
+    return registry.invoke(
+        tool, executor=executor, args=args, sub_question=sub_question, tenant_id=tenant_id
+    )
 
 
 def run_tool_specs(

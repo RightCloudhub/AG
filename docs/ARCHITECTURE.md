@@ -19,99 +19,121 @@
 
 ## 0. 总览
 
+> 本文已同步架构重构（分支 `refactor/arch-v2`）。重构计划与逐项状态见 [`design/REFACTOR_PLAN.md`](./design/REFACTOR_PLAN.md)。
+
 ```mermaid
 flowchart TD
-    subgraph ENTRY["接入层"]
+    subgraph DRV["驱动层"]
         WEB["web/ Vue 3 工作台"]
-        API["api/ FastAPI /v1/*"]
+        API["api/ FastAPI /v1/*（仅 HTTP 驱动）"]
         CLI["cli/ agr-*"]
+        WK["ingest worker"]
+        EVL["eval（agr-run-cases）"]
     end
-    subgraph APP["应用层"]
-        SVC["api/service QueryService"]
-        AGENT["agent/ 分诊 · Fast Path · LangGraph 循环"]
-        GEN["generation/ 答案 · 引用 · ReasoningChain"]
+    subgraph APP["应用层 app/"]
+        QA["QueryApp（=QueryService）"]
+        IA["IngestApp"]
+        RA["ReviewApp"]
     end
-    subgraph DOMAIN["领域层"]
+    subgraph DOM["领域层"]
+        AGENT["agent/ QueryPipeline · LangGraph · ToolRegistry"]
         RET["retrieval/ 向量 · 图 Beam · BM25 · RRF"]
-        KG["knowledge/ 接入 · 抽取 · 校验 · 消歧 · 增量 · 复核"]
+        GEN["generation/ Compose · Verify · Verdict"]
+        KG["knowledge/ 抽取 · 校验 · 消歧 · 增量 · 复核"]
     end
-    subgraph INFRA["基础设施"]
-        STORES["stores/ Protocol + factory"]
-        LLM["llm/ Provider · 预算 · 熔断"]
-        OBS["observability/ 日志 · trace · 指标 · 审计"]
+    subgraph CORE["core/ 共享内核"]
+        CT["契约 Candidate · ReasoningChain"]
+        PT["端口 Graph · Vector · Fulltext · Doc · State · LLMClient"]
+        EVT["领域事件 GraphCommitted · IndexUpdated · ReviewDecided + EventBus"]
+        VER["IndexVersion"]
     end
-    WEB --> API --> SVC --> AGENT
-    CLI --> AGENT
-    CLI --> KG
-    AGENT --> RET --> STORES
-    AGENT --> GEN
-    KG --> STORES
-    AGENT -.-> LLM
-    KG -.-> LLM
-    GEN -.-> LLM
-    OBS -.-> API
-    OBS -.-> AGENT
-    STORES --> BACK[("InMemory / File / Neo4j / Qdrant")]
+    subgraph X["横切"]
+        GOV["governance/ 预算 · 审计 · 脱敏 · 保留期"]
+        OBS["observability/ 日志 · trace · 指标 · OTel"]
+        PRM["prompts/ 版本化 Prompt"]
+    end
+    subgraph ADP["适配器"]
+        STORES["stores/ InMemory · File · Neo4j · Qdrant · BM25"]
+        LLM["llm/ LLMProvider · Mock · 熔断 · 结构化输出"]
+    end
+    BOOT["bootstrap/ 组合根 + Profile（offline · live · hybrid · eval）"]
+    WEB --> API
+    API --> APP
+    CLI --> APP
+    WK --> APP
+    EVL --> APP
+    APP --> DOM --> CORE
+    STORES -. 实现 .-> PT
+    LLM -. 实现 .-> PT
+    BOOT --> STORES
+    BOOT -. 装配 .-> APP
 ```
 
-依赖方向自上而下：上层只依赖下层的 **Protocol**（`stores/interfaces.py`、`llm/interfaces.py`），具体后端只在 `stores/factory.py` 组合根中装配。`langgraph` 依赖限定在 `agent/` 内。
+依赖方向自上而下：驱动层只调用 `app/`；领域层只依赖 `core/` 的契约与端口；`core/` 不依赖项目内任何其他包（有单测守护）。具体后端只在 `bootstrap/`（Profile → `stores/factory.create_bundle`）中装配，**不存在隐式回退**。`langgraph` 依赖限定在 `agent/` 内。旧的导入路径（如 `api.service`、`retrieval.contracts`、`generation.trace`、`stores.interfaces`、`llm.budget`）保留为模块别名，指向同一个模块对象。
 
 | 目录 | 职责 | 关键文件 |
 |---|---|---|
-| `api/` | HTTP 接入、鉴权限流、RBAC、SSE、应用服务 | `app.py` `auth.py` `rbac.py` `service*.py` `routes/` |
-| `cli/` | `agr-*` 命令行入口 | `ingest.py` `index_cmd.py` `graph_cmd.py` `cases_run.py` |
-| `agent/` | 分诊、Fast Path、Planner/Executor/Critic 状态机、护栏、记忆 | `loop.py` `loop_runtime.py` `triage.py` `planner.py` `executor.py` `critic.py` `guardrails.py` |
-| `retrieval/` | 三路检索、图 Beam、RRF 融合、缓存 | `graph.py` `graph_beam.py` `fusion.py` `cache.py` `contracts.py` |
-| `knowledge/` | 文档接入、三元组抽取、Schema 校验、实体消歧、增量更新、复核队列 | `extract_pipeline.py` `schema_check.py` `resolution.py` `incremental.py` `review/queue.py` |
-| `stores/` | 存储协议与实现 | `interfaces.py` `factory.py` `memory_graph.py` `neo4j_store.py` `vector_store.py` |
-| `llm/` | Provider 抽象、结构化输出、三级预算、熔断 | `provider.py` `structured.py` `budget*.py` `circuit.py` |
-| `generation/` | 答案生成、引用绑定、置信度、推理链、审计存储 | `answer.py` `citations.py` `trace.py` `audit_store.py` |
-| `observability/` | JSON 日志、trace、Prometheus、安全审计、PII 脱敏、OTel | `logging_setup.py` `metrics.py` `audit_events.py` `redaction.py` |
+| `core/` | 共享契约、端口、领域事件、索引版本 | `evidence.py` `reasoning.py` `events.py` `versioning.py` `ports/{stores,state,llm}.py` |
+| `bootstrap/` | 组合根：Profile、能力矩阵、存储装配 | `profile.py` `stores.py` |
+| `app/` | 应用层用例（所有驱动共用） | `query_service.py`(QueryApp) `query_run.py` `query_stream.py` `ingest_app.py` `review_app.py` `write_path.py` `contracts.py` `errors.py` |
+| `api/` | HTTP 驱动：鉴权限流、RBAC、SSE、路由 | `app.py` `auth.py` `rbac.py` `sse.py` `routes/` |
+| `cli/` | `agr-*` 命令行驱动 | `ingest.py` `index_cmd.py` `graph_cmd.py` `cases.py` `cases_run.py` |
+| `agent/` | QueryPipeline（路由 + 策略）、LangGraph 状态机、工具注册表、护栏、记忆 | `pipeline.py` `loop.py` `loop_runtime.py` `state.py` `tools/registry.py` `executor*.py` `critic.py` `guardrails.py` |
+| `retrieval/` | 三路检索、图 Beam、RRF 融合、缓存 | `graph.py` `graph_beam.py` `fusion.py` `cache.py` |
+| `knowledge/` | 文档接入、抽取、Schema 校验、消歧、增量更新、复核 | `extract_pipeline.py` `graph_ingest.py` `incremental.py` `review/` |
+| `stores/` | 存储适配器与工厂 | `factory.py` `memory_graph.py` `neo4j_store.py` `vector_store.py` |
+| `llm/` | Provider 适配器、结构化输出、熔断 | `provider.py` `structured.py` `circuit.py` |
+| `generation/` | 答案组装、引用与蕴含校验、Verdict 分类、置信度 | `answer.py` `citations.py` `entailment.py` `verdict.py` `confidence.py` |
+| `governance/` | 预算（唯一计量）、推理链审计、安全审计、PII 脱敏、保留期 | `budget.py` `budget_policy.py` `audit_store.py` `audit_events.py` `redaction.py` `retention.py` |
+| `observability/` | 遥测：JSON 日志、trace、Prometheus、OTel | `logging_setup.py` `trace.py` `metrics.py` `otel_bridge.py` |
+| `prompts/` | Prompt 版本登记（内容哈希） | `__init__.py`；Prompt 文本在 `configs/prompts/*.md` |
 | `eval/` | 金标生成、评分、基线、坏例归因 | `gold_gen.py` `scoring.py` `baseline_rag.py` `badcase.py` |
 
 ---
 
-## 1. 接入层 api / cli / web
+## 1. 驱动层与应用层 api / cli / app
 
 ```mermaid
 flowchart LR
     C["客户端 / Web 工作台"] --> MW["AuthRateLimitMiddleware<br/>API Key → Principal(tenant, user, role)<br/>QPS · 并发限流"]
-    MW --> R{"routes/"}
+    MW --> R{"api/routes/"}
     R --> RQ["query.py<br/>/v1/query · /v1/query/stream"]
-    R --> RK["knowledge*.py<br/>/v1/docs · /v1/ingest-tasks · /v1/graph/entities"]
-    R --> RW["workspace*.py<br/>/v1/me · /v1/review-queue · /v1/feedback"]
+    R --> RK["knowledge*.py<br/>/v1/docs · /v1/ingest-tasks · /v1/review-queue"]
+    R --> RW["workspace*.py<br/>/v1/me · /v1/feedback"]
     R --> RA["admin.py<br/>/v1/metrics · /v1/traces · /v1/budget · /v1/audit-events"]
-    RQ --> SVC["QueryService<br/>答案缓存 · 三级预算 · 审计 · 复核"]
-    RK --> TASK["IngestTaskStore"]
-    RW --> SVC
-    RA --> OBS["observability/"]
-    SVC --> ENV["envelope.py 统一响应 {data, meta, error}"]
-    SVC --> SSE["sse.py 增量事件流"]
+    RQ --> QA["app/ QueryApp<br/>答案缓存 · 三级预算 · Pipeline · 审计"]
+    RK --> RVA["app/ ReviewApp<br/>记录决策 + 作用于图谱"]
+    CLIE["cli/ agr-run-cases"] -->|eval Profile| QA
+    QA --> ENV["envelope.py 统一响应 {data, meta, error}"]
+    QA --> SSE["sse.py 增量事件流"]
 ```
 
 - **鉴权与租户**：`auth.py` 解析 `AGR_API_KEYS=tenant:key:role`，`rbac.py` 提供 admin / operator / reader 三角色路由守卫。
-- **QueryService**（`service.py` + `service_query.py` / `service_stream.py`）：查答案缓存 → 预留预算 → 调用 Agent → 落审计 → 结算预算；流式请求经 `loop_stream.py` 逐 hop 推送事件。
-- **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行）完成分块索引并抽取三元组入图，冲突进入复核队列，决策由复核执行器作用于图谱（见 §4.4）。
-- **web/**：Vue 3 ESM 零构建，`api.js` 调用上述接口，视图位于 `static/js/views/`（chat / knowledge / review / graph / ops）。
+- **QueryApp**（`app/query_service.py` + `query_run.py` / `query_stream.py`）：查答案缓存 → 预留预算 → `QueryPipeline` → 落审计 → 结算预算 → 指标。`run_query()` 返回 API 视图，`run_query_chain()` 走同一条生产路径但返回完整 `ReasoningChain`（供 eval / CLI 使用）。
+- **ReviewApp**：`POST /v1/review-queue/{id}/decision` 只做鉴权与参数校验，记录决策和执行决策都在 `ReviewApp.decide()` 中完成。
+- **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行，`IngestApp` 装配）完成分块索引并抽取三元组入图，冲突进入复核队列（见 §4.4）。
+- **web/**：Vue 3 ESM 零构建，`api.js` 调用上述接口。
 
 ---
 
 ## 2. Agent 编排 agent
 
-### 2.1 入口与分诊
+### 2.1 QueryPipeline：路由与策略
 
 ```mermaid
 flowchart TD
-    Q["问题"] --> CC{"chitchat.py<br/>问候 / 能力询问?"}
-    CC -->|是| DIRECT["直接回答，不检索"]
+    Q["问题"] --> CC{"Router: chitchat.py<br/>问候 / 能力询问?"}
+    CC -->|是| DIRECT["Direct：直接回答，不检索"]
     CC -->|否| TR{"triage.py<br/>规则前端 + 可选轻量 LLM"}
-    TR -->|简单单实体事实| FP["fast_path.py<br/>单轮检索 + 生成"]
-    TR -->|多跳 / 复杂| AG["LangGraph 循环"]
+    TR -->|简单单实体事实| FP["Fast：fast_path.py<br/>单轮检索 + 生成"]
+    TR -->|多跳 / 复杂| AG["Deep：LangGraph 循环"]
     FP --> ESC{"loop_policy.py<br/>证据不足?"}
-    ESC -->|是，升级一次| AG
-    ESC -->|否| OUT["ReasoningChain"]
+    ESC -->|是，升级一次<br/>携带 Fast 已取证据| AG
+    ESC -->|否| OUT["ReasoningChain<br/>+ prompt_versions"]
     AG --> OUT
 ```
+
+`agent/pipeline.py` 是**唯一**的执行实现：`iter_query_progress()` 逐步产出事件，终止事件固定为 `(__final_chain__, chain)`。SSE 直接消费事件；非流式的 `loop.run_query()` / `run_agentic_query()` 只是把同一个迭代器消费到结束（`run_pipeline` / `drain`），不再维护第二套代码。Fast 升级到 Deep 时，Fast 已检索到的证据作为初始 `evidence` 进入 Agent 状态（`metadata.inherited_evidence` 记录条数）。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
 
 ### 2.2 LangGraph 状态机
 
@@ -123,15 +145,18 @@ stateDiagram-v2
     executor --> answer: 护栏触发 / 计划耗尽
     critic --> executor: next_hop / rewrite
     critic --> answer: sufficient / give_up
+    answer --> executor: evidence_gap（缺证，≤1 次且 hop 未耗尽）
     answer --> [*]
 ```
 
 | 节点 | 实现 | 说明 |
 |---|---|---|
 | planner | `planner.py` `plan_dag.py` `planner_patterns.py` | 问题 → 带依赖的子问题 DAG，`{from:sqN}` 占位由上游结论物化；广度受 `max_sub_questions` 限制，被裁剪项写入 metadata |
-| executor | `executor.py` `executor_plan.py` `executor_dispatch.py` `parallel_branches.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），并行执行后 RRF 融合；就绪且互不依赖的 DAG 节点并发检索、共享同一 hop |
+| executor | `executor.py` `executor_plan.py` `executor_dispatch.py` `parallel_branches.py` `tools/registry.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），**所有工具调用都经 `ToolRegistry.invoke()`**（ToolSpec 含 schema、成本、超时、权限；护栏 / 预算 / trace 以中间件挂在注册表上），并行执行后 RRF 融合；就绪且互不依赖的 DAG 节点并发检索、共享同一 hop |
 | critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
-| answer | `generation/answer.py` | 引用绑定生成答案，失败重试一次后走保守回答 |
+| answer | `generation/answer.py` `generation/verdict.py` | 引用绑定生成答案。校验失败按 Verdict 分类：**表述类**（无 claim、引用 id 缺失或越界）在生成层内定向重生成一次；**缺证类**（claim 不被证据支持、不蕴含）在仍有 hop 时输出 `evidence_gap`，经 answer → executor 回边补充检索（每次运行最多 1 次），否则重生成后走保守回答 |
+
+`AgentState` 只在 `agent/state.py` 定义一次并带 `state_version`，初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；`check_state_version()` 拒绝读取比当前更新的 checkpoint。
 
 ### 2.3 运行时支撑
 
@@ -141,12 +166,12 @@ flowchart LR
     RT --> GR["Guardrails<br/>hop · 广度 · LLM 调用 · token · 超时"]
     RT --> CP["Checkpointer<br/>内存 / SQLite"]
     RT --> REC["loop_recover.py<br/>GraphRecursionError 恢复"]
-    RT --> STR["loop_stream*.py<br/>stream(updates) → SSE 事件"]
-    GR --> BUD["llm/BudgetTracker"]
-    RT --> REG["tools/registry.py<br/>外部工具注册（预留）"]
+    RT --> STR["pipeline.py<br/>stream(updates) → 事件"]
+    GR --> BUD["governance/BudgetTracker<br/>（唯一资源计量）"]
+    RT --> REG["tools/registry.py<br/>ToolRegistry + 中间件"]
 ```
 
-hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
+Guardrails 只负责控制流（hop、广度、截止时间），资源计量（LLM 调用、token、embedding 调用）统一由 `governance/budget.py` 的 `BudgetTracker` 负责，Guardrails 通过 `check()` 查询余量。hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
 
 ---
 
@@ -165,10 +190,10 @@ flowchart TD
     PATH --> FUS
     F --> FUS
     FUS --> CACHE["cache.py RetrievalCache<br/>key = 租户 + 索引版本 + 查询"]
-    CACHE --> CAND["Candidate[]<br/>contracts.py 统一候选契约"]
+    CACHE --> CAND["Candidate[]<br/>core/evidence.py 统一候选契约"]
 ```
 
-- `contracts.py` 定义 `Candidate` / `Citation` / `CandidateSource`，三路结果统一为同一结构，`rrf_fuse` 按排名融合。
+- `core/evidence.py`（`retrieval/contracts.py` 为别名）定义 `Candidate` / `Citation` / `CandidateSource`，三路结果统一为同一结构，`rrf_fuse` 按排名融合。
 - `IndexVersion` 在图、向量、全文更新后递增，使缓存自然失效；缓存键包含 `tenant_id`，保证租户隔离。
 
 ---
@@ -262,6 +287,7 @@ classDiagram
         neighbors()
         paths()
         counts()
+        list_entities()
     }
     class VectorStore {
         <<Protocol>>
@@ -299,7 +325,7 @@ classDiagram
     StoreBundle o-- DocStore
 ```
 
-`factory.py` 提供 `create_offline_bundle()`（内存图 + 进程内向量 + BM25 + 文件 DocStore）与 `create_live_bundle()`（Neo4j + Qdrant，Qdrant 初始化失败回退内存向量）。`neo4j_codec.py` / `neo4j_queries.py` 负责序列化与 Cypher 生成；`scheduling_protocols.py` 定义限流、预算、审计存储协议。所有读写都带 `tenant_id` 过滤。
+存储协议定义在 `core/ports/stores.py`（`stores/interfaces.py` 为别名）；限流、预算、审计存储协议在 `core/ports/state.py`。`factory.create_bundle(graph, vector)` 精确构建请求的后端，Neo4j 与 Qdrant 都会 ping，失败直接抛错；`create_offline_bundle()` / `create_live_bundle()` 是它的两个固定组合。**已移除所有隐式回退**：`create_live_bundle(allow_memory_graph_fallback=True)` 会直接报错，Neo4j + 内存向量必须声明为 `hybrid` Profile（见 §11）。`Neo4jGraphStore.list_entities()` 已实现（与内存图相同的租户语义），运行期实体对齐、图谱浏览和词表刷新在 Neo4j 下同样生效。所有读写都带 `tenant_id` 过滤。
 
 ---
 
@@ -307,8 +333,10 @@ classDiagram
 
 ```mermaid
 flowchart LR
-    CALLER["planner / critic / answer / extract / triage"] --> ST["structured.py<br/>JSON 结构化输出 + 校验重试"]
-    ST --> BT{"BudgetTracker<br/>单查询预算"}
+    CALLER["planner / critic / answer / extract / triage / entailment"] --> PRM["prompts/<br/>configs/prompts/*.md + 内容哈希版本"]
+    PRM --> ST["structured.py<br/>JSON 结构化输出 + 校验重试"]
+    EMB["embedding（index / ingest / 向量检索）"] --> BT
+    ST --> BT{"governance/BudgetTracker<br/>chat 调用 · embed 调用 · token"}
     BT -->|超限| BE["BudgetExceeded"]
     BT --> BP["budget_policy.py<br/>租户 / 用户 / 查询 三级窗口"]
     BP --> CB{"CircuitBreaker<br/>连续 2 次失败 → OPEN<br/>20s 后 HALF_OPEN"}
@@ -317,6 +345,8 @@ flowchart LR
     PR --> LIGHT["Tier.LIGHT<br/>gpt-4.1-mini"]
     PR --> MOCK["MockLLMProvider<br/>离线默认"]
 ```
+
+chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存与熔断；embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
 
 ---
 
@@ -329,33 +359,61 @@ flowchart TD
     MODE -->|否| OFF["offline_answer.py<br/>offline_heuristics/ 确定性规则"]
     LLMA --> CIT["citations.py + claim_support.py<br/>引用 · 绑定 · 词面+锚定<br/>relation_consistency.py 关系一致"]
     CIT -->|通过| NLI["entailment.py<br/>LIGHT 档蕴含判定"]
-    NLI -->|不蕴含| RETRY
-    CIT -->|失败| RETRY["按失败原因重生成一次"]
+    NLI -->|不蕴含| VD{"verdict.py<br/>缺证 or 表述?"}
+    CIT -->|失败| VD
+    VD -->|缺证 且 Agent 仍有 hop| GAP["evidence_gap → 回到 executor 补检索"]
+    VD -->|表述 / 无法再检索| RETRY["按失败原因重生成一次"]
     RETRY --> CIT
     CIT -->|仍失败| SAFE["保守回答 / 拒答"]
     NLI -->|蕴含 / 判定器弃权| CONF["confidence.py 置信度分级"]
     OFF --> CONF
     SAFE --> CONF
-    CONF --> CHAIN["trace.py ReasoningChain<br/>steps · claims · cost · metadata"]
-    CHAIN --> AUD[("audit_store.py")]
+    CONF --> CHAIN["core/reasoning.py ReasoningChain<br/>steps · claims · cost · metadata"]
+    CHAIN --> AUD[("governance/audit_store.py")]
 ```
 
 `ReasoningChain` 契约见 [`configs/schema/reasoning_chain_v1.json`](../configs/schema/reasoning_chain_v1.json)。`offline_heuristics/` 只服务演示语料，保证 CI 可复现，不是生产路径。
 
 ---
 
-## 8. 可观测与治理 observability
+## 8. 治理 governance 与可观测 observability
 
 ```mermaid
 flowchart LR
-    REQ["请求上下文<br/>request_id · tenant · user · query_id"] --> LOG["logging_setup.py<br/>structlog JSON 日志"]
-    REQ --> TR["trace.py<br/>逐 hop trace"]
-    REQ --> MET["metrics.py<br/>/v1/metrics · /metrics-prom"]
-    SEC["鉴权失败 · 预算超限 · 越权"] --> AE["audit_events.py<br/>安全事件流"]
-    LOG --> RED["redaction.py PII 脱敏"]
-    TR --> OT["otel_bridge.py<br/>OTLP + W3C traceparent（可选）"]
-    AE --> RET["retention.py 保留期清理"]
+    subgraph GOV["governance/（策略）"]
+        BUD["budget.py · budget_policy.py<br/>唯一资源计量 + 三级预算"]
+        AUD["audit_store.py 推理链审计"]
+        AE["audit_events.py 安全事件流"]
+        RED["redaction.py PII 脱敏"]
+        RET["retention.py 保留期清理"]
+    end
+    subgraph OBS["observability/（遥测）"]
+        LOG["logging_setup.py<br/>structlog JSON 日志"]
+        TR["trace.py 逐 hop trace"]
+        MET["metrics.py<br/>/v1/metrics · /metrics-prom"]
+        OT["otel_bridge.py OTLP（可选）"]
+    end
+    REQ["请求上下文"] --> LOG
+    REQ --> TR --> OT
+    REQ --> MET
+    LOG --> RED
+    AE --> RET
 ```
+
+`governance/` 只放策略（预算、审计、脱敏、保留期），`observability/` 只放遥测数据。旧路径 `llm.budget`、`llm.budget_policy`、`generation.audit_store`、`observability.audit_events`、`observability.redaction`、`retention` 保留为别名。
+
+### 8.1 领域事件（读写解耦）
+
+```mermaid
+flowchart LR
+    ING["IncrementalUpdater / GraphIngestor"] -->|GraphCommitted| BUS(("EventBus<br/>进程内"))
+    REV["ReviewExecutor"] -->|GraphCommitted · ReviewDecided| BUS
+    BUS --> INV["invalidate：IndexVersion +1<br/>清检索 / 答案缓存"]
+    INV -->|IndexUpdated| BUS
+    BUS --> LEX["refresh_lexicon：刷新实体词表"]
+```
+
+写路径不再持有 `on_graph_commit` 回调，而是发布 `core/events.py` 中的领域事件；读侧订阅在 `app/write_path.subscribe_read_side()` 中注册。进程内使用同步的 `InProcessEventBus`（订阅者异常只记日志、不影响写入）；跨进程部署时用 outbox + Redis Streams 实现同一个 `EventBus` 协议即可。`IndexVersion` 位于 `core/versioning.py`。
 
 ---
 
@@ -365,13 +423,15 @@ flowchart LR
 flowchart LR
     SEED["seed / pilot 三元组"] --> GG["gold_gen.py + gold_templates/<br/>2hop · 3hop · open · no_answer · guardrail"]
     GG --> DS[("evals/datasets/*.jsonl")]
-    DS --> RUN["cases_run.py<br/>agr-run-cases"]
+    DS --> RUN["cases_run.py<br/>agr-run-cases → QueryApp（eval Profile）"]
     DS --> BASE["baseline_rag.py<br/>纯向量 RAG 对照"]
     RUN --> SC["scoring.py + metrics*.py<br/>containment · 别名 · 证据命中"]
     BASE --> SC
     SC --> REP["report.py → reports/"]
     SC --> BAD["badcase.py 坏例归因"]
 ```
+
+`agr-run-cases` 默认通过 `QueryApp.run_query_chain()` 运行（eval Profile：关闭答案和检索缓存、加载 seed 图；指定 `--neo4j` 时使用 hybrid Profile），评测的就是生产路径（预算、Pipeline、审计、指标）。真实 LLM 的响应由 provider 的磁盘缓存回放。`--direct` 保留旧的直接调用 Agent 循环的方式。重构前后 `poc_cases` 的结果一致（21/31，31 条预测、状态和路由逐条相同）。
 
 ---
 
@@ -382,7 +442,7 @@ sequenceDiagram
     autonumber
     participant U as Client
     participant M as AuthMiddleware
-    participant S as QueryService
+    participant S as QueryApp
     participant A as Agent
     participant R as Retrieval
     participant G as Generation
@@ -407,13 +467,17 @@ sequenceDiagram
 
 ---
 
-## 11. 配置与运行模式
+## 11. 配置与运行模式（Profile）
 
-| 能力 | 离线（默认） | 在线（显式开启） |
-|---|---|---|
-| 图 | `InMemoryGraphStore` + `data/processed/seed_triples.jsonl` | Neo4j（`AGR_USE_LIVE_STORES=1`） |
-| 向量 | 进程内 + 已持久化 embedding | Qdrant |
-| 全文 / 文档 | BM25 + 文件 DocStore | 同左 |
-| LLM | `MockLLMProvider` + 离线规则 | `AGR_ALLOW_LLM=1` + `LLM_API_KEY` |
+启动时只解析出一个 Profile，按能力矩阵装配并校验；组合不合法、凭据缺失或后端不可达时**拒绝启动**，不会静默降级。
 
-两个开关相互独立。应用参数在 `configs/default.yaml`，由 `config.py` / `config_enterprise.py` 解析；密钥与端点走 `.env`。部署与变量清单见 [`ops/RUNBOOK.md`](./ops/RUNBOOK.md)，Neo4j 外部运行时见 [`ops/EXTERNAL_RUNTIMES.md`](./ops/EXTERNAL_RUNTIMES.md)。
+| Profile | 图 | 向量 | LLM | 缓存 | seed 图 | 用途 |
+|---|---|---|---|---|---|---|
+| `offline`（默认） | 内存 | 内存 | Mock；`AGR_ALLOW_LLM=1`+key 时为真实 LLM | 开 | 加载 | 本地 / CI |
+| `live` | Neo4j | Qdrant | 同上 | 开 | 不加载 | 生产 |
+| `hybrid` | Neo4j | 内存 | 同上 | 开 | 不加载 | 显式声明的混合部署 |
+| `eval` | 内存 | 内存 | Mock 或真实 LLM（磁盘缓存回放） | 关 | 加载 | 评测 |
+
+解析顺序：`AGR_PROFILE` → 兼容旧开关（`AGR_USE_LIVE_STORES=1` 等价于 `live`）→ `offline`。实现见 `bootstrap/profile.py`（`CAPABILITY_MATRIX`、`resolve_runtime_profile`）和 `bootstrap/stores.py`（`build_stores`）。API（`build_default_service`）和 ingest worker 都经过它。
+
+应用参数在 `configs/default.yaml`，由 `config.py` / `config_enterprise.py` 解析；密钥与端点走 `.env`。部署与变量清单见 [`ops/RUNBOOK.md`](./ops/RUNBOOK.md)，Neo4j 外部运行时见 [`ops/EXTERNAL_RUNTIMES.md`](./ops/EXTERNAL_RUNTIMES.md)。

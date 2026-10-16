@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
-from agentic_graphrag.eval.baseline_corpus import ensure_embeddings, load_or_build_chunks
-from agentic_graphrag.generation.trace import (
+from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.reasoning import (
     Claim,
     QueryStatus,
     ReasoningChain,
@@ -27,10 +27,10 @@ from agentic_graphrag.generation.trace import (
     ToolCallTrace,
     validate_reasoning_chain,
 )
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.eval.baseline_corpus import ensure_embeddings, load_or_build_chunks
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider, Message, MockLLMProvider, Tier
 from agentic_graphrag.retrieval.vector import VectorRetriever
-from agentic_graphrag.stores.interfaces import ChunkRecord
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore
 
 _MAX_BASELINE_CALLS = 1000

@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, RelationRecord
 from agentic_graphrag.knowledge.schema_check import (
     EntityMention,
     SchemaDefinition,
@@ -17,7 +18,6 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
 )
 from agentic_graphrag.knowledge.temporal import prefer_incoming
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, RelationRecord
 
 
 def _resolved_threshold(value: float | None) -> float:

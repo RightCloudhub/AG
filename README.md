@@ -22,7 +22,7 @@ uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
 agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
-agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测
+agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测（走生产路径 QueryApp，eval Profile）
 agr-api                                                          # http://127.0.0.1:8000/web
 AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
@@ -31,14 +31,18 @@ AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复
 
 ```bash
 docker compose up -d
-AGR_ALLOW_LLM=1 AGR_USE_LIVE_STORES=1 LLM_API_KEY=... agr-api
+AGR_PROFILE=live AGR_ALLOW_LLM=1 LLM_API_KEY=... agr-api   # Neo4j / Qdrant 不可达时直接拒绝启动
 ```
+
+运行 Profile：`offline`（默认）、`live`、`hybrid`（Neo4j + 内存向量，须显式声明）、`eval`（评测，关闭缓存）。详见 [docs/ops/RUNBOOK.md](docs/ops/RUNBOOK.md)。
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    API["API / CLI / Web"] --> AG["Agent<br/>分诊 · 规划 · 执行 · 反思"]
+    API["API / CLI / Web / Eval"] --> APP["app/ QueryApp · IngestApp · ReviewApp"]
+    APP --> AG["Agent QueryPipeline<br/>分诊 · 规划 · 执行 · 反思"]
+    APP --> KG
     AG --> RET["检索<br/>向量 · 图 · BM25 → RRF"]
     RET --> ST[("图 / 向量 / 全文存储")]
     KG["知识管线"] --> ST
@@ -50,7 +54,14 @@ flowchart LR
 ## 目录
 
 ```
-src/agentic_graphrag/   核心代码：api agent retrieval knowledge stores llm generation observability eval cli
+src/agentic_graphrag/   核心代码（分层见 docs/ARCHITECTURE.md §0）
+  core/                 共享内核：契约 · 端口 · 领域事件 · IndexVersion
+  bootstrap/            组合根：Profile + 能力矩阵
+  app/                  应用层：QueryApp · IngestApp · ReviewApp
+  api/ cli/             驱动层：HTTP / 命令行
+  agent/ retrieval/ generation/ knowledge/   领域层
+  stores/ llm/          适配器
+  governance/ observability/ prompts/        横切：策略 · 遥测 · Prompt 版本
 configs/                配置、领域 Schema、Prompt
 data/                   样例语料与 seed 三元组（见 data/README.md）
 evals/                  评测数据集

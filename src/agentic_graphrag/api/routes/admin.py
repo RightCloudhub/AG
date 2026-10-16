@@ -15,9 +15,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
-from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.api.rbac import Role, require_role
-from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.app.query_service import QueryService
 
 router = APIRouter(prefix="/v1", tags=["admin"])
 
@@ -85,7 +85,7 @@ def _audit_event_query(
 @router.get("/audit-events", dependencies=[Depends(require_role(Role.ADMIN))])
 def list_audit_events(q: Annotated[AuditEventQuery, Depends(_audit_event_query)]) -> dict:
     """List security/management audit events (admin only)."""
-    from agentic_graphrag.observability.audit_events import get_audit_event_store
+    from agentic_graphrag.governance.audit_events import get_audit_event_store
 
     store = get_audit_event_store()
     events = store.list_events(

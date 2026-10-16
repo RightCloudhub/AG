@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
+from agentic_graphrag.core.ports.stores import ChunkRecord, DocStore
 from agentic_graphrag.knowledge.extract_chunk import extract_chunk_with_retry
 from agentic_graphrag.knowledge.extract_types import (
     ChunkExtractResult,
@@ -25,7 +26,6 @@ from agentic_graphrag.knowledge.extract_types import (
 )
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.stores.interfaces import ChunkRecord, DocStore
 
 __all__ = [
     "ChunkExtractResult",

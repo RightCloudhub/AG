@@ -10,7 +10,7 @@ import re
 from enum import StrEnum
 from uuid import uuid4
 
-from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
+from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 
 _GREETING_MAX_LEN = 40
 _CAPABILITY_MAX_LEN = 80

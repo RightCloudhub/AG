@@ -8,6 +8,7 @@ Pipeline orchestration (journal / retry / quarantine) lives in
 from __future__ import annotations
 
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.schema_check import (
     ExtractResult,
     SchemaDefinition,
@@ -16,7 +17,6 @@ from agentic_graphrag.knowledge.schema_check import (
 )
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 
 def extract_from_chunk(

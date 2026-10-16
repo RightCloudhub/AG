@@ -14,7 +14,7 @@ from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConf
 from agentic_graphrag.config_paths import find_root
 
 if TYPE_CHECKING:
-    from agentic_graphrag.llm.budget import BudgetTracker
+    from agentic_graphrag.governance.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
 
 
@@ -260,9 +260,17 @@ def build_llm_provider(
 
 
 def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
-    """Load a prompt file by stem name (e.g. 'extract' → extract.md)."""
+    """Load a prompt file by stem name (e.g. 'extract' → extract.md).
+
+    Every load records ``name → version`` (content hash) for the current run so
+    the reasoning chain can say exactly which prompt produced it (§5.4).
+    """
+    from agentic_graphrag.prompts import record_prompt_use
+
     base = resolve_path(prompts_dir or get_config().paths.prompts_dir)
     path = base / f"{name}.md"
     if not path.exists():
         raise FileNotFoundError(f"Prompt not found: {path}")
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    record_prompt_use(name, text)
+    return text

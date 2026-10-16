@@ -11,10 +11,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from agentic_graphrag.core.ports.stores import RelationRecord
 from agentic_graphrag.knowledge.cardinality import HEAD, TAIL, SidesFn, legacy_sides
 from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.knowledge.temporal import VALID_FROM, closed, is_newer
-from agentic_graphrag.stores.interfaces import RelationRecord
 
 # (head_lower, relation, tail_lower) → active relation
 RelIndex = dict[tuple[str, str, str], RelationRecord]

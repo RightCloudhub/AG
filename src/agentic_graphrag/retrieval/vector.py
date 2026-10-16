@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.ports.stores import VectorStore
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Citation
-from agentic_graphrag.stores.interfaces import VectorStore
 
 
 class VectorRetriever:

@@ -14,12 +14,12 @@ from fastapi.staticfiles import StaticFiles
 
 from agentic_graphrag.api.auth import AuthRateLimitMiddleware
 from agentic_graphrag.api.envelope import MetaBody, fail
-from agentic_graphrag.api.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.api.routes import admin as admin_routes
 from agentic_graphrag.api.routes import knowledge as knowledge_routes
 from agentic_graphrag.api.routes import query as query_routes
 from agentic_graphrag.api.routes import workspace as workspace_routes
-from agentic_graphrag.api.service import QueryService, build_default_service
+from agentic_graphrag.app.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
+from agentic_graphrag.app.query_service import QueryService, build_default_service
 from agentic_graphrag.config import ROOT_DIR
 from agentic_graphrag.observability.logging_setup import get_logger, setup_logging
 
@@ -44,7 +44,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.query_service = svc
         owns = True
     _validate_live_credentials(svc)
-    from agentic_graphrag.api.service_ingest import start_inline_worker
+    from agentic_graphrag.app.write_path import start_inline_worker
 
     worker = start_inline_worker(svc)
     app.state.ingest_worker = worker
@@ -107,12 +107,20 @@ def _validate_live_credentials(svc: QueryService) -> None:
     """Fail fast on obvious misconfiguration when live modes are enabled (ENT-06b)."""
     import os
 
+    from agentic_graphrag.bootstrap import Profile, resolve_profile_name
+
     errors: list[str] = []
     truthy = {"1", "true", "yes"}
-    if os.environ.get("AGR_USE_LIVE_STORES", "").lower() in truthy:
+    profile = resolve_profile_name()
+    if profile in (Profile.LIVE, Profile.HYBRID):
         missing = _missing_store_credentials(svc)
         if missing:
-            errors.append("AGR_USE_LIVE_STORES=1 missing " + ", ".join(missing))
+            label = (
+                "AGR_USE_LIVE_STORES=1"
+                if not os.environ.get("AGR_PROFILE")
+                else f"AGR_PROFILE={profile.value}"
+            )
+            errors.append(f"{label} missing " + ", ".join(missing))
     if os.environ.get("AGR_ALLOW_LLM", "").lower() in truthy and not _valid_llm_key(svc):
         errors.append("AGR_ALLOW_LLM=1 but LLM_API_KEY is missing or placeholder")
     if errors:

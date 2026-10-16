@@ -5,8 +5,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from agentic_graphrag.generation.trace import QueryStatus, ReasoningChain
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 
 _HIGH = 0.75
 _MEDIUM = 0.45

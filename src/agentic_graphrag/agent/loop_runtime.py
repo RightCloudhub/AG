@@ -6,8 +6,6 @@ StateGraph assembly and public entrypoint live in
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
-
 from agentic_graphrag.agent.critic import critique
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
@@ -27,29 +25,16 @@ from agentic_graphrag.agent.parallel_branches import is_prefetched
 from agentic_graphrag.agent.plan_coverage import annotate_plan_coverage
 from agentic_graphrag.agent.plan_dag import cap_plan_breadth
 from agentic_graphrag.agent.planner import SubQuestion, plan
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
-from agentic_graphrag.generation.trace import ReasoningChain
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.generation.verdict import evidence_gap
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
 
-
-class AgentState(TypedDict, total=False):
-    """LangGraph typed state (P2-AG-03). Memory semantics live in MemoryState."""
-
-    question: str
-    chain: dict[str, Any]
-    sub_questions: list[dict[str, Any]]
-    current_index: int
-    hop: int
-    evidence: list[dict[str, Any]]
-    memory_summary: str
-    memory_snapshot: dict[str, Any]
-    done: bool
-    guardrail_status: str
-    allow_llm: bool
-    tenant_id: str
-    dropped_sub_questions: list[str]
-    prefetched: dict[str, Any]
+# Answer → executor back-edges per run, and new sub-questions per back-edge.
+MAX_ANSWER_RETRIEVALS = 1
+MAX_GAP_SUB_QUESTIONS = 2
 
 
 class AgentRuntime:
@@ -222,6 +207,7 @@ class AgentRuntime:
         allow_llm = bool(state.get("allow_llm", True))
         self._apply_budget_to_chain(chain)
 
+        can_retrieve = self._can_retrieve_again(state)
         if self.guards.state.tripped and not evidence:
             chain.honest_fallback(self.guards.state.reason or "guardrail tripped")
         else:
@@ -232,7 +218,13 @@ class AgentRuntime:
                 conclusions="; ".join(self.memory.conclusions),
                 guardrail_status=str(state.get("guardrail_status") or self.guards.status_text()),
                 allow_llm=allow_llm and self.llm is not None,
+                report_evidence_gaps=can_retrieve,
             )
+
+        gap = evidence_gap(chain) if can_retrieve else None
+        if gap is not None and gap.reason != "partial_answer":
+            # Refactor §1.5: answer → executor back-edge for missing evidence.
+            return self._loop_back_for_gap(state, chain, gap.missing)
 
         chain.explored_paths = sorted(self.memory.explored_paths)
         annotate_plan_coverage(chain, state)
@@ -242,6 +234,42 @@ class AgentRuntime:
             "done": True,
             "memory_snapshot": self.memory.to_snapshot(),
         }
+
+    def _can_retrieve_again(self, state: AgentState) -> bool:
+        if self.guards.state.tripped:
+            return False
+        if int(state.get("answer_retries") or 0) >= MAX_ANSWER_RETRIEVALS:
+            return False
+        return int(state.get("hop") or 0) < self.guard_cfg.max_hops
+
+    def _loop_back_for_gap(
+        self, state: AgentState, chain: ReasoningChain, missing: list[str]
+    ) -> AgentState:
+        sqs = list(state.get("sub_questions") or [])
+        start = len(sqs)
+        for i, text in enumerate(m for m in missing[:MAX_GAP_SUB_QUESTIONS] if m.strip()):
+            sqs.append(
+                SubQuestion(
+                    id=f"gap{start + i}", text=text.strip(), rationale="evidence_gap"
+                ).model_dump()
+            )
+        meta = dict(chain.metadata or {})
+        meta.pop("evidence_gap", None)
+        meta["evidence_gap_loops"] = int(meta.get("evidence_gap_loops") or 0) + 1
+        chain.metadata = meta
+        return {
+            **state,
+            "chain": chain.model_dump(),
+            "sub_questions": sqs,
+            "current_index": start,
+            "done": False,
+            "answer_retries": int(state.get("answer_retries") or 0) + 1,
+            "evidence_gap": {"missing": missing},
+            "memory_snapshot": self.memory.to_snapshot(),
+        }
+
+    def route_after_answer(self, state: AgentState) -> str:
+        return "end" if state.get("done") else "executor"
 
     def _apply_budget_to_chain(self, chain: ReasoningChain) -> None:
         if not self.budget:

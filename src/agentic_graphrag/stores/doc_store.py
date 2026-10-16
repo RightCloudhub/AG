@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentic_graphrag.stores.interfaces import DocumentRecord
+from agentic_graphrag.core.ports.stores import DocumentRecord
 
 
 class InMemoryDocStore:

@@ -7,11 +7,8 @@ reported on the chain rather than silently disappearing.
 
 from __future__ import annotations
 
-from typing import Any
-
-from agentic_graphrag.generation.trace import ReasoningChain
-
-AgentState = dict[str, Any]
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.reasoning import ReasoningChain
 
 KEY_DROPPED = "dropped_sub_questions"
 KEY_UNEXECUTED = "unexecuted_sub_questions"

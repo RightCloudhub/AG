@@ -6,7 +6,7 @@ import math
 import re
 from collections import Counter
 
-from agentic_graphrag.stores.interfaces import ChunkRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord
 
 _TOKEN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 

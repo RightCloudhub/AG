@@ -9,10 +9,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from agentic_graphrag.api.envelope import MetaBody, ok
-from agentic_graphrag.api.errors import ApiError
-from agentic_graphrag.api.schemas import QueryRequest
-from agentic_graphrag.api.service import QueryService
 from agentic_graphrag.api.sse import format_sse
+from agentic_graphrag.app.contracts import QueryRequest
+from agentic_graphrag.app.errors import ApiError
+from agentic_graphrag.app.query_service import QueryService
 
 router = APIRouter(prefix="/v1", tags=["query"])
 

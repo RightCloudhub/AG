@@ -7,12 +7,12 @@ from typing import Any
 from uuid import uuid4
 
 from agentic_graphrag.agent.executor import Executor
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.generation.confidence import grade_confidence
-from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider, Tier
-from agentic_graphrag.retrieval.contracts import Candidate
 
 
 def run_fast_path(
@@ -26,6 +26,29 @@ def run_fast_path(
     tenant_id: str | None = None,
 ) -> ReasoningChain:
     """Single-hop retrieval + generation without Planner/Critic loop."""
+    chain, _ = run_fast_path_with_evidence(
+        question,
+        executor,
+        llm,
+        allow_llm=allow_llm,
+        budget=budget,
+        triage_meta=triage_meta,
+        tenant_id=tenant_id,
+    )
+    return chain
+
+
+def run_fast_path_with_evidence(
+    question: str,
+    executor: Executor,
+    llm: LLMProvider | None,
+    *,
+    allow_llm: bool = True,
+    budget: BudgetTracker | None = None,
+    triage_meta: dict[str, Any] | None = None,
+    tenant_id: str | None = None,
+) -> tuple[ReasoningChain, list[Candidate]]:
+    """Fast path that also returns its evidence (inherited on escalation)."""
     t0 = time.perf_counter()
     chain = _new_chain(question, triage_meta)
     candidates, traces = executor.run(question, allow_llm=False, tenant_id=tenant_id)
@@ -43,7 +66,7 @@ def run_fast_path(
     chain.metadata = {**(chain.metadata or {}), "confidence": conf}
     chain.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
     _apply_budget(chain, budget)
-    return chain
+    return chain, candidates
 
 
 def _new_chain(question: str, triage_meta: dict[str, Any] | None) -> ReasoningChain:

@@ -16,6 +16,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.events import EventBus, GraphCommitted
+from agentic_graphrag.core.ports.stores import GraphStore, RelationRecord
 from agentic_graphrag.knowledge.cardinality import sides_resolver
 from agentic_graphrag.knowledge.graph_builder import (
     load_triples_into_graph,
@@ -38,7 +40,6 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
 )
 from agentic_graphrag.knowledge.temporal import VALID_FROM, closed
-from agentic_graphrag.stores.interfaces import GraphStore, RelationRecord
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ class IncrementalUpdater:
         confidence_threshold: float | None = None,
         auto_update_margin: float = 0.15,
         on_commit: Callable[[], None] | None = None,
+        events: EventBus | None = None,
         review_log: Path | str | None = None,
         review_queue: Any | None = None,
         tenant_id: str = "",
@@ -106,7 +108,8 @@ class IncrementalUpdater:
             default_confidence_threshold() if confidence_threshold is None else confidence_threshold
         )
         self.auto_update_margin = auto_update_margin
-        self.on_commit = on_commit
+        self.on_commit = on_commit  # legacy hook; prefer ``events``
+        self.events = events
         self.review_log = Path(review_log) if review_log else None
         self._lock = threading.RLock()
         # Index of active relations: (head_lower, rel, tail_lower) → RelationRecord
@@ -174,6 +177,14 @@ class IncrementalUpdater:
         # wrote nothing (docs/design/BUSINESS_LOGIC.md BL-11).
         result.accepted = int(stats.get("relations_upserted", 0))
         self._refresh_index(to_write)
+        if self.events is not None:
+            self.events.publish(
+                GraphCommitted(
+                    tenant_id=self.tenant_id,
+                    source="incremental",
+                    relations_written=result.accepted,
+                )
+            )
         if self.on_commit is not None:
             self.on_commit()
 

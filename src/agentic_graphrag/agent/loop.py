@@ -9,22 +9,18 @@ from __future__ import annotations
 
 import time
 from typing import Any
-from uuid import uuid4
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
-from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
-from agentic_graphrag.agent.fast_path import run_fast_path
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop_policy import should_escalate_chain
 from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
 from agentic_graphrag.agent.options import AgentDeps, AgentRunOptions, QueryOptions
-from agentic_graphrag.agent.triage import Route, triage
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.confidence import grade_confidence
-from agentic_graphrag.generation.trace import ReasoningChain
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.retrieval.contracts import Candidate
 
 _MS_PER_SEC = 1000
 
@@ -75,7 +71,9 @@ def build_graph(
     g.add_conditional_edges(
         "critic", rt.route_after_critic, {"executor": "executor", "answer": "answer"}
     )
-    g.add_edge("answer", END)
+    # §1.5: a structured evidence gap sends the answer back to retrieval
+    # (bounded by max_hops and MAX_ANSWER_RETRIEVALS).
+    g.add_conditional_edges("answer", rt.route_after_answer, {"executor": "executor", "end": END})
     return g.compile(checkpointer=cp)
 
 
@@ -148,7 +146,9 @@ def run_query(
         known_entities=known_entities,
         tenant_id=tenant_id,
     )
-    return _run_with_triage(question, executor, llm, opts=opts)
+    from agentic_graphrag.agent.pipeline import run_pipeline
+
+    return run_pipeline(question, executor, llm, options=opts)
 
 
 def _run_agentic(
@@ -158,29 +158,10 @@ def _run_agentic(
     *,
     opts: AgentRunOptions,
 ) -> ReasoningChain:
-    from agentic_graphrag.agent.loop_recover import invoke_agentic_graph
+    """Deep strategy, non-streaming: drain the pipeline's agentic iterator."""
+    from agentic_graphrag.agent.pipeline import drain, iter_agentic
 
-    guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
-    budget = opts.budget or guard_cfg.budget_tracker()
-    rec_limit = (
-        opts.recursion_limit if opts.recursion_limit is not None else guard_cfg.recursion_limit
-    )
-    chain = ReasoningChain(question=question, route="agentic")
-    tid = opts.thread_id or chain.query_id or str(uuid4())
-    graph = build_graph(executor, llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer)
-    t0 = time.perf_counter()
-    return invoke_agentic_graph(
-        graph,
-        question=question,
-        chain=chain,
-        tid=tid,
-        rec_limit=rec_limit,
-        budget=budget,
-        t0=t0,
-        llm=llm,
-        allow_llm=opts.allow_llm,
-        tenant_id=opts.tenant_id,
-    )
+    return drain(iter_agentic(question, executor, llm, run_opts=opts))
 
 
 def finalize_agentic_chain(
@@ -209,48 +190,6 @@ def finalize_agentic_chain(
     return out
 
 
-def _run_with_triage(
-    question: str,
-    executor: Executor,
-    llm: LLMProvider | None,
-    *,
-    opts: QueryOptions,
-) -> ReasoningChain:
-    # Greetings / capability meta — skip retrieval entirely (even if force_agentic).
-    chitchat = try_chitchat_answer(question)
-    if chitchat is not None:
-        return chitchat
-
-    run_opts = resolved_run_opts(opts)
-    known = (
-        opts.known_entities
-        if opts.known_entities is not None
-        else list(executor.known_entities or [])
-    )
-
-    if not opts.enable_triage or opts.force_agentic:
-        chain = _run_agentic(question, executor, llm, opts=run_opts)
-        if opts.force_agentic:
-            chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
-        return chain
-
-    decision = triage(
-        question,
-        llm if opts.allow_llm else None,
-        allow_llm=opts.allow_llm and llm is not None,
-        force_agentic=False,
-        known_entities=known,
-    )
-    triage_meta = decision.model_dump(mode="json")
-    if decision.route == Route.FAST_PATH:
-        return _fast_path_or_escalate(
-            question, executor, llm, opts=run_opts, triage_meta=triage_meta
-        )
-    chain = _run_agentic(question, executor, llm, opts=run_opts)
-    chain.metadata = {**(chain.metadata or {}), "triage": triage_meta}
-    return chain
-
-
 def resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
     guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
     budget = opts.budget or guard_cfg.budget_tracker()
@@ -263,31 +202,3 @@ def resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
         thread_id=opts.thread_id,
         tenant_id=opts.tenant_id,
     )
-
-
-def _fast_path_or_escalate(
-    question: str,
-    executor: Executor,
-    llm: LLMProvider | None,
-    *,
-    opts: AgentRunOptions,
-    triage_meta: dict[str, Any],
-) -> ReasoningChain:
-    chain = run_fast_path(
-        question,
-        executor,
-        llm,
-        allow_llm=opts.allow_llm,
-        budget=opts.budget,
-        triage_meta=triage_meta,
-        tenant_id=opts.tenant_id or None,
-    )
-    if not should_escalate_chain(chain):
-        return chain
-    agentic = _run_agentic(question, executor, llm, opts=opts)
-    agentic.metadata = {
-        **(agentic.metadata or {}),
-        "triage": triage_meta,
-        "escalated_from_fast_path": True,
-    }
-    return agentic

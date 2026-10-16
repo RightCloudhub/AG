@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agentic_graphrag.stores.interfaces import EntityRecord, RelationRecord
+from agentic_graphrag.core.ports.stores import EntityRecord, RelationRecord
 
 
 def attrs_for_neo4j(attributes: dict[str, Any] | None) -> str:

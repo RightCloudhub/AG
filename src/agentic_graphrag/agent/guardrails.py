@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from agentic_graphrag.llm.budget import BudgetExceeded, BudgetTracker
+from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GuardrailsConfig

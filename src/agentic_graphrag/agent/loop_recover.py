@@ -8,57 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
-from agentic_graphrag.generation.trace import ReasoningChain
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.retrieval.contracts import Candidate
 
 _RECURSION_REASON = "agent recursion_limit reached (guardrail backstop)"
-
-
-def invoke_agentic_graph(
-    graph: Any,
-    *,
-    question: str,
-    chain: ReasoningChain,
-    tid: str,
-    rec_limit: int,
-    budget: BudgetTracker | None,
-    t0: float,
-    llm: LLMProvider | None = None,
-    allow_llm: bool = False,
-    tenant_id: str = "",
-) -> ReasoningChain:
-    """Invoke compiled graph; recover a partial chain on GraphRecursionError."""
-    from agentic_graphrag.agent.loop import finalize_agentic_chain, invoke_config
-
-    initial = {
-        "question": question,
-        "chain": chain.model_dump(),
-        "sub_questions": [],
-        "current_index": 0,
-        "hop": 0,
-        "evidence": [],
-        "done": False,
-        "allow_llm": allow_llm,
-        "tenant_id": tenant_id,
-    }
-    try:
-        result = graph.invoke(initial, config=invoke_config(tid, recursion_limit=rec_limit))
-    except Exception as exc:  # noqa: BLE001 — recursion backstop
-        if type(exc).__name__ != "GraphRecursionError":
-            raise
-        return recover_chain_after_recursion(
-            graph,
-            thread_id=tid,
-            question=question,
-            budget=budget,
-            t0=t0,
-            llm=llm,
-            allow_llm=allow_llm,
-        )
-    return finalize_agentic_chain(result, budget=budget, tid=tid, t0=t0)
 
 
 def recover_chain_after_recursion(

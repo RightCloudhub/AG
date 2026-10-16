@@ -4,26 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.core.ports.llm import Message, Tier
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.circuit import CircuitBreaker
-
-
-class Tier(StrEnum):
-    STRONG = "strong"
-    LIGHT = "light"
-
-
-@dataclass
-class Message:
-    role: str
-    content: str
 
 
 class LLMProvider:
@@ -133,12 +121,12 @@ class LLMProvider:
             key_env="LLM_EMBEDDING_API_KEY (or LLM_API_KEY)",
         )
         embedding = data["data"][0]["embedding"]
-        # Embeddings do not count toward hop LLM call budget by default,
-        # but we still record token usage if budget exists.
+        # Embeddings are metered as their own call kind (not chat calls) so
+        # the hop budget is unaffected but cost/usage stay complete (§5.3).
         if self.budget:
             usage = data.get("usage") or {}
-            self.budget.prompt_tokens += int(
-                usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0)
+            self.budget.record_embedding(
+                int(usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0))
             )
         self._write_cache(cache_key, {"embedding": embedding})
         return list(embedding)

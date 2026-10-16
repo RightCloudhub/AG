@@ -10,6 +10,7 @@
 | | [BUSINESS_LOGIC.md](./design/BUSINESS_LOGIC.md) | 业务逻辑与完整性审查（BL-xx） |
 | | [DESIGN_VS_IMPLEMENTATION.md](./design/DESIGN_VS_IMPLEMENTATION.md) | 设计与实现差异 |
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |
+| | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |

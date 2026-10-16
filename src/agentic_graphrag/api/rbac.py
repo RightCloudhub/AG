@@ -22,7 +22,7 @@ from typing import Any
 
 from fastapi import Request
 
-from agentic_graphrag.api.errors import ApiError
+from agentic_graphrag.app.errors import ApiError
 
 log = logging.getLogger(__name__)
 

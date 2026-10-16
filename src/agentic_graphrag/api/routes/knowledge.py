@@ -10,12 +10,12 @@ from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
-from agentic_graphrag.api.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
-from agentic_graphrag.api.service import QueryService
-from agentic_graphrag.api.service_ingest import review_executor_for
+from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.app.query_service import QueryService
+from agentic_graphrag.app.review_app import ReviewApp
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
     ReviewDecision,
@@ -167,7 +167,8 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
     except ValueError as exc:
         raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
     try:
-        item = svc.review_queue.decide(
+        # ReviewApp records the decision and applies it to the graph (BL-03).
+        item = ReviewApp(svc).decide(
             item_id,
             dec,
             reviewer=body.reviewer,
@@ -183,10 +184,6 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> d
             f"Review item already decided: {exc.item.status}",
             status_code=409,
         ) from exc
-    executor = review_executor_for(svc)
-    if executor is not None:
-        # BL-03: the decision takes effect on the graph, not only on the ledger.
-        executor.execute(item)
     emit_audit(
         request,
         {

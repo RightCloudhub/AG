@@ -18,11 +18,12 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from agentic_graphrag.core.events import EventBus
+from agentic_graphrag.core.ports.stores import ChunkRecord, GraphStore
 from agentic_graphrag.knowledge.extract_rules import extract_rules_from_chunk
 from agentic_graphrag.knowledge.incremental import IncrementalUpdater
 from agentic_graphrag.knowledge.resolution import normalize_key
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, default_schema
-from agentic_graphrag.stores.interfaces import ChunkRecord, GraphStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ class GraphIngestDeps:
     review_queue: Any | None = None
     llm: Any | None = None
     schema: SchemaDefinition | None = None
-    on_commit: Any | None = None  # called after every graph write (cache invalidation)
+    on_commit: Any | None = None  # legacy hook; prefer ``events``
+    events: EventBus | None = None  # publishes GraphCommitted after every write
 
 
 class GraphIngestor:
@@ -67,6 +69,7 @@ class GraphIngestor:
         self.llm = deps.llm
         self.schema = deps.schema or default_schema()
         self.on_commit = deps.on_commit
+        self.events = deps.events
 
     def ingest_chunks(
         self, chunks: list[ChunkRecord], *, tenant_id: str = "", batch_id: str = ""
@@ -83,6 +86,7 @@ class GraphIngestor:
             review_queue=self.review_queue,
             tenant_id=tenant_id,
             on_commit=self.on_commit,
+            events=self.events,
         )
         batch = updater.apply_batch(triples, batch_id=batch_id or None)
         for name in (

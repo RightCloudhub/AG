@@ -16,13 +16,13 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.core.ports.stores import DocStore, VectorStore
 from agentic_graphrag.knowledge.ingest import chunk_document
 from agentic_graphrag.knowledge.ingest_tasks import (
     DEFAULT_STALE_SECONDS,
     IngestStatus,
     IngestTaskStore,
 )
-from agentic_graphrag.stores.interfaces import DocStore, VectorStore
 
 logger = logging.getLogger(__name__)
 

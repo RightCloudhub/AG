@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, PathRecord, RelationRecord
 from agentic_graphrag.retrieval.graph_relation import (
     RelationEmbedSim,
     blend_relation_score,
@@ -13,7 +14,6 @@ from agentic_graphrag.retrieval.graph_relation import (
     path_signature,
     relation_relevance,
 )
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, PathRecord, RelationRecord
 
 __all__ = [
     "BeamConfig",

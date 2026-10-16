@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from agentic_graphrag.stores.interfaces import EntityRecord, PathRecord, RelationRecord
+from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 
 
 class InMemoryGraphStore:

@@ -12,8 +12,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
-from agentic_graphrag.stores.interfaces import ChunkRecord
 
 RULE_CONFIDENCE = 0.85
 

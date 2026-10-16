@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -20,14 +20,17 @@ from agentic_graphrag.agent.executor_plan import (
     sanitize_spec,
     split_prompt,
 )
-from agentic_graphrag.generation.trace import ToolCallTrace
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ToolCallTrace
 from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.retrieval.cache import RetrievalCache
-from agentic_graphrag.retrieval.contracts import Candidate
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.fusion import Reranker
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.tools import ToolRegistry
 
 DEFAULT_FUSION_METHOD = "rrf"
 DEFAULT_FUSION_K = 60
@@ -102,6 +105,7 @@ class Executor:
         fusion_limit: int | None = None,
         cache: RetrievalCache | None = None,
         reranker: Reranker | None = None,
+        tools: ToolRegistry | None = None,
     ) -> None:
         self.graph = graph
         self.deps = deps or ExecutorDeps(
@@ -128,6 +132,10 @@ class Executor:
         self.fusion_k = self.config.fusion_k
         self.fusion_limit = self.config.fusion_limit
         self.cache = self.config.cache
+        from agentic_graphrag.agent.tools import default_retrieval_tools
+
+        # Every tool call goes through this registry (refactor §1.2).
+        self.tools = tools if tools is not None else default_retrieval_tools()
         self.reranker = self.config.reranker
 
     def run(
