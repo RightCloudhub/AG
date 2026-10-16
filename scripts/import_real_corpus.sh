@@ -29,7 +29,7 @@ echo "Total docs in pilot/raw: $count"
 MAN="$ROOT/data/pilot/MANIFEST.yaml"
 if [[ -f "$MAN" ]]; then
   echo "Update MANIFEST.yaml: corpus.doc_count=$count, authorization.*, checklist.product_signoff"
-  echo "Template: data/pilot/MANIFEST.template.yaml · Playbook: docs/REAL_DOMAIN_PLAYBOOK.md"
+  echo "Template: data/pilot/MANIFEST.template.yaml · Playbook: docs/ops/REAL_DOMAIN_PLAYBOOK.md"
 else
   cp "$ROOT/data/pilot/MANIFEST.template.yaml" "$MAN"
   echo "Created $MAN from template — fill domain/authorization and set product_signoff"

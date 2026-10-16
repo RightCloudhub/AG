@@ -82,7 +82,7 @@ class IncrementalUpdater:
         self.store = store
         # ``None`` means "use the configured gate". The incremental path used to
         # treat it as "no gate", so new triples entered the graph with neither
-        # schema nor confidence validation (docs/BUSINESS_LOGIC.md BL-07).
+        # schema nor confidence validation (docs/design/BUSINESS_LOGIC.md BL-07).
         self.schema = schema if schema is not None else default_schema()
         self.confidence_threshold = (
             default_confidence_threshold() if confidence_threshold is None else confidence_threshold
@@ -144,7 +144,7 @@ class IncrementalUpdater:
         stats = load_triples_into_graph(self.store, to_write, clear_first=False, pre_gated=True)
         # Report what the store actually upserted. The old fallback to
         # ``len(to_write)`` reported planned writes as accepted when the store
-        # wrote nothing (docs/BUSINESS_LOGIC.md BL-11).
+        # wrote nothing (docs/design/BUSINESS_LOGIC.md BL-11).
         result.accepted = int(stats.get("relations_upserted", 0))
         self._refresh_index(to_write)
         if self.on_commit is not None:

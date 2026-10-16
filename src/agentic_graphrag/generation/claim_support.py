@@ -20,7 +20,7 @@ overlap easier to reach), so both are handled here:
    is not the query entity — and a path requires the claim to name at least two
    of its nodes.
 
-This is still not entailment. See ``docs/BUSINESS_LOGIC.md`` BL-13 for the
+This is still not entailment. See ``docs/design/BUSINESS_LOGIC.md`` BL-13 for the
 remaining gap and the cost note on adding a real NLI check.
 """
 

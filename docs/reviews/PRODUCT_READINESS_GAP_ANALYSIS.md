@@ -19,14 +19,14 @@
 | 优先级 | 产品能力 | 本项目现状与证据 | 与产品级的差距及影响 |
 |---|---|---|---|
 | **P0 试点前** | 真实领域验收 | 有 dev/heldout/guardrail 与离线评测；但 [`IMPORTANT.md`](./IMPORTANT.md) 的状态汇总最后更新于 2026-08-08，仍列真实领域签字、正式 heldout、live baseline 和生产 P95 为开放项。 | 目前不能仅凭合成/离线结果承诺目标行业的答案质量、证据可靠性或响应 SLA。历史约 92 秒 P95 仅是旧记录，不能当作 2026-09-23 实测。先锁真实语料、人工金标、基线及验收门槛。 |
-| **P0 试点前** | 文档接入与处理闭环 | API 上传仅支持 UTF-8 Markdown/纯文本；worker 需单独运行；API 上传路径建 Doc/Vector/BM25 索引，不等于完整图谱抽取。PDF 暂不支持。见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。 | 业务用户无法通过常见文件完成一站式入库；处理失败、重试和可检索状态需要运维介入。相比之下，RAGFlow 官方描述了可配置的 Parser/Transformer/Indexer 处理管线及多类文件解析；Dify 文档 API 显示索引状态和错误信息。 |
-| **P0 试点前** | 知识运营控制台 | 现有 `/web` 是试用问答 UI。角色感知控制台仍是规划项；文档总账列出 `GET /v1/me` 和摄取任务列表接口待补。见 [`IMPORTANT.md`](./IMPORTANT.md) 与 [`UI_DESIGN.md`](./UI_DESIGN.md)。 | 缺少运营人员查看任务、定位错误、管理复核、检查图谱/引用及反馈处理的统一入口。API 和 CLI 可用不等于非技术运营人员可以自助操作。 |
-| **P1 可信度** | 图谱复核与知识生命周期 | 图谱 CLI 有 schema/confidence gate、增量冲突处理和 review queue；但 [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) 的 BL-01“上传到图谱无通路”和 BL-03“复核决策无执行器”仍标为未实施。 | 复核通过不能完整闭环到图谱写入；文档上传也不能自动变成经过治理的图事实。需要对批准、拒绝、重试、幂等和来源版本建立明确状态机。 |
-| **P1 检索体验** | 意图与知识库能力路由 | 当前 `triage` 根据问题复杂度、规则和可选 LLM，在 Fast Path 与 Agentic 间选择；没有把文档库类型、覆盖主题、实体/关系和时间范围纳入路由。见 [`triage.py`](../src/agentic_graphrag/agent/triage.py)。 | 用户无法预期哪些问题可由当前知识库回答；全库总结、时态比较、局部事实等意图可能被统一当成简单/复杂问答处理。建议建立租户级 corpus profile，并让意图分类输出检索策略与可答性，不让分类器直接编造答案。 |
-| **P1 可信度** | 检索质量验证 | 有向量/图/BM25 + RRF，`Reranker` 默认是 `IdentityReranker`；引用门禁是规则性支撑检查，不等于语义蕴含判定。见 [`fusion.py`](../src/agentic_graphrag/retrieval/fusion.py)、[`ARCHITECTURE.md`](./ARCHITECTURE.md)。 | 缺少真实 reranker 的质量/延迟对照，也缺少对“引用存在但不支持结论”的可靠检测。产品验收应把召回、答案正确性、引用支持、拒答和成本分别度量。 |
+| **P0 试点前** | 文档接入与处理闭环 | API 上传仅支持 UTF-8 Markdown/纯文本；worker 需单独运行；API 上传路径建 Doc/Vector/BM25 索引，不等于完整图谱抽取。PDF 暂不支持。见 [`ARCHITECTURE.md`](../ARCHITECTURE.md)。 | 业务用户无法通过常见文件完成一站式入库；处理失败、重试和可检索状态需要运维介入。相比之下，RAGFlow 官方描述了可配置的 Parser/Transformer/Indexer 处理管线及多类文件解析；Dify 文档 API 显示索引状态和错误信息。 |
+| **P0 试点前** | 知识运营控制台 | 现有 `/web` 是试用问答 UI。角色感知控制台仍是规划项；文档总账列出 `GET /v1/me` 和摄取任务列表接口待补。见 [`IMPORTANT.md`](./IMPORTANT.md) 与 [`UI_DESIGN.md`](../design/UI_DESIGN.md)。 | 缺少运营人员查看任务、定位错误、管理复核、检查图谱/引用及反馈处理的统一入口。API 和 CLI 可用不等于非技术运营人员可以自助操作。 |
+| **P1 可信度** | 图谱复核与知识生命周期 | 图谱 CLI 有 schema/confidence gate、增量冲突处理和 review queue；但 [`BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) 的 BL-01“上传到图谱无通路”和 BL-03“复核决策无执行器”仍标为未实施。 | 复核通过不能完整闭环到图谱写入；文档上传也不能自动变成经过治理的图事实。需要对批准、拒绝、重试、幂等和来源版本建立明确状态机。 |
+| **P1 检索体验** | 意图与知识库能力路由 | 当前 `triage` 根据问题复杂度、规则和可选 LLM，在 Fast Path 与 Agentic 间选择；没有把文档库类型、覆盖主题、实体/关系和时间范围纳入路由。见 [`triage.py`](../../src/agentic_graphrag/agent/triage.py)。 | 用户无法预期哪些问题可由当前知识库回答；全库总结、时态比较、局部事实等意图可能被统一当成简单/复杂问答处理。建议建立租户级 corpus profile，并让意图分类输出检索策略与可答性，不让分类器直接编造答案。 |
+| **P1 可信度** | 检索质量验证 | 有向量/图/BM25 + RRF，`Reranker` 默认是 `IdentityReranker`；引用门禁是规则性支撑检查，不等于语义蕴含判定。见 [`fusion.py`](../../src/agentic_graphrag/retrieval/fusion.py)、[`ARCHITECTURE.md`](../ARCHITECTURE.md)。 | 缺少真实 reranker 的质量/延迟对照，也缺少对“引用存在但不支持结论”的可靠检测。产品验收应把召回、答案正确性、引用支持、拒答和成本分别度量。 |
 | **P1 运行保障** | SLA 与故障恢复 | 有预算、熔断、结构化日志、安全审计、Prometheus 和可选 OTel；但 staging/live P95、真实存储跨租户回归、OTLP collector/告警和多副本共享调度仍需环境验证。见 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 | 代码具备观测接口，不等于生产有可用仪表盘、告警、值班手册和恢复演练；不能据此宣称达到生产 SLA。 |
 | **P2 规模化** | 多租户企业接入 | 已有 API Key→tenant/role、数据级 tenant 过滤、预算及审计隔离；物理隔离、SSO/OIDC/LDAP、细粒度资源 ACL 被现有计划明确排除或留给部署侧。见 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 | 对封闭试点可能够用；面向企业采购时，常见的组织身份接入、文档级 ACL、租户删除/导出和隔离证明仍要按客户要求补齐。应用层过滤不能替代物理隔离或真实后端验证。 |
-| **P2 规模化** | 分布式任务与持久服务 | 摄取任务/worker 面向单机使用；多副本共享队列、Redis 调度及若干真实后端联调仍属部署验证。当前全文索引与文档存储仍是 BM25/文件型实现。见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 与 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 | 多进程/多副本时，任务租约、重复消费、共享状态、文件可见性、备份恢复和容量上限需要明确保证。适用于单机不等于适用于水平扩展。 |
+| **P2 规模化** | 分布式任务与持久服务 | 摄取任务/worker 面向单机使用；多副本共享队列、Redis 调度及若干真实后端联调仍属部署验证。当前全文索引与文档存储仍是 BM25/文件型实现。见 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 与 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 | 多进程/多副本时，任务租约、重复消费、共享状态、文件可见性、备份恢复和容量上限需要明确保证。适用于单机不等于适用于水平扩展。 |
 
 ## 建议交付门槛
 
@@ -59,6 +59,6 @@
 
 ## 资料与边界
 
-- 本项目现状依据 [`ARCHITECTURE.md`](./ARCHITECTURE.md)、[`IMPORTANT.md`](./IMPORTANT.md)、[`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)、[`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) 和对应代码；这些材料的状态日期不完全一致。特别是待办总账最后汇总日期为 **2026-08-08**，所以文中将其未关闭事项视为“仓库最后记录的状态”，不是 2026-09-23 当天的部署实测。
+- 本项目现状依据 [`ARCHITECTURE.md`](../ARCHITECTURE.md)、[`IMPORTANT.md`](./IMPORTANT.md)、[`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)、[`BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) 和对应代码；这些材料的状态日期不完全一致。特别是待办总账最后汇总日期为 **2026-08-08**，所以文中将其未关闭事项视为“仓库最后记录的状态”，不是 2026-09-23 当天的部署实测。
 - 产品对照仅引用官方材料：RAGFlow [可配置摄取管线说明](https://ragflow.io/blog/is-data-processing-like-building-with-lego-here-is-a-detailed-explanation-of-the-ingestion-pipeline)；Dify [Knowledge API](https://docs.dify.ai/en/api-reference/guides/knowledge)。访问日期：**2026-09-23**。
 - 产品化能力没有统一的行业清单。M0/M1/M2 是结合当前代码和目标试点提出的建议门槛，不代表竞品都采用同一架构，也不构成对竞品整体质量的评分。

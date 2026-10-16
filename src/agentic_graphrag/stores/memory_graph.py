@@ -31,7 +31,7 @@ class InMemoryGraphStore:
 
         Needed by the incremental updater: without it an auto-merged conflict
         wrote the new edge while the superseded one stayed, leaving two
-        contradictory facts on the offline path (docs/BUSINESS_LOGIC.md BL-10).
+        contradictory facts on the offline path (docs/design/BUSINESS_LOGIC.md BL-10).
         """
         keys = [k for k, rec in self._relations.items() if rec.id == relation_id]
         for key in keys:

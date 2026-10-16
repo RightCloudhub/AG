@@ -110,7 +110,7 @@ class IngestWorker:
         """Embed every chunk; return an error when none of them succeeded.
 
         Per-chunk warnings alone let a run where *every* embed failed finish as
-        ``done`` with zero vectors indexed (docs/BUSINESS_LOGIC.md BL-10).
+        ``done`` with zero vectors indexed (docs/design/BUSINESS_LOGIC.md BL-10).
         """
         if self.embed_fn is None:
             return None
@@ -204,7 +204,7 @@ class IngestWorker:
         A stale requeue racing this worker puts the task back in QUEUED, which
         makes EXTRACTING → DONE invalid. That ValueError used to be caught by the
         batch handler and rewritten as FAILED, marking a *successful* task failed
-        (docs/BUSINESS_LOGIC.md BL-06). Log it and leave the status alone.
+        (docs/design/BUSINESS_LOGIC.md BL-06). Log it and leave the status alone.
         """
         try:
             self._queue.transition(task_id, status, message=message, owner=self.worker_id)
@@ -245,7 +245,7 @@ class IngestWorker:
 def _build_cli_worker() -> IngestWorker:
     """Wire the worker the way the docs promise: consuming the task queue.
 
-    Two defects lived here (docs/BUSINESS_LOGIC.md BL-05): ``task_store`` was
+    Two defects lived here (docs/design/BUSINESS_LOGIC.md BL-05): ``task_store`` was
     never passed, so ``run_once`` silently fell back to the legacy doc-store
     scan and queued tasks stayed ``queued`` forever; and an in-memory doc store
     means this process shares no data with the API, so the worker sees nothing.

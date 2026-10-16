@@ -191,7 +191,7 @@ synth = "synthetic" in src.lower()
 ok = bool(cl.get("product_signoff")) and not synth and bool(src)
 note = f"source={src}"
 if not ok:
-    note += "; need authorized real domain (docs/REAL_DOMAIN_PLAYBOOK.md)"
+    note += "; need authorized real domain (docs/ops/REAL_DOMAIN_PLAYBOOK.md)"
 print(f"{'pass' if ok else 'blocked'}|{str(ok).lower()}|{note}")
 PY
 )"
@@ -489,8 +489,8 @@ IFS='|' read -r G4A_ST G4A_PASS G4A_NOTE <<<"${G4_LINES[0]}"
 IFS='|' read -r G4B_ST G4B_PASS G4B_NOTE <<<"${G4_LINES[1]}"
 IFS='|' read -r G4C_ST G4C_PASS G4C_NOTE <<<"${G4_LINES[2]}"
 record G4a "gray_release_2w_feedback" "$G4A_ST" "$G4A_PASS" "reports/g4_scaffold/checklist.json" "$G4A_NOTE"
-record G4b "prod_alerts_budget_audit" "$G4B_ST" "$G4B_PASS" "docs/ops-runbook.md" "$G4B_NOTE"
-record G4c "prd_ac_all_closed" "$G4C_ST" "$G4C_PASS" "docs/IMPORTANT.md" "$G4C_NOTE"
+record G4b "prod_alerts_budget_audit" "$G4B_ST" "$G4B_PASS" "docs/ops/RUNBOOK.md" "$G4B_NOTE"
+record G4c "prd_ac_all_closed" "$G4C_ST" "$G4C_PASS" "docs/reviews/IMPORTANT.md" "$G4C_NOTE"
 
 # ---------------------------------------------------------------------------
 section "Aggregate report"
@@ -576,7 +576,7 @@ for r in rows:
 next_actions = []
 by_id = {r["id"]: r for r in rows}
 if by_id.get("C1p") and not by_id["C1p"]["pass"]:
-    next_actions.append("Product: real domain + MANIFEST authorization (docs/REAL_DOMAIN_PLAYBOOK.md)")
+    next_actions.append("Product: real domain + MANIFEST authorization (docs/ops/REAL_DOMAIN_PLAYBOOK.md)")
 if by_id.get("G2h") and not by_id["G2h"]["pass"]:
     next_actions.append("Human gold sample sign-off (ANNOTATION_SPEC + review queue)")
 if by_id.get("G2l") and by_id["G2l"]["status"] in {"skip", "blocked"}:
@@ -612,9 +612,9 @@ report = {
         "note": "Offline P95 met ≠ formal AC-4 (needs live_ok cold path)",
     },
     "docs": {
-        "important": "docs/IMPORTANT.md",
+        "important": "docs/reviews/IMPORTANT.md",
         "roadmap": "plan/roadmap.md",
-        "real_domain": "docs/REAL_DOMAIN_PLAYBOOK.md",
+        "real_domain": "docs/ops/REAL_DOMAIN_PLAYBOOK.md",
         "p95_notes": "reports/g3_offline/P95_NOTES.md",
     },
 }

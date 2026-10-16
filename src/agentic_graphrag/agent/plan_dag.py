@@ -142,7 +142,7 @@ def cap_plan_breadth(
     """Split a plan into the nodes that fit the breadth budget and the overflow.
 
     Planner output used to be unbounded: nodes past the hop budget never ran and
-    were never reported (docs/BUSINESS_LOGIC.md BL-12). ``normalize_plan`` topo-sorts
+    were never reported (docs/design/BUSINESS_LOGIC.md BL-12). ``normalize_plan`` topo-sorts
     the list, so keeping the prefix keeps every kept node's dependencies (except when
     the sort hit a cycle and fell back to input order — a plan already broken); the
     overflow is returned so the caller can record what was dropped.

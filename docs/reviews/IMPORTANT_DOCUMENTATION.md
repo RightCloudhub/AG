@@ -5,7 +5,7 @@
 > 所有正确性主张均通过**代码逻辑检查**（读代码、比对调用方、手算指标）得出。
 > 下列条目必须在有可执行环境时逐条实跑确认。
 >
-> 变更来源：[`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §4 缺口清单，落地状态见其 §7。
+> 变更来源：[`BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §4 缺口清单，落地状态见其 §7。
 > 仍挂账项见 [`IMPORTANT.md`](./IMPORTANT.md) §6「业务逻辑断链」。
 
 ---
@@ -187,4 +187,4 @@ PYTHONPATH=src python scripts/p3_ev_offline.py
 
 ---
 
-*本文件随 BL 修复变更集同批提交。任一条目实跑通过后，请在此勾记并同步 [`BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §7。*
+*本文件随 BL 修复变更集同批提交。任一条目实跑通过后，请在此勾记并同步 [`BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §7。*

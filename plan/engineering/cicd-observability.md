@@ -28,7 +28,7 @@ PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容
 ## 3. 可观测性
 
 > **实现状态（2026-07-25，ENT-01/02/08 落地）：** 本节原为设计稿；除标注外均已有工程实现。
-> 状态权威与剩余待办见 [`docs/ENTERPRISE_READINESS.md`](../../docs/ENTERPRISE_READINESS.md) §3.5。
+> 状态权威与剩余待办见 [`docs/reviews/ENTERPRISE_READINESS.md`](../../docs/reviews/ENTERPRISE_READINESS.md) §3.5。
 
 ### 3.1 全链路 Trace（NFR-08）— 🟢 工程实现（collector 联调待部署验证）
 - OpenTelemetry：`query_id` 为根 span，子 span 覆盖 分诊→每跳（Planner/Executor/Critic）→每次工具调用→每次 LLM 调用。
@@ -63,7 +63,7 @@ PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容
 | 兜底率 | 突增 >2 倍基线 | 中（疑似图谱/检索故障） |
 | 审核队列 | 积压 > 阈值 | 低 |
 
-> **实现：** 前四项对应的 Prometheus rules YAML 示例已入 `docs/ops-runbook.md`（2026-07-25）；
+> **实现：** 前四项对应的 Prometheus rules YAML 示例已入 `docs/ops/RUNBOOK.md`（2026-07-25）；
 > 兜底率/审核队列告警需先补对应指标外送。实际告警部署与验证归部署侧（G4 门禁第 3 条）。
 
 ### 3.4 日志 — 🟢 工程实现（ENT-01/06）

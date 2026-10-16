@@ -20,7 +20,7 @@
 1. **G2 Accuracy/Recall** must re-measure after: product-signed real corpus (or accepted synthetic with product re-sign) **and** full live LLM quota (no 403).  
 2. C1 is **synthetic corporate_relations** engineering lock — replace for production pilot.  
 3. C2b live quality re-run is open when provider quota recovers.  
-4. C3 used local tarball Neo4j (`/tmp/neo4j-home` + Temurin 17); prefer `docker compose` in shared envs (see `docs/EXTERNAL_RUNTIMES.md`).
+4. C3 used local tarball Neo4j (`/tmp/neo4j-home` + Temurin 17); prefer `docker compose` in shared envs (see `docs/ops/EXTERNAL_RUNTIMES.md`).
 
 ## Sign-off
 

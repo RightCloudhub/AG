@@ -154,11 +154,14 @@ def test_upload_task_and_review_workflow_is_tenant_scoped(monkeypatch):
     assert client.get("/v1/ingest-tasks", headers=other_operator).json()["data"] == []
     assert client.get("/v1/ingest-tasks", headers=reader).status_code == 403
     assert client.get("/v1/review-queue", headers=reader).status_code == 403
-    assert client.post(
-        "/v1/docs",
-        files={"files": ("denied.txt", b"no", "text/plain")},
-        headers=reader,
-    ).status_code == 403
+    assert (
+        client.post(
+            "/v1/docs",
+            files={"files": ("denied.txt", b"no", "text/plain")},
+            headers=reader,
+        ).status_code
+        == 403
+    )
 
     service.ingest_tasks.transition(task_id, IngestStatus.EXTRACTING)
     current = client.get(f"/v1/ingest-tasks/{task_id}", headers=operator).json()["data"]

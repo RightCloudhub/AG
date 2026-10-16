@@ -12,15 +12,15 @@ AgenticGraphRAG 已具备多跳 Agent、图/向量/BM25 混合召回、增量冲
 
 ## 本项目基线
 
-仓库架构文档标注于 2026-09-23：默认离线运行；Agentic 路径用 LangGraph DAG 调度子问题；向量、图 beam、BM25 并行召回并以 RRF 融合；知识抽取已有 schema/confidence gate、实体解析、增量冲突处理与人工复核；API 上传则是另一条仅做文档、向量和全文索引的任务路径。见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 与 [`README.md`](../README.md)。
+仓库架构文档标注于 2026-09-23：默认离线运行；Agentic 路径用 LangGraph DAG 调度子问题；向量、图 beam、BM25 并行召回并以 RRF 融合；知识抽取已有 schema/confidence gate、实体解析、增量冲突处理与人工复核；API 上传则是另一条仅做文档、向量和全文索引的任务路径。见 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 与 [`README.md`](../../README.md)。
 
 | 领域 | 仓库现状 | 评估注意点 |
 |---|---|---|
-| 检索与推理 | 三路召回、RRF、Agent 计划 DAG、Fast Path/Agentic 分流、引用绑定与推理链审计 | `Reranker` 目前是可注入协议，默认 `IdentityReranker`，不会实际重排；见 [`retrieval/fusion.py`](../src/agentic_graphrag/retrieval/fusion.py)。 |
-| 索引与上传 | 图谱构建有抽取、校验、冲突处理；HTTP 上传只接受 UTF-8 Markdown/纯文本，交给单独 worker 建文档/向量/BM25 索引 | 上传路径不是完整图谱抽取路径；PDF 不支持，worker 不由 API 自动启动；见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。 |
-| 分块 | 默认固定字符窗口（1200 字符、150 重叠） | 已有设计审计指出尚未保留标题、列表、表格等结构；见 [`DESIGN_VS_IMPLEMENTATION.md`](./DESIGN_VS_IMPLEMENTATION.md) 与 [`default.yaml`](../configs/default.yaml)。 |
+| 检索与推理 | 三路召回、RRF、Agent 计划 DAG、Fast Path/Agentic 分流、引用绑定与推理链审计 | `Reranker` 目前是可注入协议，默认 `IdentityReranker`，不会实际重排；见 [`retrieval/fusion.py`](../../src/agentic_graphrag/retrieval/fusion.py)。 |
+| 索引与上传 | 图谱构建有抽取、校验、冲突处理；HTTP 上传只接受 UTF-8 Markdown/纯文本，交给单独 worker 建文档/向量/BM25 索引 | 上传路径不是完整图谱抽取路径；PDF 不支持，worker 不由 API 自动启动；见 [`ARCHITECTURE.md`](../ARCHITECTURE.md)。 |
+| 分块 | 默认固定字符窗口（1200 字符、150 重叠） | 已有设计审计指出尚未保留标题、列表、表格等结构；见 [`DESIGN_VS_IMPLEMENTATION.md`](../design/DESIGN_VS_IMPLEMENTATION.md) 与 [`default.yaml`](../../configs/default.yaml)。 |
 | 质量与性能 | 有 dev/heldout/guardrail 数据集和离线评测脚手架 | 仓库的待办总账最新汇总日期为 2026-08-08；其中真实域签字、live fair baseline、生产 P95 等仍列为开放项。旧的约 92 秒 P95 是历史记录，不应当作 2026-09-23 的当前实测值；应先复测。见 [`IMPORTANT.md`](./IMPORTANT.md)。 |
-| 证据校验 | claim 与检索证据绑定，执行规则性引用门禁 | 当前规则门禁不等于自然语言蕴含判定；待办总账也记录了真 NLI 支撑判定缺口。见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 与 [`IMPORTANT.md`](./IMPORTANT.md)。 |
+| 证据校验 | claim 与检索证据绑定，执行规则性引用门禁 | 当前规则门禁不等于自然语言蕴含判定；待办总账也记录了真 NLI 支撑判定缺口。见 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 与 [`IMPORTANT.md`](./IMPORTANT.md)。 |
 | 企业治理 | RBAC、租户过滤、预算、审计、Prometheus/可选 OTel 已有代码 | 多副本共享队列/状态及生产后端联调仍属于部署验证或规模化工作；不要把应用层租户过滤等同于物理隔离。见 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 |
 
 ## 主流项目对照

@@ -99,7 +99,7 @@ def default_schema() -> SchemaDefinition:
 
     Exists so the P2-KG-02 invariant — non-conforming triples never enter the
     graph — holds by default instead of only when a caller remembers to pass
-    ``schema=`` (docs/BUSINESS_LOGIC.md BL-07). Deliberately raises when the
+    ``schema=`` (docs/design/BUSINESS_LOGIC.md BL-07). Deliberately raises when the
     file is missing: an ingestion path that cannot validate must fail loudly,
     not silently degrade into "no gate".
     """

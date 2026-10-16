@@ -35,7 +35,8 @@ def _root_from_start(start: Path) -> Path | None:
 def _is_full_root(candidate: Path) -> bool:
     if not (candidate / "configs" / "default.yaml").exists():
         return False
-    return (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
+    prd = candidate / "docs" / "product" / "PRD.md"
+    return (candidate / "pyproject.toml").exists() or prd.exists()
 
 
 def _is_light_root(candidate: Path) -> bool:

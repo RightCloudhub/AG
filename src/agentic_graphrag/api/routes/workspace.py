@@ -47,9 +47,7 @@ def list_ingest_tasks(
     tenant_id, _user_id = _principal(request)
     service = _service(request)
     if service.ingest_tasks is None:
-        rows, total = list_cached_tasks(
-            tenant_id=tenant_id, limit=page.limit, offset=page.offset
-        )
+        rows, total = list_cached_tasks(tenant_id=tenant_id, limit=page.limit, offset=page.offset)
     else:
         tasks, total = service.ingest_tasks.list(
             tenant_id=tenant_id, limit=page.limit, offset=page.offset

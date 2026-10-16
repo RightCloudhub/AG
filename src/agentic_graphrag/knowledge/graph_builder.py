@@ -92,7 +92,7 @@ def load_triples_into_graph(
 
     The gate runs by default: ``schema=None`` means "use the configured domain
     schema", not "skip validation" — the latter reading turned the documented
-    invariant into an opt-in (docs/BUSINESS_LOGIC.md BL-07). Callers that
+    invariant into an opt-in (docs/design/BUSINESS_LOGIC.md BL-07). Callers that
     already gated pass ``pre_gated=True`` so rejections are not counted twice.
     """
     gate = (

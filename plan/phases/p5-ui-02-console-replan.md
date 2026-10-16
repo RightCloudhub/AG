@@ -1,7 +1,7 @@
 # P5-UI-02：前端重规划——试用问答 → 角色感知控制台
 
 **任务 ID**：P5-UI-02 · **版本**：V1.0（2026-08-08）· **状态**：**[ ] 规划定稿，待评审后实施**
-**关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.5 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md) · 账本 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §0/§5
+**关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.5 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) · 账本 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §0/§5
 
 ---
 
@@ -65,7 +65,7 @@
 |---|---|---|---|
 | `index.html` | 壳 + 侧栏 + 视图容器（视图内容全部走组件 string template，压 in-DOM 模板体积） | ≤220 | 改（现 133） |
 | `static/app.js` | Vue 加载 + boot | ~65 | 不动 |
-| `static/tokens.css` | 设计令牌 + 纸面质感配方（[UI_DESIGN](../../docs/UI_DESIGN.md) §3–§5；自 app.css 抽出） | ≤140 | 新（U-14） |
+| `static/tokens.css` | 设计令牌 + 纸面质感配方（[UI_DESIGN](../../docs/design/UI_DESIGN.md) §3–§5；自 app.css 抽出） | ≤140 | 新（U-14） |
 | `static/js/api.js` | fetch/envelope/SSE/key 核心 + `/v1/me` + 401/403 归一 | ≤170 | 改（现 128） |
 | `static/js/api-console.js` | 知识 / 审核 / 可观测域 API 客户端 | ≤160 | 新 |
 | `static/js/router.js` | hash ↔ 当前视图同步（自研 ~40 行，零依赖） | ≤60 | 新 |
@@ -79,7 +79,7 @@
 | `static/js/components/console-widgets.js` | data-table / filter-bar / stat-card / state-card（空态 / 无权限 / 错误） | ≤220 | 新 |
 | `static/console.css` | 控制台视图样式（现有三 CSS 不动） | ≤300 | 新 |
 
-`chain-view.js`、`components/{widgets,answer-turn,index}.js` 原样复用；三个现有 CSS 随视觉体系**值级刷新**（改令牌值与装饰类，选择器结构不重写；`app.css` 抽出令牌后回落 ≤240）——视觉规范唯一权威见 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)。组件继续保持纯对象（零 Vue import）。
+`chain-view.js`、`components/{widgets,answer-turn,index}.js` 原样复用；三个现有 CSS 随视觉体系**值级刷新**（改令牌值与装饰类，选择器结构不重写；`app.css` 抽出令牌后回落 ≤240）——视觉规范唯一权威见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)。组件继续保持纯对象（零 Vue import）。
 
 ## 6. 里程碑与任务清单
 
@@ -93,7 +93,7 @@
   - [ ] **U-05** `router.js` + `views/registry.js` + `root.js` 壳化；问答编排原样迁 `views/chat.js`（§8 SSE 回归清单护航）
   - [ ] **U-06** `index.html` 导航 + 视图容器；`console.css` 基座；`console-widgets.js` 四组件
 - **M2b 视觉体系落地（「制图室」方向，随 M2 合入或紧随其后）**
-  - [ ] **U-14** `tokens.css` 抽出 + 令牌值刷新：墨青/朱砂色系、宋体展示层、动效令牌、纸面网格；`index.html` link 与测试清单同步 — 规范 [UI_DESIGN](../../docs/UI_DESIGN.md) §3–§6
+  - [ ] **U-14** `tokens.css` 抽出 + 令牌值刷新：墨青/朱砂色系、宋体展示层、动效令牌、纸面网格；`index.html` link 与测试清单同步 — 规范 [UI_DESIGN](../../docs/design/UI_DESIGN.md) §3–§6
   - [ ] **U-15** 组件视觉规范随视图落地：印章状态语言（无权/通过/驳回/异常/已停止）、仪表卡、数据表、hop 墨线时间轴 — 规范 UI_DESIGN §7–§8
 - **M3 知识运维视图（operator+）**
   - [ ] **U-07** `views/knowledge.js`：上传（前端预检 + 逐文件结果）+ 任务列表/轮询（间隔 ≥2s；页面隐藏即停）

@@ -4,7 +4,7 @@ Resolves entity listings across GraphStore implementations without widening the
 store Protocol, and applies tenant scoping **before** pagination. Filtering a
 page after slicing it produced short — sometimes empty — pages that were not the
 end of the result set, and reported the store's global row count as the tenant's
-total (docs/BUSINESS_LOGIC.md BL-09).
+total (docs/design/BUSINESS_LOGIC.md BL-09).
 """
 
 from __future__ import annotations
@@ -64,9 +64,7 @@ def _filter_entities(rows: list, *, query: str, entity_type: str) -> list:
     needle = query.casefold()
     selected_type = entity_type.casefold()
     return [
-        row
-        for row in rows
-        if _matches_search(row, needle) and _matches_type(row, selected_type)
+        row for row in rows if _matches_search(row, needle) and _matches_type(row, selected_type)
     ]
 
 

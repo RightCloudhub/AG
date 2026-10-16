@@ -194,7 +194,7 @@ def _finish_answer(
         payload if isinstance(payload, ReasoningChain) else ReasoningChain.model_validate(payload)
     )
     # Streamed audit records used to carry an empty request_id while the
-    # non-streaming path set it (docs/BUSINESS_LOGIC.md BL-11).
+    # non-streaming path set it (docs/design/BUSINESS_LOGIC.md BL-11).
     _finalize_chain(
         chain,
         t0=t0,

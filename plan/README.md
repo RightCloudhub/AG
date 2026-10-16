@@ -1,6 +1,6 @@
 # AgenticGraphRAG 实施计划总览
 
-**关联文档**：[../PRD.md](../PRD.md) · [../lixiang.md](../lixiang.md)
+**关联文档**：[../PRD.md](../docs/product/PRD.md) · [../lixiang.md](../docs/product/PROPOSAL.md)
 **版本**：V1.1（2026-07-20：新增 engineering/rules.md 硬性规则汇总；api-and-ui.md 补充实现现状与前端交付）
 
 本目录是项目实施计划的唯一入口，按"阶段（时间维度）× 工作流（能力维度）"双视角组织。

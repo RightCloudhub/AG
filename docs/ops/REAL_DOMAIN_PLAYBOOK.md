@@ -26,7 +26,7 @@
 data/pilot/
   MANIFEST.yaml          # 正式清单（可提交非敏感元数据）
   raw/                   # ≥100 篇 UTF-8 .md/.txt（或外挂路径）
-docs/REAL_DOMAIN_PLAYBOOK.md
+docs/ops/REAL_DOMAIN_PLAYBOOK.md
 scripts/import_real_corpus.sh
 scripts/validate_pilot_corpus.sh
 ```
@@ -79,7 +79,7 @@ agr-index
 2. `validate_pilot_corpus.sh` 日志  
 3. 抽检 ≥70% 三元组 spotcheck  
 4. heldout live agentic vs baseline 报告（**该域**金标）  
-5. 更新 `docs/IMPORTANT.md` / `plan/roadmap.md` G2 勾选  
+5. 更新 `docs/reviews/IMPORTANT.md` / `plan/roadmap.md` G2 勾选  
 
 ---
 

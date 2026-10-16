@@ -10,7 +10,7 @@
 - [ ] `P5-EXT-02` 跨领域实体对齐：同一实体在多领域图谱中的关联与消歧
 - [x] `P5-EXT-03` 多租户配额管理脚手架 — `MultiLevelBudget` + auth principal；**ENT-05/06 续章（2026-07-25）**：`tenants:` 配置化 per-tenant 限额 + `tenant_id` 数据级隔离已落地；分布式（Redis）与图库物理隔离仍待
 
-### 1b. 企业级管控轨道（P5-ENT；状态权威见 [docs/ENTERPRISE_READINESS.md](../../docs/ENTERPRISE_READINESS.md) §3.5）
+### 1b. 企业级管控轨道（P5-ENT；状态权威见 [docs/reviews/ENTERPRISE_READINESS.md](../../docs/reviews/ENTERPRISE_READINESS.md) §3.5）
 
 > 2026-07-25 工程交付（代码 + 离线单测）；Redis 多副本 / 真后端跨租户回归 / OTLP collector 属部署验证，勿以离线证据冒充生产验收。
 

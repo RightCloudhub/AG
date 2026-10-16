@@ -22,7 +22,7 @@
 - [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）— **代码侧已由 ENT-06 承接**（`tenant_id` 贯穿 stores/检索/agent，跨租户零命中单测）；**运维侧仍开**：物理分库/标签隔离、真实 Neo4j/Qdrant 跨租户回归
 - [x] `P4-REL-02` 安全基础：鉴权中间件、参数化 Cypher、envelope 不泄栈；**ENT-06 增补**：应用层上传治理（5MB/20/白名单/413）+ PII 脱敏开关 + live 凭据启动 fail-fast；完整 security-reviewer 生产签发仍待
 - [x] `P4-REL-03` 监控指标 API — `GET /v1/metrics`（admin）+ `GET /metrics-prom` Prometheus 抓取（ENT-08）；告警规则示例已入 ops-runbook，部署侧落地仍待
-- [x] `P4-REL-04` 运维手册 — `docs/ops-runbook.md`（**ENT 全量增补 2026-07-25**：错误码对照 / 日志字段字典 / 四点回查 / worker / 保留清理 / 告警规则）
+- [x] `P4-REL-04` 运维手册 — `docs/ops/RUNBOOK.md`（**ENT 全量增补 2026-07-25**：错误码对照 / 日志字段字典 / 四点回查 / worker / 保留清理 / 告警规则）
 
 ### 灰度与反馈（OPS)
 - [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组 — **流程项，非代码**

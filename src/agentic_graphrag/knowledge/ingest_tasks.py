@@ -25,7 +25,7 @@ _ALLOWED_TRANSITIONS = {
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
     # EXTRACTING → QUEUED is the crash-recovery path: a worker killed mid-task
     # would otherwise leave it EXTRACTING forever, invisible to ``pending()``
-    # and to any retry (docs/BUSINESS_LOGIC.md BL-06).
+    # and to any retry (docs/design/BUSINESS_LOGIC.md BL-06).
     IngestStatus.EXTRACTING: {
         IngestStatus.REVIEW,
         IngestStatus.DONE,

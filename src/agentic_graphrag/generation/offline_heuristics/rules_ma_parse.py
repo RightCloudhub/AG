@@ -72,7 +72,7 @@ def ceos_from_texts(texts: list[str]) -> dict[str, str]:
 
 
 def hq_from_texts(texts: list[str]) -> dict[str, str]:
-    # DEMO_HQ is evidence-independent seed for the demo corpus (see docs/IMPORTANT.md).
+    # DEMO_HQ is evidence-independent seed for the demo corpus (see docs/reviews/IMPORTANT.md).
     out: dict[str, str] = dict(DEMO_HQ)
     blob = "\n".join(texts or [])
     for rx in (_HQ_DIRECT, _HQ_COMMA):

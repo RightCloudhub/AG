@@ -3,7 +3,7 @@
 **生成日期：** 2026-07-26
 **审查方式：** 纯静态代码审查（未运行项目、未安装依赖、未执行测试；结论均给出 `file:line` 证据）
 **定位：** 描述性文档 — ①全系统业务逻辑图（节点/边/判定点）；②业务逻辑**完整性**缺口清单。
-**权威边界：** 强制规则以 [`plan/engineering/rules.md`](../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](./IMPORTANT.md) 为准；ENT 状态以 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 为准；模块地图以 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 为准。本文件**不**改写上述结论，只补充「逻辑是否闭环」这一维度。
+**权威边界：** 强制规则以 [`plan/engineering/rules.md`](../../plan/engineering/rules.md) 为准；债务与延期以 [`IMPORTANT.md`](../reviews/IMPORTANT.md) 为准；ENT 状态以 [`ENTERPRISE_READINESS.md`](../reviews/ENTERPRISE_READINESS.md) §3.5 为准；模块地图以 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 为准。本文件**不**改写上述结论，只补充「逻辑是否闭环」这一维度。
 
 ---
 
@@ -259,7 +259,7 @@ stateDiagram-v2
 | 失败场景 | 租户 A 用 `POST /v1/query/stream` 提问 → 检索命中租户 B 的实体/chunk 并作为证据引用；结果写入全局检索缓存 → 租户 B 后续同样子问题直接读到 A 的检索结果。 |
 | 受影响子路径（已精确化） | 闲聊：不涉检索；**Fast Path 未升级：正确**（`loop_stream.py:177` 显式传 `tenant_id`）；**Agentic 三种进入方式全部受影响** —— triage 路由（`:146`）、`force_agentic`/`enable_triage=False`（`:100`）、**Fast Path 升级**（`:182`）；非流式 `POST /v1/query`：正确。 |
 | 缓存键无租户 | `RetrievalCache.retrieval_key`（`cache.py:133`）只含 index_version + 归一化 query + tools，**不含 tenant_id**，其隔离完全依赖「租户作用域运行绕过缓存」这一约定 —— 该约定在流式路径被打破。答案缓存**不受影响**（`cache.py:150` 已含租户，另有 `service_helpers.py:148` 元数据兜底）。 |
-| 与已发布承诺冲突 | `docs/ENTERPRISE_READINESS.md:278` 明写「检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**租户作用域运行绕过检索缓存**，隔离优先）」—— agent loop 一环在流式下不成立。 |
+| 与已发布承诺冲突 | `docs/reviews/ENTERPRISE_READINESS.md:278` 明写「检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**租户作用域运行绕过检索缓存**，隔离优先）」—— agent loop 一环在流式下不成立。 |
 | 连带发现 | API 侧 `tenant_id` 恒非空（`api/auth.py:169/178/189`、`api/service.py:168/177` 均默认 `"default"`），因此 `executor.py:143` 的 `tenant_id is None` 判据意味着 **P3-PERF-04 检索缓存在所有非流式 API 查询上实际是失效的**，而在流式上「生效」恰恰是本缺陷的副作用。修复 BL-04 会同时让两侧都关闭该缓存 —— 需要一并决定缓存键是否改为含租户。 |
 | 现有测试盲区 | `test_enterprise_completion.py:39-74` 只直接调 `store.search/neighbors`；`test_audit_tenant_cache_isolation.py` 只覆盖答案缓存与审计库；`test_live_sse_stream.py:26/51` 虽传 `tenant_id="t"` 但不做任何隔离断言。 |
 | 修复位置 | `agent/loop_stream.py:223` —— `opts.tenant_id` 已在 `ctx.run_opts` 上（由 `resolved_run_opts` 填充，`loop.py:264`），只需把它并入初始状态，对齐 `loop_recover.py:45`；该行以上无需改签名。 |
@@ -412,7 +412,7 @@ stateDiagram-v2
 | P3 | BL-10 / BL-11 | 可观测性与语义一致性 |
 | — | BL-14 | 数据模型变更（schema + 抽取 + 打分），对静态语料无损害；**应在 BL-01 立项前决策**，否则入图通路建成后再补时间字段需回填全量图谱 |
 
-**与既有台账的关系：** 上述缺口在 [`IMPORTANT.md`](./IMPORTANT.md) 中均未以「业务逻辑断链」形式记录。若接受本文件结论，应将 BL-01 / BL-03 / BL-04 补入债务总账，并同步 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) §3.5 中 ENT-05/06 的状态口径。
+**与既有台账的关系：** 上述缺口在 [`IMPORTANT.md`](../reviews/IMPORTANT.md) 中均未以「业务逻辑断链」形式记录。若接受本文件结论，应将 BL-01 / BL-03 / BL-04 补入债务总账，并同步 [`ENTERPRISE_READINESS.md`](../reviews/ENTERPRISE_READINESS.md) §3.5 中 ENT-05/06 的状态口径。
 
 ---
 
@@ -420,7 +420,7 @@ stateDiagram-v2
 
 > 状态口径与仓库约定一致：`[x]` 已完成、`[~]` 部分完成、`[ ]` 未开始、`[-]` 不做。
 > **全部为代码逻辑检查，未运行项目、未执行测试** —— 待执行的验证项见
-> [`IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md)。
+> [`IMPORTANT_DOCUMENTATION.md`](../reviews/IMPORTANT_DOCUMENTATION.md)。
 
 | 缺口 | 状态 | 落地内容 |
 |---|---|---|

@@ -8,7 +8,7 @@ designed capabilities, 20 are present and structurally equivalent, 2 are present
 without an implementation, and 4 are absent. Three places where the code deliberately does something
 the design did not anticipate are, on inspection, better than the design.
 
-These findings are **not** ledgered in `docs/IMPORTANT.md`. They are an external design's opinion,
+These findings are **not** ledgered in `docs/reviews/IMPORTANT.md`. They are an external design's opinion,
 not project-sanctioned debt. Promote individual items there only if you agree they are debt.
 
 ---
@@ -133,7 +133,7 @@ unchanged. Feedback is currently an *audit* mechanism, not a *repair* mechanism.
 divergence where the design's diagram is actively misleading about the code, and it is a small piece
 of work relative to what it unlocks (the KG becoming an asset that improves).
 
-**Already known.** `docs/BUSINESS_LOGIC.md` records this independently as **BL-03**, with one detail
+**Already known.** `docs/design/BUSINESS_LOGIC.md` records this independently as **BL-03**, with one detail
 this diff missed: `IncrementalUpdater._append_review` (`incremental.py:269`) writes pending conflicts
 to a *separate* JSONL that `ReviewQueue` never reads, so `GET /v1/review-queue` cannot surface them
 at all. Treat BL-03 as the authority for this finding.

@@ -30,19 +30,19 @@
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
-| 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
+| 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/ops/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
 | 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
 | 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
 | 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
-| 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
+| 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/reviews/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
 | 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
 | 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
-| 2026-08-08 | **P5-UI-02 前端重规划立项**（规划文档，未实施）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/UI_DESIGN.md`](./UI_DESIGN.md)（「制图室」方向，随 U-14/U-15 落地） |
+| 2026-08-08 | **P5-UI-02 前端重规划立项**（规划文档，未实施）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向，随 U-14/U-15 落地） |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
 PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
-# 真域：docs/REAL_DOMAIN_PLAYBOOK.md · ./scripts/import_real_corpus.sh
+# 真域：docs/ops/REAL_DOMAIN_PLAYBOOK.md · ./scripts/import_real_corpus.sh
 .venv/bin/python scripts/check_code_metrics.py
 # API 后端：默认 offline；AGR_ALLOW_LLM=1 仅开 LLM；AGR_USE_LIVE_STORES=1 才用 Neo4j/Qdrant
 ```
@@ -51,8 +51,8 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ## 1. 🟡 G1 → G2 过渡 — 工程已关 / 产品 caveat 仍开
 
-剧本：[`plan/phases/g1-to-g2-transition.md`](../plan/phases/g1-to-g2-transition.md)  
-状态：[`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) · closeout
+剧本：[`plan/phases/g1-to-g2-transition.md`](../../plan/phases/g1-to-g2-transition.md)  
+状态：[`reports/G1_to_G2_status.json`](../../reports/G1_to_G2_status.json) · closeout
 
 | ID | 任务 | 状态 | 说明 |
 |----|------|------|------|
@@ -67,7 +67,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ## 2. 🟠 阶段二 MVP — 效果门禁仍 Conditional
 
-权威：[`plan/phases/phase-2-mvp.md`](../plan/phases/phase-2-mvp.md)
+权威：[`plan/phases/phase-2-mvp.md`](../../plan/phases/phase-2-mvp.md)
 
 | ID | 状态 |
 |----|------|
@@ -77,7 +77,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ### G2 门禁清单
 
-来自 [`plan/roadmap.md`](../plan/roadmap.md)：
+来自 [`plan/roadmap.md`](../../plan/roadmap.md)：
 
 - [ ] 全部 P0 需求在**真实试点条件**下实现并通过测试  
 - [ ] 评测集 ≥200 条已标注；一键评测脚本端到端可用  
@@ -120,7 +120,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ## 4. ⚪ 阶段三 — 工程优化（代码已落地；G3 效果门禁仍开）
 
-权威：[`plan/phases/phase-3-optimization.md`](../plan/phases/phase-3-optimization.md)  
+权威：[`plan/phases/phase-3-optimization.md`](../../plan/phases/phase-3-optimization.md)  
 **前提：** G2 通过（效果数字仍 Conditional）。
 
 | 轨道 | 状态 | 说明 |
@@ -137,7 +137,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ## 5. ⚪ 阶段四 / 五 — 试点与规模化
 
-### 阶段四试点（[`phase-4-pilot.md`](../plan/phases/phase-4-pilot.md)）
+### 阶段四试点（[`phase-4-pilot.md`](../../plan/phases/phase-4-pilot.md)）
 
 | ID | 状态 |
 |----|------|
@@ -147,13 +147,13 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
 
-### 阶段五规模化（[`phase-5-scale.md`](../plan/phases/phase-5-scale.md)）— 方向 + 脚手架
+### 阶段五规模化（[`phase-5-scale.md`](../../plan/phases/phase-5-scale.md)）— 方向 + 脚手架
 
 | ID | 状态 |
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
-| **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../plan/phases/p5-ui-01-vue-refactor.md) |
-| **P5-UI-02** | **⚪ 规划完成（2026-08-08），未实施** — 前端重规划：角色感知控制台（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）；M0 API 前置：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../plan/phases/p5-ui-02-console-replan.md) |
+| **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../../plan/phases/p5-ui-01-vue-refactor.md) |
+| **P5-UI-02** | **⚪ 规划完成（2026-08-08），未实施** — 前端重规划：角色感知控制台（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）；M0 API 前置：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
@@ -203,7 +203,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ### 业务逻辑断链（BL-01…14，2026-07-27）
 
-来源：[`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已在同一变更集中修复，
+来源：[`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已在同一变更集中修复，
 以下为**仍然挂账**的部分：
 
 | # | 状态 | 挂账原因 | 解挂需要 |
@@ -218,14 +218,14 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 - 超大文件合规拆分（2026-07-20）**已完成**；新模块保持约 200–400 行（`plan/engineering/repo-structure.md`）。  
 - 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。  
-- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。  
+- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。  
 - **offline/live 边界：** `configs/prompts/*` 仅服务 live LLM；demo 语料假设只应落在 `generation/offline_heuristics/`（omit + 上表诚实项）。
 
 ---
 
 ## 7. PRD 开放问题（产品层仍未拍板）
 
-来自 [`PRD.md`](../PRD.md) §9：
+来自 [`PRD.md`](../product/PRD.md) §9：
 
 | # | 问题 | 代码当前默认 | 需要 |
 |---|------|--------------|------|
@@ -241,7 +241,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ## 8. 活跃风险中编码的延期缓解
 
-权威：[`plan/governance/risk-register.md`](../plan/governance/risk-register.md)
+权威：[`plan/governance/risk-register.md`](../../plan/governance/risk-register.md)
 
 | ID | 风险 | 仍未落地的缓解 |
 |----|------|----------------|
@@ -286,7 +286,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ## 11. 优先下一步（建议顺序）
 
-1. **产品真域** — 按 `docs/REAL_DOMAIN_PLAYBOOK.md` 授权语料 + MANIFEST 签字（工程无法代替）。  
+1. **产品真域** — 按 `docs/ops/REAL_DOMAIN_PLAYBOOK.md` 授权语料 + MANIFEST 签字（工程无法代替）。  
 2. **配 `LLM_EMBEDDING_*`** — fair live baseline；消 OpenAI 401。  
 3. **Live 重跑 3 道 3-hop badcase**（验证 critic_guard）或全量 `--with-llm`。  
 4. **Staging P95** — `p3_load_http.py --target ...` + triage，目标 Agentic ≤8s。  
@@ -298,19 +298,19 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 | 主题 | 权威文档 |
 |------|----------|
-| 路线图与门禁 | [`plan/roadmap.md`](../plan/roadmap.md) |
-| G1 评审 | [`reports/G1_review.md`](../reports/G1_review.md) |
-| G1→G2 剧本 | [`plan/phases/g1-to-g2-transition.md`](../plan/phases/g1-to-g2-transition.md) |
-| 阶段一…五任务 | [`plan/phases/`](../plan/phases/) |
-| 风险 | [`plan/governance/risk-register.md`](../plan/governance/risk-register.md) |
-| PRD / AC / 开放问题 | [`PRD.md`](../PRD.md) |
-| 目标目录树 | [`plan/engineering/repo-structure.md`](../plan/engineering/repo-structure.md) |
-| 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
-| 企业级管控审计 / ENT 规划 | [`docs/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
-| 业务逻辑断链（BL-01…14） | [`docs/BUSINESS_LOGIC.md`](./BUSINESS_LOGIC.md) |
-| BL 修复变更集待验证清单 | [`docs/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
-| 门禁 JSON | [`reports/G1_to_G2_status.json`](../reports/G1_to_G2_status.json) |
-| 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/EXTERNAL_RUNTIMES.md`](./EXTERNAL_RUNTIMES.md) |
+| 路线图与门禁 | [`plan/roadmap.md`](../../plan/roadmap.md) |
+| G1 评审 | [`reports/G1_review.md`](../../reports/G1_review.md) |
+| G1→G2 剧本 | [`plan/phases/g1-to-g2-transition.md`](../../plan/phases/g1-to-g2-transition.md) |
+| 阶段一…五任务 | [`plan/phases/`](../../plan/phases) |
+| 风险 | [`plan/governance/risk-register.md`](../../plan/governance/risk-register.md) |
+| PRD / AC / 开放问题 | [`PRD.md`](../product/PRD.md) |
+| 目标目录树 | [`plan/engineering/repo-structure.md`](../../plan/engineering/repo-structure.md) |
+| 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) |
+| 企业级管控审计 / ENT 规划 | [`docs/reviews/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
+| 业务逻辑断链（BL-01…14） | [`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) |
+| BL 修复变更集待验证清单 | [`docs/reviews/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
+| 门禁 JSON | [`reports/G1_to_G2_status.json`](../../reports/G1_to_G2_status.json) |
+| 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/ops/EXTERNAL_RUNTIMES.md`](../ops/EXTERNAL_RUNTIMES.md) |
 
 ---
 

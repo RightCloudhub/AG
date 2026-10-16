@@ -19,7 +19,7 @@ MAX_BATCH_FILES = 20
 READ_CHUNK_BYTES = 256 * 1024
 # Text-only: every upload is decoded as UTF-8 and chunked as plain text. ``pdf``
 # used to sit here while no extractor existed, so PDFs were stored as mojibake
-# and indexed as if they were text (docs/BUSINESS_LOGIC.md BL-08).
+# and indexed as if they were text (docs/design/BUSINESS_LOGIC.md BL-08).
 ALLOWED_EXTENSIONS = frozenset({"md", "txt"})
 # Rejected with an explicit "not supported yet" instead of a generic type error.
 KNOWN_UNSUPPORTED_EXTENSIONS = frozenset({"pdf"})
@@ -125,7 +125,7 @@ async def _save_upload(
         svc.bundle.docs.save(record)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
-        # task still listed it as queued (docs/BUSINESS_LOGIC.md BL-10).
+        # task still listed it as queued (docs/design/BUSINESS_LOGIC.md BL-10).
         logger.error("Doc store save failed for %s: %s", doc_id, exc, exc_info=True)
         row["error"] = f"save_failed: {type(exc).__name__}"
     return row

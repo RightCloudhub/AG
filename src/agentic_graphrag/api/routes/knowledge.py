@@ -220,7 +220,7 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
     if audit is not None and audit.get_for_tenant(body.query_id, tenant_id) is None:
         # 404 whether the id belongs to another tenant or does not exist at all.
         # Answering 404 only for the cross-tenant case made this an existence
-        # probe (docs/BUSINESS_LOGIC.md BL-09).
+        # probe (docs/design/BUSINESS_LOGIC.md BL-09).
         raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
     result = svc.submit_feedback(
         body.query_id,

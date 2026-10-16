@@ -40,7 +40,7 @@ EVIDENCE_CONTENT_CHARS = 800
 # Keyed by the exact reasons ``validate_answered_claims`` returns. The regenerate
 # pass costs a second STRONG call, so it must be told what actually failed: the
 # previous generic "add evidence_ids" text could never repair a lexical-support
-# failure, which made the retry deterministic waste (docs/BUSINESS_LOGIC.md BL-02).
+# failure, which made the retry deterministic waste (docs/design/BUSINESS_LOGIC.md BL-02).
 _REPAIR_HINTS: dict[str, str] = {
     "no claims": (
         "Your previous answer carried no claims at all. Split the answer into short "

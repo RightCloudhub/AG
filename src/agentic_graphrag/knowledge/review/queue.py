@@ -104,7 +104,7 @@ class ReviewQueue:
 
         A single malformed line used to raise straight out of ``__init__`` and
         take ``QueryService`` construction — hence the whole API — down with it
-        (docs/BUSINESS_LOGIC.md BL-11).
+        (docs/design/BUSINESS_LOGIC.md BL-11).
         """
         assert self.path is not None
         for lineno, line in enumerate(self.path.read_text(encoding="utf-8").splitlines(), 1):
@@ -210,7 +210,7 @@ class ReviewQueue:
         """Record a decision.
 
         ``tenant_id`` scopes the lookup — without it any operator who knew an id
-        could decide another tenant's item (docs/BUSINESS_LOGIC.md BL-09). A
+        could decide another tenant's item (docs/design/BUSINESS_LOGIC.md BL-09). A
         mismatch raises ``KeyError`` so callers answer 404 for "not yours" and
         "not found" alike. Legacy rows with an empty ``tenant_id`` stay
         decidable by any tenant. Re-deciding a decided item raises

@@ -39,7 +39,7 @@
 - 护栏触发后兜底摘要（explored paths）— `agent/guardrails.py:167`；GraphRecursionError 恢复 — `agent/loop_recover.py`
 - LLM 连续失败熔断（半开恢复）— `llm/circuit.py`；Neo4j 不可达回退内存图 — `stores/factory.py`
 - 抽取管线 journal/retry/quarantine — `config.py:100`（KnowledgeConfig）
-- 排障手册（常见故障 5 类 + 告警建议）— `docs/ops-runbook.md`
+- 排障手册（常见故障 5 类 + 告警建议）— `docs/ops/RUNBOOK.md`
 - badcase 归因 / spotcheck CLI — `eval/badcase.py`、`cli/spotcheck.py`
 - 查询级 trace（span + query_id 关联）与指标（P50/95/99、错误码计数、budget_trips）— `observability/trace.py`、`observability/metrics.py`
 
@@ -211,12 +211,12 @@
 - 新端点（admin 角色，依赖 ENT-04）：`GET /v1/traces/{query_id}`（暴露既有 Tracer）、`GET /v1/budget/snapshot`（暴露既有 `MultiLevelBudget.snapshot()`）。
 - `/healthz` 增加 LLM 熔断器状态、审核队列积压数、checkpointer 后端标识。
 - 摄取任务状态机：`queued→extracting→review→done/failed`，任务落盘（复用 JSONL 惯例）替代进程内 `_TASKS`。
-- `docs/ops-runbook.md` 增补：错误码→根因→处置对照表（错误分类学），日志字段字典。
+- `docs/ops/RUNBOOK.md` 增补：错误码→根因→处置对照表（错误分类学），日志字段字典。
 - 验收：任一失败查询可凭 request_id 走通"网关→日志→审计链→trace"四点回查。
 
 </details>
 
-**实现确认：** `api/routes/admin.py`；`service_query.py:_finalize_chain` 写入 `request_id`；`/healthz` 含 `llm_circuit`/`review_queue_pending`；admin 端点 traces/budget/audit-events 均 admin-only via `require_role(Role.ADMIN)`。6 单测覆盖。摄取任务状态机已由 ENT-05 交付（`IngestTaskStore` JSONL 落盘 + 上传/查询路由接入；worker 需独立进程运行，见 runbook §6）；runbook 增补（错误码对照表 / 日志字段字典 / 四点回查手册 / 告警规则示例）已于 2026-07-25 落入 `docs/ops-runbook.md`。
+**实现确认：** `api/routes/admin.py`；`service_query.py:_finalize_chain` 写入 `request_id`；`/healthz` 含 `llm_circuit`/`review_queue_pending`；admin 端点 traces/budget/audit-events 均 admin-only via `require_role(Role.ADMIN)`。6 单测覆盖。摄取任务状态机已由 ENT-05 交付（`IngestTaskStore` JSONL 落盘 + 上传/查询路由接入；worker 需独立进程运行，见 runbook §6）；runbook 增补（错误码对照表 / 日志字段字典 / 四点回查手册 / 告警规则示例）已于 2026-07-25 落入 `docs/ops/RUNBOOK.md`。
 
 ### P5-ENT-03 ⏫ 安全/管理事件审计流 — ✅ 已交付（2026-07-25）
 
@@ -275,7 +275,7 @@
 - ✅ **保留策略**：`configs/default.yaml` `retention:` 段（audit_chains 90 天 / audit_events 90 天 / review_queue 30 天 / ingest_tasks 30 天）+ `scripts/prune_data_files.py`（按时间字段删过期行，支持 `--dry-run`）；`AuditEventStore` 另有大小轮转。
 - ✅ **启动凭据校验**：`api/app.py:_validate_live_credentials`（lifespan，ENT-06b）——`AGR_USE_LIVE_STORES=1` 断言 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 非空；`AGR_ALLOW_LLM=1` 断言 `LLM_API_KEY` 非空且非占位符；缺失抛 `RuntimeError` 拒绝启动。
 
-**实现确认（2026-07-25，替换 2026-07-24 审计时的缺口描述）：** `stores/interfaces.py` 四协议（`GraphStore`/`VectorStore`/`FulltextStore`/`DocStore`）接受租户过滤，内存 / BM25 / Neo4j / Qdrant 实现全部落实；检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**检索缓存键已含租户**，`retrieval_key(query, tools, tenant_id=…)`，租户作用域运行不再绕过缓存 —— 旧的「绕过」约定在流式路径不成立，见 `docs/BUSINESS_LOGIC.md` BL-04）；上传从 principal 注入租户；复核队列按租户列取。单测：`test_enterprise_completion.py`（跨租户零命中 / 413 路径 / 脱敏 / fail-fast / prune）+ ENT readiness 套件。物理分库、磁盘加密与真实 Neo4j/Qdrant 跨租户回归归运维与部署验证。
+**实现确认（2026-07-25，替换 2026-07-24 审计时的缺口描述）：** `stores/interfaces.py` 四协议（`GraphStore`/`VectorStore`/`FulltextStore`/`DocStore`）接受租户过滤，内存 / BM25 / Neo4j / Qdrant 实现全部落实；检索三路、executor dispatch、fast path 与 agent loop 透传 `tenant_id`（**检索缓存键已含租户**，`retrieval_key(query, tools, tenant_id=…)`，租户作用域运行不再绕过缓存 —— 旧的「绕过」约定在流式路径不成立，见 `docs/design/BUSINESS_LOGIC.md` BL-04）；上传从 principal 注入租户；复核队列按租户列取。单测：`test_enterprise_completion.py`（跨租户零命中 / 413 路径 / 脱敏 / fail-fast / prune）+ ENT readiness 套件。物理分库、磁盘加密与真实 Neo4j/Qdrant 跨租户回归归运维与部署验证。
 
 ### P5-ENT-07 RPA 集成层 — ❌ 未实施
 
@@ -293,7 +293,7 @@
 > 已交付子项标 ✅，未交付子项标 ❌。
 
 - ✅ **Prometheus 文本暴露**：`GET /metrics-prom` 公开端点（`api/app.py`，入 `public_paths` 免鉴权），手写 `prometheus_metrics_text()`（`admin.py`）将 `MetricsRegistry.summary()` 转为 exposition 格式：`agr_queries_total`（counter）、`agr_latency_p50/p95/p99_ms`（gauge）、`agr_route_queries_total{route=…}`（counter）、`agr_errors_total{code=…}`（counter）、`agr_budget_trips_total`（counter）。无第三方依赖。
-- ✅ **告警规则示例**：`docs/ops-runbook.md` 已增 Prometheus alerting rules YAML 片段（2026-07-25，阈值沿用 cicd-observability §3.3）。
+- ✅ **告警规则示例**：`docs/ops/RUNBOOK.md` 已增 Prometheus alerting rules YAML 片段（2026-07-25，阈值沿用 cicd-observability §3.3）。
 - ✅ **OTel 桥接**：`observability/otel_bridge.py` + `pyproject.toml` `otel` 可选依赖组；`trace.py` span 桥接 OTel `TracerProvider` + OTLP exporter，trace 重键为公开 `query_id`；采样率 `AGR_OTEL_SAMPLE_RATE`（默认 0.1）；无 SDK 时优雅退化为进程内 trace；模块入 coverage omit（live 适配器惯例，理由已附）。
 - ✅ **分布式 trace context**：入向 W3C `traceparent` 在 auth 中间件 `extract_otel_context()` attach；出向 `inject_trace_context()` helper 供 HTTP 调用注入。
 
@@ -335,7 +335,7 @@ ENT-08 ✅(Prometheus+OTel 工程；collector 验证待办)
 - **P5-GOV-04**（成本优化）：ENT-08 指标外送是其数据来源。
 - **cicd-observability.md §3**：ENT-01/02/08 即该设计的实现任务；落地后在该文档标注实现状态，消除 ⚠ 差异。
 - **PRD**：RPA 集成与回调安全不在现行 PRD 需求表内（无对应 FR），建议在 PRD §9 开放问题追加"#6 RPA/下游系统对接方式与回调安全要求"，评审后再把 ENT-07 升格为 FR-API-06/07。
-- **docs/IMPORTANT.md**：已增 2026-07-24 快照行与 §5 阶段五挂账（本文档为权威细节）。
+- **docs/reviews/IMPORTANT.md**：已增 2026-07-24 快照行与 §5 阶段五挂账（本文档为权威细节）。
 - **架构边界**：全部新模块遵守 `stores/interfaces.py` 协议注入 + live 依赖懒加载 + coverage omit 需附理由的既有惯例；文件 ≤300 行、函数 ≤50 行（`scripts/check_code_metrics.py` 把关）。
 
 ## 7. 验证清单（2026-07-25 更新）
@@ -369,7 +369,7 @@ ENT-08 ✅(Prometheus+OTel 工程；collector 验证待办)
 
 ## 附录 A：审计覆盖文件（2026-07-25 更新）
 
-`api/`（app、auth、errors、envelope、schemas、rbac、routes/query、routes/knowledge、routes/admin、service、service_query、service_stream、sse）、`observability/`（metrics、trace、logging_setup、audit_events、redaction）、`llm/`（budget、budget_policy、circuit）、`agent/`（guardrails、loop_stream_events）、`generation/audit_store.py`、`knowledge/review/queue.py`、`stores/`（interfaces、factory、memory_graph、vector_store、doc_store、neo4j_store）、`config.py`、`web/static/js/api.js`、`docs/ops-runbook.md`、`plan/engineering/cicd-observability.md`、`plan/phases/phase-4-pilot.md`、`phase-5-scale.md`、`docs/IMPORTANT.md`、`plan/roadmap.md`、`PRD.md`（需求索引）。
+`api/`（app、auth、errors、envelope、schemas、rbac、routes/query、routes/knowledge、routes/admin、service、service_query、service_stream、sse）、`observability/`（metrics、trace、logging_setup、audit_events、redaction）、`llm/`（budget、budget_policy、circuit）、`agent/`（guardrails、loop_stream_events）、`generation/audit_store.py`、`knowledge/review/queue.py`、`stores/`（interfaces、factory、memory_graph、vector_store、doc_store、neo4j_store）、`config.py`、`web/static/js/api.js`、`docs/ops/RUNBOOK.md`、`plan/engineering/cicd-observability.md`、`plan/phases/phase-4-pilot.md`、`phase-5-scale.md`、`docs/reviews/IMPORTANT.md`、`plan/roadmap.md`、`PRD.md`（需求索引）。
 
 新增覆盖（2026-07-25）：`observability/logging_setup.py`、`observability/audit_events.py`、`observability/redaction.py`、`api/rbac.py`、`api/routes/admin.py`、`tests/unit/test_enterprise_readiness.py`、`tests/unit/test_logging_setup.py`。
 

@@ -101,7 +101,7 @@ def validate_answered_claims(
     - every claim must reference a retrieved candidate id
     - optional lexical support: claim tokens must overlap cited evidence text,
       and graph evidence must be anchored on the entity it asserts
-      (not a full NLI check — see docs/BUSINESS_LOGIC.md BL-13)
+      (not a full NLI check — see docs/design/BUSINESS_LOGIC.md BL-13)
     """
     if not claims:
         return "no claims" if require_claims else None

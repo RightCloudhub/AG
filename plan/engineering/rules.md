@@ -33,7 +33,7 @@
 
 - `pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80` 必须通过。
 - **确定性优先**：单测一律不打真实 LLM / 真实网络——离线路径（内存图 + seed + MockLLM）或 stub。真实后端只进集成/回归脚本（`scripts/neo4j_regression.sh` 等）。
-- 覆盖率 **omit 名单**（`pyproject.toml`）是显式记录的债务：不得为规避覆盖率悄悄扩充；新增 omit 必须写明理由并在 [docs/IMPORTANT.md](../../docs/IMPORTANT.md) §6 挂账。
+- 覆盖率 **omit 名单**（`pyproject.toml`）是显式记录的债务：不得为规避覆盖率悄悄扩充；新增 omit 必须写明理由并在 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6 挂账。
 - 每个 bugfix 附回归测试（先写失败测试复现，再修）。
 - Prompt（`configs/prompts/*.md`）变更不阻塞单测门禁，但**必须**跑 dev 评测集回归后合入。
 
@@ -67,7 +67,7 @@
 ## 7. 工程诚实与文档同步（评审约定）
 
 - **工程完成 ≠ 产品验收**：合成/离线结果不得充当 G2+ 门禁证据；报告与 README 状态表保持这一区分。
-- 有意延期、阻塞、明确不做的事项**必须**挂账 [docs/IMPORTANT.md](../../docs/IMPORTANT.md)；关闭时同步勾销（同一变更集内更新门禁 JSON / 风险状态）。
+- 有意延期、阻塞、明确不做的事项**必须**挂账 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md)；关闭时同步勾销（同一变更集内更新门禁 JSON / 风险状态）。
 - 任务状态标记统一：`[ ]` 未开始 / `[~]` 进行中 / `[x]` 完成 / `[-]` 取消（注明原因）。
 - 改技术选型：先在 [tech-stack.md](./tech-stack.md) 追加 ADR，再动代码。
 - 设计与实现出现差异：在对应 workstream 文档以「⚠ 差异」标注并挂账，不得静默改写设计假装一致。
@@ -75,7 +75,7 @@
 
 ## 8. 前端（`web/`）规则
 
-- **零构建（无工具链）**：不引入 npm / 打包器 / Node 工具链；改完刷新即生效。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
+- **零构建（无工具链）**：不引入 npm / 打包器 / Node 工具链；改完刷新即生效。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
 - SSE 消费必须覆盖全部事件类型（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`），未知事件静默忽略。

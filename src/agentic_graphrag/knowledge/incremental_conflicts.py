@@ -35,7 +35,7 @@ class Conflict:
     reason: str = ""
     # Every existing edge this incoming triple contradicts. ``existing`` is the
     # strongest of them and drives the decision; all of them are retired on
-    # AUTO_UPDATE so no dual fact survives (docs/BUSINESS_LOGIC.md BL-11).
+    # AUTO_UPDATE so no dual fact survives (docs/design/BUSINESS_LOGIC.md BL-11).
     superseded: list[RelationRecord] = field(default_factory=list)
 
     def edges_to_retire(self) -> list[RelationRecord]:

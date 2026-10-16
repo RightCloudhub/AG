@@ -1,6 +1,6 @@
 # 总路线图（Roadmap）
 
-**关联**：[PRD 第8节 里程碑](../PRD.md) · 各阶段详细计划见 [phases/](./phases/)
+**关联**：[PRD 第8节 里程碑](../docs/product/PRD.md) · 各阶段详细计划见 [phases/](./phases)
 
 ## 1. 时间线总览（以启动日 T0 起算，周为单位）
 

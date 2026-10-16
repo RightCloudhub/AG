@@ -81,7 +81,7 @@
 | 项 | 现状 |
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
-| 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
+| 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
 | 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
 | 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
@@ -139,5 +139,5 @@
 
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
 - **API 前置两项**（M0）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页（当前仅有单条查询）。
-- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/UI_DESIGN.md](../../docs/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
+- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
 - 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
