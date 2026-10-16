@@ -10,13 +10,30 @@ Actions: sufficient | next_hop | rewrite | give_up
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentic_graphrag.agent.critic_offline import (
+    extract_entity_conclusion,
+    offline_critique,
+)
+from agentic_graphrag.agent.options import CritiqueContext
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.retrieval.contracts import Candidate
+
+_EVIDENCE_PROMPT_CAP = 20
+_EVIDENCE_CONTENT_CHARS = 300
+
+__all__ = [
+    "CriticAction",
+    "CriticScope",
+    "CriticResult",
+    "CritiqueContext",
+    "critique",
+    "extract_entity_conclusion",
+]
 
 
 class CriticAction(StrEnum):
@@ -38,83 +55,179 @@ class CriticResult(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     new_sub_question: str | None = None
     partial_answer: str | None = None
-    # True when sub-question is done but original question still open
     sub_answered: bool = False
     global_answered: bool = False
 
 
 def critique(
-    question: str,
-    sub_question: str,
-    evidence: list[Candidate],
-    explored_paths: list[str],
-    llm: LLMProvider | None,
-    *,
+    question: str | CritiqueContext,
+    llm: LLMProvider | None = None,
+    *rest: Any,
     allow_llm: bool = True,
+    sub_question: str = "",
+    evidence: list[Any] | None = None,
+    explored_paths: list[str] | None = None,
     hop: int = 1,
     max_hops: int = 5,
     remaining_subquestions: int = 0,
     excluded_hypotheses: list[str] | None = None,
 ) -> CriticResult:
-    if not evidence:
-        if hop >= max_hops:
-            return CriticResult(
-                action=CriticAction.GIVE_UP,
-                scope=CriticScope.GLOBAL,
-                rationale="no evidence and hop limit",
-            )
-        return CriticResult(
-            action=CriticAction.NEXT_HOP,
-            scope=CriticScope.SUB_QUESTION,
-            rationale="no evidence yet",
-            new_sub_question=sub_question,
-        )
+    """Judge evidence sufficiency.
 
-    if not allow_llm or llm is None:
-        return _offline_critique(
+    Preferred::
+        critique(CritiqueContext(...), llm, allow_llm=True)
+
+    Legacy (still supported)::
+        critique(question, sub_question, evidence, explored_paths, llm, *, hop=...)
+        critique(question, llm=llm, sub_question=..., evidence=..., ...)
+    """
+    ctx, resolved_llm = _resolve_critique_args(
+        question,
+        llm,
+        rest,
+        sub_question=sub_question,
+        evidence=evidence,
+        explored_paths=explored_paths,
+        hop=hop,
+        max_hops=max_hops,
+        remaining_subquestions=remaining_subquestions,
+        excluded_hypotheses=excluded_hypotheses,
+    )
+    return _critique_impl(ctx, resolved_llm, allow_llm=allow_llm)
+
+
+def _resolve_critique_args(
+    question: str | CritiqueContext,
+    llm: LLMProvider | None,
+    rest: tuple[Any, ...],
+    *,
+    sub_question: str,
+    evidence: list[Any] | None,
+    explored_paths: list[str] | None,
+    hop: int,
+    max_hops: int,
+    remaining_subquestions: int,
+    excluded_hypotheses: list[str] | None,
+) -> tuple[CritiqueContext, LLMProvider | None]:
+    if isinstance(question, CritiqueContext):
+        return question, llm
+    if isinstance(llm, str) and rest:
+        return _legacy_positional(
             question,
-            sub_question,
-            evidence,
+            llm,
+            rest,
             hop=hop,
             max_hops=max_hops,
             remaining_subquestions=remaining_subquestions,
-            excluded_hypotheses=excluded_hypotheses or [],
+            excluded_hypotheses=excluded_hypotheses,
         )
+    ctx = CritiqueContext(
+        question=question,
+        sub_question=sub_question,
+        evidence=list(evidence or []),
+        explored_paths=list(explored_paths or []),
+        hop=hop,
+        max_hops=max_hops,
+        remaining_subquestions=remaining_subquestions,
+        excluded_hypotheses=list(excluded_hypotheses or []),
+    )
+    return ctx, llm
 
+
+def _legacy_positional(
+    question: str,
+    sub_question: str,
+    rest: tuple[Any, ...],
+    *,
+    hop: int,
+    max_hops: int,
+    remaining_subquestions: int,
+    excluded_hypotheses: list[str] | None,
+) -> tuple[CritiqueContext, LLMProvider | None]:
+    """Unpack critique(q, sq, evidence, paths, llm, ...)."""
+    evidence = list(rest[0] or []) if len(rest) > 0 else []
+    paths = list(rest[1] or []) if len(rest) > 1 else []
+    resolved_llm = rest[2] if len(rest) > 2 else None
+    ctx = CritiqueContext(
+        question=question,
+        sub_question=sub_question,
+        evidence=evidence,
+        explored_paths=paths,
+        hop=hop,
+        max_hops=max_hops,
+        remaining_subquestions=remaining_subquestions,
+        excluded_hypotheses=list(excluded_hypotheses or []),
+    )
+    return ctx, resolved_llm
+
+
+def _critique_impl(
+    ctx: CritiqueContext,
+    llm: LLMProvider | None,
+    *,
+    allow_llm: bool,
+) -> CriticResult:
+    from agentic_graphrag.agent.critic_guard import force_incomplete_multihop
+
+    if not ctx.evidence:
+        return _critique_no_evidence(ctx)
+    if not allow_llm or llm is None:
+        result = offline_critique(ctx)
+    else:
+        result = _llm_critique(ctx, llm)
+    return force_incomplete_multihop(ctx, result)
+
+
+def _critique_no_evidence(ctx: CritiqueContext) -> CriticResult:
+    if ctx.hop >= ctx.max_hops:
+        return CriticResult(
+            action=CriticAction.GIVE_UP,
+            scope=CriticScope.GLOBAL,
+            rationale="no evidence and hop limit",
+        )
+    return CriticResult(
+        action=CriticAction.NEXT_HOP,
+        scope=CriticScope.SUB_QUESTION,
+        rationale="no evidence yet",
+        new_sub_question=ctx.sub_question,
+    )
+
+
+def _llm_critique(ctx: CritiqueContext, llm: LLMProvider) -> CriticResult:
     prompt = load_prompt("critic")
-    evidence_list = "\n".join(f"[{c.id}] {c.content[:300]}" for c in evidence[:20])
+    evidence_list = "\n".join(
+        f"[{c.id}] {c.content[:_EVIDENCE_CONTENT_CHARS]}"
+        for c in ctx.evidence[:_EVIDENCE_PROMPT_CAP]
+    )
     system, user = _split(
         prompt.format(
-            question=question,
-            sub_question=sub_question,
+            question=ctx.question,
+            sub_question=ctx.sub_question,
             evidence_list=evidence_list or "(none)",
-            explored_paths="; ".join(explored_paths[:20]) or "(none)",
+            explored_paths="; ".join(ctx.explored_paths[:_EVIDENCE_PROMPT_CAP]) or "(none)",
         )
     )
-    # Enrich user message with two-level instruction (prompt file may be older)
     user = (
-        user
-        + "\n\nJudge BOTH levels: set sub_answered if the sub-question is covered; "
+        user + "\n\nJudge BOTH levels: set sub_answered if the sub-question is covered; "
         "set global_answered only if the original question can be fully answered. "
         "If sub is done but global is not, action=next_hop with a new sub-question "
         "(or rewrite the current one). Prefer rewrite when the sub-question wording "
         "is the bottleneck."
     )
+    # LIGHT tier for critic: large latency win on live multi-hop (P95 path).
     raw = complete_structured(
         llm,
         [Message(role="system", content=system), Message(role="user", content=user)],
         CriticResult,
-        tier=Tier.STRONG,
+        tier=Tier.LIGHT,
     )
-    return _normalize_scope(raw, remaining_subquestions=remaining_subquestions)
+    return _normalize_scope(raw, remaining_subquestions=ctx.remaining_subquestions)
 
 
 def _normalize_scope(result: CriticResult, *, remaining_subquestions: int) -> CriticResult:
-    """Infer scope flags when the model omits them."""
     if result.action == CriticAction.SUFFICIENT:
         result.sub_answered = True
         if remaining_subquestions > 0:
-            # Chain still has planned work — treat as sub-level sufficient only
             result.global_answered = False
             result.scope = CriticScope.SUB_QUESTION
         else:
@@ -126,82 +239,6 @@ def _normalize_scope(result: CriticResult, *, remaining_subquestions: int) -> Cr
     elif result.action == CriticAction.GIVE_UP:
         result.scope = CriticScope.GLOBAL
     return result
-
-
-def _offline_critique(
-    question: str,
-    sub_question: str,
-    evidence: list[Candidate],
-    *,
-    hop: int,
-    max_hops: int,
-    remaining_subquestions: int,
-    excluded_hypotheses: list[str],
-) -> CriticResult:
-    graph_hits = [c for c in evidence if c.is_graph()]
-    eids = [c.id for c in evidence[:8]]
-    partial = graph_hits[0].content if graph_hits else (evidence[0].content if evidence else None)
-
-    # Planned DAG still has unfinished nodes → sub-question sufficient, not global
-    if remaining_subquestions > 0 and hop < max_hops:
-        return CriticResult(
-            action=CriticAction.SUFFICIENT,
-            scope=CriticScope.SUB_QUESTION,
-            rationale="offline: sub-question done; more planned nodes remain",
-            evidence_ids=eids,
-            partial_answer=partial,
-            sub_answered=True,
-            global_answered=False,
-        )
-
-    # Graph evidence present → enough for offline POC generation at global level
-    if graph_hits:
-        return CriticResult(
-            action=CriticAction.SUFFICIENT,
-            scope=CriticScope.GLOBAL,
-            rationale="offline: graph evidence available for original question",
-            evidence_ids=eids,
-            partial_answer=partial,
-            sub_answered=True,
-            global_answered=True,
-        )
-
-    if len(evidence) >= 3 or hop >= max_hops:
-        return CriticResult(
-            action=CriticAction.SUFFICIENT if evidence else CriticAction.GIVE_UP,
-            scope=CriticScope.GLOBAL,
-            rationale="offline: text evidence only or hop limit",
-            evidence_ids=eids,
-            partial_answer=partial,
-            sub_answered=bool(evidence),
-            global_answered=bool(evidence),
-        )
-
-    # Suggest rewrite when excluded hypotheses blocked the current phrasing
-    if excluded_hypotheses and any(
-        h.lower() in sub_question.lower() for h in excluded_hypotheses if h
-    ):
-        return CriticResult(
-            action=CriticAction.REWRITE,
-            scope=CriticScope.SUB_QUESTION,
-            rationale="offline: current sub-question hits excluded hypothesis",
-            new_sub_question=question,
-            evidence_ids=eids,
-            partial_answer=partial,
-            sub_answered=False,
-            global_answered=False,
-        )
-
-    return CriticResult(
-        action=CriticAction.NEXT_HOP,
-        scope=CriticScope.SUB_QUESTION,
-        rationale="offline: need more evidence",
-        new_sub_question=sub_question,
-        evidence_ids=eids,
-        partial_answer=partial,
-        sub_answered=False,
-        global_answered=False,
-    )
 
 
 def _split(text: str) -> tuple[str, str]:

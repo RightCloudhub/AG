@@ -7,8 +7,14 @@ actually exist in the retrieved candidate set. Failures trigger regenerate
 
 from __future__ import annotations
 
-from agentic_graphrag.generation.trace import Claim
-from agentic_graphrag.retrieval.contracts import Candidate
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import Claim
+from agentic_graphrag.generation.claim_support import (
+    DEFAULT_MIN_OVERLAP,
+    claim_supported,
+    claim_supported_by,  # noqa: F401 — re-exported for older imports
+    content_tokens,
+)
 
 
 def evidence_id_set(evidence: list[Candidate]) -> set[str]:
@@ -86,6 +92,7 @@ def validate_answered_claims(
     evidence: list[Candidate],
     *,
     require_claims: bool = True,
+    require_lexical_support: bool = True,
 ) -> str | None:
     """Return a failure reason, or None if claims pass the generation gate.
 
@@ -93,6 +100,10 @@ def validate_answered_claims(
     - ANSWERED/PARTIAL paths that assert facts must carry claims
     - every claim needs ≥1 evidence_id
     - every claim must reference a retrieved candidate id
+    - optional lexical support: claim tokens must overlap cited evidence text,
+      graph evidence must be anchored on the entity it asserts, and the
+      relation the claim states must match the edge's relation (BL-13); the
+      live path adds an LLM entailment judge (``generation/entailment.py``)
     """
     if not claims:
         return "no claims" if require_claims else None
@@ -100,4 +111,60 @@ def validate_answered_claims(
         return "claim missing evidence_ids"
     if not claims_bind_to_evidence(claims, evidence):
         return "claim evidence_ids not in retrieved set"
+    if require_lexical_support and not claims_lexically_supported(claims, evidence):
+        return "claim text not supported by cited evidence content"
     return None
+
+
+def claims_lexically_supported(
+    claims: list[Claim],
+    evidence: list[Candidate],
+    *,
+    min_overlap: int = DEFAULT_MIN_OVERLAP,
+    require_object_anchor: bool = True,
+) -> bool:
+    """True if every claim is lexically supported by ≥1 candidate it cites.
+
+    Tokenization is CJK-aware (BL-02) and graph evidence must be anchored on the
+    object it asserts (BL-13); both live in
+    :mod:`agentic_graphrag.generation.claim_support`.
+    """
+    by_id = {c.id: c for c in evidence}
+    for claim in claims:
+        claim_toks = content_tokens(claim.text)
+        if not claim_toks:
+            continue
+        if not _any_candidate_supports(
+            claim,
+            by_id,
+            min_overlap=min_overlap,
+            require_object_anchor=require_object_anchor,
+        ):
+            return False
+    return True
+
+
+def _any_candidate_supports(
+    claim: Claim,
+    by_id: dict[str, Candidate],
+    *,
+    min_overlap: int,
+    require_object_anchor: bool,
+) -> bool:
+    for eid in claim.evidence_ids:
+        cand = by_id.get(eid)
+        if cand is None:
+            continue
+        if claim_supported(
+            claim.text,
+            cand,
+            min_overlap=min_overlap,
+            require_object_anchor=require_object_anchor,
+        ):
+            return True
+    return False
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Back-compat alias — tokenization now lives in ``claim_support``."""
+    return content_tokens(text)

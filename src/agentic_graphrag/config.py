@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -11,36 +10,15 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+from agentic_graphrag.config_paths import find_root
+
 if TYPE_CHECKING:
-    from agentic_graphrag.llm.budget import BudgetTracker
+    from agentic_graphrag.governance.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
 
 
-def _find_root() -> Path:
-    """Locate repo root (handles editable install, site-packages, and cwd)."""
-    env = os.environ.get("AGENTIC_GRAPHRAG_ROOT")
-    if env:
-        return Path(env).resolve()
-
-    starts = [Path.cwd(), Path(__file__).resolve().parent]
-    for start in starts:
-        for candidate in [start, *start.parents]:
-            if (candidate / "configs" / "default.yaml").exists() and (
-                (candidate / "pyproject.toml").exists() or (candidate / "PRD.md").exists()
-            ):
-                return candidate.resolve()
-            # Lightweight marker check
-            if (candidate / "pyproject.toml").exists() and (candidate / "configs").exists():
-                return candidate.resolve()
-    # Last resort: walk up from this file looking for pyproject near src/
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "pyproject.toml").exists() and (parent / "src").exists():
-            return parent
-    return Path.cwd().resolve()
-
-
-ROOT_DIR = _find_root()
+ROOT_DIR = find_root()
 DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.yaml"
 
 
@@ -50,6 +28,11 @@ class GuardrailsConfig(BaseModel):
     max_tokens_per_query: int = 50_000
     query_timeout_seconds: int = 60
     recursion_limit: int = 15
+    # Breadth budget (plan nodes) — BL-12. Kept ≤ max_hops because one hop runs
+    # one sub-question; GuardrailConfig clamps it if configured higher.
+    max_sub_questions: int = 5
+    parallel_branches: bool = True
+    max_parallel_branches: int = 3
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -68,7 +51,16 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     vector_top_k: int = 10
     fulltext_top_k: int = 10
+    fusion_method: str = "rrf"
+    fusion_k: int = 60
+    parallel: bool = True
+    cache_answer_ttl_seconds: float = 3600.0
     graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)
+
+
+class TriageConfig(BaseModel):
+    enabled: bool = True
+    escalate_fast_path: bool = True
 
 
 class KnowledgeConfig(BaseModel):
@@ -94,6 +86,8 @@ class LLMConfig(BaseModel):
     temperature: float = 0.0
     max_retries: int = 2
     timeout_seconds: int = 60
+    # BL-13: LIGHT-tier entailment judge over answer claims (live LLM path only).
+    entailment_check: bool = True
 
 
 class PathsConfig(BaseModel):
@@ -115,10 +109,13 @@ class AppConfig(BaseModel):
     env: str = "local"
     guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    triage: TriageConfig = Field(default_factory=TriageConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
+    tenants: dict[str, TenantBudgetConfig] = Field(default_factory=dict)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
 
 class Settings(BaseSettings):
@@ -181,8 +178,11 @@ def get_config(config_path: str | None = None) -> AppConfig:
         path = ROOT_DIR / path
     raw = _load_yaml(path)
     cfg = AppConfig.model_validate(raw)
+    _apply_settings_overrides(cfg, get_settings())
+    return cfg
 
-    settings = get_settings()
+
+def _apply_settings_overrides(cfg: AppConfig, settings: Settings) -> None:
     if settings.llm_strong_model:
         cfg.llm.strong_model = settings.llm_strong_model
     if settings.llm_light_model:
@@ -199,10 +199,6 @@ def get_config(config_path: str | None = None) -> AppConfig:
         cfg.guardrails.max_llm_calls = settings.max_llm_calls
     if settings.max_tokens_per_query is not None:
         cfg.guardrails.max_tokens_per_query = settings.max_tokens_per_query
-
-    # Silence unused import warning for os in some linters — used by dotenv load side-effect.
-    _ = os.environ.get("AGENTIC_GRAPHRAG_ENV", "local")
-    return cfg
 
 
 def resolve_chat_base_url(settings: Settings | None = None) -> str:
@@ -264,9 +260,17 @@ def build_llm_provider(
 
 
 def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
-    """Load a prompt file by stem name (e.g. 'extract' → extract.md)."""
+    """Load a prompt file by stem name (e.g. 'extract' → extract.md).
+
+    Every load records ``name → version`` (content hash) for the current run so
+    the reasoning chain can say exactly which prompt produced it (§5.4).
+    """
+    from agentic_graphrag.prompts import record_prompt_use
+
     base = resolve_path(prompts_dir or get_config().paths.prompts_dir)
     path = base / f"{name}.md"
     if not path.exists():
         raise FileNotFoundError(f"Prompt not found: {path}")
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    record_prompt_use(name, text)
+    return text

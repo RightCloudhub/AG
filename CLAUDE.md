@@ -1,0 +1,138 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+AgenticGraphRAG — a graph-augmented multi-hop reasoning QA system: knowledge graph as structured memory, an agent loop (plan → execute → reflect → guardrails) as the decision brain. Python 3.12+, Pydantic v2, LangGraph, FastAPI. Primary docs (README, PRD, plan/, docs/) are written in Chinese; code and comments are English.
+
+## Commands
+
+```bash
+# Setup (uv; editable install with dev extras)
+uv venv .venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+cp .env.example .env          # LLM_API_KEY optional — offline path needs none
+
+# Lint / format (CI-enforced)
+ruff check src tests scripts
+ruff format --check src tests scripts
+
+# Tests (CI gate: unit tests + coverage ≥80%). tests/ contains only tests/unit.
+# CI ignores tests/unit/test_web_claude_ui.py (pre-existing: web/static/* missing).
+pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
+pytest tests/unit/test_scoring.py -q          # single file
+pytest tests/unit -k "guardrails" -q          # by keyword
+
+# Hard code-metrics gate (file ≤300 lines, function ≤50, nesting ≤3, ≤3 positional params, CC ≤10) — CI-enforced
+python scripts/check_code_metrics.py
+
+# Offline eval floor (CI job eval-offline): ≥21/31 on poc_cases, with and without --enable-triage
+agr-run-cases --no-llm --memory-graph --cases evals/datasets/poc_cases.jsonl
+python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 21 --total 31
+
+# Offline dev loop — deterministic, no LLM, no Docker (run-cases loads seed triples itself)
+agr-run-cases --no-llm                        # 20 cases → reports/poc_run.jsonl + accuracy
+agr-query --no-llm "Who is the CEO of Apex Holdings?"
+python -m agentic_graphrag score
+
+# Knowledge pipeline (offline seed variant; full extraction needs LLM_API_KEY + Neo4j)
+agr-ingest
+agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm   # falls back to memory graph if Neo4j down; --memory-graph forces
+agr-index --no-embed
+
+# API + Web workspace
+agr-api                                       # http://localhost:8000/web ; POST /v1/query ; POST /v1/query/stream (SSE); /healthz
+
+# Enterprise ops (ENT-01…08; offline-friendly)
+PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # consume queued upload tasks (API does NOT auto-start the worker)
+PYTHONPATH=src python scripts/prune_data_files.py --dry-run                # retention pruning per configs/default.yaml retention:
+
+# Infra (optional; only live paths need it)
+docker compose up -d                          # Neo4j 7474/7687 (neo4j/agentic-graphrag), Qdrant 6333
+
+# Verification scripts
+./scripts/verify_all.sh --help                 # master verification pack options
+PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py
+```
+
+All subcommands are also reachable as `python -m agentic_graphrag <command>` (ingest, build-graph, index, run-cases, run-baseline, score, eval, gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck, export-reasoning-schema, query). Only some have `agr-*` console scripts — `score`, `spotcheck`, `score-spotcheck` and `export-reasoning-schema` are `python -m` only. `pyproject.toml` sets `pythonpath = ["src"]` for pytest, so tests run without install; scripts use `PYTHONPATH=src`.
+
+## Architecture
+
+### The offline/live duality (read this first)
+
+Every layer has two implementations, and the offline one is the default everywhere. This is what keeps CI and the 20-case eval deterministic:
+
+| Layer | Offline (default) | Live (opt-in) |
+|---|---|---|
+| Graph | `InMemoryGraphStore` + `data/processed/seed_triples.jsonl` | Neo4j |
+| Vector | in-memory + persisted embeddings if present | Qdrant |
+| LLM | `MockLLMProvider` + offline answer heuristics | real provider (OpenAI-compatible) |
+
+BM25 fulltext and the doc store have **no** live backend — `create_live_bundle()` uses the same in-memory BM25 store as offline, and falls back to the memory vector store if Qdrant is unreachable (graph only falls back with `allow_memory_graph_fallback`).
+
+**Runtime profiles** (`bootstrap/profile.py`): `AGR_PROFILE=offline|live|hybrid|eval` picks one row of `CAPABILITY_MATRIX` (graph/vector backends, caches, seed graph). Legacy `AGR_USE_LIVE_STORES=1` maps to `live`; default is `offline`. `AGR_ALLOW_LLM=1` (+ a non-placeholder `LLM_API_KEY`) enables the real LLM in any profile. `agr-api` builds `QueryService.create_for_profile()` via `build_default_service()`; an unreachable Neo4j/Qdrant or missing credentials fail startup — **there is no implicit fallback** (Neo4j + memory vectors must be declared as `hybrid`). CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`; `agr-run-cases` runs through `QueryApp` with the `eval` profile (`--direct` = legacy loop call).
+
+The offline answer path (`generation/offline_answer.py` + `generation/offline_heuristics/rules_*.py`) is a large rule set hardcoded to the demo corpus in `data/raw/` — it exists to make `--no-llm` evals deterministic, is excluded from coverage, and is **not** the production path. Don't "fix" live-LLM behavior by editing it, and vice versa.
+
+### Composition root and protocols
+
+`bootstrap/` is the composition root (`build_stores(profile)` → `stores/factory.create_bundle(graph, vector)`, which pings live backends and never falls back). Application code depends only on the ports in `core/ports/stores.py` (`GraphStore`, `VectorStore`, `FulltextStore`, `DocStore`; `stores/interfaces.py` is an alias). Layering: drivers (`api/`, `cli/`, eval, workers) → `app/` (QueryApp/IngestApp/ReviewApp) → domain (`agent/`, `retrieval/`, `generation/`, `knowledge/`) → `core/` (contracts, ports, domain events; imports nothing else in the project). Old module paths (`api.service*`, `api.schemas`, `api.errors`, `retrieval.contracts`, `generation.trace`, `stores.interfaces`, `llm.interfaces`, `llm.budget*`, `generation.audit_store`, `observability.audit_events/redaction`, `retention`, `agent.loop_stream`) are `sys.modules` aliases of the new ones — import from the new locations in new code. See `docs/design/REFACTOR_PLAN.md` — never on Neo4j/Qdrant client types. Live backends are imported lazily inside the factory so offline paths don't need those deps at runtime. Neo4j is split `neo4j_store` / `neo4j_queries` / `neo4j_codec`; Qdrant lives inside `vector_store.py` (there is no `qdrant_store.py`).
+
+### Query flow
+
+`api/routes/query.py` → `QueryService` a.k.a. `QueryApp` (`app/query_service.py`, holds the bundle + audit store + review queue + retrieval cache + multi-tenant budget) → `agent/pipeline.py` (`iter_query_progress`; `loop.run_query()` just drains it — streaming and non-streaming share one implementation):
+
+0. **Chitchat short-circuit** (`agent/chitchat.py`) runs *before* triage in the pipeline router: greetings/capability questions skip retrieval entirely, even under `force_agentic`.
+1. **Triage** (`agent/triage.py`) routes to Fast Path or Agentic (`Route` has exactly these two members); Fast Path (`agent/fast_path.py`) can escalate back to Agentic on weak evidence (`should_escalate_fast_path`); escalation seeds the agentic state with the fast path's evidence.
+2. **Agentic** = LangGraph `StateGraph`: `planner → executor → critic → (loop back to executor | answer)`, plus `answer → executor` once when the composer reports a structured `evidence_gap` (`generation/verdict.py`) and hops remain. `AgentState` is defined once, versioned, in `agent/state.py`, compiled with a checkpointer (`agent/checkpointer.py`) for durable state. Node handlers live in `agent/loop_runtime.py`/`loop_handlers.py`; `loop.py` only wires the graph. Planner emits a DAG (`agent/plan_dag.py`) that can gain sub-questions mid-run.
+3. **Executor** (`agent/executor.py` + `executor_plan.py`/`executor_dispatch.py`, every tool call goes through `ToolRegistry.invoke()` in `agent/tools/registry.py`, which supports middleware) fans out to three retrievers — vector, graph beam search (`retrieval/graph.py` + `graph_beam`/`graph_paths`/`graph_relation`), BM25 (`retrieval/fulltext.py`) — fused via RRF (`retrieval/fusion.py`), through `RetrievalCache` (`retrieval/cache.py`, invalidated by index version).
+4. **Guardrails** (`agent/guardrails.py`, config `guardrails:` section): max hops, max LLM calls, token budget (`governance/budget.py`, tenant-level in `governance/budget_policy.py`), timeout, recursion limit. `llm/circuit.py` is a consecutive-failure circuit breaker on the live LLM HTTP client.
+
+**All three retrievers return the same `Candidate` shape** (`core/evidence.py`) — fusion, agent memory, citation binding, and eval evidence-recall all consume it. Adding a retriever means conforming to that contract, not inventing a new one.
+
+The output contract is `ReasoningChain` (`core/reasoning.py`); its JSON Schema is `configs/schema/reasoning_chain_v1.json` (regenerate with `export-reasoning-schema`). Chains are persisted to the audit store (`governance/audit_store.py`) and carry `metadata.prompt_versions` (content hashes of every `configs/prompts/*.md` used); `POST /v1/feedback` links user feedback to a chain and enqueues inaccurate ones into the review queue.
+
+### Knowledge pipeline (`knowledge/`)
+
+`ingest.py` (docs → chunks) → `extraction.py` (facade over `extract_core`/`extract_pipeline`/`extract_chunk`; per-chunk LLM extraction with a **resume journal, retry, and quarantine** for failures) → `schema_check.py` (validates against `configs/schema/domain_v0.yaml` + confidence threshold; **non-conforming triples are rejected and recorded, never entering the graph**) → `resolution.py`/`resolution_merge.py` (three-tier entity disambiguation) → `graph_builder.py` (triples → graph records → `GraphStore`).
+
+`incremental.py` handles new docs against an existing graph: extract → conflict detect → high-confidence auto-merge, low-confidence into the review queue (`knowledge/review/queue.py`). `pilot_triples.py` supplies deterministic triples for the synthetic pilot corpus so graph build and gold-case generation need no live LLM — it mirrors `scripts/generate_pilot_corpus.py` and both must be changed together. `ingest_tasks.py` is the durable upload task state machine consumed by `ingest_worker.py`.
+
+### API surface
+
+All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps everything; role checks are per-route via `Depends(require_role(...))` from `api/rbac.py`; responses go through the shared success/error envelope (`api/envelope.py`, `api/errors.py`).
+
+- **query.py**: `POST /v1/query`, `POST /v1/query/stream` (SSE)
+- **knowledge.py**: `POST /v1/docs`, `GET /v1/ingest-tasks/{id}`, `GET /v1/review-queue`, `POST /v1/review-queue/{id}/decision` (admin/operator); `GET /v1/audit/queries/{id}`, `POST /v1/feedback`, `GET /v1/metrics` (admin)
+- **workspace.py**: `GET /v1/me` returns identity and role capabilities; `GET /v1/ingest-tasks` is tenant-scoped and paginated (admin/operator); `GET /v1/graph/entities` supports search, type filtering, and pagination.
+- **admin.py** (all admin-only): `GET /v1/traces/{id}`, `GET /v1/budget/snapshot`, `GET /v1/audit-events`
+- **app.py**: `GET /healthz`, `GET /metrics-prom` (Prometheus text), `GET /web` (Vue workspace)
+
+`QueryService` is deliberately split across `service.py` / `service_helpers.py` / `service_query.py` / `service_stream.py` / `service_agent.py` / `service_telemetry.py` for the file-size gate.
+
+### Config
+
+`config.py` merges `configs/default.yaml` (`AppConfig`, tunables; `tenants:` per-tenant limits and `retention:` periods live in `config_enterprise.py` models) with `.env` (`Settings`, secrets/endpoints via pydantic-settings); env overrides YAML. Repo root is auto-discovered (`AGENTIC_GRAPHRAG_ROOT` to override), and all data paths resolve against it via `resolve_path()` regardless of cwd. LLM prompts are markdown files in `configs/prompts/` loaded by `load_prompt(name)`.
+
+`AGR_*` switches are read from `os.environ` directly (not `.env`) and are the **only** sanctioned direct-environ reads — new settings belong in `AppConfig` or `Settings`: `AGR_PROFILE`, `AGR_ALLOW_LLM`, `AGR_USE_LIVE_STORES` (legacy → `live`), `AGR_REQUIRE_AUTH`, `AGR_API_KEYS=tenant:key:role,...` (roles admin/operator/reader; bare `tenant:key` parses as reader), `AGR_RATE_LIMIT_QPS`, `AGR_RATE_LIMIT_CONCURRENT`, `AGR_TRUST_X_USER_ID` (default off — `X-User-Id` is not budget identity), `AGR_LOG_LEVEL/FILE`, `AGR_REDACTION_ENABLED/PATTERNS`, `AGR_OTEL_ENABLED/ENDPOINT/SAMPLE_RATE`, `AGR_API_HOST/PORT/RELOAD`.
+
+### Enterprise layer
+
+Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. Uploads accept UTF-8 Markdown / text (5 MiB per file, 20 files per batch) and create durable ingest tasks. The separate worker chunks and indexes documents; it does not extract graph facts. Under default offline settings its vector and BM25 stores are process-local, so a standalone worker's indexes are not visible to the API process. Operations procedures: `docs/ops-runbook.md`.
+
+### Evaluation
+
+Datasets live in `evals/datasets/*.jsonl` (poc, dev/heldout/guardrail splits via `eval/split_sets.py`, g2_* generated gold sets; spec in `ANNOTATION_SPEC.md`). Gold cases are generated deterministically from templates (`eval/gold_gen.py` + `eval/gold_templates/`) by walking the graph — no LLM. `run-cases` writes `reports/*.jsonl` + accuracy JSON; `run-baseline` (`eval/baseline_rag.py`) runs the pure-vector RAG baseline on the same cases with the same scoring helpers for a fair delta; `badcase` does attribution. Metrics (`eval/metrics.py`, `metrics_evidence.py`): accuracy, evidence recall, latency, cost, fabrication rate.
+
+## Conventions
+
+- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review).
+- **Architecture boundaries (review-enforced, `rules.md` §6).** LangGraph is confined to `agent/` at a pinned version; do **not** introduce LangChain retrieval/chain abstractions — retrieval and LLM calls go through this repo's `retrieval/` and `llm/` interfaces (ADR-005). Graph nodes are "state in → state out" so unit tests never need the LangGraph runtime. New features must run under `--no-llm` + in-memory backends or explicitly declare themselves live-only; never pull an online dependency into the CI path.
+- **Changing a technology choice requires a new ADR in `plan/engineering/tech-stack.md` first**, then code.
+- **Hard code metrics are enforced by `scripts/check_code_metrics.py`** (same limits as the table above). This is why modules are deliberately split (`loop` / `loop_handlers` / `loop_runtime`, `executor` / `executor_plan` / `executor_dispatch`, `service` / `service_helpers` / `service_query`). New modules target ~200–400 lines; put constants in module-level named constants, not inline literals.
+- **Coverage omit list in `pyproject.toml` is intentional** (CLI glue, `stores/neo4j_store.py`, live LLM client, `generation/answer.py`, offline heuristic `rules_*.py`, `otel_bridge.py`). If you add code to an omitted module, either cover it or keep the omission justified; don't silently expand the list.
+- **Web workspace (`web/`)**: zero-build — no npm, no bundler; Vue 3 ESM runtime only, vendored-first and pinned (ADR-006, mirrored in `docs/EXTERNAL_RUNTIMES.md`). Dynamic text goes through mustache or `textContent`; `v-html` and `.innerHTML` are forbidden. JS/CSS/HTML obey the same size and complexity limits as Python (review-enforced — the metrics script only scans Python). SSE consumers must handle every event type (`cache_hit/triage/thinking/sub_question/hop_done/answer/error`) and silently ignore unknown ones; SSE is true incremental via LangGraph `stream(updates)` (`agent/loop_stream.py` + `api/service_stream.py`). DOM/module changes must update the structure and injection-safety assertions in `tests/unit/test_web_claude_ui.py`.
+- Ruff: line length 100, target py312, rules `E,F,I,UP,B`. Tests: pytest with `asyncio_mode = "auto"`.
+- Some environments here have no Docker: Neo4j runs from a tarball under `/tmp` with a Temurin 17 `JAVA_HOME` (see `docs/EXTERNAL_RUNTIMES.md`), and the LLM gateway is prone to 403s — prefer offline paths unless the task requires live backends.

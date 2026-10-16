@@ -2,72 +2,142 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
+**版本**：V1.5（2026-08-08）— **P5-UI-02 前端重规划立项（规划态，未实施）**：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
-## 1. API 设计
+实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
-### 1.1 统一响应封装（FR-API-04）
+## 1. API 设计与实现现状
+
+### 1.1 统一响应封装（FR-API-04）[x]
 
 ```json
 { "success": true, "data": { }, "error": null, "meta": { "total": 0, "page": 1, "limit": 20 } }
 ```
 
-错误时 `success=false`，`error` 含 `code`（机器可读枚举）与 `message`（用户友好，不泄露内部细节，NFR-06）。
+错误时 `success=false`，`error` 含 `code`（机器可读枚举）与 `message`（用户友好，不泄露内部细节，NFR-06）。实现：`envelope.py` + `app.py` 三级异常处理器（`ApiError` / 入参校验 / 兜底 500，兜底仅返回异常类型名，不含堆栈）。
 
-### 1.2 查询 API（FR-API-01，阶段二）
+错误码全集（`errors.py`）：`INVALID_INPUT`、`BUDGET_EXCEEDED`、`TIMEOUT_PARTIAL`、`RATE_LIMITED`、`UNAUTHORIZED`、`FORBIDDEN`（ENT-04 角色不足）、`INTERNAL_ERROR`、`SERVICE_UNAVAILABLE`。
 
-`POST /v1/query`
+### 1.2 查询 API（FR-API-01）[x]
+
+`POST /v1/query`（`routes/query.py`）
 
 | 入参 | 类型 | 说明 |
 |---|---|---|
 | question | string，必填 | 1~2000 字符，schema 校验（NFR-07） |
 | max_hops | int，可选 | 上限受服务端硬顶约束 |
 | timeout_ms | int，可选 | 同上 |
-| force_agentic | bool，可选 | 跳过分诊强制 Agentic（调试用） |
+| force_agentic | bool，可选 | 跳过分诊强制 Agentic（调试用；同时绕过答案缓存） |
 
-出参 `data` = [推理链契约 JSON](./agent-orchestration.md#3-推理链契约fr-an-02p2-ag-06-定稿)（含 answer、claims+引用、status、cost）。
+出参 `data` = [推理链契约 JSON](./agent-orchestration.md#3-推理链契约fr-an-02p2-ag-06-定稿)（含 answer、claims+引用、status、cost、`metadata.confidence`）。服务默认**离线**装配（内存图 + seed 三元组 + MockLLM，`service.build_default_service`）；`AGR_ALLOW_LLM=1` 且配置有效 `LLM_API_KEY` 时启用真实 LLM。
 
-错误码约定（节选）：`BUDGET_EXCEEDED`（预算熔断）、`TIMEOUT_PARTIAL`（超时返回部分结果）、`RATE_LIMITED`、`INVALID_INPUT`。
+### 1.3 流式响应（FR-API-02 / P3-PERF-06）[x]
 
-### 1.3 流式响应（FR-API-02，阶段三）
+`POST /v1/query/stream`（SSE，`sse.py` 逐帧编码）。事件序列（`service_stream.py` + `agent/loop_stream.py`）：
 
-`POST /v1/query/stream`（SSE）。事件类型：
-- `triage` → 路由结果（fast_path/agentic）
-- `sub_question` → 当前子问题与跳数
-- `hop_done` → 该跳结论摘要
-- `answer` → 最终推理链 JSON
-- `error` → 错误终止
+| 事件 | 载荷 | 触发 |
+|---|---|---|
+| `cache_hit` | `{query_id}` | 命中答案缓存（随后直接发 `answer`；`force_agentic` 时绕过） |
+| `triage` | 分诊决策 JSON | 非缓存查询开头；`force_agentic` 时发合成帧 `{route:agentic, rule_hit:force_agentic}` |
+| `thinking` | `{stage, text, detail?}` | Planner 拆解完成（`stage=plan`）或 Executor 检索工具（`stage=retrieve`）；Fast Path 亦发 plan 帧 |
+| `sub_question` | `{hop, sub_question}` | Executor 节点完成时（LangGraph `stream(updates)` 实时） |
+| `hop_done` | `{hop, conclusion, critic_action}` | Critic 节点完成时 |
+| `answer` | 完整推理链 JSON | 结束（finalize + audit/cache/metrics 之后） |
+| `error` | `{code, message}` | 异常终止（`ApiError` 保留错误码；其余仅异常类型名） |
 
-SSE 事件由 Agent 循环的 LangGraph 事件流（`astream_events`）映射生成（ADR-005），API 层不另行维护进度状态。
+> **实现说明**：设计文档写的是 `astream_events`；同步 FastAPI 生成器用 LangGraph `graph.stream(..., stream_mode="updates")` 做节点级映射，语义等价（每个节点完成后立即 yield），见 `agent/loop_stream.py`。
 
-### 1.4 知识管理 API（FR-API-03，阶段三）
+### 1.4 知识管理 API（FR-API-03）[x]
 
-- `POST /v1/docs` 批量上传（含来源元数据）
-- `GET /v1/ingest-tasks/{id}` 抽取任务状态
-- `GET /v1/review-queue` / `POST /v1/review-queue/{id}/decision` 审核队列
-- `GET /v1/audit/queries/{query_id}` 推理链审计回查（FR-AN-04）
+均在 `routes/knowledge.py`，前缀 `/v1`：
 
-### 1.5 横切要求
+| 端点 | 用途 |
+|---|---|
+| `POST /docs` | 批量上传（含来源元数据） |
+| `GET /ingest-tasks/{task_id}` | 抽取任务状态 |
+| `GET /review-queue` · `POST /review-queue/{item_id}/decision` | 审核队列（P3-KG-03） |
+| `GET /audit/queries/{query_id}` | 推理链审计回查（FR-AN-04 / P3-AN-01） |
+| `POST /feedback` | 反馈回路（FR-OP-03）：负反馈入 ReviewQueue 并写回 audit metadata |
+| `GET /metrics`（admin） | 监控指标（P4-REL-03；ENT-04 收权 admin-only） |
+| `GET /graph/entities` | 图实体浏览脚手架（P5-CAP） |
 
-- 鉴权：API Key / 内部 SSO，租户维度数据隔离（NFR-06）
-- 速率限制：租户级 QPS + 用户级并发查询数上限
-- 全部入参 schema 校验，fail fast（NFR-07）
-- 请求携带/生成 `query_id`，贯穿全链路 trace（NFR-08）
+**ENT 增补（2026-07-25）**：`routes/admin.py`（前缀 `/v1`，均 admin）— `GET /traces/{query_id}`（trace 回查）、`GET /budget/snapshot`（三级预算快照）、`GET /audit-events`（安全事件，支持 since/until/tenant_id/action 过滤）；app 级 `GET /metrics-prom`（Prometheus 文本，免鉴权，ENT-08）。上传治理（ENT-06）：`POST /docs` 收权 operator+，单文件 ≤5MB、单批 ≤20、白名单 md/txt/pdf，超限 413；任务落盘 `IngestTaskStore`（worker 独立运行，见 runbook §6）。
 
-## 2. 问答 Web 界面（FR-API-05，阶段四）
+### 1.5 横切要求 [x]（部分）
 
-**定位**：内部试用工具，功能优先于视觉；单页应用即可。
+- 鉴权 + 速率限制（P4-UI-02，`auth.py` 中间件）：`AGR_REQUIRE_AUTH=1` 强制 API Key；`AGR_API_KEYS=tenant:key:role,...`（ENT-04 三角色 admin/operator/reader，缺省 reader，兼容旧两段式）+ `require_role()` 路由守卫 + key 过期；租户级 `AGR_RATE_LIMIT_QPS`（默认 20）与并发 `AGR_RATE_LIMIT_CONCURRENT`（默认 10），per-tenant 覆盖走 `configs/default.yaml` `tenants:` 段（ENT-05）。
+- 全部入参 schema 校验，fail fast（NFR-07）[x]。
+- 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
+- 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-### 页面结构
-1. **提问区**：输入框 + 高级选项（最大跳数、强制 Agentic）
-2. **进度区**（消费 SSE）：当前子问题、跳数进度、已耗时
-3. **答案区**：答案正文，论断内联引用角标，点击展开原文片段
-4. **推理链区**（FR-AN-03，复用 P3-AN-02 组件）：
-   - 子问题分解树（节点状态：已答/部分/失败）
-   - 图路径可视化（命中的节点/边，可点击看来源）
-   - 证据引用列表
-5. **反馈区**：准确 / 不准确（+可选原因），提交关联 query_id（FR-OP-03）
+## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 重规划规划态）
 
-### 界面明确不做（V1）
+**定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
+
+> **重规划（2026-08-08，P5-UI-02，未实施）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台。§2.1–§2.4 描述**已交付**的问答视图现状；控制台目标见 §2.7，任务分解与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
+
+### 2.1 技术形态（零构建 + 钉版 Vue 3）
+
+| 项 | 现状 |
+|---|---|
+| 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
+| 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
+| 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
+| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
+| 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
+| SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
+| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200） |
+
+### 2.2 页面结构与功能（实现）
+
+1. **侧栏**：品牌区 + `/healthz` 健康点 + 高级选项（`forceAgentic` / `maxHops` 1~10 / `useStream`，默认开）
+2. **空态**：示例问题 chips，点击即发问
+3. **对话流**：逐 turn 保留（多轮**仅展示**，每次请求独立、无上下文携带）
+4. **进度卡**（每 turn）：流中自动展开、完成自动收起；分诊 / hop / 缓存命中 / 错误
+5. **答案卡**（`answer-turn`）：正文 + 元信息行 + 论断高亮角标 + 反馈状态机
+6. **推理链**（FR-AN-03）：子问题树 · 图路径 chips（溢出显式 "+N 条未显示"）· 步骤与证据 · 可复制 JSON
+7. **中止 / 重试**：流中「停止」（AbortController）；错误/完成均可「强制 Agentic 重问」
+8. **输入区**：textarea 自适应高度，Enter 发送 / Shift+Enter 换行；busy 时停止按钮替换发送
+
+### 2.3 推理链可视化交付（P4-UI 增强 + P5 增强）[x]
+
+| 能力 | 实现 |
+|---|---|
+| 论断内联引用**角标** | `buildAnswerSegments` + `cite-btn`；点击高亮对应论断（`claim-active`）并滚动 |
+| 子问题分解**树** | `plan-tree` 组件：`buildPlanNodes`，状态色（sufficient/partial/fail），展示 depends_on |
+| 图路径**可视化** | `path-list`：`buildPathRows` → node/edge chips；`MAX_PATH_ROWS=40` 后显式溢出提示 |
+| 复制推理链 | 折叠区「复制」→ `navigator.clipboard`（localhost secure context） |
+
+仍明确不做：图路径**编辑器**、多轮上下文、移动端适配（见 §2.5）。
+
+### 2.4 前端必须遵守的规则
+
+见 [engineering/rules.md](../engineering/rules.md) §8。核心：零构建 + 仅钉版 Vue 3（ADR-006）；动态文本 mustache/`textContent`，禁 `v-html`/`.innerHTML`；只调 `/v1/*` 且遵守 envelope；改动后保持 `test_web_claude_ui.py` 同步。
+
+### 2.5 界面明确不做（V1）
+
 - 多轮对话上下文（每次提问独立）
 - 图谱编辑能力（治理走独立审核界面 P3-KG-03）
 - 移动端适配
+- 图路径可视化**编辑器**
+
+> 2026-08-08 注：知识运维 / 审核 / 可观测界面**不属于**上列「不做」——已立项 P5-UI-02（§2.7）。上列四项维持不做（rules.md §8；改动须先改 PRD）。
+
+### 2.6 验证清单
+
+工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
+
+- [x] `GET /web` 与 `/web/static/*` 挂载存在；文件全集与钉版断言
+- [x] 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
+- [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 未知事件静默忽略
+- [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
+- [x] 全前端 `v-html` / `.innerHTML` 零命中
+
+### 2.7 P5-UI-02 前端重规划概要（2026-08-08，规划态未实施）
+
+试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表，低优先）。
+
+- **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
+- **API 前置两项**（M0）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页（当前仅有单条查询）。
+- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
+- 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。

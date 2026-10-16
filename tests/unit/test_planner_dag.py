@@ -55,7 +55,9 @@ def test_ready_subquestions():
 
 
 def test_shared_connections_is_dag():
-    plan = plan_offline("What shared connections exist between NovaTech Industries and Helix Compute?")
+    plan = plan_offline(
+        "What shared connections exist between NovaTech Industries and Helix Compute?"
+    )
     assert len(plan) >= 2
     # join node depends on both expansions when pattern matches
     deps = {sq.id: set(sq.depends_on) for sq in plan}

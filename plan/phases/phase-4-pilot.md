@@ -14,20 +14,21 @@
 ## 任务清单
 
 ### 界面与接入（UI）
-- [ ] `P4-UI-01` 问答 Web 界面：提问、流式进度展示、答案 + 推理链可视化（复用 P3-AN-02 组件）、准确/不准确反馈按钮（FR-API-05）
-- [ ] `P4-UI-02` API 鉴权 + 速率限制接入试点租户（NFR-06）
+- [x] `P4-UI-01` 问答 Web 界面 — Claude 风格浅色对话布局（`web/`）；SSE 进度、推理链、反馈；`/web`（**后续框架化见 P5-UI-01** / [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)）
+- [x] `P4-UI-01b` UI 增强 — 内联引用角标、子问题分解树、图路径 chips（非编辑器）；见 `api-and-ui.md` §2.3；实现已并入 P5-UI-01 组件层
+- [x] `P4-UI-02` API 鉴权 + 速率限制 — `api/auth.py`（`AGR_REQUIRE_AUTH` / `AGR_API_KEYS` / QPS+并发）；**ENT-04 增补（2026-07-25）**：三角色 RBAC（`api/rbac.py`，key 三段式 `tenant:key:role`）+ `require_role()` 路由守卫 + key 过期
 
 ### 上线准备（REL）
-- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）
-- [ ] `P4-REL-02` 上线安全检查：security-reviewer 全量过一遍（硬编码密钥/注入/鉴权/错误信息泄露，见 [security 规范](../engineering/testing-strategy.md#安全检查)）
-- [ ] `P4-REL-03` 监控告警配置：延迟 P95、错误率、成本日消耗、熔断触发次数
-- [ ] `P4-REL-04` 运维手册：常见故障处理、图谱回滚、缓存清理、预算调整
+- [ ] `P4-REL-01` 生产环境部署：环境隔离、密钥管理、数据租户隔离核查（NFR-06）— **代码侧已由 ENT-06 承接**（`tenant_id` 贯穿 stores/检索/agent，跨租户零命中单测）；**运维侧仍开**：物理分库/标签隔离、真实 Neo4j/Qdrant 跨租户回归
+- [x] `P4-REL-02` 安全基础：鉴权中间件、参数化 Cypher、envelope 不泄栈；**ENT-06 增补**：应用层上传治理（5MB/20/白名单/413）+ PII 脱敏开关 + live 凭据启动 fail-fast；完整 security-reviewer 生产签发仍待
+- [x] `P4-REL-03` 监控指标 API — `GET /v1/metrics`（admin）+ `GET /metrics-prom` Prometheus 抓取（ENT-08）；告警规则示例已入 ops-runbook，部署侧落地仍待
+- [x] `P4-REL-04` 运维手册 — `docs/ops/RUNBOOK.md`（**ENT 全量增补 2026-07-25**：错误码对照 / 日志字段字典 / 四点回查 / worker / 保留清理 / 告警规则）
 
 ### 灰度与反馈（OPS)
-- [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组，每档观察 ≥3 天
-- [ ] `P4-OPS-02` 反馈回路：反馈关联推理链落库，形成 badcase 库（FR-OP-03）
-- [ ] `P4-OPS-03` 人工审核回路：低置信答案/负反馈答案进入人工复核队列，复核结论回流评测集
-- [ ] `P4-OPS-04` badcase 周会机制：归因 → 修复 → 回归，试点期每周一轮
+- [ ] `P4-OPS-01` 灰度计划执行：内部用户 → 试点业务方 5-10 人 → 试点全组 — **流程项，非代码**
+- [x] `P4-OPS-02` 反馈回路 — `POST /v1/feedback` → review queue + audit metadata
+- [x] `P4-OPS-03` 人工审核回路 — 负反馈入 `ReviewQueue`；复核 API 已有
+- [ ] `P4-OPS-04` badcase 周会机制 — **流程项**
 
 ### 验收（AC）
 - [ ] `P4-AC-01` 执行 PRD 第7节全部验收项 AC-1 ~ AC-7，逐项留存证据

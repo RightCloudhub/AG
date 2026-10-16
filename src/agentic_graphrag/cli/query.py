@@ -37,4 +37,3 @@ def query_main(argv: list[str] | None = None) -> None:
     if args.neo4j:
         run_args.append("--neo4j")
     run_cases_main(run_args)
-

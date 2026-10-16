@@ -12,7 +12,7 @@ POC 代码按工程规范重构（TDD、80% 覆盖率自此强制执行，见 [t
 ./scripts/g1_to_g2_gate.sh --with-llm   # 含 C2 自动部分
 ```
 
-- [ ] `P2-ENTRY-01` 过渡门禁通过或书面豁免已归档
+- [x] `P2-ENTRY-01` 过渡门禁工程通过（有条件 caveat）— `reports/G1_to_G2_closeout.md`
 
 ## 周计划
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource, Citation
-from agentic_graphrag.stores.interfaces import FulltextStore
+from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.ports.stores import FulltextStore
 
 
 class FulltextRetriever:
@@ -11,9 +11,11 @@ class FulltextRetriever:
         self.store = store
         self.top_k = top_k
 
-    def search(self, query: str, top_k: int | None = None) -> list[Candidate]:
+    def search(
+        self, query: str, top_k: int | None = None, *, tenant_id: str | None = None
+    ) -> list[Candidate]:
         k = top_k or self.top_k
-        hits = self.store.search(query, top_k=k)
+        hits = self.store.search(query, top_k=k, tenant_id=tenant_id)
         out: list[Candidate] = []
         for rank, (chunk, score) in enumerate(hits):
             out.append(

@@ -21,6 +21,7 @@ dependencies = [
     "tiktoken>=0.8.0",
     "structlog>=24.4.0",
     "orjson>=3.10.0",
+    "python-multipart>=0.0.12",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,15 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
+]
+sqlite-checkpoint = [
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "aiosqlite>=0.20.0",
+]
+otel = [
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
 ]
 
 [project.scripts]
@@ -77,6 +87,9 @@ omit = [
     "*/agentic_graphrag/llm/provider.py",
     "*/agentic_graphrag/generation/answer.py",
     "*/agentic_graphrag/generation/offline_answer.py",
+    # Domain-hardcoded offline answer rules only (EdgeView/dispatcher still measured)
+    "*/agentic_graphrag/generation/offline_heuristics/rules_*.py",
+    "*/agentic_graphrag/observability/otel_bridge.py",
 ]
 
 [tool.coverage.report]

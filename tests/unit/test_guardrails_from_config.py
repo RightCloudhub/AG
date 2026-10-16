@@ -28,7 +28,10 @@ def test_from_guardrails_config_direct() -> None:
     assert g.max_hops == 3
     assert g.max_llm_calls == 7
     assert g.max_tokens == 1000
-    assert g.recursion_limit == 9
+    # Floor: recursion_limit must cover worst-case steps for max_hops.
+    from agentic_graphrag.agent.guardrails import min_recursion_limit
+
+    assert g.recursion_limit >= min_recursion_limit(3)
 
 
 def test_max_hops_override_capped_by_hard_limit() -> None:

@@ -1,188 +1,92 @@
 # AgenticGraphRAG
 
-图谱增强的多跳推理智能问答系统（POC）。
+图谱增强的多跳推理问答系统：**知识图谱做结构化记忆，Agent 做决策大脑。**
 
-- **PRD**: [PRD.md](./PRD.md)
-- **立项建议书**: [lixiang.md](./lixiang.md)
-- **实施计划**: [plan/README.md](./plan/README.md)
+纯向量 RAG 很难稳定回答「A 的母公司的 CEO 以前在哪工作」这类跨实体、跨文档的问题。本项目让 Agent 按「规划 → 检索 → 反思」沿图谱逐跳追问，输出带引用、可审计的推理链。
 
-## 架构（四层）
+默认**全离线**（内存图 + seed 三元组 + Mock LLM），不需要 API Key 或 Docker 即可跑通。
 
-1. **接入层** — CLI（POC）/ 后续 FastAPI  
-2. **Agent 编排** — LangGraph StateGraph：Planner → Executor → Critic → Answer + 护栏/Memory  
-3. **检索** — 向量 / 图路径 / BM25  
-4. **知识层** — 文档抽取 → Schema 校验 → Neo4j + Qdrant + BM25  
+## 特性
+
+- **分诊双路径**：简单问题走 Fast Path，复杂问题走 LangGraph 循环（Planner → Executor → Critic → Answer）
+- **三路混合检索**：向量 / 图 Beam Search / BM25 并行召回，RRF 融合 + 缓存
+- **知识管线**：上传 → 抽取（LLM / 离线规则）→ Schema 校验 → 实体对齐 → 增量入图（按基数、时间、置信度裁决冲突）→ 人工复核并作用于图谱
+- **护栏与预算**：跳数、LLM 调用、token、超时上限；租户 / 用户 / 查询三级预算与熔断
+- **可审计**：每次回答产出 `ReasoningChain`，claim 须通过引用、关系一致与蕴含校验，可按 query ID 回查
+- **企业能力**：多租户、RBAC、限流、JSON 日志、Prometheus、可选 OTel、PII 脱敏
 
 ## 快速开始
 
-### 1. 环境
-
 ```bash
-# Python 3.12+（本机可用 3.12/3.13/3.14）
-uv venv .venv
-source .venv/bin/activate
+uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-cp .env.example .env
-# 编辑 .env 填入 LLM_API_KEY（可选；离线可用 seed 三元组 + --no-llm）
+agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
+agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测（走生产路径 QueryApp，eval Profile）
+agr-api                                                          # http://127.0.0.1:8000/web
+AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
 
-### 2. 基础设施（可选；离线路径不需要）
+在线模式（真实 LLM / Neo4j / Qdrant）：
 
 ```bash
 docker compose up -d
-# Neo4j Browser: http://localhost:7474  (neo4j / agentic-graphrag)
-# Qdrant:       http://localhost:6333
+AGR_PROFILE=live AGR_ALLOW_LLM=1 LLM_API_KEY=... agr-api   # Neo4j / Qdrant 不可达时直接拒绝启动
 ```
 
-| 模式 | 图后端 | LLM |
-|------|--------|-----|
-| 离线 seed | `InMemoryGraphStore`（进程内） | 不需要（`--no-llm`） |
-| 持久 seed | Neo4j（需 Docker） | 不需要（`--no-llm`） |
-| 全量抽取 | Neo4j（需 Docker） | 需要 `LLM_API_KEY` |
+运行 Profile：`offline`（默认）、`live`、`hybrid`（Neo4j + 内存向量，须显式声明）、`eval`（评测，关闭缓存）。详见 [docs/ops/RUNBOOK.md](docs/ops/RUNBOOK.md)。
 
-> **`--no-llm` ≠ 自动跳过 Neo4j**，但 seed 建图路径会在 Neo4j 不可用时**自动回退**到内存图并打印 Warning。  
-> 强制内存：`--memory-graph`。离线评测更省事：直接 `agr-run-cases --no-llm`（自己加载 seed，无需先 `build-graph`）。
+## 架构
 
-### 3. 文档接入与建图（离线 seed，无需 LLM）
-
-```bash
-# 分段
-python -m agentic_graphrag.cli  # 查看入口；或使用下方脚本
-
-# 推荐：直接调用模块入口
-python -c "from agentic_graphrag.cli import ingest_main; ingest_main([])"
-
-# seed 三元组入图（不调 LLM；Neo4j 可用则写入，否则自动内存 dry-run）
-python -c "from agentic_graphrag.cli import build_graph_main; build_graph_main(['--triples','data/processed/seed_triples.jsonl','--no-llm'])"
-
-# BM25 索引（可跳过 embedding）
-python -c "from agentic_graphrag.cli import index_main; index_main(['--no-embed'])"
+```mermaid
+flowchart LR
+    API["API / CLI / Web / Eval"] --> APP["app/ QueryApp · IngestApp · ReviewApp"]
+    APP --> AG["Agent QueryPipeline<br/>分诊 · 规划 · 执行 · 反思"]
+    APP --> KG
+    AG --> RET["检索<br/>向量 · 图 · BM25 → RRF"]
+    RET --> ST[("图 / 向量 / 全文存储")]
+    KG["知识管线"] --> ST
+    AG --> GEN["答案 + 推理链"]
 ```
 
-安装 entry points 后也可使用：
+各模块（Agent、检索、知识图谱、存储、LLM、生成、可观测、评测）的详细架构图见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
 
-```bash
-agr-ingest
-agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm
-agr-index --no-embed
-agr-run-cases --no-llm
+## 目录
+
+```
+src/agentic_graphrag/   核心代码（分层见 docs/ARCHITECTURE.md §0）
+  core/                 共享内核：契约 · 端口 · 领域事件 · IndexVersion
+  bootstrap/            组合根：Profile + 能力矩阵
+  app/                  应用层：QueryApp · IngestApp · ReviewApp
+  api/ cli/             驱动层：HTTP / 命令行
+  agent/ retrieval/ generation/ knowledge/   领域层
+  stores/ llm/          适配器
+  governance/ observability/ prompts/        横切：策略 · 遥测 · Prompt 版本
+configs/                配置、领域 Schema、Prompt
+data/                   样例语料与 seed 三元组（见 data/README.md）
+evals/                  评测数据集
+web/                    Vue 3 零构建工作台
+tests/ scripts/         单元测试、门禁与评测脚本
+docs/                   架构、设计、运维、评审文档
+plan/ reports/          阶段计划与门禁报告
 ```
 
-强制进程内 dry-run（即使 Neo4j 已启动）：
+## 开发
 
 ```bash
-agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm --memory-graph
-```
-
-### 4. 带 LLM 的全量抽取
-
-```bash
-# 需要有效 LLM_API_KEY + Neo4j（无自动回退）
-agr-ingest
-agr-build-graph
-agr-index
-agr-run-cases
-```
-
-### 5. 离线评测与 G1
-
-`--no-llm` 时 `run-cases` **自行**把 `seed_triples.jsonl` 载入 `InMemoryGraphStore`，不依赖 Neo4j，也不依赖事先跑 `agr-build-graph`。
-
-```bash
-python -m agentic_graphrag run-cases --no-llm   # 20 case → reports/poc_run.jsonl + accuracy
-# 或: agr-query --no-llm "Who is the CEO of Apex Holdings?"
-python -m agentic_graphrag score
-python -m agentic_graphrag spotcheck            # P1-KG-05 seed baseline
-# G1 memo: reports/G1_review.md  (Conditional-Go)
-```
-
-### 5b. G1 → G2 过渡（Conditional-Go 关闭）
-
-Playbook：[plan/phases/g1-to-g2-transition.md](./plan/phases/g1-to-g2-transition.md)
-
-| 条件 | 命令 |
-|------|------|
-| C1 试点语料 P1-GOV-01 | 填 `data/pilot/MANIFEST.yaml` + 语料 → `./scripts/validate_pilot_corpus.sh` |
-| C2 实时 LLM | `.env` 配好 key → `./scripts/llm_live_rerun.sh` → 人工标抽检 → `score-spotcheck` |
-| C3 Neo4j 回归 | `docker compose up -d neo4j` → `./scripts/neo4j_regression.sh` |
-
-```bash
-./scripts/g1_to_g2_gate.sh                 # 汇总 C1/C2/C3
-./scripts/g1_to_g2_gate.sh --with-llm      # 含 live LLM
-# Neo4j + offline 答案器（图走 Neo4j，不调 LLM）：
-agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm
-agr-run-cases --no-llm --neo4j
-```
-
-### 6. HTTP API（P2-ARCH-03）
-
-```bash
-agr-api
-# 或: uvicorn agentic_graphrag.api.app:create_app --factory --port 8000
-
-curl -s http://127.0.0.1:8000/healthz
-curl -s -X POST http://127.0.0.1:8000/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"Who is the CEO of Apex Holdings?","max_hops":4}'
-```
-
-默认离线：seed 三元组 + 内存图 + Mock LLM。配置 `LLM_API_KEY` 后可启用 live LLM 答案路径。
-
-### 7. Baseline 向量 RAG（P2-EV-03）
-
-```bash
-# 临时/interim 语料上跑纯向量基线（无图、无多跳）
-python -m agentic_graphrag run-baseline --no-llm
-# → reports/baseline_run.jsonl + baseline_accuracy.json
-```
-
-### 8. 测试与 CI（P2-ARCH-04）
-
-```bash
-ruff check src tests scripts
-ruff format --check src tests scripts
+ruff check src tests scripts && ruff format --check src tests scripts
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 ```
 
-GitHub Actions：`.github/workflows/ci.yml`（lint + unit + coverage ≥80%）。
+## 文档
 
-推理链契约 Schema：`configs/schema/reasoning_chain_v1.json`（`export-reasoning-schema`）。
-## 仓库布局
+| 文档 | 内容 |
+|---|---|
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块架构图与运行路径 |
+| [docs/product/PRD.md](./docs/product/PRD.md) | 产品需求与验收标准 |
+| [docs/ops/RUNBOOK.md](./docs/ops/RUNBOOK.md) | 部署、环境变量、运维 |
+| [docs/README.md](./docs/README.md) | 全部文档索引 |
 
-见 [plan/engineering/repo-structure.md](./plan/engineering/repo-structure.md)。
+## License
 
-```
-configs/          # 配置、Schema、Prompt（无密钥）
-src/agentic_graphrag/
-  api/            # FastAPI：envelope、POST /v1/query
-  agent/          # LangGraph 循环 + 护栏/Memory
-  retrieval/      # 向量/图/全文
-  knowledge/      # 接入、抽取、入图
-  llm/            # LLMClient Protocol + Provider + Budget
-  stores/         # Repository 协议 + factory 组合根
-  generation/     # 答案与推理链
-data/raw/         # 示例语料
-evals/datasets/   # 20 条 POC case
-tests/            # 单元测试
-.github/workflows # CI
-```
-
-## POC 范围与非目标
-
-**做**：Schema V0、抽取/入图、三路检索、Agent 循环、推理链 JSON、20 case、护栏。  
-**不做**：Web UI、SSE API、实体消歧、增量更新、RRF、复杂度分诊（见 PRD 里程碑阶段一）。
-
-## 选型（默认已采纳）
-
-| 组件 | 选型 |
-|------|------|
-| 图库 | Neo4j 5 Community |
-| 向量 | Qdrant |
-| 全文 | rank_bm25（进程内） |
-| Agent | LangGraph StateGraph（ADR-005） |
-| 语言 | Python + Pydantic |
-
-## 许可证
-
-内部项目 / 待定。
+[Apache-2.0](./LICENSE)

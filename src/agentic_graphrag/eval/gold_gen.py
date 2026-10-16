@@ -12,6 +12,7 @@ from collections import defaultdict
 from agentic_graphrag.eval.cases import CaseCategory, EvalCase, StratificationSpec
 from agentic_graphrag.eval.gold_index import index_triples
 from agentic_graphrag.eval.gold_templates import (
+    EmitContext,
     emit_2hop_cases,
     emit_3hop_cases,
     emit_guardrail_cases,
@@ -44,11 +45,22 @@ def generate_gold_cases(
         cases.append(case)
         return True
 
-    emit_2hop_cases(edges, out_adj, in_adj, add, max_2hop=max_2hop)
-    emit_3hop_cases(edges, out_adj, in_adj, add, max_3hop=max_3hop)
-    emit_open_cases(edges, out_adj, in_adj, add, max_open=max_open)
+    def ctx_for(max_n: int) -> EmitContext:
+        return EmitContext(
+            edges,
+            out_adj,
+            in_adj,
+            add,
+            max_n=max_n,
+            has_out_adj=True,
+            has_in_adj=True,
+        )
+
+    emit_2hop_cases(ctx_for(max_2hop))
+    emit_3hop_cases(ctx_for(max_3hop))
+    emit_open_cases(ctx_for(max_open))
     if include_no_answer:
-        emit_no_answer_cases(edges, add, max_no_answer=max_no_answer)
+        emit_no_answer_cases(ctx_for(max_no_answer))
 
     return cases
 
@@ -61,9 +73,6 @@ def generate_stratified_eval_set(
 ) -> list[EvalCase]:
     """Generate and trim to G2 mix targets (default ≥200 with 90/60/30/20)."""
     spec = spec or StratificationSpec()
-    # Oversample then pick first N per category for stable deterministic order.
-    # Caps are "successful unique questions"; templates skip duplicates without
-    # burning the budget (add() returns bool).
     raw = generate_gold_cases(
         triples,
         max_2hop=max(spec.min_2hop, int(spec.min_2hop * oversample)),
@@ -72,10 +81,14 @@ def generate_stratified_eval_set(
         max_no_answer=max(spec.min_no_answer, int(spec.min_no_answer * oversample)),
         include_no_answer=True,
     )
+    selected = _select_by_targets(raw, spec)
+    return _remap_g2_ids(selected)
+
+
+def _select_by_targets(raw: list[EvalCase], spec: StratificationSpec) -> list[EvalCase]:
     buckets: dict[CaseCategory, list[EvalCase]] = defaultdict(list)
     for c in raw:
         buckets[c.resolved_category()].append(c)
-
     targets = {
         CaseCategory.HOP2: spec.min_2hop,
         CaseCategory.HOP3: spec.min_3hop,
@@ -85,13 +98,11 @@ def generate_stratified_eval_set(
     selected: list[EvalCase] = []
     for cat, need in targets.items():
         pool = buckets.get(cat, [])
-        if len(pool) < need:
-            # take all; caller should validate
-            selected.extend(pool)
-        else:
-            selected.extend(pool[:need])
+        selected.extend(pool if len(pool) < need else pool[:need])
+    return selected
 
-    # stable id remap for the curated set
+
+def _remap_g2_ids(selected: list[EvalCase]) -> list[EvalCase]:
     out: list[EvalCase] = []
     counters: dict[str, int] = defaultdict(int)
     for c in selected:
@@ -126,7 +137,7 @@ def generate_guardrail_set(*, max_n: int = 25) -> list[EvalCase]:
         cases.append(case)
         return True
 
-    emit_guardrail_cases(add, max_n=max_n)
+    emit_guardrail_cases(EmitContext([], {}, {}, add, max_n=max_n))
     return cases
 
 

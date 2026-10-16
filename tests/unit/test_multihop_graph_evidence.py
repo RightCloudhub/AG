@@ -10,7 +10,6 @@ from agentic_graphrag.agent.planner import plan_offline
 from agentic_graphrag.config import resolve_path
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
 from agentic_graphrag.knowledge.schema_check import Triple
-from agentic_graphrag.retrieval.contracts import CandidateSource
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore

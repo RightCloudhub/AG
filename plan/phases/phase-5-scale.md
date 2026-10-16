@@ -8,13 +8,30 @@
 ### 1. 领域扩展
 - [ ] `P5-EXT-01` 第二、三领域图谱接入：复用抽取管线，按领域定义新 Schema；沉淀"新领域接入 Runbook"（目标：新领域从语料到可查询 ≤2 周）
 - [ ] `P5-EXT-02` 跨领域实体对齐：同一实体在多领域图谱中的关联与消歧
-- [ ] `P5-EXT-03` 多租户图谱隔离与配额管理
+- [x] `P5-EXT-03` 多租户配额管理脚手架 — `MultiLevelBudget` + auth principal；**ENT-05/06 续章（2026-07-25）**：`tenants:` 配置化 per-tenant 限额 + `tenant_id` 数据级隔离已落地；分布式（Redis）与图库物理隔离仍待
+
+### 1b. 企业级管控轨道（P5-ENT；状态权威见 [docs/reviews/ENTERPRISE_READINESS.md](../../docs/reviews/ENTERPRISE_READINESS.md) §3.5）
+
+> 2026-07-25 工程交付（代码 + 离线单测）；Redis 多副本 / 真后端跨租户回归 / OTLP collector 属部署验证，勿以离线证据冒充生产验收。
+
+- [x] `P5-ENT-01` 结构化 JSON 日志基座 — `observability/logging_setup.py`（contextvars + 轮转 + `AGR_LOG_*`）
+- [x] `P5-ENT-02` 排障闭环 — admin traces / budget / audit-events 端点 + `/healthz` 熔断器与复核积压 + `request_id` 入链 + runbook 增补
+- [x] `P5-ENT-03` 安全事件审计流 — `observability/audit_events.py`（JSONL + 轮转 + 过滤查询）；待办：导出 CLI、prev-hash、budget/feedback/config 采集点
+- [x] `P5-ENT-04` RBAC 与密钥治理 — 三角色 + `require_role()` + key 过期；待办：`/v1/metrics` per-tenant 过滤、YAML 注册表接入中间件
+- [x] `P5-ENT-05` 并发调度升级（工程） — `tenants:` 配置化限额 + `IngestTaskStore`/worker + 调度协议抽象；排队/Redis 未实施
+- [x] `P5-ENT-06` 数据安全强化 — `tenant_id` 数据隔离 + 上传治理 + PII 脱敏 + 保留清理 + live 凭据 fail-fast
+- [ ] `P5-ENT-07` RPA 集成层 — ⏭ **本期明确不实施**（范围排除；规划保留在 ENTERPRISE_READINESS §4）
+- [x] `P5-ENT-08` 监控外送 — `/metrics-prom` + 可选 OTel OTLP + W3C context（collector 联调待部署验证）
 
 ### 2. 能力增强（PRD P2 需求）
-- [ ] `P5-CAP-01` 图谱浏览与实体详情页（FR-KG-07）
-- [ ] `P5-CAP-02` 外部工具扩展框架：SQL/内部 API 注册接入，含权限声明与审计（FR-AG-08）
-- [ ] `P5-CAP-03` 答案置信度分级输出（FR-AN-05）
-- [ ] `P5-CAP-04` 学习型 Re-ranker：用评测集与反馈数据训练，替换 RRF（FR-RT-04 预留接口落地）
+- [x] `P5-CAP-01` 图谱浏览 API 脚手架 — `GET /v1/graph/entities`（详情页 UI 待规模化立项）
+- [x] `P5-CAP-02` 外部工具扩展框架 — `agent/tools/registry.py`（业务 handler 待注册）
+- [x] `P5-CAP-03` 答案置信度分级 — `generation/confidence.py` · metadata.confidence
+- [x] `P5-CAP-04` 学习型 Re-ranker 接口预留 — `retrieval/fusion.Reranker`（训练落地待数据）
+
+### 2b. 前端框架化（rules.md §8 预留的阶段五事项）
+- [x] `P5-UI-01` 试用 Web 前端框架化 — Vue 3 零构建重构 + 交互增强；ADR-006 已入 tech-stack；执行计划：[p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)
+- [ ] `P5-UI-02` 前端重规划：问答 → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图；M0 API 前置 `GET /v1/me` + `GET /v1/ingest-tasks` 列表；零构建边界不变，无需新 ADR）— 执行计划：[p5-ui-02-console-replan.md](./p5-ui-02-console-replan.md)
 
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表

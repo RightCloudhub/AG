@@ -6,34 +6,35 @@ StateGraph assembly and public entrypoint live in
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
-
-from agentic_graphrag.agent.critic import CriticAction, critique
+from agentic_graphrag.agent.critic import critique
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
+from agentic_graphrag.agent.loop_handlers import (
+    CriticApplyCtx,
+    ExecutorNodeCtx,
+    apply_critic_result,
+    execute_subquestion,
+    load_evidence,
+    load_evidence_for_critic,
+    materialize_current,
+    skip_excluded_or_duplicate,
+)
 from agentic_graphrag.agent.memory import MemoryState
-from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion, plan
+from agentic_graphrag.agent.options import AgentDeps, CritiqueContext
+from agentic_graphrag.agent.parallel_branches import is_prefetched
+from agentic_graphrag.agent.plan_coverage import annotate_plan_coverage
+from agentic_graphrag.agent.plan_dag import cap_plan_breadth
+from agentic_graphrag.agent.planner import SubQuestion, plan
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
-from agentic_graphrag.generation.trace import ReasoningChain, ReasoningStep
-from agentic_graphrag.llm.budget import BudgetTracker
+from agentic_graphrag.generation.verdict import evidence_gap
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm.provider import LLMProvider
-from agentic_graphrag.retrieval.contracts import Candidate
 
-
-class AgentState(TypedDict, total=False):
-    """LangGraph typed state (P2-AG-03). Memory semantics live in MemoryState."""
-
-    question: str
-    chain: dict[str, Any]
-    sub_questions: list[dict[str, Any]]
-    current_index: int
-    hop: int
-    evidence: list[dict[str, Any]]
-    memory_summary: str
-    memory_snapshot: dict[str, Any]
-    done: bool
-    guardrail_status: str
-    allow_llm: bool
+# Answer → executor back-edges per run, and new sub-questions per back-edge.
+MAX_ANSWER_RETRIEVALS = 1
+MAX_GAP_SUB_QUESTIONS = 2
 
 
 class AgentRuntime:
@@ -44,8 +45,15 @@ class AgentRuntime:
         executor: Executor,
         llm: LLMProvider | None,
         guard_cfg: GuardrailConfig,
+        *,
         budget: BudgetTracker | None = None,
+        deps: AgentDeps | None = None,
     ) -> None:
+        if deps is not None:
+            executor = deps.executor
+            llm = deps.llm
+            guard_cfg = deps.guard_cfg
+            budget = deps.budget
         self.executor = executor
         self.llm = llm
         self.guard_cfg = guard_cfg
@@ -54,11 +62,7 @@ class AgentRuntime:
         self.memory = MemoryState()
 
     def _hydrate_from_state(self, state: AgentState) -> None:
-        """Restore Memory (and hop floor) from checkpointer-backed state.
-
-        LangGraph persists ``AgentState``; semantic objects on this runtime
-        must rehydrate so resume / audit replay work with a fresh runtime.
-        """
+        """Restore Memory (and hop floor) from checkpointer-backed state."""
         snap = state.get("memory_snapshot")
         if snap:
             self.memory = MemoryState.from_snapshot(snap)
@@ -82,9 +86,14 @@ class AgentRuntime:
             allow_llm=allow_llm and self.llm is not None,
             known_entities=known,
         )
+        # Breadth budget is enforced here, not left to the hop cap silently
+        # truncating the tail mid-run (BL-12).
+        kept, dropped = cap_plan_breadth(sqs, self.guard_cfg.max_sub_questions)
+        self.guards.note_plan_breadth(len(sqs))
         return {
             **state,
-            "sub_questions": [s.model_dump() for s in sqs],
+            "sub_questions": [s.model_dump() for s in kept],
+            "dropped_sub_questions": [s.text for s in dropped],
             "current_index": 0,
             "hop": 0,
             "done": False,
@@ -93,195 +102,112 @@ class AgentRuntime:
 
     def node_executor(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
-        guards = self.guards
-        memory = self.memory
-        executor = self.executor
-        llm = self.llm
-
-        guards.on_hop_start()
-        if guards.state.tripped:
-            return {**state, "done": True, "guardrail_status": guards.status_text()}
+        self._start_node(state)
+        hop = self.guards.state.hop
+        if self.guards.state.tripped:
+            return {
+                **state,
+                "hop": hop,
+                "done": True,
+                "guardrail_status": self.guards.status_text(),
+                "memory_snapshot": self.memory.to_snapshot(),
+            }
 
         sqs = list(state.get("sub_questions") or [])
         idx = int(state.get("current_index") or 0)
         if idx >= len(sqs):
-            return {**state, "done": True}
-
-        sq = SubQuestion.model_validate(sqs[idx])
-        # P2-AG-01: materialize placeholders from prior conclusions
-        sq = materialize_subquestion(sq, memory.conclusions_by_subquestion)
-        sqs[idx] = sq.model_dump()
-
-        if memory.is_excluded(sq.text):
-            memory.mark_subquestion_done(sq.id)
             return {
                 **state,
-                "sub_questions": sqs,
-                "current_index": idx + 1,
-                "done": idx + 1 >= len(sqs),
-                "guardrail_status": guards.status_text(),
-                "memory_snapshot": memory.to_snapshot(),
+                "hop": hop,
+                "done": True,
+                "guardrail_status": self.guards.status_text(),
+                "memory_snapshot": self.memory.to_snapshot(),
             }
 
-        if memory.is_duplicate_subquestion(sq.text) and idx > 0:
-            memory.exclude_hypothesis(sq.text)
-            return {
-                **state,
-                "sub_questions": sqs,
-                "current_index": idx + 1,
-                "guardrail_status": guards.status_text(),
-                "done": idx + 1 >= len(sqs),
-                "memory_snapshot": memory.to_snapshot(),
-            }
-        memory.mark_subquestion(sq.text)
-
-        allow_llm = bool(state.get("allow_llm", True))
-        from agentic_graphrag.agent.entities import extract_entity_mentions
-
-        hints = extract_entity_mentions(
-            state["question"] + " " + sq.text,
-            executor.known_entities or None,
+        sq, sqs = materialize_current(sqs, idx, self.memory)
+        ctx = ExecutorNodeCtx(
+            state=state,
+            sq=sq,
+            sqs=sqs,
+            idx=idx,
+            memory=self.memory,
+            guards=self.guards,
+            executor=self.executor,
+            llm=self.llm,
         )
-        # Prefer entities mentioned in materialized conclusion text
-        for conc in memory.conclusions_by_subquestion.values():
-            hints.extend(extract_entity_mentions(conc, executor.known_entities or None))
-        candidates, traces = executor.run(
-            sq.text,
-            entities_hint=hints,
-            allow_llm=allow_llm and llm is not None,
-        )
-        added = memory.add_evidence(candidates)
+        skipped = skip_excluded_or_duplicate(ctx)
+        if skipped is not None:
+            return skipped
+        return execute_subquestion(ctx)
 
-        step = ReasoningStep(
-            hop=guards.state.hop,
-            sub_question=sq.text,
-            depends_on=sq.depends_on,
-            tool_calls=traces,
-            evidence_ids=added,
-        )
-        chain = ReasoningChain.model_validate(state["chain"])
-        chain.steps.append(step)
-        chain.explored_paths = sorted(memory.explored_paths)
+    def _start_node(self, state: AgentState) -> None:
+        """A node whose branch was retrieved concurrently stays on the current hop:
+        hops measure dependency depth, not breadth (BL-12)."""
+        sqs = list(state.get("sub_questions") or [])
+        idx = int(state.get("current_index") or 0)
+        if idx < len(sqs) and is_prefetched(state, str(sqs[idx].get("id"))):
+            self.guards.check_branch()
+        else:
+            self.guards.on_hop_start()
 
-        return {
-            **state,
-            "sub_questions": sqs,
-            "hop": guards.state.hop,
-            "evidence": [c.model_dump() for c in memory.evidence_list()],
-            "chain": chain.model_dump(),
-            "memory_summary": memory.summary(),
-            "memory_snapshot": memory.to_snapshot(),
-            "guardrail_status": guards.status_text(),
-        }
+    def route_after_executor(self, state: AgentState) -> str:
+        """Skip critic when hop already terminal (saves recursion budget)."""
+        if state.get("done") or self.guards.state.tripped:
+            return "answer"
+        if int(state.get("hop") or 0) > self.guard_cfg.max_hops:
+            return "answer"
+        return "critic"
 
     def node_critic(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
         if state.get("done"):
             return state
-        guards = self.guards
-        memory = self.memory
-        guard_cfg = self.guard_cfg
-        llm = self.llm
 
         sqs = list(state.get("sub_questions") or [])
         idx = int(state.get("current_index") or 0)
         sq = SubQuestion.model_validate(sqs[idx]) if idx < len(sqs) else None
         sq_text = sq.text if sq else state["question"]
         sq_id = sq.id if sq else f"sq{idx}"
-        evidence = [Candidate.model_validate(e) for e in state.get("evidence") or []]
-        allow_llm = bool(state.get("allow_llm", True))
         remaining = max(0, len(sqs) - idx - 1)
+        allow_llm = bool(state.get("allow_llm", True))
 
         result = critique(
-            state["question"],
-            sq_text,
-            evidence,
-            sorted(memory.explored_paths),
-            llm if allow_llm else None,
-            allow_llm=allow_llm and llm is not None,
-            hop=int(state.get("hop") or 1),
-            max_hops=guard_cfg.max_hops,
-            remaining_subquestions=remaining,
-            excluded_hypotheses=sorted(memory.excluded_hypotheses),
+            CritiqueContext(
+                question=state["question"],
+                sub_question=sq_text,
+                evidence=load_evidence_for_critic(state),
+                explored_paths=sorted(self.memory.explored_paths),
+                hop=int(state.get("hop") or 1),
+                max_hops=self.guard_cfg.max_hops,
+                remaining_subquestions=remaining,
+                excluded_hypotheses=sorted(self.memory.excluded_hypotheses),
+            ),
+            self.llm if allow_llm else None,
+            allow_llm=allow_llm and self.llm is not None,
         )
-
-        chain = ReasoningChain.model_validate(state["chain"])
-        conclusion = result.partial_answer or ""
-        if chain.steps:
-            chain.steps[-1].critic_action = result.action.value
-            if conclusion:
-                chain.steps[-1].conclusion = conclusion
-
-        # Record per-sub-question conclusion for placeholder materialization
-        if result.sub_answered or result.action == CriticAction.SUFFICIENT or conclusion:
-            memory.mark_subquestion_done(sq_id, conclusion or None)
-
-        new_state: AgentState = {
-            **state,
-            "chain": chain.model_dump(),
-            "guardrail_status": guards.status_text(),
-            "memory_snapshot": memory.to_snapshot(),
-            "memory_summary": memory.summary(),
-        }
-
-        # Planned DAG: advance while more nodes remain (sub-level sufficient)
-        if remaining > 0 and not guards.state.tripped:
-            new_state["current_index"] = idx + 1
-            new_state["done"] = False
-            if guards.state.hop >= guard_cfg.max_hops:
-                new_state["done"] = True
-            return new_state
-
-        if result.action == CriticAction.SUFFICIENT and result.global_answered:
-            new_state["done"] = True
-        elif result.action == CriticAction.SUFFICIENT:
-            # Sub answered, global not — if no remaining plan, still finish
-            new_state["done"] = True
-        elif result.action == CriticAction.GIVE_UP or guards.state.tripped:
-            if result.action == CriticAction.GIVE_UP:
-                memory.exclude_hypothesis(sq_text)
-            new_state["done"] = True
-        elif result.action in (CriticAction.NEXT_HOP, CriticAction.REWRITE):
-            new_sq = result.new_sub_question or sq_text
-            if result.action == CriticAction.REWRITE:
-                memory.exclude_hypothesis(sq_text)
-            if memory.is_duplicate_subquestion(new_sq) or memory.is_excluded(new_sq):
-                new_state["done"] = True
-            else:
-                new_id = f"sq_dyn_{len(sqs) + 1}"
-                sqs = list(sqs) + [
-                    SubQuestion(
-                        id=new_id,
-                        text=new_sq,
-                        depends_on=[sq_id] if sq else [],
-                        rationale=result.rationale,
-                    ).model_dump()
-                ]
-                new_state["sub_questions"] = sqs
-                new_state["current_index"] = len(sqs) - 1
-        else:
-            new_state["current_index"] = idx + 1
-            if new_state["current_index"] >= len(sqs):
-                new_state["done"] = True
-
-        if guards.state.hop >= guard_cfg.max_hops:
-            new_state["done"] = True
-            new_state["guardrail_status"] = guards.status_text()
-
-        return new_state
+        return apply_critic_result(
+            CriticApplyCtx(
+                state=state,
+                result=result,
+                sq=sq,
+                sq_text=sq_text,
+                sq_id=sq_id,
+                idx=idx,
+                remaining=remaining,
+                memory=self.memory,
+                guards=self.guards,
+                guard_cfg=self.guard_cfg,
+            )
+        )
 
     def node_answer(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
         chain = ReasoningChain.model_validate(state["chain"])
-        evidence = [Candidate.model_validate(e) for e in state.get("evidence") or []]
+        evidence = load_evidence(state)
         allow_llm = bool(state.get("allow_llm", True))
-        if self.budget:
-            snap = self.budget.snapshot()
-            chain.cost.llm_calls = snap["llm_calls"]
-            chain.cost.tokens = snap["total_tokens"]
-            chain.cost.prompt_tokens = snap["prompt_tokens"]
-            chain.cost.completion_tokens = snap["completion_tokens"]
+        self._apply_budget_to_chain(chain)
 
+        can_retrieve = self._can_retrieve_again(state)
         if self.guards.state.tripped and not evidence:
             chain.honest_fallback(self.guards.state.reason or "guardrail tripped")
         else:
@@ -292,9 +218,16 @@ class AgentRuntime:
                 conclusions="; ".join(self.memory.conclusions),
                 guardrail_status=str(state.get("guardrail_status") or self.guards.status_text()),
                 allow_llm=allow_llm and self.llm is not None,
+                report_evidence_gaps=can_retrieve,
             )
 
+        gap = evidence_gap(chain) if can_retrieve else None
+        if gap is not None and gap.reason != "partial_answer":
+            # Refactor §1.5: answer → executor back-edge for missing evidence.
+            return self._loop_back_for_gap(state, chain, gap.missing)
+
         chain.explored_paths = sorted(self.memory.explored_paths)
+        annotate_plan_coverage(chain, state)
         return {
             **state,
             "chain": chain.model_dump(),
@@ -302,7 +235,57 @@ class AgentRuntime:
             "memory_snapshot": self.memory.to_snapshot(),
         }
 
+    def _can_retrieve_again(self, state: AgentState) -> bool:
+        if self.guards.state.tripped:
+            return False
+        if int(state.get("answer_retries") or 0) >= MAX_ANSWER_RETRIEVALS:
+            return False
+        return int(state.get("hop") or 0) < self.guard_cfg.max_hops
+
+    def _loop_back_for_gap(
+        self, state: AgentState, chain: ReasoningChain, missing: list[str]
+    ) -> AgentState:
+        sqs = list(state.get("sub_questions") or [])
+        start = len(sqs)
+        for i, text in enumerate(m for m in missing[:MAX_GAP_SUB_QUESTIONS] if m.strip()):
+            sqs.append(
+                SubQuestion(
+                    id=f"gap{start + i}", text=text.strip(), rationale="evidence_gap"
+                ).model_dump()
+            )
+        meta = dict(chain.metadata or {})
+        meta.pop("evidence_gap", None)
+        meta["evidence_gap_loops"] = int(meta.get("evidence_gap_loops") or 0) + 1
+        chain.metadata = meta
+        return {
+            **state,
+            "chain": chain.model_dump(),
+            "sub_questions": sqs,
+            "current_index": start,
+            "done": False,
+            "answer_retries": int(state.get("answer_retries") or 0) + 1,
+            "evidence_gap": {"missing": missing},
+            "memory_snapshot": self.memory.to_snapshot(),
+        }
+
+    def route_after_answer(self, state: AgentState) -> str:
+        return "end" if state.get("done") else "executor"
+
+    def _apply_budget_to_chain(self, chain: ReasoningChain) -> None:
+        if not self.budget:
+            return
+        snap = self.budget.snapshot()
+        chain.cost.llm_calls = snap["llm_calls"]
+        chain.cost.tokens = snap["total_tokens"]
+        chain.cost.prompt_tokens = snap["prompt_tokens"]
+        chain.cost.completion_tokens = snap["completion_tokens"]
+
     def route_after_critic(self, state: AgentState) -> str:
         if state.get("done") or self.guards.state.tripped:
+            return "answer"
+        # Belt-and-suspenders: hop cap must end the loop even if done was lost.
+        if int(state.get("hop") or 0) >= self.guard_cfg.max_hops:
+            return "answer"
+        if self.guards.state.hop >= self.guard_cfg.max_hops:
             return "answer"
         return "executor"

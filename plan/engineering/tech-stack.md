@@ -11,7 +11,7 @@
 | 全文检索 | FulltextStore | POC：rank_bm25 进程内；规模化可换 ES/OpenSearch | Elasticsearch | 已采纳（POC） |
 | LLM | LLMProvider | 强/轻双档位，OpenAI 兼容网关，供应商可替换（NFR-10） | — | 已采纳（ADR-003） |
 | 服务框架 | API | Python（FastAPI）——LLM/检索生态最全；POC 先 CLI | Go/TS | 已采纳（ADR-004） |
-| 前端 | 试用界面 | 轻量 SPA（React/Vue 按团队熟悉度） | — | 待定 |
+| 前端 | 试用界面 | Vue 3 零构建（钉版 3.5.13，运行时 ESM） | Preact+htm / Alpine | 已采纳（ADR-006） |
 | 编排 | Agent 框架 | **LangGraph（StateGraph）+ 自研控制逻辑**（护栏/Memory去重/推理链） | AgentScope（仅深度绑定 Qwen/DashScope 生态时重议） | 已采纳（ADR-005） |
 | 可观测 | Trace/监控 | OpenTelemetry + 现有监控栈 | — | 待定 |
 
@@ -53,10 +53,33 @@
   - **全自研（原方案）**：重试/中断/流式/checkpoint 管道的自研成本高于其带来的可控性收益；可控性通过"控制逻辑自研 + 框架仅作运行时"同样达成。
 - **影响**：`agent/loop.py` 为 StateGraph 组装与编译；langgraph 版本锁定，升级须过评测回归（新增风险 R11）；框架依赖限定在 `agent/` 模块内，其余模块无感知，保留替换回自研的退路。
 
+### ADR-006：试用 Web 前端采用 Vue 3 零构建（已采纳，2026-07-21）
+- **背景**：rules.md §8 原约束 POC~试点「无前端框架」；阶段四交付的原生 JS 试用 UI（`web/static/app.js` 命令式 DOM，~15 个 render/事件函数）在会话历史、逐 turn 反馈、流中中止、失败重试、复制推理链、健康状态等交叉状态下维护成本超标。tech-stack.md §3「前端技术栈」待决；rules §8 预留「阶段五引入框架需 ADR + 更新 EXTERNAL_RUNTIMES.md」通道。详见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md)。
+- **决策**：试用界面采用 **Vue 3**，钉版 **3.5.13**，产物为 `vue.esm-browser.prod.js`（全量构建，含浏览器内模板编译）。以**运行时 ESM 动态 import** 引入，**不**引入 npm / 打包器 / Node 工具链：
+  1. 本地 vendor 优先：`web/static/vendor/vue.esm-browser.prod.js`（一次 vendor 即完全离线，见 `web/static/vendor/README.md`）
+  2. 钉版 jsDelivr 镜像
+  3. 钉版 unpkg 兜底
+  - 组件用 **Options API**；组件模块为纯对象（不 import Vue），框架面收敛在 `web/`。
+  - 启动链：`index.html`（in-DOM 根模板）→ `app.js`（`loadVueRuntime` → `createApp` → `registerComponents` → mount）。
+- **理由**：
+  - 零构建实质保留（无工具链），符合 rules §8 与 EXTERNAL_RUNTIMES「非 npm」边界。
+  - 声明式模板适合引用角标切分、路径 chips、进度/反馈状态机等列表密集渲染；Options API + in-DOM 模板上手成本低。
+  - 钉版 + vendor-first 可断网演示；CDN 仅作未 vendor 时的开发兜底。
+- **否决的备选**：
+  - **React**：无 JSX/构建链时人机工学差，违背零构建实质。
+  - **Preact + htm**：体积最小，但模板即标签字符串、生态/中文资料弱于 Vue，团队上手成本高。
+  - **Alpine.js**：指令式点缀适合开关，不适合引用角标切分、路径 chips 等列表密集渲染。
+  - **htmx**：服务端返回 HTML 片段的范式；本项目 SSE 契约是 JSON 事件流，需重写服务端，否决。
+- **影响**：
+  - `web/` 模块化：`app.js` 加载器 + `js/root.js` / `js/api.js` / `js/chain-view.js` / `js/components/*`；CSS 拆为 `app.css` / `chat.css` / `panels.css`。
+  - 注入安全：动态文本一律 mustache / `textContent`；**禁止 `v-html` 与任何 `innerHTML`**（替代原 `escapeHtml` 条款，见 rules.md §8 V1.1）。
+  - 升级流程：改版本必须同步三处——本 ADR、`app.js` 的 `VUE_VERSION` 与加载清单、vendor 文件；过 [p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7 验证清单后合入。
+  - 仍明确不做（V1）：多轮上下文、图谱编辑、移动端适配、路径编辑器。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）
 - [x] 向量库具体产品：Qdrant（POC）
-- [ ] 前端技术栈（试点阶段前定即可）
+- [x] 前端技术栈：Vue 3 零构建（ADR-006，2026-07-21）
 - [ ] 部署形态：K8s / 单机 Docker Compose（试点规模决定）
 - [ ] 正式试点领域与语料替换当前 interim 公司关系语料（P1-GOV-01 / R5）— 见 [g1-to-g2-transition.md](../phases/g1-to-g2-transition.md) C1 · `data/pilot/`

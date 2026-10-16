@@ -1,15 +1,18 @@
-"""POST /v1/query (FR-API-01)."""
+"""POST /v1/query and /v1/query/stream (FR-API-01/02)."""
 
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 
 from agentic_graphrag.api.envelope import MetaBody, ok
-from agentic_graphrag.api.errors import ApiError
-from agentic_graphrag.api.schemas import QueryRequest
-from agentic_graphrag.api.service import QueryService
+from agentic_graphrag.api.sse import format_sse
+from agentic_graphrag.app.contracts import QueryRequest
+from agentic_graphrag.app.errors import ApiError
+from agentic_graphrag.app.query_service import QueryService
 
 router = APIRouter(prefix="/v1", tags=["query"])
 
@@ -21,14 +24,46 @@ def _service(request: Request) -> QueryService:
     return svc
 
 
+def _principal(request: Request) -> tuple[str, str]:
+    p = getattr(request.state, "principal", None)
+    if p is None:
+        # Never trust client-supplied X-User-Id for budget identity.
+        return "default", "anonymous"
+    return p.tenant_id, p.user_id
+
+
 @router.post("/query")
 def post_query(body: QueryRequest, request: Request) -> dict:
     request_id = request.headers.get("x-request-id") or str(uuid4())
     meta = MetaBody(request_id=request_id)
+    tenant_id, user_id = _principal(request)
     try:
-        result = _service(request).run_query(body)
+        result = _service(request).run_query(body, tenant_id=tenant_id, user_id=user_id)
         return ok(result.model_dump(mode="json"), meta=meta)
     except ApiError as exc:
-        # re-raise so app-level handler sets status code
         exc.details = {**(exc.details or {}), "request_id": request_id}
         raise
+
+
+@router.post("/query/stream")
+async def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse:
+    """SSE stream: triage → thinking → sub_question → hop_done → answer."""
+    tenant_id, user_id = _principal(request)
+    svc = _service(request)
+
+    async def gen():
+        # Async generator + sleep(0) lets ASGI flush each frame before the next
+        # agent hop blocks (sync iterators often buffer until the whole run ends).
+        for etype, payload in svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id):
+            yield format_sse(etype, payload)
+            await asyncio.sleep(0)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

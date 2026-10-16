@@ -1,92 +1,32 @@
-"""Beam traversal core for graph multi-hop retrieval (FR-RT-02 / P2-RT-01).
-
-Relation-cue scoring, edge/path signatures, and beam expansion. Candidate /
-citation assembly lives in :mod:`agentic_graphrag.retrieval.graph`.
-"""
+"""Beam traversal for graph multi-hop retrieval (FR-RT-02 / P2-RT-01)."""
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
 from dataclasses import dataclass
 
-from agentic_graphrag.stores.interfaces import EntityRecord, GraphStore, PathRecord, RelationRecord
+from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, PathRecord, RelationRecord
+from agentic_graphrag.retrieval.graph_relation import (
+    RelationEmbedSim,
+    blend_relation_score,
+    edge_score,
+    infer_relation_types,
+    normalize_name,
+    path_signature,
+    relation_relevance,
+)
 
-# Lexical cues for offline relation relevance (pure logic; embedding re-rank is P3).
-_RELATION_CUES: dict[str, tuple[str, ...]] = {
-    "CEO_OF": ("ceo", "chief executive", "leads", "leader", "headed by"),
-    "WORKS_AT": ("work", "works", "worked", "employ", "job", "role", "title"),
-    "WORKED_AT": ("previously work", "worked at", "former", "prior", "previously"),
-    "PARENT_OF": ("parent", "owns", "own", "holding", "subsidiary of", "parent company"),
-    "SUBSIDIARY_OF": ("subsidiary", "owned by", "child company", "unit of"),
-    "PRODUCES": ("produce", "product", "manufactur", "makes", "offers"),
-    "COMPETES_WITH": ("compet", "rival", "versus", "vs"),
-    "SUPPLIES": ("suppl", "vendor", "logistics"),
-    "SUPPLIES_FOR": ("suppl", "component", "parts for"),
-    "PARTICIPATED_IN": ("participat", "event", "partnership", "deal", "summit"),
-    "ACQUIRED": ("acquir", "bought", "merger", "m&a"),
-    "LOCATED_IN": ("located", "based in", "headquarter", "hq"),
-}
-
-
-def relation_relevance(relation_type: str, sub_question: str | None) -> float:
-    """Score in [0, 1] how well a relation type matches the sub-question text."""
-    if not sub_question:
-        return 0.5
-    q = sub_question.lower()
-    cues = _RELATION_CUES.get(relation_type.upper(), ())
-    if not cues:
-        # Unknown relation: mild default so it is not totally pruned
-        return 0.25
-    hits = sum(1 for c in cues if c in q)
-    if hits == 0:
-        return 0.08
-    return min(1.0, 0.45 + 0.2 * hits)
-
-
-def infer_relation_types(
-    sub_question: str | None,
-    *,
-    available: Iterable[str] | None = None,
-    min_score: float = 0.2,
-) -> list[str] | None:
-    """Return preferred relation types for the sub-question, or None if unfiltered.
-
-    None means "no strong cue" → caller may still score edges but not hard-filter.
-    """
-    if not sub_question or not sub_question.strip():
-        return None
-    avail = {a.upper() for a in available} if available is not None else None
-    scored: list[tuple[float, str]] = []
-    for rel, _cues in _RELATION_CUES.items():
-        if avail is not None and rel not in avail:
-            continue
-        s = relation_relevance(rel, sub_question)
-        if s >= min_score:
-            scored.append((s, rel))
-    if not scored:
-        return None
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [r for _, r in scored]
-
-
-def edge_score(rel: RelationRecord, sub_question: str | None) -> float:
-    conf = float(rel.confidence) if rel.confidence is not None else 1.0
-    conf = max(0.0, min(1.0, conf))
-    return conf * relation_relevance(rel.type, sub_question)
-
-
-def path_signature(nodes: list[EntityRecord], rels: list[RelationRecord]) -> str:
-    parts: list[str] = []
-    for i, n in enumerate(nodes):
-        parts.append(n.name.lower())
-        if i < len(rels):
-            parts.append(rels[i].type.upper())
-    return "|".join(parts)
-
-
-def normalize_name(name: str) -> str:
-    return re.sub(r"\s+", " ", name.strip().lower())
+__all__ = [
+    "BeamConfig",
+    "BeamExpander",
+    "BeamItem",
+    "RelationEmbedSim",
+    "blend_relation_score",
+    "edge_score",
+    "infer_relation_types",
+    "normalize_name",
+    "path_signature",
+    "relation_relevance",
+]
 
 
 @dataclass
@@ -108,6 +48,7 @@ class BeamConfig:
     beam_width: int = 20
     high_degree_threshold: int = 30
     relation_relevance_threshold: float = 0.12
+    relation_embed_sim: RelationEmbedSim | None = None
 
 
 class BeamExpander:
@@ -123,6 +64,7 @@ class BeamExpander:
         *,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[tuple[float, RelationRecord, EntityRecord]]:
         """1-hop edges from store, scored and pruned."""
         fetch_limit = max(self.cfg.max_neighbors_per_layer * 2, self.cfg.beam_width * 2)
@@ -133,16 +75,21 @@ class BeamExpander:
             max_hops=1,
             relation_types=hard_types if self.looks_high_degree(entity_name) else None,
             limit=fetch_limit,
+            tenant_id=tenant_id,
         )
         # If hard filter yielded nothing, retry unfiltered
         if hard_types and not rows:
             rows = self.store.neighbors(
-                entity_name, max_hops=1, relation_types=None, limit=fetch_limit
+                entity_name,
+                max_hops=1,
+                relation_types=None,
+                limit=fetch_limit,
+                tenant_id=tenant_id,
             )
 
         scored: list[tuple[float, RelationRecord, EntityRecord]] = []
         for rel, ent in rows:
-            sc = edge_score(rel, sub_question)
+            sc = edge_score(rel, sub_question, embed_sim=self._embed_sim(rel.type, sub_question))
             # Prune low-relevance when we have preferred types
             if preferred_relations and rel.type.upper() not in {
                 r.upper() for r in preferred_relations
@@ -153,6 +100,15 @@ class BeamExpander:
 
         scored.sort(key=lambda t: (-t[0], t[1].type, t[2].name))
         return scored[: self.cfg.max_neighbors_per_layer]
+
+    def _embed_sim(self, relation_type: str, sub_question: str | None) -> float | None:
+        scorer = self.cfg.relation_embed_sim
+        if scorer is None:
+            return None
+        try:
+            return scorer(relation_type, sub_question)
+        except Exception:  # noqa: BLE001 — never break retrieval on embed failure
+            return None
 
     def looks_high_degree(self, entity_name: str) -> bool:
         rows = self.store.neighbors(
@@ -170,42 +126,66 @@ class BeamExpander:
         max_hops: int,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[BeamItem]:
         start = EntityRecord(id="", name=entity_name, type="Entity")
         beams: list[BeamItem] = [
             BeamItem(score=1.0, node_name=entity_name, nodes=[start], rels=[], edges=[])
         ]
         all_frontier = list(beams)
-
         for _hop in range(max(1, max_hops)):
-            nxt: list[BeamItem] = []
-            for item in beams:
-                layer = self.layer_edges(
-                    item.node_name,
-                    preferred_relations=preferred_relations,
-                    sub_question=sub_question,
-                )
-                for sc, rel, ent in layer:
-                    # Avoid immediate cycles on node names
-                    if normalize_name(ent.name) in {normalize_name(n.name) for n in item.nodes}:
-                        continue
-                    new_score = item.score * max(sc, 1e-6)
-                    nxt.append(
-                        BeamItem(
-                            score=new_score,
-                            node_name=ent.name,
-                            nodes=item.nodes + [ent],
-                            rels=item.rels + [rel],
-                            edges=item.edges + [(rel, ent)],
-                        )
-                    )
+            nxt = self._expand_layer(beams, preferred_relations, sub_question, tenant_id=tenant_id)
             if not nxt:
                 break
             nxt.sort(key=lambda b: (-b.score, b.node_name))
-            # Cap fan-out per layer
             beams = nxt[: self.cfg.beam_width]
             all_frontier.extend(beams)
         return all_frontier
+
+    def _expand_layer(
+        self,
+        beams: list[BeamItem],
+        preferred_relations: list[str] | None,
+        sub_question: str | None,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[BeamItem]:
+        nxt: list[BeamItem] = []
+        for item in beams:
+            nxt.extend(
+                self._extend_item(item, preferred_relations, sub_question, tenant_id=tenant_id)
+            )
+        return nxt
+
+    def _extend_item(
+        self,
+        item: BeamItem,
+        preferred_relations: list[str] | None,
+        sub_question: str | None,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[BeamItem]:
+        seen = {normalize_name(n.name) for n in item.nodes}
+        out: list[BeamItem] = []
+        layer = self.layer_edges(
+            item.node_name,
+            preferred_relations=preferred_relations,
+            sub_question=sub_question,
+            tenant_id=tenant_id,
+        )
+        for sc, rel, ent in layer:
+            if normalize_name(ent.name) in seen:
+                continue
+            out.append(
+                BeamItem(
+                    score=item.score * max(sc, 1e-6),
+                    node_name=ent.name,
+                    nodes=item.nodes + [ent],
+                    rels=item.rels + [rel],
+                    edges=item.edges + [(rel, ent)],
+                )
+            )
+        return out
 
     def beam_paths(
         self,
@@ -215,6 +195,7 @@ class BeamExpander:
         max_hops: int,
         preferred_relations: list[str] | None,
         sub_question: str | None,
+        tenant_id: str | None = None,
     ) -> list[PathRecord]:
         target_key = normalize_name(target_name)
         found: list[PathRecord] = []
@@ -223,6 +204,7 @@ class BeamExpander:
             max_hops=max_hops,
             preferred_relations=preferred_relations,
             sub_question=sub_question,
+            tenant_id=tenant_id,
         )
         seen: set[str] = set()
         for item in beams:

@@ -1,32 +1,11 @@
-"""API error codes and exception types."""
+"""Compatibility alias: moved to :mod:`agentic_graphrag.app.errors`.
 
-from __future__ import annotations
+Refactor §0-A: the application layer (app/) is shared by every driver
+(API, CLI, eval, workers); api/ is only the HTTP driver.
+"""
 
-from typing import Any
+import sys
 
+from agentic_graphrag.app.errors import __name__ as _target
 
-class ApiError(Exception):
-    """Raised inside handlers; converted to envelope by exception handlers."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        status_code: int = 400,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.details = details
-
-
-# Machine-readable codes (api-and-ui.md)
-INVALID_INPUT = "INVALID_INPUT"
-BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
-TIMEOUT_PARTIAL = "TIMEOUT_PARTIAL"
-RATE_LIMITED = "RATE_LIMITED"
-INTERNAL_ERROR = "INTERNAL_ERROR"
-SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+sys.modules[__name__] = sys.modules[_target]

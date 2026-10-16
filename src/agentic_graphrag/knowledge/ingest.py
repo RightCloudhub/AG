@@ -6,7 +6,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from agentic_graphrag.stores.interfaces import ChunkRecord, DocumentRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord, DocumentRecord
 
 _SUPPORTED = {".md", ".txt", ".html", ".htm"}
 
@@ -92,6 +92,7 @@ def chunk_document(
             text=piece,
             index=i,
             metadata={"title": doc.title, **doc.metadata},
+            tenant_id=doc.tenant_id or str(doc.metadata.get("tenant_id") or ""),
         )
         for i, piece in enumerate(pieces)
     ]

@@ -1,6 +1,6 @@
 """Hybrid retrieval layer."""
 
-from agentic_graphrag.retrieval.contracts import (
+from agentic_graphrag.core.evidence import (
     Candidate,
     CandidateSource,
     CandidateType,

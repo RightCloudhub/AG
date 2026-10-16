@@ -44,8 +44,8 @@
 - [x] `P1-EV-01` 设计 20 个多跳 case（`evals/datasets/poc_cases.jsonl`）
 - [x] `P1-EV-02` 端到端跑测脚本骨架（`cli.run_cases_main`；需 Neo4j 时跑全量）
 - [x] `P1-EV-03` G1 评审材料：`reports/G1_review.md`（Conditional-Go；20/20、成本延迟、风险、环境声明）
-- [ ] `P1-EV-04` **G1→G2 C2**：实时 LLM 重跑 — 抽取抽检（`spotcheck --mode llm`）+ 20 case live（`scripts/llm_live_rerun.sh`）
-- [ ] `P1-EV-05` **G1→G2 C3**：Neo4j 回归 — `build-graph` seed 入图 + `run-cases --no-llm --neo4j`（`scripts/neo4j_regression.sh`）
+- [x] `P1-EV-04` **G1→G2 C2**：实时 LLM 重跑 — 自动化通过（`scripts/llm_live_rerun.sh` · `reports/llm_live_rerun.json`）；**live 质量 caveat**（网关 403 / 准确率低）见 closeout
+- [x] `P1-EV-05` **G1→G2 C3**：Neo4j 回归 — `pass_partial`（`scripts/neo4j_regression.sh` · `reports/neo4j_regression.json`，offline 14/20）
 
 ## 交付物
 

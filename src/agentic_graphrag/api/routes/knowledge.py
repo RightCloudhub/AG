@@ -1,0 +1,255 @@
+"""Knowledge management APIs (FR-API-03 / P3-KG-04 / ENT-04/06)."""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from pydantic import BaseModel, Field
+
+from agentic_graphrag.api.envelope import MetaBody, ok
+from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
+from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
+from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.app.query_service import QueryService
+from agentic_graphrag.app.review_app import ReviewApp
+from agentic_graphrag.knowledge.review.queue import (
+    ReviewAlreadyDecided,
+    ReviewDecision,
+    ReviewType,
+)
+
+router = APIRouter(prefix="/v1", tags=["knowledge"])
+
+# Placeholder confidence for upload spot-checks until a real sampling policy
+# exists — named so it reads as a policy value, not a magic number (BL-11).
+UPLOAD_SPOTCHECK_CONFIDENCE = 0.5
+
+
+class DocUploadMeta(BaseModel):
+    title: str = ""
+    source: str = ""
+    doc_id: str | None = None
+
+
+class ReviewDecisionBody(BaseModel):
+    decision: str = Field(..., description="approve|reject|skip")
+    reviewer: str = ""
+    note: str = ""
+
+
+class FeedbackBody(BaseModel):
+    query_id: str
+    accurate: bool
+    reason: str = ""
+
+
+def _service(request: Request) -> QueryService:
+    svc = getattr(request.app.state, "query_service", None)
+    if svc is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
+    return svc
+
+
+@router.post("/docs", dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))])
+async def upload_docs(
+    request: Request,
+    files: list[UploadFile] | None = None,
+) -> dict:
+    """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
+    svc = _service(request)
+    tenant_id, _user_id = _principal(request)
+    task_id = str(uuid.uuid4())
+    saved = await save_uploads(svc, files or [], tenant_id=tenant_id, task_id=task_id)
+    row = task_row(task_id, tenant_id, saved)
+    if svc.ingest_tasks is not None:
+        row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
+    remember_task(task_id, row)
+    if svc.review_queue is not None and saved:
+        svc.review_queue.enqueue(
+            ReviewType.SPOTCHECK,
+            {
+                "task_id": task_id,
+                "doc_count": len(saved),
+                # Rejecting the spot-check rolls back facts sourced from these docs (BL-03).
+                "doc_ids": [row["doc_id"] for row in saved if row.get("doc_id")],
+            },
+            confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
+            batch_id=task_id,
+            tenant_id=tenant_id,
+        )
+    emit_audit(
+        request,
+        {"action": "doc_upload", "target": task_id, "outcome": "success", "doc_count": len(saved)},
+    )
+    return ok(row, meta=MetaBody(request_id=task_id))
+
+
+@router.get(
+    "/ingest-tasks/{task_id}",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
+def get_ingest_task(task_id: str, request: Request) -> dict:
+    tenant_id, _user_id = _principal(request)
+    svc = _service(request)
+    persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
+    task = persisted.to_dict() if persisted is not None else get_cached_task(task_id)
+    if task is None:
+        raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
+    if task.get("tenant_id") not in {None, tenant_id}:
+        raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
+    return ok(task)
+
+
+@dataclass
+class ReviewQueueQuery:
+    status: str | None = "pending"
+    type: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+def _review_query(
+    *,
+    status: str | None = Query("pending"),
+    type: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> ReviewQueueQuery:
+    return ReviewQueueQuery(status=status or None, type=type, limit=limit, offset=offset)
+
+
+@router.get(
+    "/review-queue",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
+def list_review_queue(
+    request: Request,
+    q: Annotated[ReviewQueueQuery, Depends(_review_query)],
+) -> dict:
+    svc = _service(request)
+    if svc.review_queue is None:
+        return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
+    tenant_id, _user_id = _principal(request)
+    pending_count = svc.review_queue.count(status="pending", tenant_id=tenant_id)
+    items, total = svc.review_queue.list_page(
+        status=q.status,
+        type=q.type,
+        limit=q.limit,
+        offset=q.offset,
+        tenant_id=tenant_id,
+    )
+    return ok(
+        [i.to_dict() for i in items],
+        meta=MetaBody(
+            total=total,
+            limit=q.limit,
+            page=q.offset // q.limit + 1,
+            extra={"pending_count": pending_count},
+        ),
+    )
+
+
+@router.post(
+    "/review-queue/{item_id}/decision",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+)
+def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> dict:
+    svc = _service(request)
+    if svc.review_queue is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
+    tenant_id, _user_id = _principal(request)
+    try:
+        dec = ReviewDecision(body.decision.lower())
+    except ValueError as exc:
+        raise ApiError(INVALID_INPUT, "decision must be approve|reject|skip") from exc
+    try:
+        # ReviewApp records the decision and applies it to the graph (BL-03).
+        item = ReviewApp(svc).decide(
+            item_id,
+            dec,
+            reviewer=body.reviewer,
+            note=body.note,
+            tenant_id=tenant_id,
+        )
+    except KeyError as exc:
+        # Same 404 for unknown and cross-tenant ids — no existence probe (BL-09).
+        raise ApiError(INVALID_INPUT, f"Unknown review item: {item_id}", status_code=404) from exc
+    except ReviewAlreadyDecided as exc:
+        raise ApiError(
+            INVALID_INPUT,
+            f"Review item already decided: {exc.item.status}",
+            status_code=409,
+        ) from exc
+    emit_audit(
+        request,
+        {
+            "action": "review_decision",
+            "target": item_id,
+            "outcome": dec.value,
+            "reviewer": body.reviewer,
+            "effect": item.execution.get("effect", "none"),
+        },
+    )
+    return ok(item.to_dict())
+
+
+def _principal(request: Request) -> tuple[str, str]:
+    p = getattr(request.state, "principal", None)
+    if p is None:
+        # Never trust client-supplied X-User-Id for budget identity.
+        return "default", "anonymous"
+    return p.tenant_id, p.user_id
+
+
+@router.get("/audit/queries/{query_id}")
+def get_audit_query(query_id: str, request: Request) -> dict:
+    """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01) — tenant-scoped."""
+    svc = _service(request)
+    if svc.audit_store is None:
+        raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
+    tenant_id, _user_id = _principal(request)
+    row = svc.audit_store.get_for_tenant(query_id, tenant_id)
+    if row is None:
+        # 404 for both missing and cross-tenant (no existence leak).
+        raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
+    return ok(row)
+
+
+@router.post("/feedback")
+def post_feedback(body: FeedbackBody, request: Request) -> dict:
+    """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
+    svc = _service(request)
+    tenant_id, user_id = _principal(request)
+    audit = svc.audit_store
+    if audit is not None and audit.get_for_tenant(body.query_id, tenant_id) is None:
+        # 404 whether the id belongs to another tenant or does not exist at all.
+        # Answering 404 only for the cross-tenant case made this an existence
+        # probe (docs/design/BUSINESS_LOGIC.md BL-09).
+        raise ApiError(INVALID_INPUT, f"Unknown query_id: {body.query_id}", status_code=404)
+    result = svc.submit_feedback(
+        body.query_id,
+        accurate=body.accurate,
+        reason=body.reason,
+        user_id=user_id,
+        tenant_id=tenant_id,
+    )
+    emit_audit(
+        request,
+        {
+            "action": "feedback_submitted",
+            "target": body.query_id,
+            "outcome": "accurate" if body.accurate else "inaccurate",
+        },
+    )
+    return ok(result)
+
+
+@router.get("/metrics", dependencies=[Depends(require_role(Role.ADMIN))])
+def get_metrics_summary() -> dict:
+    from agentic_graphrag.observability.metrics import get_metrics
+
+    return ok(get_metrics().summary())

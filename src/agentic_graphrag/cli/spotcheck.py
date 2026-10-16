@@ -8,25 +8,13 @@ import sys
 
 from agentic_graphrag.config import resolve_path
 
+_GATE_RATE = 0.70
+_TARGET_PCT = 70.0
+
 
 def spotcheck_main(argv: list[str] | None = None) -> None:
     """Generate triple spot-check sample for P1-KG-05 / G1→G2 live extract audit."""
-    parser = argparse.ArgumentParser(description="Build triple spot-check sample")
-    parser.add_argument("--triples", default="data/processed/seed_triples.jsonl")
-    parser.add_argument("--out", default="reports/triple_spotcheck.jsonl")
-    parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument(
-        "--mode",
-        choices=("seed", "llm"),
-        default="seed",
-        help="seed: schema-valid→correct (POC baseline); llm: pending_human for manual audit",
-    )
-    parser.add_argument(
-        "--schema",
-        default="configs/schema/domain_v0.yaml",
-        help="Schema YAML path",
-    )
-    args = parser.parse_args(argv)
+    args = _parse_spotcheck(argv)
     from agentic_graphrag.config import resolve_path as rp
     from agentic_graphrag.knowledge.schema_check import Triple, load_schema, validate_triple
 
@@ -37,25 +25,35 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
     schema = load_schema(rp(args.schema))
     out_path = rp(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = _sample_rows(
+        triples_path,
+        schema,
+        mode=args.mode,
+        limit=args.limit,
+        Triple=Triple,
+        validate_triple=validate_triple,
+    )
+    _write_spotcheck(out_path, rows, mode=args.mode)
 
+
+def _parse_spotcheck(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build triple spot-check sample")
+    parser.add_argument("--triples", default="data/processed/seed_triples.jsonl")
+    parser.add_argument("--out", default="reports/triple_spotcheck.jsonl")
+    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--mode", choices=("seed", "llm"), default="seed")
+    parser.add_argument("--schema", default="configs/schema/domain_v0.yaml")
+    return parser.parse_args(argv)
+
+
+def _sample_rows(triples_path, schema, *, mode, limit, Triple, validate_triple):
     rows = []
     for line in triples_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         t = Triple.model_validate(json.loads(line))
         reason = validate_triple(t, schema)
-        if args.mode == "seed":
-            # Seed triples are curated gold for interim corpus → label correct when schema-valid
-            label = "correct" if reason is None else "incorrect"
-            label_source = "seed_baseline_schema_valid"
-        else:
-            # LLM extract: leave for human audit; schema failure is already incorrect
-            if reason is not None:
-                label = "incorrect"
-                label_source = "schema_reject"
-            else:
-                label = "pending_human"
-                label_source = "llm_extract_pending_human"
+        label, label_source = _label_for(mode, reason)
         rows.append(
             {
                 "head": t.head.model_dump(),
@@ -71,51 +69,84 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
                 "label_source": label_source,
             }
         )
-        if len(rows) >= args.limit:
+        if len(rows) >= limit:
             break
+    return rows
 
-    labeled = [r for r in rows if r["human_label"] in ("correct", "incorrect")]
-    pending = sum(1 for r in rows if r["human_label"] == "pending_human")
-    correct = sum(1 for r in labeled if r["human_label"] == "correct")
-    rate = correct / len(labeled) if labeled else None
+
+def _label_for(mode: str, reason: str | None) -> tuple[str, str]:
+    if mode == "seed":
+        return (
+            ("correct" if reason is None else "incorrect"),
+            "seed_baseline_schema_valid",
+        )
+    if reason is not None:
+        return "incorrect", "schema_reject"
+    return "pending_human", "llm_extract_pending_human"
+
+
+def _write_spotcheck(out_path, rows, *, mode: str) -> None:
     with out_path.open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    summary = {
-        "mode": args.mode,
-        "sample_size": len(rows),
-        "correct": correct,
-        "incorrect": sum(1 for r in labeled if r["human_label"] == "incorrect"),
-        "pending_human": pending,
-        "correct_rate": round(rate, 4) if rate is not None else None,
-        "correct_rate_pct": round(rate * 100, 2) if rate is not None else None,
-        "label_source": (
-            "seed_baseline (schema-valid seed triples treated as correct)"
-            if args.mode == "seed"
-            else "llm extract: set human_label correct|incorrect then re-score"
-        ),
-        "target_correct_rate_pct": 70.0,
-        "note": (
-            "P1-KG-05 seed baseline"
-            if args.mode == "seed"
-            else (
-                "G1→G2 live extract audit: fill human_label, then: "
-                "python -m agentic_graphrag score-spotcheck"
-            )
-        ),
-        "path": str(out_path),
-    }
+    summary = _build_spotcheck_summary(rows, out_path, mode=mode)
     summary_path = out_path.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def _build_spotcheck_summary(rows, out_path, *, mode: str) -> dict:
+    counts = _label_counts(rows)
+    seed = mode == "seed"
+    return {
+        "mode": mode,
+        "sample_size": len(rows),
+        "correct": counts["correct"],
+        "incorrect": counts["incorrect"],
+        "pending_human": counts["pending"],
+        "correct_rate": counts["rate"],
+        "correct_rate_pct": counts["rate_pct"],
+        "label_source": _label_source_note(seed),
+        "target_correct_rate_pct": _TARGET_PCT,
+        "note": _mode_note(seed),
+        "path": str(out_path),
+    }
+
+
+def _label_counts(rows: list[dict]) -> dict:
+    labeled = [r for r in rows if r.get("human_label") in ("correct", "incorrect")]
+    correct = sum(1 for r in labeled if r["human_label"] == "correct")
+    rate = (correct / len(labeled)) if labeled else None
+    return {
+        "correct": correct,
+        "incorrect": len(labeled) - correct,
+        "pending": sum(1 for r in rows if r.get("human_label") == "pending_human"),
+        "rate": None if rate is None else round(rate, 4),
+        "rate_pct": None if rate is None else round(rate * 100, 2),
+        "labeled_n": len(labeled),
+    }
+
+
+def _label_source_note(seed: bool) -> str:
+    if seed:
+        return "seed_baseline (schema-valid seed triples treated as correct)"
+    return "llm extract: set human_label correct|incorrect then re-score"
+
+
+def _mode_note(seed: bool) -> str:
+    if seed:
+        return "P1-KG-05 seed baseline"
+    return (
+        "G1→G2 live extract audit: fill human_label, then: "
+        "python -m agentic_graphrag score-spotcheck"
+    )
+
 
 def score_spotcheck_main(argv: list[str] | None = None) -> None:
     """Re-score a spotcheck JSONL after human labels are filled in."""
     parser = argparse.ArgumentParser(description="Score triple spot-check after human labeling")
     parser.add_argument("--in", dest="inp", default="reports/triple_spotcheck_llm.jsonl")
-    parser.add_argument(
-        "--out", default=None, help="Summary JSON path (default: <in>.summary.json)"
-    )
+    parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
     inp = resolve_path(args.inp)
     if not inp.exists():
@@ -124,28 +155,31 @@ def score_spotcheck_main(argv: list[str] | None = None) -> None:
     rows = [
         json.loads(line) for line in inp.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
-    pending = [r for r in rows if r.get("human_label") == "pending_human"]
-    labeled = [r for r in rows if r.get("human_label") in ("correct", "incorrect")]
-    correct = sum(1 for r in labeled if r["human_label"] == "correct")
-    rate = correct / len(labeled) if labeled else None
-    summary = {
-        "sample_size": len(rows),
-        "labeled": len(labeled),
-        "pending_human": len(pending),
-        "correct": correct,
-        "incorrect": len(labeled) - correct,
-        "correct_rate": round(rate, 4) if rate is not None else None,
-        "correct_rate_pct": round(rate * 100, 2) if rate is not None else None,
-        "pass_g1_extract_gate": bool(rate is not None and rate >= 0.70 and not pending),
-        "target_correct_rate_pct": 70.0,
-        "path": str(inp),
-    }
+    summary = _score_summary(rows, inp)
     out = resolve_path(args.out) if args.out else inp.with_suffix(".summary.json")
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    if pending:
-        print(f"Warning: {len(pending)} rows still pending_human", file=sys.stderr)
-    if rate is not None and rate < 0.70:
+    if summary["pending_human"]:
+        print(f"Warning: {summary['pending_human']} rows still pending_human", file=sys.stderr)
+    rate = summary["correct_rate"]
+    if rate is not None and rate < _GATE_RATE:
         print(f"Below 70% extract gate: {rate * 100:.1f}%", file=sys.stderr)
         sys.exit(3)
 
+
+def _score_summary(rows: list[dict], inp) -> dict:
+    counts = _label_counts(rows)
+    rate = counts["rate"]
+    pending_n = counts["pending"]
+    return {
+        "sample_size": len(rows),
+        "labeled": counts["labeled_n"],
+        "pending_human": pending_n,
+        "correct": counts["correct"],
+        "incorrect": counts["incorrect"],
+        "correct_rate": rate,
+        "correct_rate_pct": counts["rate_pct"],
+        "pass_g1_extract_gate": bool(rate is not None and rate >= _GATE_RATE and pending_n == 0),
+        "target_correct_rate_pct": _TARGET_PCT,
+        "path": str(inp),
+    }

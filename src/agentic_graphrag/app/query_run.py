@@ -1,0 +1,253 @@
+"""Query execution and streaming helpers for QueryService."""
+
+from __future__ import annotations
+
+import math
+import time
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
+
+from agentic_graphrag.agent.guardrails import GuardrailConfig
+from agentic_graphrag.app.answer_cache import (  # noqa: F401 — re-exported
+    _is_cacheable_answer,
+    _maybe_cache_answer,
+    _try_answer_cache,
+)
+from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
+from agentic_graphrag.app.errors import BUDGET_EXCEEDED, ApiError
+from agentic_graphrag.app.query_agent import QUESTION_SPAN_PREVIEW, run_agent_with_timeout
+from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
+from agentic_graphrag.app.telemetry import save_chain_audit
+from agentic_graphrag.app.wiring import (
+    _chain_to_data,
+    build_executor_for_service,
+    build_llm_for_service,
+    cost_units_for_chain,
+)
+from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability import audit_events
+from agentic_graphrag.observability.logging_setup import request_id_var
+from agentic_graphrag.observability.metrics import get_metrics
+from agentic_graphrag.observability.trace import get_tracer
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
+
+MS_PER_SECOND = 1000
+# Must match MultiLevelBudget.check_and_reserve defaults used by the API path.
+RESERVE_CALLS = 1
+RESERVE_TOKENS = 0
+RESERVE_COST = 0.01
+# Re-export for service_stream / tests.
+__all__ = [
+    "MS_PER_SECOND",
+    "QUESTION_SPAN_PREVIEW",
+    "RESERVE_CALLS",
+    "RESERVE_COST",
+    "RESERVE_TOKENS",
+    "execute_query_chain",
+    "execute_run_query",
+    "stream_query_events",
+    "_release_budget",
+    "_reserve_budget",
+]
+
+
+def execute_run_query(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> QueryResultData:
+    """Run a full query with cache, budget, audit, and metrics."""
+    cached = _try_answer_cache(svc, req, tenant_id=tenant_id, user_id=user_id)
+    if cached is not None:
+        return cached
+    chain = execute_query_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
+    return _chain_to_data(chain)
+
+
+def execute_query_chain(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> ReasoningChain:
+    """Production query path minus the answer-cache *read*: budget reservation,
+    pipeline, finalize, audit, cache write, budget commit, metrics.
+
+    Returns the full :class:`ReasoningChain` for drivers that need step-level
+    detail (eval, CLI). The HTTP path is :func:`execute_run_query`.
+    """
+    t0 = time.perf_counter()
+    _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
+    settled = False
+    try:
+        chain = _invoke_agent(svc, req, tenant_id=tenant_id, user_id=user_id)
+        request_id = request_id_var.get()
+        _finalize_chain(
+            chain,
+            t0=t0,
+            req=req,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
+        settled = True
+        _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
+        return chain
+    except Exception:
+        if not settled:
+            _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
+        raise
+
+
+def stream_query_events(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield SSE (event, payload) with live hop progress (P3-PERF-06).
+
+    Implementation lives in :mod:`agentic_graphrag.app.query_stream` so this
+    module stays under the code-metrics file-size budget.
+    """
+    from agentic_graphrag.app.query_stream import stream_query_events as _live
+
+    yield from _live(svc, req, tenant_id=tenant_id, user_id=user_id)
+
+
+def _budget_api_error(exc: BudgetExceeded) -> ApiError:
+    get_metrics().record_budget_trip()
+    try:
+        audit_events.emit_audit_event(audit_events.BUDGET_EXCEEDED, outcome="denied")
+    except Exception:  # noqa: BLE001
+        pass
+    return ApiError(
+        BUDGET_EXCEEDED,
+        "Query budget exceeded",
+        status_code=429,
+        details={"reason": str(exc)},
+    )
+
+
+def _reserve_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
+    if not svc.multi_budget:
+        return
+    try:
+        svc.multi_budget.check_and_reserve(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            estimated_calls=RESERVE_CALLS,
+            estimated_tokens=RESERVE_TOKENS,
+            estimated_cost=RESERVE_COST,
+        )
+    except BudgetExceeded as exc:
+        raise _budget_api_error(exc) from exc
+
+
+def _release_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
+    if not svc.multi_budget:
+        return
+    svc.multi_budget.release(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        reserved_calls=RESERVE_CALLS,
+        reserved_tokens=RESERVE_TOKENS,
+        reserved_cost=RESERVE_COST,
+    )
+
+
+def _invoke_agent(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> ReasoningChain:
+    # ceil so sub-second timeouts (e.g. 500ms) become 1s, never 0 (0 disables).
+    timeout_override = (
+        max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
+    )
+    guard_cfg = GuardrailConfig.from_app_config(
+        svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
+    )
+    budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
+    trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
+    # Build deps without a process-global lock so concurrent queries can proceed.
+    executor = build_executor_for_service(
+        bundle=svc.bundle,
+        cfg=svc.cfg,
+        settings=svc.settings,
+        allow_llm=svc.allow_llm,
+        known_entities=svc.known_entities,
+        retrieval_cache=svc.retrieval_cache,
+        enable_cache=svc.enable_cache,
+    )
+    llm = build_llm_for_service(
+        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
+    )
+    chain = run_agent_with_timeout(
+        svc,
+        req,
+        executor=executor,
+        llm=llm,
+        guard_cfg=guard_cfg,
+        budget=budget,
+        trace_ctx=trace_ctx,
+        budget_error_factory=_budget_api_error,
+        tenant_id=tenant_id,
+    )
+    get_tracer().rekey(trace_ctx.query_id, chain.query_id)
+    return chain
+
+
+def _finalize_chain(
+    chain: ReasoningChain,
+    *,
+    t0: float,
+    req: QueryRequest,
+    tenant_id: str,
+    user_id: str,
+    request_id: str = "",
+) -> None:
+    if req.force_agentic:
+        chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
+    chain.cost.latency_ms = int((time.perf_counter() - t0) * MS_PER_SECOND)
+    chain.metadata = {
+        **(chain.metadata or {}),
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "query_id": chain.query_id,
+        "request_id": request_id,
+    }
+
+
+def _persist_and_commit(
+    svc: QueryService,
+    req: QueryRequest,
+    chain: ReasoningChain,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> None:
+    save_chain_audit(svc.audit_store, chain)
+    if svc.enable_cache and svc.retrieval_cache is not None:
+        _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
+    if svc.multi_budget:
+        svc.multi_budget.commit(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            llm_calls=chain.cost.llm_calls,
+            tokens=chain.cost.tokens,
+            cost_units=cost_units_for_chain(chain.cost.llm_calls),
+            reserved_calls=RESERVE_CALLS,
+            reserved_tokens=RESERVE_TOKENS,
+            reserved_cost=RESERVE_COST,
+        )

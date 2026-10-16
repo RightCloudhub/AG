@@ -1,20 +1,50 @@
-"""Executor: choose tools and run retrieval (FR-AG-03)."""
+"""Executor: choose tools and run retrieval (FR-AG-03 / P3-PERF-02/03)."""
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions, is_stopword_entity
-from agentic_graphrag.config import load_prompt
-from agentic_graphrag.generation.trace import ToolCallTrace
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
-from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.retrieval.contracts import Candidate, concat_candidates
+from agentic_graphrag.agent.executor_dispatch import (
+    cache_hit_result,
+    dispatch,
+    fuse_and_cache,
+    run_tool_specs,
+)
+from agentic_graphrag.agent.executor_plan import (
+    build_heuristic,
+    choose_tools,
+    sanitize_spec,
+    split_prompt,
+)
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.llm.provider import LLMProvider
+from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
+from agentic_graphrag.retrieval.fusion import Reranker
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.tools import ToolRegistry
+
+DEFAULT_FUSION_METHOD = "rrf"
+DEFAULT_FUSION_K = 60
+DEFAULT_FUSION_LIMIT = 30
+
+__all__ = [
+    "Executor",
+    "ExecutorConfig",
+    "ExecutorDeps",
+    "ExecutorPlan",
+    "ToolCallSpec",
+    "_extract_quoted_or_capitals",
+    "_split",
+]
 
 
 class ToolCallSpec(BaseModel):
@@ -27,20 +57,86 @@ class ExecutorPlan(BaseModel):
     tool_calls: list[ToolCallSpec] = Field(default_factory=list)
 
 
+@dataclass
+class ExecutorDeps:
+    """Optional retrieval/LLM dependencies for Executor."""
+
+    vector: VectorRetriever | None = None
+    fulltext: FulltextRetriever | None = None
+    llm: LLMProvider | None = None
+    known_entities: list[str] | None = None
+
+
+@dataclass
+class ExecutorConfig:
+    """Runtime options for parallel retrieval and fusion."""
+
+    parallel: bool = True
+    fusion_method: str = DEFAULT_FUSION_METHOD
+    fusion_k: int = DEFAULT_FUSION_K
+    fusion_limit: int | None = DEFAULT_FUSION_LIMIT
+    cache: RetrievalCache | None = None
+    reranker: Reranker | None = None
+
+
 class Executor:
+    """Choose tools and retrieve evidence for a sub-question.
+
+    Preferred construction::
+
+        Executor(graph, deps=ExecutorDeps(...), config=ExecutorConfig(...))
+
+    Flat keyword args remain supported for call-site compatibility.
+    """
+
     def __init__(
         self,
         graph: GraphRetriever,
+        deps: ExecutorDeps | None = None,
+        config: ExecutorConfig | None = None,
+        *,
         vector: VectorRetriever | None = None,
         fulltext: FulltextRetriever | None = None,
         llm: LLMProvider | None = None,
         known_entities: list[str] | None = None,
+        parallel: bool | None = None,
+        fusion_method: str | None = None,
+        fusion_k: int | None = None,
+        fusion_limit: int | None = None,
+        cache: RetrievalCache | None = None,
+        reranker: Reranker | None = None,
+        tools: ToolRegistry | None = None,
     ) -> None:
         self.graph = graph
-        self.vector = vector
-        self.fulltext = fulltext
-        self.llm = llm
-        self.known_entities = known_entities or []
+        self.deps = deps or ExecutorDeps(
+            vector=vector,
+            fulltext=fulltext,
+            llm=llm,
+            known_entities=known_entities,
+        )
+        self.config = _merge_config(
+            config,
+            parallel=parallel,
+            fusion_method=fusion_method,
+            fusion_k=fusion_k,
+            fusion_limit=fusion_limit,
+            cache=cache,
+            reranker=reranker,
+        )
+        self.vector = self.deps.vector
+        self.fulltext = self.deps.fulltext
+        self.llm = self.deps.llm
+        self.known_entities = self.deps.known_entities or []
+        self.parallel = self.config.parallel
+        self.fusion_method = self.config.fusion_method
+        self.fusion_k = self.config.fusion_k
+        self.fusion_limit = self.config.fusion_limit
+        self.cache = self.config.cache
+        from agentic_graphrag.agent.tools import default_retrieval_tools
+
+        # Every tool call goes through this registry (refactor §1.2).
+        self.tools = tools if tools is not None else default_retrieval_tools()
+        self.reranker = self.config.reranker
 
     def run(
         self,
@@ -48,28 +144,26 @@ class Executor:
         *,
         entities_hint: list[str] | None = None,
         allow_llm: bool = True,
+        tenant_id: str | None = None,
     ) -> tuple[list[Candidate], list[ToolCallTrace]]:
         specs = self._choose_tools(sub_question, entities_hint or [], allow_llm=allow_llm)
-        evidence: list[list[Candidate]] = []
-        traces: list[ToolCallTrace] = []
+        tools_key = ",".join(sorted(s.tool for s in specs))
+        # Cache keys are tenant-scoped (BL-04), so tenant-scoped runs no longer
+        # have to bypass the cache to stay isolated.
+        if self.cache is not None:
+            cached = self.cache.get_retrieval(sub_question, tools_key, tenant_id=tenant_id)
+            if cached is not None:
+                return cache_hit_result(cached, tools_key)
 
-        for spec in specs:
-            hits = self._dispatch(spec.tool, spec.args, sub_question)
-            evidence.append(hits)
-            traces.append(
-                ToolCallTrace(
-                    tool=spec.tool,
-                    reason=spec.reason,
-                    args=spec.args,
-                    hits=[h.id for h in hits[:20]],
-                )
-            )
-        return concat_candidates(*evidence), traces
+        evidence, traces = run_tool_specs(self, specs, sub_question, tenant_id=tenant_id)
+        fused = fuse_and_cache(
+            self, evidence, sub_question, tools_key=tools_key, tenant_id=tenant_id
+        )
+        return fused, traces
 
     def resolve_entities(self, text: str, hint: list[str] | None = None) -> list[str]:
         base = list(hint or [])
         mentions = extract_entity_mentions(text, self.known_entities or None)
-        # Prefer mentions that exist in known lexicon first
         ordered: list[str] = []
         seen: set[str] = set()
         for name in base + mentions:
@@ -89,171 +183,50 @@ class Executor:
         *,
         allow_llm: bool,
     ) -> list[ToolCallSpec]:
-        heuristic = self._heuristic(sub_question, entities_hint)
-        if not allow_llm or self.llm is None:
-            return heuristic
-
-        try:
-            prompt = load_prompt("executor")
-            system, user = _split(
-                prompt.format(
-                    sub_question=sub_question,
-                    entities_hint=", ".join(entities_hint) or "(none)",
-                )
-            )
-            plan = complete_structured(
-                self.llm,
-                [Message(role="system", content=system), Message(role="user", content=user)],
-                ExecutorPlan,
-                tier=Tier.LIGHT,
-            )
-            if plan.tool_calls:
-                # Sanitize entity args — never let LLM pass Who/Which as entity
-                return [self._sanitize_spec(s, sub_question) for s in plan.tool_calls]
-        except Exception:
-            pass
-        return heuristic
+        return choose_tools(self, sub_question, entities_hint, allow_llm=allow_llm)
 
     def _sanitize_spec(self, spec: ToolCallSpec, sub_question: str) -> ToolCallSpec:
-        args = dict(spec.args)
-        names = self.resolve_entities(sub_question)
-        for key in ("entity", "name", "source", "target"):
-            if key in args and is_stopword_entity(str(args[key])):
-                if names:
-                    args[key] = (
-                        names[0] if key != "target" else (names[1] if len(names) > 1 else names[0])
-                    )
-        return ToolCallSpec(tool=spec.tool, args=args, reason=spec.reason)
+        return sanitize_spec(self, spec, sub_question)
 
     def _heuristic(self, sub_question: str, entities_hint: list[str]) -> list[ToolCallSpec]:
-        q = sub_question.lower()
-        specs: list[ToolCallSpec] = []
-        names = self.resolve_entities(sub_question, entities_hint)
-
-        if (
-            any(k in q for k in ("path", "between", "之间", "关系链", "connects", "chain"))
-            and len(names) >= 2
-        ):
-            specs.append(
-                ToolCallSpec(
-                    tool="graph_path",
-                    args={"source": names[0], "target": names[1], "max_hops": 4},
-                    reason="path-style question",
-                )
-            )
-
-        relation_cues = (
-            "ceo",
-            "母公司",
-            "parent",
-            "subsidiary",
-            "work",
-            "任职",
-            "supplier",
-            "供应",
-            "produce",
-            "compet",
-            "own",
-            "neighbor",
-            "relation",
-            "participat",
-            "partner",
-            "acquir",
-        )
-        if any(k in q for k in relation_cues):
-            for ent in names[:2]:
-                hops = (
-                    3
-                    if any(k in q for k in ("parent", "ceo of", "supplier", "compet", "chain"))
-                    else 2
-                )
-                specs.append(
-                    ToolCallSpec(
-                        tool="graph_neighbors",
-                        args={"entity": ent, "max_hops": hops},
-                        reason=f"relation expand around {ent}",
-                    )
-                )
-
-        if not specs and names:
-            for ent in names[:2]:
-                specs.append(
-                    ToolCallSpec(
-                        tool="graph_neighbors",
-                        args={"entity": ent, "max_hops": 2},
-                        reason="default graph expand",
-                    )
-                )
-
-        # Always add lexical/semantic backup when available
-        specs.append(
-            ToolCallSpec(
-                tool="vector_search", args={"query": sub_question}, reason="semantic recall"
-            )
-        )
-        specs.append(
-            ToolCallSpec(
-                tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"
-            )
-        )
-        return specs
+        return build_heuristic(self, sub_question, entities_hint)
 
     def _dispatch(self, tool: str, args: dict[str, Any], sub_question: str) -> list[Candidate]:
-        if tool == "graph_neighbors":
-            entity = str(args.get("entity") or args.get("name") or "")
-            if not entity or is_stopword_entity(entity):
-                resolved = self.resolve_entities(sub_question)
-                entity = resolved[0] if resolved else ""
-            if not entity:
-                return []
-            return self.graph.neighbors(
-                entity,
-                max_hops=int(args.get("max_hops", 2)),
-                relation_types=args.get("relation_types"),
-                sub_question=sub_question,
-            )
-        if tool == "graph_path":
-            src = str(args.get("source") or "")
-            dst = str(args.get("target") or "")
-            names = self.resolve_entities(sub_question)
-            if not src or is_stopword_entity(src):
-                src = names[0] if names else ""
-            if not dst or is_stopword_entity(dst):
-                dst = names[1] if len(names) > 1 else ""
-            if not src or not dst:
-                return []
-            return self.graph.paths(
-                src,
-                dst,
-                max_hops=int(args.get("max_hops", 4)),
-                sub_question=sub_question,
-            )
-        if tool == "graph_subgraph":
-            seeds = args.get("entities") or args.get("seeds") or []
-            if isinstance(seeds, str):
-                seeds = [seeds]
-            if not seeds:
-                seeds = self.resolve_entities(sub_question)[:3]
-            return self.graph.subgraph(
-                [str(s) for s in seeds],
-                max_hops=int(args.get("max_hops", 2)),
-                relation_types=args.get("relation_types"),
-                sub_question=sub_question,
-            )
-        if tool == "vector_search" and self.vector is not None:
-            return self.vector.search(str(args.get("query") or sub_question))
-        if tool == "fulltext_search" and self.fulltext is not None:
-            return self.fulltext.search(str(args.get("query") or sub_question))
-        return []
+        return dispatch(self, tool, args, sub_question=sub_question)
+
+    def _run_parallel(
+        self, specs: list[ToolCallSpec], sub_question: str
+    ) -> list[tuple[ToolCallSpec, list[Candidate], str | None]]:
+        from agentic_graphrag.agent.executor_dispatch import _run_parallel
+
+        return _run_parallel(self, specs, sub_question)
+
+
+def _merge_config(
+    config: ExecutorConfig | None,
+    *,
+    parallel: bool | None,
+    fusion_method: str | None,
+    fusion_k: int | None,
+    fusion_limit: int | None,
+    cache: RetrievalCache | None,
+    reranker: Reranker | None,
+) -> ExecutorConfig:
+    base = config or ExecutorConfig()
+    return ExecutorConfig(
+        parallel=base.parallel if parallel is None else parallel,
+        fusion_method=base.fusion_method if fusion_method is None else fusion_method,
+        fusion_k=base.fusion_k if fusion_k is None else fusion_k,
+        fusion_limit=base.fusion_limit if fusion_limit is None else fusion_limit,
+        cache=base.cache if cache is None else cache,
+        reranker=base.reranker if reranker is None else reranker,
+    )
 
 
 def _split(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        return parts[0].replace("# System", "", 1).strip(), parts[1].strip()
-    return "You are an executor.", text
+    return split_prompt(text)
 
 
-# Back-compat alias used by older tests / imports
 def _extract_quoted_or_capitals(text: str) -> list[str]:
+    """Back-compat alias used by older tests / imports."""
     return extract_entity_mentions(text)

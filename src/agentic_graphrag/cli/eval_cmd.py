@@ -23,44 +23,8 @@ from agentic_graphrag.knowledge.schema_check import Triple
 
 def gen_cases_main(argv: list[str] | None = None) -> None:
     """P2-EV-02: build ≥200 stratified gold cases + splits from pilot/seed triples."""
-    parser = argparse.ArgumentParser(description="Generate stratified G2 eval cases (P2-EV-02)")
-    parser.add_argument(
-        "--triples",
-        default=None,
-        help="Triples JSONL (default: build pilot triples in-memory / write pilot path)",
-    )
-    parser.add_argument(
-        "--write-pilot-triples",
-        default="data/processed/pilot_triples.jsonl",
-        help="Where to persist deterministic pilot triples",
-    )
-    parser.add_argument(
-        "--out-dir",
-        default="evals/datasets",
-        help="Dataset output directory",
-    )
-    parser.add_argument("--min-total", type=int, default=200)
-    parser.add_argument("--min-2hop", type=int, default=90)
-    parser.add_argument("--min-3hop", type=int, default=60)
-    parser.add_argument("--min-open", type=int, default=30)
-    parser.add_argument("--min-no-answer", type=int, default=20)
-    parser.add_argument("--heldout-ratio", type=float, default=0.25)
-    parser.add_argument("--guardrail-n", type=int, default=25)
-    args = parser.parse_args(argv)
-
-    if args.triples:
-        path = resolve_path(args.triples)
-        triples = [
-            Triple.model_validate(json.loads(line))
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        print(f"Loaded {len(triples)} triples from {path}")
-    else:
-        out_t = resolve_path(args.write_pilot_triples)
-        triples = write_pilot_triples(out_t)
-        print(f"Wrote {len(triples)} pilot triples → {out_t}")
-
+    args = _parse_gen_cases(argv)
+    triples = _load_or_write_triples(args)
     spec = StratificationSpec(
         min_total=args.min_total,
         min_2hop=args.min_2hop,
@@ -73,10 +37,43 @@ def gen_cases_main(argv: list[str] | None = None) -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
     if not report.ok:
         print("ERROR: stratification targets not met", file=sys.stderr)
-        # still write partial for debugging
         dump_cases(cases, resolve_path(args.out_dir) / "g2_partial.jsonl")
         sys.exit(1)
+    _write_dataset(args, cases=cases, triples=triples, report=report)
 
+
+def _parse_gen_cases(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate stratified G2 eval cases (P2-EV-02)")
+    parser.add_argument("--triples", default=None)
+    parser.add_argument("--write-pilot-triples", default="data/processed/pilot_triples.jsonl")
+    parser.add_argument("--out-dir", default="evals/datasets")
+    parser.add_argument("--min-total", type=int, default=200)
+    parser.add_argument("--min-2hop", type=int, default=90)
+    parser.add_argument("--min-3hop", type=int, default=60)
+    parser.add_argument("--min-open", type=int, default=30)
+    parser.add_argument("--min-no-answer", type=int, default=20)
+    parser.add_argument("--heldout-ratio", type=float, default=0.25)
+    parser.add_argument("--guardrail-n", type=int, default=25)
+    return parser.parse_args(argv)
+
+
+def _load_or_write_triples(args: argparse.Namespace) -> list[Triple]:
+    if args.triples:
+        path = resolve_path(args.triples)
+        triples = [
+            Triple.model_validate(json.loads(line))
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        print(f"Loaded {len(triples)} triples from {path}")
+        return triples
+    out_t = resolve_path(args.write_pilot_triples)
+    triples = write_pilot_triples(out_t)
+    print(f"Wrote {len(triples)} pilot triples → {out_t}")
+    return triples
+
+
+def _write_dataset(args, *, cases, triples, report) -> None:
     guardrail = generate_guardrail_set(max_n=args.guardrail_n)
     out_dir = resolve_path(args.out_dir)
     paths = write_split_datasets(

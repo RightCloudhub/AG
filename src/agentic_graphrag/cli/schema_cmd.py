@@ -16,8 +16,7 @@ def export_reasoning_schema_main(argv: list[str] | None = None) -> None:
         help="Output path",
     )
     args = parser.parse_args(argv)
-    from agentic_graphrag.generation.trace import export_reasoning_chain_schema
+    from agentic_graphrag.core.reasoning import export_reasoning_chain_schema
 
     path = export_reasoning_chain_schema(resolve_path(args.out))
     print(f"Wrote reasoning chain schema → {path}")
-

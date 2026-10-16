@@ -7,13 +7,25 @@ All limits load from ``configs/default.yaml`` → ``AppConfig.guardrails`` via
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from agentic_graphrag.llm.budget import BudgetExceeded, BudgetTracker
+from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GuardrailsConfig
+
+
+def min_recursion_limit(max_hops: int) -> int:
+    """Minimum LangGraph ``recursion_limit`` for a given hop budget.
+
+    Worst-case node visits: planner + (max_hops+1)×(executor+critic) + answer.
+    LangGraph raises when the limit is reached without END, so the limit must be
+    strictly greater than that visit count → ``2 * max_hops + 5``.
+    """
+    hops = max(1, int(max_hops))
+    return 2 * hops + 5
 
 
 @dataclass(frozen=True)
@@ -27,6 +39,14 @@ class GuardrailConfig:
     recursion_limit: int = 15
     # Server hard ceiling — request overrides cannot exceed this
     hard_max_hops: int = 20
+    # Breadth budget (BL-12): plan nodes, not reasoning depth. One hop executes
+    # exactly one sub-question, so a breadth budget above ``max_hops`` can never
+    # bind — the hop cap would truncate the plan mid-run instead, which is the
+    # failure BL-12 set out to remove. Both constructors clamp it to max_hops.
+    max_sub_questions: int = 5
+    # BL-12: independent ready DAG nodes are retrieved concurrently and share a hop.
+    parallel_branches: bool = True
+    max_parallel_branches: int = 3
 
     @classmethod
     def from_app_config(
@@ -52,6 +72,9 @@ class GuardrailConfig:
         hard = 20
         hops = max_hops if max_hops is not None else g.max_hops
         hops = max(1, min(int(hops), hard))
+        rec = recursion_limit if recursion_limit is not None else int(g.recursion_limit)
+        # Never ship a recursion_limit that the hop budget can exhaust.
+        rec = max(int(rec), min_recursion_limit(hops))
 
         return cls(
             max_hops=hops,
@@ -62,10 +85,11 @@ class GuardrailConfig:
                 if query_timeout_seconds is not None
                 else int(g.query_timeout_seconds)
             ),
-            recursion_limit=(
-                recursion_limit if recursion_limit is not None else int(g.recursion_limit)
-            ),
+            recursion_limit=rec,
             hard_max_hops=hard,
+            max_sub_questions=max(1, min(int(g.max_sub_questions), hops)),
+            parallel_branches=bool(getattr(g, "parallel_branches", True)),
+            max_parallel_branches=max(1, int(getattr(g, "max_parallel_branches", 3))),
         )
 
     def with_overrides(
@@ -78,6 +102,8 @@ class GuardrailConfig:
         recursion_limit: int | None = None,
     ) -> GuardrailConfig:
         hops = self.max_hops if max_hops is None else max(1, min(int(max_hops), self.hard_max_hops))
+        rec = self.recursion_limit if recursion_limit is None else int(recursion_limit)
+        rec = max(rec, min_recursion_limit(hops))
         return replace(
             self,
             max_hops=hops,
@@ -88,9 +114,10 @@ class GuardrailConfig:
                 if query_timeout_seconds is None
                 else int(query_timeout_seconds)
             ),
-            recursion_limit=(
-                self.recursion_limit if recursion_limit is None else int(recursion_limit)
-            ),
+            recursion_limit=rec,
+            # A request that lowers max_hops lowers the breadth budget with it,
+            # or the plan would again outrun the hops available to run it.
+            max_sub_questions=min(self.max_sub_questions, hops),
         )
 
     def budget_tracker(self) -> BudgetTracker:
@@ -102,23 +129,44 @@ class GuardrailState:
     hop: int = 0
     tripped: bool = False
     reason: str = ""
+    started_at: float = 0.0
+    # How many sub-questions the plan holds — lets the hop message say whether
+    # the budget went on depth or on breadth (BL-12).
+    planned_subquestions: int = 0
 
 
 class Guardrails:
     def __init__(self, config: GuardrailConfig, budget: BudgetTracker | None = None) -> None:
         self.config = config
         self.budget = budget or config.budget_tracker()
-        self.state = GuardrailState()
+        self.state = GuardrailState(started_at=time.monotonic())
+
+    def note_plan_breadth(self, planned: int) -> None:
+        """Record the planned sub-question count for breadth-vs-depth reporting."""
+        self.state.planned_subquestions = max(self.state.planned_subquestions, int(planned))
 
     def on_hop_start(self) -> None:
         self.state.hop += 1
         self._check()
 
+    def check_branch(self) -> None:
+        """Timeout/budget check for a parallel branch at the current hop (BL-12)."""
+        self._check()
+
     def _check(self) -> None:
         if self.state.hop > self.config.max_hops:
             self.state.tripped = True
-            self.state.reason = f"max_hops exceeded ({self.state.hop}/{self.config.max_hops})"
+            self.state.reason = self._hop_limit_reason()
             return
+        # Wall-clock timeout (P3 / F9 fix)
+        if self.config.query_timeout_seconds > 0 and self.state.started_at > 0:
+            elapsed = time.monotonic() - self.state.started_at
+            if elapsed > self.config.query_timeout_seconds:
+                self.state.tripped = True
+                self.state.reason = (
+                    f"query_timeout exceeded ({elapsed:.1f}s/{self.config.query_timeout_seconds}s)"
+                )
+                return
         try:
             self.budget.check()
         except BudgetExceeded as exc:
@@ -129,6 +177,19 @@ class Guardrails:
         self._check()
         if self.state.tripped:
             raise BudgetExceeded(self.state.reason or "guardrail tripped", self.budget)
+
+    def _hop_limit_reason(self) -> str:
+        """One hop = one executed sub-question, so the cap can be a breadth stop.
+
+        Reporting it as "max_hops exceeded" alone read as "reasoning too deep"
+        when the real cause was "too many sub-questions" (BL-12).
+        """
+        limit = self.config.max_hops
+        base = f"max_hops exceeded ({self.state.hop}/{limit})"
+        planned = self.state.planned_subquestions
+        if planned > limit:
+            return f"{base}; breadth stop: {planned} planned sub-questions > {limit} hop budget"
+        return f"{base}; depth stop"
 
     def status_text(self) -> str:
         if self.state.tripped:
