@@ -1,0 +1,211 @@
+/* Conversation stream: welcome hero, user turns, live progress. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.chat__scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.chat__column {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.welcome {
+  padding: 8vh 0 var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-4);
+  animation: rise var(--dur) var(--ease);
+}
+
+.welcome__seal {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.welcome__seal .icon {
+  width: 32px;
+  height: 32px;
+}
+
+.welcome h1 {
+  font-size: var(--text-2xl);
+}
+
+.welcome p {
+  max-width: 520px;
+  color: var(--text-secondary);
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  margin-top: var(--space-4);
+}
+
+.suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.suggestion:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.suggestion__kind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.suggestion__text {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: rise var(--dur) var(--ease);
+}
+
+.turn-user {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius) var(--radius) var(--radius-xs) var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--text-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.turn-user__meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+.turn-error {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  background: var(--bad-bg);
+  color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+.progress-live {
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.progress-live__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-serif);
+  font-weight: 700;
+}
+
+.progress-live__head .muted {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--text-xs);
+}
+
+.progress-log {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.progress-state {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  animation: rise var(--dur) var(--ease);
+}
+
+.progress-state__dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.progress-state--current .progress-state__dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.progress-state--done .progress-state__dot {
+  color: var(--good);
+  background: var(--good-bg);
+  border-color: transparent;
+}
+
+.progress-state__detail {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: pre-wrap;
+}

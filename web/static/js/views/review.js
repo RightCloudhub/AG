@@ -1,131 +1,164 @@
-/**
- * Review view — human review queue with approve/reject/skip.
- */
-import { ref, onMounted } from '../../vendor/vue.esm-browser.prod.js';
-import { fetchReviewQueue, decideReview } from '../api.js';
+/* 审核队列: status tabs, type filter, context cards, approve / reject / skip with a note. */
+import { decideReview, fetchReviewQueue } from "../api.js";
+import { vue } from "../runtime.js";
+import { fmtTime, workspace } from "../store.js";
+import { toast } from "../components/widgets.js";
+
+const PAGE = 12;
+const STATUSES = [
+  { id: "pending", label: "待审核" },
+  { id: "approved", label: "已通过" },
+  { id: "rejected", label: "已驳回" },
+  { id: "skipped", label: "已跳过" },
+];
+const TYPES = [
+  { id: "", label: "全部类型" },
+  { id: "extraction", label: "抽取" },
+  { id: "resolution", label: "实体对齐" },
+  { id: "conflict", label: "冲突" },
+  { id: "spotcheck", label: "抽检" },
+  { id: "feedback", label: "用户反馈" },
+];
+const TYPE_BADGE = { conflict: "badge--warn", feedback: "badge--accent", spotcheck: "badge--info", extraction: "badge--good" };
+const PAYLOAD_LABELS = {
+  query_id: "查询", accurate: "评价", reason: "原因", user_id: "用户", task_id: "任务",
+  doc_count: "文档数", doc_ids: "文档", head: "头实体", relation: "关系", tail: "尾实体",
+  existing: "已有事实", incoming: "新事实", confidence: "置信度",
+};
+
+function show(value) {
+  if (value === true) return "是";
+  if (value === false) return "否";
+  if (Array.isArray(value)) return value.map(show).join("、");
+  if (value && typeof value === "object") return value.name || JSON.stringify(value);
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
 
 export default {
-  name: 'ReviewView',
+  name: "ReviewView",
   setup() {
+    const { ref, reactive, onActivated } = vue();
+    const ws = workspace();
     const items = ref([]);
     const total = ref(0);
-    const pendingCount = ref(0);
-    const loading = ref(false);
-    const statusFilter = ref('pending'); // pending, approved, rejected
     const page = ref(1);
-    const limit = 20;
+    const status = ref("pending");
+    const type = ref("");
+    const loading = ref(false);
+    const error = ref("");
+    const notes = reactive({});
+    const busy = reactive({});
+    const raw = reactive({});
 
     async function load() {
       loading.value = true;
+      error.value = "";
       try {
         const { data, meta } = await fetchReviewQueue({
-          limit, offset: (page.value - 1) * limit,
-          status: statusFilter.value,
+          limit: PAGE, offset: (page.value - 1) * PAGE, status: status.value, type: type.value,
         });
         items.value = data || [];
-        total.value = meta?.total ?? 0;
-        pendingCount.value = meta?.extra?.pending_count ?? 0;
-      } catch { items.value = []; }
-      finally { loading.value = false; }
-    }
-
-    async function decide(itemId, decision) {
-      try {
-        await decideReview(itemId, { decision });
-        await load();
-      } catch (e) {
-        alert('Decision failed: ' + e.message);
+        total.value = meta.total ?? items.value.length;
+        if (meta.extra && meta.extra.pending_count !== undefined) ws.reviewPending = meta.extra.pending_count;
+      } catch (err) {
+        items.value = [];
+        error.value = err.message;
+      } finally {
+        loading.value = false;
       }
     }
 
-    function statusBadge(status) {
-      const m = { pending: 'badge--warning', approved: 'badge--success',
-                  rejected: 'badge--danger', skipped: 'badge--muted' };
-      return m[status] || 'badge--muted';
+    function fields(item) {
+      return Object.entries(item.payload || {})
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .slice(0, 8)
+        .map(([k, v]) => ({ k: PAYLOAD_LABELS[k] || k, v: show(v) }));
     }
 
-    function typeBadge(type) {
-      const m = { spotcheck: 'badge--info', feedback: 'badge--accent',
-                  conflict: 'badge--warning', extraction: 'badge--accent' };
-      return m[type] || 'badge--muted';
+    async function decide(item, decision) {
+      busy[item.id] = decision;
+      try {
+        const { data } = await decideReview(item.id, { decision, note: notes[item.id] || "", reviewer: ws.me?.user_id || "" });
+        const effect = data && data.effect && data.effect !== "none" ? `（${data.effect}）` : "";
+        toast(`已${decision === "approve" ? "通过" : decision === "reject" ? "驳回" : "跳过"}${effect}`);
+        await load();
+      } catch (err) {
+        toast(`决策失败：${err.message}`, "error");
+      } finally {
+        delete busy[item.id];
+      }
     }
 
-    function totalPages() { return Math.max(1, Math.ceil(total.value / limit)); }
-    function prevPage() { if (page.value > 1) { page.value--; load(); } }
-    function nextPage() { if (page.value < totalPages()) { page.value++; load(); } }
-    function changeStatus(s) { statusFilter.value = s; page.value = 1; load(); }
+    function setStatus(id) {
+      status.value = id;
+      page.value = 1;
+      load();
+    }
 
-    onMounted(load);
+    function setType(id) {
+      type.value = id;
+      page.value = 1;
+      load();
+    }
 
-    return { items, total, pendingCount, loading, statusFilter, page,
-             load, decide, statusBadge, typeBadge, totalPages,
-             prevPage, nextPage, changeStatus };
+    function go(p) {
+      page.value = p;
+      load();
+    }
+
+    onActivated(load);
+    return {
+      PAGE, STATUSES, TYPES, TYPE_BADGE, items, total, page, status, type, loading, error, notes, busy, raw,
+      load, fields, decide, setStatus, setType, go, fmtTime, ws,
+    };
   },
-
   template: `
-<div>
-  <div class="view-header">
-    <div class="view-header__title">🔍 人工审核</div>
-    <div class="view-header__actions">
-      <span v-if="pendingCount > 0" class="badge badge--warning">{{ pendingCount }} 个待审核</span>
-      <button class="btn btn--ghost btn--sm" @click="load" :disabled="loading">↻ 刷新</button>
+<div class="view-pad">
+  <div class="toolbar">
+    <div class="segmented" role="group" aria-label="审核状态">
+      <button v-for="s in STATUSES" :key="s.id" :aria-pressed="status === s.id" @click="setStatus(s.id)">{{ s.label }}<template v-if="s.id === 'pending' && ws.reviewPending"> · {{ ws.reviewPending }}</template></button>
+    </div>
+    <label class="sr-only" for="reviewType">类型</label>
+    <select id="reviewType" class="select" style="width:auto" :value="type" @change="setType($event.target.value)">
+      <option v-for="t in TYPES" :key="t.id" :value="t.id">{{ t.label }}</option>
+    </select>
+    <div class="toolbar__end">
+      <span class="muted" style="font-size:12px">决策写入审核记录；通过的冲突项由执行器落图。</span>
+      <button class="btn btn--sm" @click="load" :disabled="loading"><app-icon name="refresh" size="sm" />刷新</button>
     </div>
   </div>
-  <div class="view-body">
-    <div class="tab-bar" style="max-width:400px;">
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': statusFilter === 'pending' }" @click="changeStatus('pending')">待审核</button>
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': statusFilter === 'approved' }" @click="changeStatus('approved')">已批准</button>
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': statusFilter === 'rejected' }" @click="changeStatus('rejected')">已拒绝</button>
-    </div>
 
-    <div v-if="loading" class="empty-state"><div class="spinner spinner--lg"></div></div>
+  <state-card v-if="loading && !items.length" loading />
+  <state-card v-else-if="error" error icon="alert" title="审核队列加载失败" :text="error"><button class="btn btn--sm" @click="load">重试</button></state-card>
+  <state-card v-else-if="!items.length" icon="review" title="这里很干净" text="当前筛选条件下没有审核项。" />
 
-    <div v-else-if="items.length === 0" class="empty-state">
-      <div class="empty-state__icon">✅</div>
-      <div class="empty-state__text">没有 {{ statusFilter === 'pending' ? '待审核' : (statusFilter === 'approved' ? '已批准' : '已拒绝') }} 的项目</div>
-    </div>
-
-    <div v-else class="data-table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>类型</th>
-            <th>状态</th>
-            <th>置信度</th>
-            <th>详情</th>
-            <th v-if="statusFilter === 'pending'">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.id">
-            <td style="font-family:var(--font-mono);font-size:var(--text-xs);">{{ (item.id || '').slice(0, 12) }}</td>
-            <td><span class="badge" :class="typeBadge(item.type)">{{ item.type }}</span></td>
-            <td><span class="badge" :class="statusBadge(item.status)">{{ item.status }}</span></td>
-            <td style="font-family:var(--font-mono);">{{ (item.confidence ?? 0).toFixed(2) }}</td>
-            <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-xs);">
-              {{ JSON.stringify(item.payload || item.data || {}).slice(0, 80) }}
-            </td>
-            <td v-if="statusFilter === 'pending'">
-              <div style="display:flex;gap:var(--space-2);">
-                <button class="btn btn--success btn--sm" @click="decide(item.id, 'approve')">通过</button>
-                <button class="btn btn--danger btn--sm" @click="decide(item.id, 'reject')">拒绝</button>
-                <button class="btn btn--ghost btn--sm" @click="decide(item.id, 'skip')">跳过</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="table-footer">
-        <span>共 {{ total }} 项</span>
-        <div class="pagination">
-          <button class="pagination__btn" :disabled="page <= 1" @click="prevPage">←</button>
-          <span class="pagination__info">{{ page }} / {{ totalPages() }}</span>
-          <button class="pagination__btn" :disabled="page >= totalPages()" @click="nextPage">→</button>
+  <template v-else>
+    <div class="review-grid">
+      <article v-for="item in items" :key="item.id" class="review-card">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="badge" :class="TYPE_BADGE[item.type] || ''">{{ (TYPES.find(t => t.id === item.type) || {}).label || item.type }}</span>
+          <span class="badge">置信度 {{ Number(item.confidence || 0).toFixed(2) }}</span>
+          <span class="mono muted" style="margin-left:auto;font-size:11px">{{ (item.id || '').slice(0, 8) }}</span>
         </div>
-      </div>
+        <dl class="kv">
+          <template v-for="f in fields(item)" :key="f.k"><dt>{{ f.k }}</dt><dd>{{ f.v }}</dd></template>
+          <dt>创建</dt><dd class="mono">{{ fmtTime(item.created_at) }}</dd>
+          <template v-if="item.decided_at"><dt>决策</dt><dd>{{ item.reviewer || '—' }} · {{ fmtTime(item.decided_at) }}</dd></template>
+          <template v-if="item.decision_note"><dt>备注</dt><dd>{{ item.decision_note }}</dd></template>
+        </dl>
+        <button class="mini-btn" style="align-self:flex-start" @click="raw[item.id] = !raw[item.id]"><app-icon name="layers" size="sm" />{{ raw[item.id] ? '收起' : '查看' }} JSON</button>
+        <pre v-if="raw[item.id]" class="json-view">{{ JSON.stringify(item.payload, null, 2) }}</pre>
+        <template v-if="item.status === 'pending'">
+          <input class="input" v-model="notes[item.id]" maxlength="500" placeholder="决策备注（可选）" :aria-label="'备注 ' + item.id" />
+          <div class="review-card__actions">
+            <button class="btn btn--sm btn--good" :disabled="!!busy[item.id]" @click="decide(item, 'approve')"><app-icon name="check" size="sm" />通过</button>
+            <button class="btn btn--sm btn--danger" :disabled="!!busy[item.id]" @click="decide(item, 'reject')"><app-icon name="x" size="sm" />驳回</button>
+            <button class="btn btn--sm btn--ghost" :disabled="!!busy[item.id]" @click="decide(item, 'skip')"><app-icon name="skip" size="sm" />跳过</button>
+          </div>
+        </template>
+      </article>
     </div>
-  </div>
-</div>
-`
+    <div class="card"><data-pager :page="page" :total="total" :limit="PAGE" unit="项" @go="go" /></div>
+  </template>
+</div>`,
 };

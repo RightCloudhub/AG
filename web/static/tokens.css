@@ -1,0 +1,117 @@
+/* Design tokens — 「制图室」 visual language (docs/design/UI_DESIGN.md §2).
+ * Light (paper) is the default; html[data-theme="dark"] is the night-drafting
+ * palette. Components must read colours only from these variables. */
+:root {
+  color-scheme: light;
+  --bg: #f6f2e9;
+  --bg-elevated: #faf7f0;
+  --surface: #ffffff;
+  --surface-2: #fbf9f4;
+  --surface-hover: #f3eee3;
+  --text: #22304c;
+  --text-secondary: #57627c;
+  --muted: #778099;
+  --border: #ded6c4;
+  --border-strong: #c9bfa9;
+  --accent: #c2401f;
+  --accent-hover: #a33517;
+  --accent-soft: #f6e2d9;
+  --accent-ink: #ffffff;
+  --good: #35694d;
+  --good-bg: #e7f1ea;
+  --bad: #9e2b25;
+  --bad-bg: #f7e7e4;
+  --warn: #c9a227;
+  --warn-text: #8a5a12;
+  --warn-bg: #f8efd6;
+  --info: #2f5d68;
+  --info-bg: #e3eef0;
+  --node-ink: #2f5d68;
+  --node-fill: #e3eef0;
+  --edge-ink: #8a5a12;
+  --grid-line: rgba(34, 48, 76, 0.045);
+  --overlay: rgba(34, 48, 76, 0.32);
+  --shadow-sm: 0 1px 2px rgba(34, 48, 76, 0.06);
+  --shadow: 0 1px 2px rgba(34, 48, 76, 0.05), 0 6px 20px rgba(34, 48, 76, 0.07);
+  --shadow-lg: 0 18px 50px rgba(34, 48, 76, 0.16);
+
+  --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC",
+    "SimSun", Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  --text-2xs: 10px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-xs: 5px;
+  --radius-pill: 999px;
+
+  --rail-w: 248px;
+  --rail-w-collapsed: 68px;
+  --topbar-h: 60px;
+  --content-max: 860px;
+  --avatar-w: 32px;
+  --hit: 32px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11161f;
+  --bg-elevated: #151b26;
+  --surface: #1a2130;
+  --surface-2: #1e2636;
+  --surface-hover: #232c3e;
+  --text: #e8e3d6;
+  --text-secondary: #b3ad9f;
+  --muted: #8d8a82;
+  --border: #2b3447;
+  --border-strong: #3a4560;
+  --accent: #e2643f;
+  --accent-hover: #f07a55;
+  --accent-soft: #3a2420;
+  --accent-ink: #1a1210;
+  --good: #7fc29a;
+  --good-bg: #1d3328;
+  --bad: #ee8a7f;
+  --bad-bg: #3a2220;
+  --warn: #e0bd52;
+  --warn-text: #e0bd52;
+  --warn-bg: #3a3220;
+  --info: #8cc3cf;
+  --info-bg: #1d3036;
+  --node-ink: #8cc3cf;
+  --node-fill: #1d3036;
+  --edge-ink: #e0bd52;
+  --grid-line: rgba(232, 227, 214, 0.035);
+  --overlay: rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+[v-cloak] {
+  display: none !important;
+}

@@ -1,0 +1,194 @@
+/* Composer (ask box) docked at the bottom of the chat view. */
+.composer {
+  flex: none;
+  padding: 0 var(--space-6) var(--space-5);
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+
+.composer__box {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.composer__box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
+}
+
+.composer__input {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  max-height: 220px;
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  border: 0;
+  background: transparent;
+  resize: none;
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.composer__input:focus-visible {
+  outline: none;
+}
+
+.composer__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-3) var(--space-4);
+  flex-wrap: wrap;
+}
+
+.composer__opts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.hops {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.hops input {
+  width: 68px;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.composer__send {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.send-btn,
+.stop-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  transition: background var(--dur-fast), transform var(--dur-fast);
+}
+
+.send-btn {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.send-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.send-btn:disabled {
+  background: var(--surface-hover);
+  color: var(--muted);
+}
+
+.stop-btn {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.composer__hint {
+  max-width: var(--content-max);
+  margin: var(--space-2) auto 0;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+.chat-tools {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* Answer extras (evidence graph, feedback note, retry row, raw JSON). */
+.egraph {
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.egraph__edge {
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+
+.egraph__edge--hot {
+  stroke: var(--edge-ink);
+  stroke-width: 2;
+}
+
+.egraph__label {
+  fill: var(--edge-ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.egraph__node {
+  fill: var(--node-fill);
+  stroke: var(--node-ink);
+  stroke-width: 1.4;
+}
+
+.egraph__node--answer {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.egraph__name {
+  fill: var(--text);
+  font-size: 11px;
+}
+
+.feedback-note {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.retry-row {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-4);
+  flex-wrap: wrap;
+}
+
+.json-view {
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}

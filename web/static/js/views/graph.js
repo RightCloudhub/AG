@@ -1,110 +1,123 @@
-/**
- * Graph view — entity browser with search, type filter, pagination.
- */
-import { ref, watch, onMounted } from '../../vendor/vue.esm-browser.prod.js';
-import { fetchEntities } from '../api.js';
+/* 知识图谱: searchable, type-filtered, paginated entity browser. The API exposes
+ * entities only (no neighbourhood query), so relations are explored by asking. */
+import { fetchEntities } from "../api.js";
+import { vue } from "../runtime.js";
+import { workspace } from "../store.js";
+
+const PAGE = 24;
+const TYPES = [
+  { id: "", label: "全部" },
+  { id: "Company", label: "公司" },
+  { id: "Person", label: "人物" },
+  { id: "Product", label: "产品" },
+  { id: "Event", label: "事件" },
+  { id: "Location", label: "地点" },
+];
+const TYPE_BADGE = { Company: "badge--info", Person: "badge--accent", Product: "badge--good", Event: "badge--warn" };
+const ASK_TEMPLATES = {
+  Company: (n) => `Who is the CEO of ${n}?`,
+  Person: (n) => `Which companies did ${n} previously work at?`,
+  Product: (n) => `Which company competes with the producer of ${n}?`,
+};
 
 export default {
-  name: 'GraphView',
+  name: "GraphView",
   setup() {
-    const entities = ref([]);
+    const { ref, onMounted } = vue();
+    const ws = workspace();
+    const items = ref([]);
     const total = ref(0);
-    const loading = ref(false);
-    const search = ref('');
-    const typeFilter = ref('');
     const page = ref(1);
-    const limit = 24;
-    let debounceTimer = null;
+    const query = ref("");
+    const type = ref("");
+    const loading = ref(false);
+    const error = ref("");
+    let timer = 0;
 
     async function load() {
       loading.value = true;
+      error.value = "";
       try {
         const { data, meta } = await fetchEntities({
-          limit,
-          offset: (page.value - 1) * limit,
-          query: search.value,
-          entity_type: typeFilter.value,
+          limit: PAGE,
+          offset: (page.value - 1) * PAGE,
+          query: query.value.trim(),
+          entity_type: type.value,
         });
-        entities.value = data || [];
-        total.value = meta?.total ?? data?.length ?? 0;
-      } catch (e) {
-        entities.value = [];
-        total.value = 0;
+        items.value = data || [];
+        total.value = meta.total ?? items.value.length;
+      } catch (err) {
+        items.value = [];
+        error.value = err.message;
       } finally {
         loading.value = false;
       }
     }
 
-    function totalPages() {
-      return Math.max(1, Math.ceil(total.value / limit));
+    function go(p) {
+      page.value = p;
+      load();
     }
 
-    function prevPage() { if (page.value > 1) { page.value--; load(); } }
-    function nextPage() { if (page.value < totalPages()) { page.value++; load(); } }
-
-    function onSearchInput() {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => { page.value = 1; load(); }, 300);
+    function onSearch() {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => go(1), 280);
     }
 
-    function onTypeChange() { page.value = 1; load(); }
+    function pickType(id) {
+      type.value = id;
+      go(1);
+    }
+
+    function askAbout(entity) {
+      const make = ASK_TEMPLATES[entity.type] || ((n) => `What is the relationship chain around ${n}?`);
+      ws.pendingQuestion = make(entity.name);
+      window.location.hash = "chat";
+    }
 
     onMounted(load);
-
-    return { entities, total, loading, search, typeFilter, page, limit,
-             totalPages, prevPage, nextPage, onSearchInput, onTypeChange, load };
+    return { TYPES, TYPE_BADGE, PAGE, items, total, page, query, type, loading, error, load, go, onSearch, pickType, askAbout };
   },
-
   template: `
-<div>
-  <div class="view-header">
-    <div class="view-header__title">🕸 知识图谱</div>
-    <div class="view-header__actions">
-      <span class="badge badge--info">{{ total }} 个实体</span>
+<div class="view-pad">
+  <div class="toolbar">
+    <div class="search">
+      <app-icon name="search" size="sm" />
+      <label class="sr-only" for="entitySearch">搜索实体</label>
+      <input id="entitySearch" class="input" v-model="query" @input="onSearch" placeholder="按名称、别名或 ID 搜索实体" />
+    </div>
+    <div class="segmented" role="group" aria-label="实体类型">
+      <button v-for="t in TYPES" :key="t.id" :aria-pressed="type === t.id" @click="pickType(t.id)">{{ t.label }}</button>
+    </div>
+    <div class="toolbar__end">
+      <span class="badge">{{ total }} 个实体</span>
+      <button class="btn btn--sm" @click="load" :disabled="loading"><app-icon name="refresh" size="sm" />刷新</button>
     </div>
   </div>
-  <div class="view-body">
-    <div class="toolbar">
-      <div class="search-bar" style="flex:1;max-width:360px;">
-        <span class="search-bar__icon">🔍</span>
-        <input class="input" placeholder="搜索实体…"
-               v-model="search" @input="onSearchInput">
-      </div>
-      <input class="input" style="max-width:180px;" placeholder="筛选类型…"
-             v-model="typeFilter" @change="onTypeChange">
-      <button class="btn btn--ghost btn--sm" @click="load" :disabled="loading">↻ 刷新</button>
-    </div>
 
-    <div v-if="loading" class="empty-state">
-      <div class="spinner spinner--lg"></div>
-    </div>
+  <state-card v-if="loading && !items.length" loading />
+  <state-card v-else-if="error" error icon="alert" title="实体加载失败" :text="error">
+    <button class="btn btn--sm" @click="load">重试</button>
+  </state-card>
+  <state-card v-else-if="!items.length" icon="graph" title="没有匹配的实体" text="换个关键词，或在「知识接入」上传文档、由 worker 抽取入图后再来。" />
 
-    <div v-else-if="entities.length === 0" class="empty-state">
-      <div class="empty-state__icon">🕸</div>
-      <div class="empty-state__text">未找到实体</div>
-    </div>
-
-    <div v-else class="entity-grid">
-      <div v-for="e in entities" :key="e.id" class="entity-card">
+  <template v-else>
+    <div class="entity-grid">
+      <article v-for="e in items" :key="e.id" class="entity-card">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge" :class="TYPE_BADGE[e.type] || ''">{{ e.type || '未知类型' }}</span>
+          <span class="mono muted" style="margin-left:auto;font-size:11px">{{ (e.id || '').slice(0, 10) }}</span>
+        </div>
         <div class="entity-card__name">{{ e.name }}</div>
-        <span class="badge badge--accent entity-card__type">{{ e.type || 'unknown' }}</span>
-        <div v-if="e.aliases?.length" class="entity-card__aliases">
+        <div v-if="e.aliases && e.aliases.length" class="facets">
           <span v-for="a in e.aliases" :key="a" class="chip">{{ a }}</span>
         </div>
-        <div style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);">
-          {{ e.id?.slice(0, 12) }}
+        <div style="margin-top:auto">
+          <button class="btn btn--sm btn--ghost" @click="askAbout(e)"><app-icon name="ask" size="sm" />就此提问</button>
         </div>
-      </div>
+      </article>
     </div>
-
-    <div v-if="entities.length > 0" style="margin-top:var(--space-5);display:flex;justify-content:center;">
-      <div class="pagination">
-        <button class="pagination__btn" :disabled="page <= 1" @click="prevPage">← 上一页</button>
-        <span class="pagination__info">第 {{ page }} 页，共 {{ totalPages() }} 页</span>
-        <button class="pagination__btn" :disabled="page >= totalPages()" @click="nextPage">下一页 →</button>
-      </div>
-    </div>
-  </div>
-</div>
-`
+    <div class="card"><data-pager :page="page" :total="total" :limit="PAGE" unit="个实体" @go="go" /></div>
+  </template>
+</div>`,
 };

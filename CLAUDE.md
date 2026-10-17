@@ -19,7 +19,6 @@ ruff check src tests scripts
 ruff format --check src tests scripts
 
 # Tests (CI gate: unit tests + coverage ≥80%). tests/ contains only tests/unit.
-# CI ignores tests/unit/test_web_claude_ui.py (pre-existing: web/static/* missing).
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 pytest tests/unit/test_scoring.py -q          # single file
 pytest tests/unit -k "guardrails" -q          # by keyword

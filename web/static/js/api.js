@@ -1,198 +1,184 @@
-/**
- * API client — typed fetch wrapper for AgenticGraphRAG backend.
- * All responses follow the envelope: { success, data, error, meta }.
- */
-
-const BASE = '';
+/* API client for the AgenticGraphRAG backend.
+ * Every JSON route returns the envelope { success, data, error, meta }. */
+const KEY_STORAGE = "agr_api_key";
 
 export function getApiKey() {
-  return localStorage.getItem('agr_api_key') || '';
+  try {
+    return localStorage.getItem(KEY_STORAGE) || "";
+  } catch {
+    return "";
+  }
 }
 
 export function setApiKey(key) {
-  if (key) localStorage.setItem('agr_api_key', key.trim());
-  else localStorage.removeItem('agr_api_key');
+  const value = (key || "").trim();
+  if (value) localStorage.setItem(KEY_STORAGE, value);
+  else localStorage.removeItem(KEY_STORAGE);
 }
 
-/** Unwrap the envelope; throw on error. */
-async function request(path, options = {}) {
-  const url = `${BASE}${path}`;
-  const headers = { 'Content-Type': 'application/json', ...options.headers };
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
   const key = getApiKey();
-  if (key) headers['Authorization'] = `Bearer ${key}`;
-
-  const res = await fetch(url, {
-    ...options,
-    headers,
-  });
-  if (!res.ok && !res.headers.get('content-type')?.includes('json')) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const envelope = await res.json();
-  if (!envelope.success) {
-    const err = new Error(envelope.error?.message || 'Unknown error');
-    err.code = envelope.error?.code;
-    err.details = envelope.error?.details;
-    throw err;
-  }
-  return { data: envelope.data, meta: envelope.meta };
+  if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
 }
 
-/* ── Identity ──────────────────────────────────────────────────────── */
+export class ApiError extends Error {
+  constructor(message, { status = 0, code = "", details = null } = {}) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
 
-export function fetchMe() {
-  return request('/v1/me');
+  get isAuth() {
+    return this.status === 401 || this.status === 403;
+  }
+}
+
+async function unwrap(res) {
+  let envelope = null;
+  try {
+    envelope = await res.json();
+  } catch {
+    throw new ApiError(`HTTP ${res.status}`, { status: res.status });
+  }
+  if (!res.ok || !envelope || envelope.success === false) {
+    const err = (envelope && envelope.error) || {};
+    throw new ApiError(err.message || `HTTP ${res.status}`, {
+      status: res.status,
+      code: err.code || "",
+      details: err.details || null,
+    });
+  }
+  return { data: envelope.data, meta: envelope.meta || {} };
+}
+
+async function request(path, { method = "GET", body } = {}) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: authHeaders(body === undefined ? {} : { "Content-Type": "application/json" }),
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new ApiError(`网络错误：${err.message}`, { status: 0, code: "NETWORK" });
+  }
+  return unwrap(res);
+}
+
+function qs(params) {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") search.set(k, String(v));
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+/* ── Identity & health ─────────────────────────────────────────────── */
+export const fetchMe = () => request("/v1/me");
+
+export async function fetchHealth() {
+  const res = await fetch("/healthz");
+  return res.json();
 }
 
 /* ── Query ─────────────────────────────────────────────────────────── */
+export const postQuery = (body) => request("/v1/query", { method: "POST", body });
 
-export function postQuery(body) {
-  return request('/v1/query', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+/** Parse one SSE frame ("event: x\ndata: {...}") into [event, payload]. */
+export function parseSseFrame(frame) {
+  let event = "message";
+  const data = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+  }
+  if (!data.length) return null;
+  const raw = data.join("\n");
+  try {
+    return [event, JSON.parse(raw)];
+  } catch {
+    return [event, raw];
+  }
 }
 
-/**
- * SSE streaming query — calls handlers for each event type.
- * Returns an AbortController so caller can cancel.
- */
+/** POST /v1/query/stream; calls handlers[event](payload). Returns an AbortController. */
 export function streamQuery(body, handlers = {}) {
   const ctrl = new AbortController();
-  const run = async () => {
-    const headers = { 'Content-Type': 'application/json' };
-    const key = getApiKey();
-    if (key) headers['Authorization'] = `Bearer ${key}`;
-
-    const res = await fetch(`${BASE}/v1/query/stream`, {
-      method: 'POST',
-      headers,
+  const emit = (event, payload) => (handlers[event] || handlers.unknown)?.(payload, event);
+  (async () => {
+    const res = await fetch("/v1/query/stream", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json", Accept: "text/event-stream" }),
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+    if (!res.ok || !res.body) {
+      const { data } = await unwrap(res); // throws ApiError with the server message
+      return emit("answer", data);
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEvent = '';
-
-    while (true) {
+    let buffer = "";
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-          const raw = line.slice(6);
-          let payload;
-          try { payload = JSON.parse(raw); } catch { payload = raw; }
-          const handler = handlers[currentEvent] || handlers.unknown;
-          if (handler) handler(payload, currentEvent);
-        }
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const parsed = parseSseFrame(buffer.slice(0, cut));
+        buffer = buffer.slice(cut + 2);
+        if (parsed) emit(parsed[0], parsed[1]);
       }
     }
-    if (handlers.done) handlers.done();
-  };
-  run().catch(err => {
-    if (err.name !== 'AbortError' && handlers.error) {
-      handlers.error({ code: 'STREAM_ERROR', message: err.message });
-    }
+    handlers.done?.();
+  })().catch((err) => {
+    if (err.name === "AbortError") return handlers.done?.();
+    handlers.error?.({ code: err.code || "STREAM_ERROR", message: err.message });
   });
   return ctrl;
 }
 
-/* ── Health ─────────────────────────────────────────────────────────── */
-
-export async function fetchHealth() {
-  const res = await fetch(`${BASE}/healthz`);
-  return res.json();
-}
-
-/* ── Graph ──────────────────────────────────────────────────────────── */
-
-export function fetchEntities(params = {}) {
-  const qs = new URLSearchParams();
-  if (params.limit) qs.set('limit', params.limit);
-  if (params.offset != null) qs.set('offset', params.offset);
-  if (params.query) qs.set('query', params.query);
-  if (params.entity_type) qs.set('entity_type', params.entity_type);
-  return request(`/v1/graph/entities?${qs}`);
-}
+export const postFeedback = (body) => request("/v1/feedback", { method: "POST", body });
 
 /* ── Knowledge ─────────────────────────────────────────────────────── */
-
-export function fetchIngestTasks(params = {}) {
-  const qs = new URLSearchParams();
-  qs.set('limit', params.limit || 50);
-  qs.set('offset', params.offset || 0);
-  return request(`/v1/ingest-tasks?${qs}`);
-}
-
-export function fetchIngestTask(taskId) {
-  return request(`/v1/ingest-tasks/${taskId}`);
-}
-
 export async function uploadDocs(files) {
   const form = new FormData();
-  for (const f of files) form.append('files', f);
-  const res = await fetch(`${BASE}/v1/docs`, { method: 'POST', body: form });
-  const envelope = await res.json();
-  if (!envelope.success) throw new Error(envelope.error?.message);
-  return { data: envelope.data, meta: envelope.meta };
+  for (const file of files) form.append("files", file);
+  let res;
+  try {
+    res = await fetch("/v1/docs", { method: "POST", headers: authHeaders(), body: form });
+  } catch (err) {
+    throw new ApiError(`网络错误：${err.message}`, { code: "NETWORK" });
+  }
+  return unwrap(res);
 }
 
-/* ── Review Queue ──────────────────────────────────────────────────── */
+export const fetchIngestTasks = ({ limit = 20, offset = 0 } = {}) =>
+  request(`/v1/ingest-tasks${qs({ limit, offset })}`);
 
-export function fetchReviewQueue(params = {}) {
-  const qs = new URLSearchParams();
-  qs.set('limit', params.limit || 50);
-  qs.set('offset', params.offset || 0);
-  if (params.status) qs.set('status', params.status);
-  return request(`/v1/review-queue?${qs}`);
-}
+export const fetchIngestTask = (taskId) =>
+  request(`/v1/ingest-tasks/${encodeURIComponent(taskId)}`);
 
-export function decideReview(itemId, body) {
-  return request(`/v1/review-queue/${itemId}/decision`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
+/* ── Review ────────────────────────────────────────────────────────── */
+export const fetchReviewQueue = ({ limit = 20, offset = 0, status = "", type = "" } = {}) =>
+  request(`/v1/review-queue${qs({ limit, offset, status, type })}`);
 
-/* ── Feedback ──────────────────────────────────────────────────────── */
+export const decideReview = (itemId, body) =>
+  request(`/v1/review-queue/${encodeURIComponent(itemId)}/decision`, { method: "POST", body });
 
-export function postFeedback(body) {
-  return request('/v1/feedback', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
+/* ── Graph ─────────────────────────────────────────────────────────── */
+export const fetchEntities = ({ limit = 24, offset = 0, query = "", entity_type = "" } = {}) =>
+  request(`/v1/graph/entities${qs({ limit, offset, query, entity_type })}`);
 
-/* ── Audit ─────────────────────────────────────────────────────────── */
-
-export function fetchAuditQuery(queryId) {
-  return request(`/v1/audit/queries/${queryId}`);
-}
-
-/* ── Admin / Ops ───────────────────────────────────────────────────── */
-
-export function fetchMetrics() {
-  return request('/v1/metrics');
-}
-
-export function fetchBudgetSnapshot() {
-  return request('/v1/budget/snapshot');
-}
-
-export function fetchAuditEvents(params = {}) {
-  const qs = new URLSearchParams();
-  if (params.limit) qs.set('limit', params.limit);
-  if (params.action) qs.set('action', params.action);
-  return request(`/v1/audit-events?${qs}`);
-}
-
-export function fetchTrace(queryId) {
-  return request(`/v1/traces/${queryId}`);
-}
+/* ── Ops & audit ───────────────────────────────────────────────────── */
+export const fetchMetrics = () => request("/v1/metrics");
+export const fetchBudgetSnapshot = () => request("/v1/budget/snapshot");
+export const fetchAuditEvents = ({ limit = 50, action = "" } = {}) =>
+  request(`/v1/audit-events${qs({ limit, action })}`);
+export const fetchAuditQuery = (queryId) =>
+  request(`/v1/audit/queries/${encodeURIComponent(queryId)}`);
+export const fetchTrace = (queryId) => request(`/v1/traces/${encodeURIComponent(queryId)}`);

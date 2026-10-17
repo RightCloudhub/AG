@@ -25,6 +25,8 @@
 | `--node-ink` / `--edge-ink` | `#2f5d68` / `#8a5a12` | 图节点 / 关系标记 |
 | `--grid-line` | `rgba(34, 48, 76, 0.045)` | 页面制图网格 |
 
+深色主题「夜间制图」（`html[data-theme="dark"]`）沿用同一组令牌名：墨蓝底 `#11161f`、米白正文 `#e8e3d6`、朱砂 `#e2643f`。首次访问跟随系统 `prefers-color-scheme`，之后以 `localStorage.agr_theme` 为准；`index.html` 在首帧前写入主题，避免闪烁。
+
 使用 `--accent` 突出可交互状态，不以大面积纯色区块代替层级。成功、警示和错误状态必须同时有文字说明，不只依靠颜色传达。圆角基准为 `--radius: 14px` 和 `--radius-sm: 8px`。
 
 ## 3. 字体与排版
@@ -47,6 +49,12 @@
 - 桌面使用侧栏 + 内容区布局；平板与手机使用抽屉导航、单列卡片和横向可滚动数据表。
 
 ## 5. 组件与状态
+
+参考对象：Perplexity / Claude 的「答案 + 编号引用」阅读方式，Dify / RAGFlow 的知识库与任务控制台，LightRAG WebUI 的证据图视图。落到本项目时只保留与可追溯推理相关的部分：
+
+- **答案卡片**（`answer-turn.js`）：状态、路由、置信度、缓存徽标；答案中的编号引用与「来源」卡片使用同一套编号（先按论断顺序编号被引用的证据，再给其余证据续号），点击后高亮对应论断和证据；标签页依次为来源（默认显示 6 条，可展开）、推理链（子问题 → 结论 → 工具命中 → critic）、证据子图（从图谱证据中解析 `A -[REL]-> B`，用确定性力导向布局排布，答案实体以朱砂描边）和原始 JSON。
+- **流式过程**：`triage → thinking → sub_question → hop_done` 逐条进入时间线，当前步骤高亮，已完成步骤打勾；答案到达后滚动到该问题的起始位置，而不是长列表的底部。
+- **组合输入框**：流式开关、强制 Agentic、最大跳数（1–20，留空使用服务端默认值）、停止生成、导出 Markdown、清空对话。
 
 - **操作按钮**：主操作使用朱砂实底；次操作用描边；破坏性操作用错误色。请求进行中时禁用重复提交并保留明确的忙碌文案。
 - **状态徽标**：待处理、完成、拒绝、错误等状态使用稳定的文字标签和对应浅底色；进行中状态不使用终态图形。
@@ -71,4 +79,16 @@
 
 ## 8. 样式文件
 
-`tokens.css` 保存颜色、字体、圆角与动效令牌；`layout.css`、`controls.css`、`mobile.css` 管理工作台壳层；`conversation.css` 与 `chat.css` 管理问答界面；`console.css` 与 `ops.css` 管理知识、审核、图谱和运维视图；`panels.css` 管理答案和推理链组件。结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本安全、资源与尺寸约束；API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。
+| 文件 | 内容 |
+|---|---|
+| `tokens.css` | 浅色和深色两套令牌，以及 `[v-cloak]`（≤140 行） |
+| `app.css` | 重置、排版、制图网格、`:focus-visible`、`prefers-reduced-motion`、启动页和启动失败卡片 |
+| `layout.css` / `mobile.css` | 侧栏、顶栏、视图框架；窄屏下的抽屉导航与单列布局 |
+| `controls.css` | 按钮、输入框、徽标、chip、开关、分段控件、加载动画、骨架屏 |
+| `conversation.css` / `chat.css` | 欢迎页、问题气泡、流式时间线；输入框，以及证据子图、反馈和重试等答案附属部分 |
+| `panels.css` | 答案卡片、引用角标、论断、标签页、来源卡片、推理链 |
+| `console.css` / `ops.css` | 卡片、统计卡、状态卡、数据表、分页、上传区、实体与审核卡片；运维图表、trace 瀑布图、接入进度条、键值列表、Toast |
+
+脚本：`app.js`（加载顺序为 vendored Vue → jsDelivr → unpkg）→ `js/runtime.js`（持有 Vue 运行时）→ `js/root.js`（外壳）→ `js/views/registry.js`（视图与 capability 的映射）→ `js/views/*.js`；`js/components/`（`answer-turn`、`widgets`）；`js/chain-view.js`（纯函数视图模型）、`js/api.js`、`js/store.js`、`js/icons.js`（SVG 路径数据，不依赖图标字体或运行时）。
+
+结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本的安全、资源与尺寸约束（单文件 ≤300 行，禁止 `v-html` 和 `.innerHTML`，CSS 不引用外链）。API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。

@@ -75,8 +75,8 @@
 | Job | 内容 |
 |---|---|
 | `lint` | `ruff check` + `ruff format --check`（src tests scripts）+ `scripts/check_code_metrics.py` |
-| `test` | `pytest tests/unit` + 覆盖率 ≥80%（忽略 `test_web_claude_ui.py`，见下） |
-| `eval-offline` | `agr-run-cases --no-llm --memory-graph`，agentic 与 `--enable-triage` 两条路径各须 ≥21/31（`scripts/check_eval_floor.py`），报告作为 artifact 上传 |
+| `test` | `pytest tests/unit` + 覆盖率 ≥80%（包含 `test_web_claude_ui.py`） |
+| `eval-offline` | `agr-run-cases --no-llm --memory-graph`：poc 的 agentic 与 `--enable-triage` 两条路径各须 ≥21/31；g2_all（pilot 三元组）须 ≥167/200；另外生成金标审计报告（只出报告，不拦截）。报告都作为 artifact 上传 |
 
 全程离线：不启动 Neo4j/Qdrant，不需要 LLM key。`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` 等变量，避免外部环境覆盖用例自己设定的 Profile（此前在 `AGR_PROFILE` 已导出的 shell 里 `test_live_credentials_fail_fast` 会失败）。
 
@@ -84,4 +84,4 @@
 
 - 旧导入路径全部保留为模块别名（`sys.modules` 指向同一模块对象），monkeypatch 任意一侧效果相同。
 - 行为变化：live 模式不再静默降级；`create_live_bundle(allow_memory_graph_fallback=True)` 直接报错；`agr-run-cases` 默认走 QueryApp（`--direct` 恢复旧行为）。
-- 已知的既有问题：`tests/unit/test_web_claude_ui.py` 的 7 个用例在重构前就失败（测试期望的 `web/static/*` 文件不存在），与本次重构无关。
+- 原有问题已修复：`tests/unit/test_web_claude_ui.py` 的 7 个用例在重构前就失败（测试期望的 `web/static/*` 结构不存在）。2026-10-17 按 [UI_DESIGN.md](UI_DESIGN.md) 重建 Web 工作台后，8 个用例全部通过，CI 也不再忽略这个文件。
