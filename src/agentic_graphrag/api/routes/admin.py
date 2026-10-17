@@ -141,21 +141,15 @@ def prometheus_metrics_text() -> str:
     lines.append(_prom_line("agr_latency_p99_ms", s.get("latency_p99_ms", 0.0)))
     lines.append("")
 
-    routes = s.get("route_counts") or {}
-    if routes:
-        lines.append("# HELP agr_route_queries_total Queries by route")
-        lines.append("# TYPE agr_route_queries_total counter")
-        for route, count in sorted(routes.items()):
-            lines.append(_prom_line("agr_route_queries_total", count, {"route": route}))
-        lines.append("")
-
-    errors = s.get("error_counts") or {}
-    if errors:
-        lines.append("# HELP agr_errors_total Errors by code")
-        lines.append("# TYPE agr_errors_total counter")
-        for code, count in sorted(errors.items()):
-            lines.append(_prom_line("agr_errors_total", count, {"code": code}))
-        lines.append("")
+    _labelled(lines, "agr_route_queries_total", "Queries by route", s.get("route_counts"), "route")
+    _labelled(lines, "agr_errors_total", "Errors by code", s.get("error_counts"), "code")
+    _labelled(
+        lines,
+        "agr_event_handler_failures_total",
+        "Critical event handlers that failed after retries (alert on increase)",
+        s.get("event_handler_failures"),
+        "handler",
+    )
 
     lines.append("# HELP agr_budget_trips_total Budget trip events")
     lines.append("# TYPE agr_budget_trips_total counter")
@@ -163,3 +157,15 @@ def prometheus_metrics_text() -> str:
     lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def _labelled(lines: list[str], *spec: object) -> None:
+    """Append one labelled counter family: (name, help, {label_value: count}, label)."""
+    name, help_text, counts, label = spec
+    if not counts:
+        return
+    lines.append(f"# HELP {name} {help_text}")
+    lines.append(f"# TYPE {name} counter")
+    for key, count in sorted(dict(counts).items()):  # type: ignore[call-overload]
+        lines.append(_prom_line(str(name), count, {str(label): key}))
+    lines.append("")

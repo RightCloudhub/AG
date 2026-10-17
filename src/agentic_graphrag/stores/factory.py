@@ -15,6 +15,7 @@ from typing import Any, Literal
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, GraphStore, VectorStore
 from agentic_graphrag.stores.doc_store import FileDocStore, InMemoryDocStore
+from agentic_graphrag.stores.fulltext_shared import SharedFileBM25Store
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore
@@ -28,6 +29,14 @@ class GraphBackend(StrEnum):
 class VectorBackend(StrEnum):
     MEMORY = "memory"
     QDRANT = "qdrant"
+
+
+class FulltextBackend(StrEnum):
+    """``process``: in-memory BM25 seeded from the snapshot once at start.
+    ``shared_file``: BM25 synchronised through the snapshot file (API + worker)."""
+
+    PROCESS = "process"
+    SHARED_FILE = "shared_file"
 
 
 @dataclass
@@ -90,8 +99,29 @@ def create_vector_store(
     return store, VectorBackend.QDRANT
 
 
-def create_fulltext_store() -> FulltextStore:
+def create_fulltext_store(
+    backend: FulltextBackend | Literal["process", "shared_file"] = FulltextBackend.PROCESS,
+    *,
+    path: str | Path | None = None,
+) -> FulltextStore:
+    if FulltextBackend(backend) is FulltextBackend.SHARED_FILE:
+        if path is None:
+            raise ValueError("shared_file fulltext backend needs a snapshot path")
+        return SharedFileBM25Store(path)
     return BM25FulltextStore()
+
+
+def bm25_snapshot_path(cfg: AppConfig) -> Path:
+    return resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
+
+
+def _open_fulltext(cfg: AppConfig, backend: FulltextBackend, *, load: bool) -> FulltextStore:
+    if backend is FulltextBackend.SHARED_FILE:
+        return create_fulltext_store(backend, path=bm25_snapshot_path(cfg))
+    fulltext = create_fulltext_store()
+    if load:
+        _try_load_bm25(fulltext, cfg)
+    return fulltext
 
 
 def create_doc_store(
@@ -115,6 +145,7 @@ def create_bundle(
     settings: Settings | None = None,
     load_bm25: bool = True,
     load_embeddings: bool = True,
+    fulltext_backend: FulltextBackend = FulltextBackend.PROCESS,
 ) -> StoreBundle:
     """Build exactly the requested backends. Never falls back silently.
 
@@ -132,10 +163,8 @@ def create_bundle(
         if callable(close):
             close()
         raise
-    fulltext = create_fulltext_store()
+    fulltext = _open_fulltext(cfg, FulltextBackend(fulltext_backend), load=load_bm25)
     docs = create_doc_store(cfg=cfg)
-    if load_bm25:
-        _try_load_bm25(fulltext, cfg)
     # Embeddings snapshot only seeds a process-local vector store; Qdrant is durable.
     if load_embeddings and v_backend is VectorBackend.MEMORY:
         _try_load_embeddings(vector, cfg)
@@ -168,7 +197,7 @@ def create_offline_bundle(
 
 
 def _try_load_bm25(fulltext: FulltextStore, cfg: AppConfig) -> None:
-    ft_path = resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
+    ft_path = bm25_snapshot_path(cfg)
     load = getattr(fulltext, "load", None)
     if callable(load) and ft_path.exists():
         load(str(ft_path))

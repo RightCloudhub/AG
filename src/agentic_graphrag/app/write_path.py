@@ -29,6 +29,7 @@ from agentic_graphrag.knowledge.review.executor import ReviewExecutor, ReviewExe
 logger = logging.getLogger(__name__)
 
 INLINE_ENV = "AGR_INGEST_INLINE"
+_INVALIDATE_RETRIES = 2
 _ENTITY_SCAN_LIMIT = 100_000
 
 
@@ -75,8 +76,28 @@ def subscribe_read_side(svc: Any, bus: EventBus) -> None:
         # Mutate in place: executors built per query read this list.
         svc.known_entities[:] = merged
 
-    bus.subscribe(GraphCommitted, invalidate)
+    # Stale answers are worse than a cold cache: invalidation is critical, and
+    # if it still fails the fail-safe drops every cached retrieval / answer.
+    bus.subscribe(
+        GraphCommitted,
+        invalidate,
+        critical=True,
+        retries=_INVALIDATE_RETRIES,
+        on_failure=lambda event, exc: drop_caches(svc, event, exc),
+    )
     bus.subscribe(IndexUpdated, refresh_lexicon)
+
+
+def drop_caches(svc: Any, event: Any, exc: BaseException) -> None:
+    """Fail-safe for a failed invalidation: clear caches and count the failure."""
+    from agentic_graphrag.observability.metrics import get_metrics
+
+    get_metrics().record_event_failure(f"{event.name}:invalidate:{type(exc).__name__}")
+    cache = getattr(svc, "retrieval_cache", None)
+    if cache is None:
+        return
+    for part in (cache.retrieval, cache.answers):
+        part.clear()
 
 
 def attach_write_path(svc: Any) -> None:

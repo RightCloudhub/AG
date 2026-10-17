@@ -183,18 +183,21 @@ flowchart TD
     PAR --> V["VectorRetriever<br/>vector.py · top_k=10"]
     PAR --> G["GraphRetriever<br/>graph.py"]
     PAR --> F["FulltextRetriever<br/>fulltext.py · BM25"]
-    G --> BEAM["BeamExpander graph_beam.py<br/>逐层扩展 · beam_width=20<br/>高度数节点过滤 >30"]
+    G --> BEAM["BeamExpander graph_beam.py<br/>逐层扩展 · beam_width=20<br/>度数 >30 时改用关系类型硬过滤（空则无过滤重试）"]
     BEAM --> REL["graph_relation.py<br/>关系意图推断 · 相关度阈值 0.12"]
     BEAM --> PATH["graph_paths.py<br/>路径打分 → Candidate"]
-    V --> FUS["fusion.py<br/>RRF k=60 + Reranker 协议"]
+    V --> FUS["fusion.py<br/>RRF k=60"]
+    FUS --> RR["rerankers.py（可选，默认关闭）<br/>lexical / HTTP cross-encoder<br/>召回扩到 candidate_pool=30 → top_n=10"]
     PATH --> FUS
     F --> FUS
-    FUS --> CACHE["cache.py RetrievalCache<br/>key = 租户 + 索引版本 + 查询"]
+    RR --> CACHE["cache.py RetrievalCache<br/>key = 租户 + 索引版本 + 归一化查询"]
     CACHE --> CAND["Candidate[]<br/>core/evidence.py 统一候选契约"]
 ```
 
 - `core/evidence.py`（`retrieval/contracts.py` 为别名）定义 `Candidate` / `Citation` / `CandidateSource`，三路结果统一为同一结构，`rrf_fuse` 按排名融合。
-- `IndexVersion` 在图、向量、全文更新后递增，使缓存自然失效；缓存键包含 `tenant_id`，保证租户隔离。
+- `IndexVersion` 在图、向量、全文更新后递增，使缓存自然失效；缓存键包含 `tenant_id`，保证租户隔离。注意 `IndexVersion` 目前是**全局**计数器，任意租户写入都会让所有租户的缓存失效（ARCH_OPTIMIZATION_V2 X-2 待做）。
+- 两阶段召回（V2 O-5）：`retrieval.rerank.kind`（环境变量 `AGR_RERANK`）为 `lexical` 或 `http` 时，向量和全文召回扩到 `candidate_pool`，RRF 之后重排，再截取 `top_n`。HTTP 重排器出错或超时时退回 RRF 顺序，并标 `metadata.rerank_fallback`。离线 A/B 没有显著收益，默认关闭。
+- 边到 chunk 溯源（V2 O-6）：图候选的 `structured.source_chunk_ids` 和 `citations[].chunk_id` 来自 `RelationRecord.sources`（构图时写入，Neo4j 会持久化）。
 
 ---
 
@@ -311,6 +314,7 @@ classDiagram
     VectorStore <|.. InMemoryVectorStore
     VectorStore <|.. QdrantVectorStore
     FulltextStore <|.. BM25FulltextStore
+    FulltextStore <|.. SharedFileBM25Store
     DocStore <|.. InMemoryDocStore
     DocStore <|.. FileDocStore
     class StoreBundle {
@@ -327,6 +331,8 @@ classDiagram
 
 存储协议定义在 `core/ports/stores.py`（`stores/interfaces.py` 为别名）；限流、预算、审计存储协议在 `core/ports/state.py`。`factory.create_bundle(graph, vector)` 精确构建请求的后端，Neo4j 与 Qdrant 都会 ping，失败直接抛错；`create_offline_bundle()` / `create_live_bundle()` 是它的两个固定组合。**已移除所有隐式回退**：`create_live_bundle(allow_memory_graph_fallback=True)` 会直接报错，Neo4j + 内存向量必须声明为 `hybrid` Profile（见 §11）。`Neo4jGraphStore.list_entities()` 已实现（与内存图相同的租户语义），运行期实体对齐、图谱浏览和词表刷新在 Neo4j 下同样生效。所有读写都带 `tenant_id` 过滤。
 
+全文检索（V2 O-3）：`offline` / `eval` 使用进程内 `BM25FulltextStore`，启动时从 `data/indexes/bm25.json` 读一次；`live` / `hybrid` 使用 `SharedFileBM25Store`：每次 `index()` 后原子写快照，`search()` 前发现快照的 mtime 变化就重新加载，API 和独立 worker 只要挂同一个卷就能互相看到写入。快照会写入 `tenant_id`；旧格式没有该字段时按 `""`（全局可见）处理。多主机部署需要服务端全文检索（V2 S-2）。
+
 ---
 
 ## 6. LLM 网关 llm
@@ -339,14 +345,14 @@ flowchart LR
     ST --> BT{"governance/BudgetTracker<br/>chat 调用 · embed 调用 · token"}
     BT -->|超限| BE["BudgetExceeded"]
     BT --> BP["budget_policy.py<br/>租户 / 用户 / 查询 三级窗口"]
-    BP --> CB{"CircuitBreaker<br/>连续 2 次失败 → OPEN<br/>20s 后 HALF_OPEN"}
+    BP --> CB{"CircuitBreakerSet（按路由）<br/>chat:strong · chat:light · embed<br/>连续 N 次失败 / 窗口失败率 → OPEN"}
     CB -->|CLOSED| PR["provider.py LLMProvider"]
     PR --> STRONG["Tier.STRONG<br/>gpt-4.1"]
     PR --> LIGHT["Tier.LIGHT<br/>gpt-4.1-mini"]
     PR --> MOCK["MockLLMProvider<br/>离线默认"]
 ```
 
-chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存与熔断；embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
+chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存；熔断器按路由拆分（V2 O-8，`llm.resilience`）：embedding 故障不再连带 chat，STRONG 熔断时若开启 `fallback_to_light`，会改用 LIGHT 模型完成调用（`provider.degradations` 计数）。默认参数与 V1 等价。embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
 
 ---
 
@@ -413,7 +419,7 @@ flowchart LR
     BUS --> LEX["refresh_lexicon：刷新实体词表"]
 ```
 
-写路径不再持有 `on_graph_commit` 回调，而是发布 `core/events.py` 中的领域事件；读侧订阅在 `app/write_path.subscribe_read_side()` 中注册。进程内使用同步的 `InProcessEventBus`（订阅者异常只记日志、不影响写入）；跨进程部署时用 outbox + Redis Streams 实现同一个 `EventBus` 协议即可。`IndexVersion` 位于 `core/versioning.py`。
+写路径不再持有 `on_graph_commit` 回调，而是发布 `core/events.py` 中的领域事件；读侧订阅在 `app/write_path.subscribe_read_side()` 中注册。进程内使用同步的 `InProcessEventBus`：普通订阅者异常只记日志、不影响写入；**critical 订阅者**（V2 O-4，目前是缓存失效）失败后重试 2 次，仍失败就执行 fail-safe（清空检索缓存和答案缓存），并计入 `agr_event_handler_failures_total`；跨进程部署时用 outbox + Redis Streams 实现同一个 `EventBus` 协议即可。`IndexVersion` 位于 `core/versioning.py`。
 
 ---
 
@@ -432,6 +438,8 @@ flowchart LR
 ```
 
 `agr-run-cases` 默认通过 `QueryApp.run_query_chain()` 运行（eval Profile：关闭答案和检索缓存、加载 seed 图；指定 `--neo4j` 时使用 hybrid Profile），评测的就是生产路径（预算、Pipeline、审计、指标）。真实 LLM 的响应由 provider 的磁盘缓存回放。`--direct` 保留旧的直接调用 Agent 循环的方式。重构前后 `poc_cases` 的结果一致（21/31，31 条预测、状态和路由逐条相同）。
+
+V2 评测工具（O-1 / O-2）：`scripts/eval_compare.py` 对两次运行做配对 A/B（Wilson 95% CI、精确 McNemar、分类别和分模板准确率、P50/P95 延迟、LLM 调用均值），p < 0.05 才判定“更好”或“更差”；`scripts/audit_gold.py` 在三元组上校验金标（`path_edge_missing` / `inverse_label` / `gold_unreachable` / `ambiguous_gold`），只出报告。CI 门禁：poc ≥21/31，g2_all ≥167/200。
 
 ---
 

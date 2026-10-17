@@ -23,6 +23,7 @@ from agentic_graphrag.retrieval.graph_beam import (
     relation_relevance,
 )
 from agentic_graphrag.retrieval.graph_paths import path_candidates, score_paths
+from agentic_graphrag.retrieval.provenance import source_chunk_ids, source_citations
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GraphRetrievalConfig
@@ -164,6 +165,7 @@ class GraphRetriever:
         for i, (sc, rel, ent, content) in enumerate(ranked):
             head = rel.head_name or entity_name
             tail = rel.tail_name or ent.name
+            sources = source_citations([rel])
             out.append(
                 Candidate(
                     id=f"nbr:{entity_name}:{rel.type}:{ent.name}:{i}",
@@ -181,8 +183,12 @@ class GraphRetriever:
                         "attributes": ent.attributes,
                         "relation_attributes": rel.attributes,
                         "preferred_relations": preferred,
+                        "source_chunk_ids": source_chunk_ids(sources),
                     },
-                    citations=[Citation(entity_id=ent.id, relation_id=rel.id, span=content)],
+                    citations=[
+                        Citation(entity_id=ent.id, relation_id=rel.id, span=content),
+                        *sources,
+                    ],
                     metadata={"beam_rank": i},
                 )
             )

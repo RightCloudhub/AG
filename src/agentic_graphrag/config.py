@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
 
 if TYPE_CHECKING:
@@ -28,11 +29,11 @@ class GuardrailsConfig(BaseModel):
     max_tokens_per_query: int = 50_000
     query_timeout_seconds: int = 60
     recursion_limit: int = 15
-    # Breadth budget (plan nodes) — BL-12. Kept ≤ max_hops because one hop runs
-    # one sub-question; GuardrailConfig clamps it if configured higher.
+    # Breadth budget (plan nodes, BL-12); GuardrailConfig clamps it to max_hops.
     max_sub_questions: int = 5
     parallel_branches: bool = True
     max_parallel_branches: int = 3
+    critic_mode: str = "llm"  # O-7: llm | tiered | offline
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -47,6 +48,16 @@ class GraphRetrievalConfig(BaseModel):
     relation_relevance_threshold: float = 0.12
 
 
+class RerankConfig(BaseModel):
+    """Two-stage retrieval (ARCH_OPTIMIZATION_V2 O-5). ``none`` keeps V1 behaviour."""
+
+    kind: str = "none"  # none | lexical | http
+    candidate_pool: int = 30  # per-channel recall when a re-ranker is on
+    top_n: int = 10  # fused hits kept after re-ranking
+    endpoint: str = ""  # http: TEI / Infinity compatible POST /rerank
+    timeout_seconds: float = 2.0
+
+
 class RetrievalConfig(BaseModel):
     top_k: int = 10
     vector_top_k: int = 10
@@ -56,6 +67,7 @@ class RetrievalConfig(BaseModel):
     parallel: bool = True
     cache_answer_ttl_seconds: float = 3600.0
     graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
 
 
 class TriageConfig(BaseModel):
@@ -79,15 +91,14 @@ class LLMConfig(BaseModel):
     strong_model: str = "gpt-4.1"
     light_model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"
-    # Optional defaults; env LLM_EMBEDDING_BASE_URL / LLM_EMBEDDING_API_KEY override.
-    # Empty → use chat endpoint (LLM_BASE_URL / LLM_API_KEY).
+    # Env LLM_EMBEDDING_BASE_URL / LLM_EMBEDDING_API_KEY override; empty → chat endpoint.
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     temperature: float = 0.0
     max_retries: int = 2
     timeout_seconds: int = 60
-    # BL-13: LIGHT-tier entailment judge over answer claims (live LLM path only).
-    entailment_check: bool = True
+    entailment_check: bool = True  # BL-13: LIGHT-tier claim entailment judge (live only)
+    resilience: LLMResilienceConfig = Field(default_factory=LLMResilienceConfig)  # O-8
 
 
 class PathsConfig(BaseModel):
@@ -146,6 +157,8 @@ class Settings(BaseSettings):
     max_hops: int | None = Field(default=None, alias="MAX_HOPS")
     max_llm_calls: int | None = Field(default=None, alias="MAX_LLM_CALLS")
     max_tokens_per_query: int | None = Field(default=None, alias="MAX_TOKENS_PER_QUERY")
+    rerank_kind: str | None = Field(default=None, alias="AGR_RERANK")
+    critic_mode: str | None = Field(default=None, alias="AGR_CRITIC_MODE")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -199,6 +212,15 @@ def _apply_settings_overrides(cfg: AppConfig, settings: Settings) -> None:
         cfg.guardrails.max_llm_calls = settings.max_llm_calls
     if settings.max_tokens_per_query is not None:
         cfg.guardrails.max_tokens_per_query = settings.max_tokens_per_query
+    _apply_experiment_overrides(cfg, settings)
+
+
+def _apply_experiment_overrides(cfg: AppConfig, settings: Settings) -> None:
+    """A/B switches (ARCH_OPTIMIZATION_V2 O-5 / O-7) settable from the environment."""
+    if settings.critic_mode:
+        cfg.guardrails.critic_mode = settings.critic_mode
+    if settings.rerank_kind:
+        cfg.retrieval.rerank.kind = settings.rerank_kind
 
 
 def resolve_chat_base_url(settings: Settings | None = None) -> str:
@@ -256,6 +278,8 @@ def build_llm_provider(
         timeout_seconds=c.llm.timeout_seconds,
         budget=budget,
         cache_dir=cache_dir,
+        circuit=c.llm.resilience.breaker_template(),
+        fallback_to_light=c.llm.resilience.fallback_to_light,
     )
 
 

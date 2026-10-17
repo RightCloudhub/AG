@@ -54,7 +54,21 @@
 | 7.3 | 治理与遥测拆开 | ✅ | `governance/` 与 `observability/` |
 | 7.4 | Telemetry 端口化 | ⏳ | 阶段 3 |
 | 8.1 | 评测走线上路径 | ✅ | `agr-run-cases` 默认走 QueryApp（eval Profile） |
-| 8.2–8.4 | 组件级评测、Experiment、数据飞轮 | ⏳ | 阶段 3 之后 |
+| 8.2–8.4 | 组件级评测、Experiment、数据飞轮 | 🟡 | 配对 A/B（Wilson CI + 精确 McNemar，`scripts/eval_compare.py`）和金标审计（`scripts/audit_gold.py`）已完成；组件级指标见 V2 的 E-4 |
+
+## 架构优化 V2（外部评估核对，详见 [ARCH_OPTIMIZATION_V2.md](ARCH_OPTIMIZATION_V2.md)）
+
+| ID | 项 | 状态 | 说明 |
+|---|---|---|---|
+| O-1 | 评测统计 + 配对对比 | ✅ | `eval/stats.py`、`eval/compare.py` |
+| O-2 | 金标审计 | ✅ | `eval/gold_audit.py`；g2 中 29/200 题被标记 |
+| O-3 | BM25 租户泄漏 + 跨进程共享 | ✅ | 快照写入 `tenant_id`；live / hybrid 用 `SharedFileBM25Store` |
+| O-4 | 事件可靠投递 | ✅ | critical 订阅者支持重试 + fail-safe；缓存失效失败时清空缓存并计数 |
+| O-5 | 两阶段召回 + 重排 | ✅（默认关闭） | lexical / HTTP cross-encoder；离线 A/B 没有显著收益 |
+| O-6 | 边到 chunk 溯源透出 | ✅ | `structured.source_chunk_ids` + Citation |
+| O-7 | 分层 critic | ✅（默认 llm） | 离线统计：可省 83–89% 的 LLM critic 调用 |
+| O-8 | 熔断按路由拆分 + 滑窗 + 降级 | ✅（默认等价 V1） | `llm/circuit.py`、`config_llm.py` |
+| P-1、E-3/E-4、R-2~R-5、S-2/S-3、K-2~K-4、G-1/G-2、L-2、X-1/X-2 | 后续批次 | ⏳ | 见 V2 §5 |
 
 ## 演进阶段
 
@@ -76,7 +90,7 @@
 |---|---|
 | `lint` | `ruff check` + `ruff format --check`（src tests scripts）+ `scripts/check_code_metrics.py` |
 | `test` | `pytest tests/unit` + 覆盖率 ≥80%（忽略 `test_web_claude_ui.py`，见下） |
-| `eval-offline` | `agr-run-cases --no-llm --memory-graph`，agentic 与 `--enable-triage` 两条路径各须 ≥21/31（`scripts/check_eval_floor.py`），报告作为 artifact 上传 |
+| `eval-offline` | `agr-run-cases --no-llm --memory-graph`：poc 的 agentic 与 `--enable-triage` 两条路径各须 ≥21/31；g2_all（pilot 三元组）须 ≥167/200；另外生成金标审计报告（只出报告，不拦截）。报告都作为 artifact 上传 |
 
 全程离线：不启动 Neo4j/Qdrant，不需要 LLM key。`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` 等变量，避免外部环境覆盖用例自己设定的 Profile（此前在 `AGR_PROFILE` 已导出的 shell 里 `test_live_credentials_fail_fast` 会失败）。
 

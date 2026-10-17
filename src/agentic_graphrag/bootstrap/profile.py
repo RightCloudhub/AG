@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from agentic_graphrag.stores.factory import GraphBackend, VectorBackend
+from agentic_graphrag.stores.factory import FulltextBackend, GraphBackend, VectorBackend
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -53,6 +53,8 @@ class Capabilities:
     retrieval_cache: bool
     load_seed_graph: bool
     deterministic: bool = False
+    # Live/hybrid run an API and a standalone worker: BM25 must be shared (O-3).
+    fulltext: FulltextBackend = FulltextBackend.PROCESS
 
 
 CAPABILITY_MATRIX: Mapping[Profile, Capabilities] = {
@@ -71,6 +73,7 @@ CAPABILITY_MATRIX: Mapping[Profile, Capabilities] = {
         answer_cache=True,
         retrieval_cache=True,
         load_seed_graph=False,
+        fulltext=FulltextBackend.SHARED_FILE,
     ),
     Profile.HYBRID: Capabilities(
         graph=GraphBackend.NEO4J,
@@ -79,6 +82,7 @@ CAPABILITY_MATRIX: Mapping[Profile, Capabilities] = {
         answer_cache=True,
         retrieval_cache=True,
         load_seed_graph=False,
+        fulltext=FulltextBackend.SHARED_FILE,
     ),
     # Eval: production wiring, caches off, seed graph; a live LLM is allowed but
     # replays from the provider's on-disk response cache (record/replay).

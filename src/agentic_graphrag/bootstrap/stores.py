@@ -20,7 +20,13 @@ def build_stores(
     if missing:
         raise ProfileError(f"profile {rp.profile.value!r} missing " + ", ".join(missing))
     try:
-        return create_bundle(rp.caps.graph, rp.caps.vector, cfg=cfg, settings=settings)
+        return create_bundle(
+            rp.caps.graph,
+            rp.caps.vector,
+            cfg=cfg,
+            settings=settings,
+            fulltext_backend=rp.caps.fulltext,
+        )
     except Exception as exc:  # noqa: BLE001 — re-raised with profile context
         raise ProfileError(
             f"profile {rp.profile.value!r} could not open its stores "

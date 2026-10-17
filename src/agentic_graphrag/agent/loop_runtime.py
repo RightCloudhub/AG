@@ -181,6 +181,7 @@ class AgentRuntime:
                 max_hops=self.guard_cfg.max_hops,
                 remaining_subquestions=remaining,
                 excluded_hypotheses=sorted(self.memory.excluded_hypotheses),
+                critic_mode=self.guard_cfg.critic_mode,
             ),
             self.llm if allow_llm else None,
             allow_llm=allow_llm and self.llm is not None,

@@ -47,6 +47,7 @@ class GuardrailConfig:
     # BL-12: independent ready DAG nodes are retrieved concurrently and share a hop.
     parallel_branches: bool = True
     max_parallel_branches: int = 3
+    critic_mode: str = "llm"  # O-7 tiered critic
 
     @classmethod
     def from_app_config(
@@ -90,6 +91,7 @@ class GuardrailConfig:
             max_sub_questions=max(1, min(int(g.max_sub_questions), hops)),
             parallel_branches=bool(getattr(g, "parallel_branches", True)),
             max_parallel_branches=max(1, int(getattr(g, "max_parallel_branches", 3))),
+            critic_mode=str(getattr(g, "critic_mode", "llm") or "llm"),
         )
 
     def with_overrides(

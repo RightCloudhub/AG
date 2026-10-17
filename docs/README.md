@@ -11,6 +11,7 @@
 | | [DESIGN_VS_IMPLEMENTATION.md](./design/DESIGN_VS_IMPLEMENTATION.md) | 设计与实现差异 |
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
+| | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 外部架构优化评估的逐条核对、修订优先级、第一批设计与 A/B 验证记录 |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |

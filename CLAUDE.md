@@ -30,6 +30,13 @@ python scripts/check_code_metrics.py
 # Offline eval floor (CI job eval-offline): ≥21/31 on poc_cases, with and without --enable-triage
 agr-run-cases --no-llm --memory-graph --cases evals/datasets/poc_cases.jsonl
 python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 21 --total 31
+# G2 floor (200 cases, CI-enforced): ≥167/200 with pilot triples
+agr-run-cases --no-llm --memory-graph --cases evals/datasets/g2_all.jsonl --seed-triples data/processed/pilot_triples.jsonl
+
+# Architecture A/B (required for retrieval/planning/critic/generation changes): paired McNemar
+python scripts/eval_compare.py reports/base.jsonl reports/cand.jsonl --cases evals/datasets/g2_all.jsonl
+python scripts/audit_gold.py evals/datasets/g2_all.jsonl --triples data/processed/pilot_triples.jsonl  # gold-label defects
+# Experiment switches: AGR_RERANK=none|lexical|http, AGR_CRITIC_MODE=llm|tiered|offline (see docs/design/ARCH_OPTIMIZATION_V2.md)
 
 # Offline dev loop — deterministic, no LLM, no Docker (run-cases loads seed triples itself)
 agr-run-cases --no-llm                        # 20 cases → reports/poc_run.jsonl + accuracy

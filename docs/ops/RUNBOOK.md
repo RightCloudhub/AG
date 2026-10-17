@@ -55,6 +55,8 @@ Web 工作台：<http://localhost:8000/web>
 | `AGR_OTEL_ENABLED=1` | 启用 OTel OTLP 导出（需 `pip install -e ".[otel]"`）（ENT-08） |
 | `AGR_OTEL_ENDPOINT` / `AGR_OTEL_SAMPLE_RATE` | OTLP collector 地址 / 采样率（默认 0.1） |
 | `AGR_API_HOST` / `AGR_API_PORT` / `AGR_API_RELOAD` | `agr-api` 服务参数（默认 0.0.0.0 / 8000） |
+| `AGR_RERANK` | 实验开关（V2 O-5）：`none`（默认）/ `lexical` / `http`；`http` 需在 `retrieval.rerank.endpoint` 配置 TEI / Infinity 的 `/rerank`。此项走 pydantic-settings，`.env` 中也生效 |
+| `AGR_CRITIC_MODE` | 实验开关（V2 O-7）：`llm`（默认）/ `tiered` / `offline`。同样可写在 `.env` |
 
 **Per-tenant 限额（ENT-05）**：`configs/default.yaml` 的 `tenants:` 段，per-tenant 覆盖
 `qps` / `concurrent` / `max_llm_calls` / `max_tokens` / `max_cost_units`，构造
@@ -139,6 +141,12 @@ agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm            
 
 增量冲突入审核队列：`data/processed/review_queue.jsonl`，API：`/v1/review-queue`。
 
+### 3.5 worker 写入的文档 API 检索不到（全文）
+
+- `offline` Profile 下全文索引是进程内的，独立 worker 的写入对 API 不可见（worker 启动时会打印 `Fulltext store ... is process-local` 警告）。
+- `live` / `hybrid` 使用共享快照 `data/indexes/bm25.json`：确认 API 和 worker 挂的是同一个卷、同一个 `paths.indexes_dir`。快照损坏时日志会出现 `fulltext snapshot reload failed`，进程继续使用上一次的正常状态。
+- 注意：`hybrid` 的向量库是内存实现，worker 写入的向量对 API 同样不可见；需要共享向量时请用 `live`（Qdrant）。
+
 ### 4. 缓存清理
 
 图谱/索引更新后调用 `RetrievalCache.on_index_update()`（代码侧）或重启进程（版本键失效）。
@@ -187,7 +195,7 @@ PII 脱敏：`AGR_REDACTION_ENABLED=1`（默认关）启用正则管道，挂在
 
 Prometheus 抓取 `GET /metrics-prom`（公开，文本协议）。指标：
 `agr_queries_total`、`agr_latency_p50/p95/p99_ms`、`agr_route_queries_total{route}`、
-`agr_errors_total{code}`、`agr_budget_trips_total`。
+`agr_errors_total{code}`、`agr_budget_trips_total`、`agr_event_handler_failures_total{handler}`（V2 O-4：缓存失效等关键订阅者在重试后仍失败的次数；出现即说明缓存已被 fail-safe 清空，需要排查）。
 
 告警规则示例（阈值沿用 `plan/engineering/cicd-observability.md` §3.3）：
 
@@ -202,6 +210,9 @@ groups:
       - alert: ErrorRateHigh
         expr: rate(agr_errors_total[5m]) / rate(agr_queries_total[5m]) > 0.05
         for: 5m
+        labels: {severity: high}
+      - alert: EventHandlerFailure
+        expr: increase(agr_event_handler_failures_total[5m]) > 0
         labels: {severity: high}
       - alert: BudgetTripsSpike
         expr: increase(agr_budget_trips_total[10m]) > 10

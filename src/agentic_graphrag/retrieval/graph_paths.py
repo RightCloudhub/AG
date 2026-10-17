@@ -5,6 +5,7 @@ from __future__ import annotations
 from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
 from agentic_graphrag.core.ports.stores import PathRecord
 from agentic_graphrag.retrieval.graph_beam import edge_score, path_signature
+from agentic_graphrag.retrieval.provenance import source_chunk_ids, source_citations
 
 _PATH_LENGTH_BONUS = 0.01
 
@@ -86,6 +87,7 @@ def path_candidates(
 ) -> list[Candidate]:
     out: list[Candidate] = []
     for i, (sc, path, content) in enumerate(scored):
+        sources = source_citations(path.relations)
         out.append(
             Candidate(
                 id=f"path:{source_name}:{target_name}:{i}",
@@ -99,8 +101,12 @@ def path_candidates(
                     "relation_ids": [r.id for r in path.relations if r.id],
                     "length": path.length,
                     "signature": path_signature(path.nodes, path.relations),
+                    "source_chunk_ids": source_chunk_ids(sources),
                 },
-                citations=[Citation(entity_id=n.id, span=n.name) for n in path.nodes],
+                citations=[
+                    *(Citation(entity_id=n.id, span=n.name) for n in path.nodes),
+                    *sources,
+                ],
                 metadata={"rank": i},
             )
         )

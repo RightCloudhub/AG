@@ -35,6 +35,12 @@ def build_cli_worker() -> IngestWorker:
             "through the API. Configure a file-backed doc store before relying on it.",
             type(bundle.docs).__name__,
         )
+    if getattr(bundle.fulltext, "path", None) is None:
+        logger.warning(
+            "Fulltext store %s is process-local: chunks this worker indexes are invisible "
+            "to the API. Use AGR_PROFILE=live|hybrid (shared BM25 snapshot).",
+            type(bundle.fulltext).__name__,
+        )
     processed = resolve_path(cfg.paths.processed_dir)
     ingestor = GraphIngestor(
         GraphIngestDeps(

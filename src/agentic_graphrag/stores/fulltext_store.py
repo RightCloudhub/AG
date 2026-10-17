@@ -102,6 +102,7 @@ class BM25FulltextStore:
                 "text": c.text,
                 "index": c.index,
                 "metadata": c.metadata,
+                "tenant_id": c.tenant_id,
             }
             for c in self._chunks
         ]
@@ -119,7 +120,10 @@ class BM25FulltextStore:
                 text=item["text"],
                 index=item.get("index", 0),
                 metadata=item.get("metadata") or {},
+                # Pre-V2 snapshots had no tenant_id; "" keeps their old (global) visibility.
+                tenant_id=str(item.get("tenant_id") or ""),
             )
             for item in data
         ]
+        self.clear()
         return self.index(chunks)

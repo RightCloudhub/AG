@@ -12,6 +12,7 @@ from agentic_graphrag.core.ports.stores import (
     VectorStore,
 )
 from agentic_graphrag.stores.factory import (
+    FulltextBackend,
     GraphBackend,
     StoreBundle,
     VectorBackend,
@@ -28,6 +29,7 @@ __all__ = [
     "DocStore",
     "DocumentRecord",
     "EntityRecord",
+    "FulltextBackend",
     "FulltextStore",
     "GraphBackend",
     "GraphStore",

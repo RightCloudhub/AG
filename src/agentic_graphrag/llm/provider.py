@@ -11,7 +11,13 @@ import httpx
 
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.circuit import CircuitBreaker
+from agentic_graphrag.llm.circuit import (
+    ROUTE_EMBED,
+    ROUTE_LIGHT,
+    ROUTE_STRONG,
+    CircuitBreaker,
+    CircuitBreakerSet,
+)
 
 
 class LLMProvider:
@@ -30,6 +36,7 @@ class LLMProvider:
         budget: BudgetTracker | None = None,
         cache_dir: str | Path | None = None,
         circuit: CircuitBreaker | None = None,
+        fallback_to_light: bool = False,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -45,12 +52,34 @@ class LLMProvider:
         self.timeout_seconds = timeout_seconds
         self.budget = budget
         self.cache_dir = Path(cache_dir) if cache_dir else None
-        self.circuit = circuit or CircuitBreaker()
+        # One breaker per route (O-8); ``circuit`` is the template they clone.
+        self.circuits = CircuitBreakerSet(circuit)
+        self.fallback_to_light = fallback_to_light
+        self.degradations = 0
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def model_for(self, tier: Tier) -> str:
         return self.strong_model if tier == Tier.STRONG else self.light_model
+
+    @property
+    def circuit(self) -> CircuitBreaker:
+        """Breaker a STRONG call would go through now (LIGHT when degrading)."""
+        strong = self.circuits.route(ROUTE_STRONG)
+        light = self.circuits.route(ROUTE_LIGHT)
+        if not strong.allow() and self.fallback_to_light and light.allow():
+            return light
+        return strong
+
+    def _effective_tier(self, tier: Tier) -> Tier:
+        if tier != Tier.STRONG or not self.fallback_to_light:
+            return tier
+        if self.circuits.route(ROUTE_STRONG).allow():
+            return tier
+        if not self.circuits.route(ROUTE_LIGHT).allow():
+            return tier
+        self.degradations += 1
+        return Tier.LIGHT
 
     def complete(
         self,
@@ -63,6 +92,7 @@ class LLMProvider:
         if self.budget:
             self.budget.check()
 
+        tier = self._effective_tier(tier)
         payload: dict[str, Any] = {
             "model": self.model_for(tier),
             "messages": [{"role": m.role, "content": m.content} for m in messages],
@@ -88,6 +118,7 @@ class LLMProvider:
             base_url=self.base_url,
             api_key=self.api_key,
             key_env="LLM_API_KEY",
+            route=ROUTE_STRONG if tier == Tier.STRONG else ROUTE_LIGHT,
         )
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage") or {}
@@ -119,6 +150,7 @@ class LLMProvider:
             base_url=self.embedding_base_url,
             api_key=self.embedding_api_key,
             key_env="LLM_EMBEDDING_API_KEY (or LLM_API_KEY)",
+            route=ROUTE_EMBED,
         )
         embedding = data["data"][0]["embedding"]
         # Embeddings are metered as their own call kind (not chat calls) so
@@ -142,13 +174,15 @@ class LLMProvider:
         base_url: str,
         api_key: str,
         key_env: str = "LLM_API_KEY",
+        route: str = ROUTE_STRONG,
     ) -> dict[str, Any]:
         if not api_key:
             raise RuntimeError(
                 f"{key_env} is not set. Configure .env or use MockLLMProvider in tests."
             )
-        if not self.circuit.allow():
-            raise RuntimeError("LLM circuit open: too many consecutive failures")
+        breaker = self.circuits.route(route)
+        if not breaker.allow():
+            raise RuntimeError(f"LLM circuit open ({route}): too many failures")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -167,9 +201,9 @@ class LLMProvider:
                 resp.raise_for_status()
                 data = resp.json()
         except Exception:
-            self.circuit.record_failure()
+            breaker.record_failure()
             raise
-        self.circuit.record_success()
+        breaker.record_success()
         return data
 
     def _cache_key(self, kind: str, payload: dict[str, Any]) -> str:

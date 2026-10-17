@@ -56,6 +56,7 @@ class MetricsRegistry:
         self._route_counts: dict[str, int] = defaultdict(int)
         self._error_counts: dict[str, int] = defaultdict(int)
         self._budget_trips = 0
+        self._event_failures: dict[str, int] = defaultdict(int)
 
     def record(self, m: QueryMetrics) -> None:
         with self._lock:
@@ -69,6 +70,11 @@ class MetricsRegistry:
                 self._error_counts[m.error_code] += 1
             if m.error_code in {"BUDGET_EXCEEDED"}:
                 self._budget_trips += 1
+
+    def record_event_failure(self, key: str) -> None:
+        """A critical event handler failed after retries (O-4: alert on > 0)."""
+        with self._lock:
+            self._event_failures[key] += 1
 
     def record_budget_trip(self) -> None:
         with self._lock:
@@ -98,6 +104,7 @@ class MetricsRegistry:
                 "route_counts": dict(self._route_counts),
                 "error_counts": dict(self._error_counts),
                 "budget_trips": self._budget_trips,
+                "event_handler_failures": dict(self._event_failures),
             }
 
     def recent(self, n: int = 50) -> list[dict[str, Any]]:

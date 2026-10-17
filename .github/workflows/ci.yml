@@ -91,13 +91,17 @@ jobs:
           if-no-files-found: ignore
 
   eval-offline:
-    name: Offline POC eval (floor 21/31)
+    name: Offline eval (POC 21/31, G2 167/200)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       POC_CASES: evals/datasets/poc_cases.jsonl
       POC_MIN_CORRECT: "21"
       POC_TOTAL: "31"
+      G2_CASES: evals/datasets/g2_all.jsonl
+      G2_TRIPLES: data/processed/pilot_triples.jsonl
+      G2_MIN_CORRECT: "167"
+      G2_TOTAL: "200"
     steps:
       - uses: actions/checkout@v4
 
@@ -128,6 +132,21 @@ jobs:
           python scripts/check_eval_floor.py reports/ci_poc_triage_accuracy.json \
             --min-correct "$POC_MIN_CORRECT" --total "$POC_TOTAL" --label "triage"
 
+      # 200 cases: Wilson CI ±5pp vs ±16pp on the 31-case POC (ARCH_OPTIMIZATION_V2 O-1).
+      - name: Eval — G2 (200 cases, pilot triples)
+        run: |
+          agr-run-cases --no-llm --memory-graph --cases "$G2_CASES" \
+            --seed-triples "$G2_TRIPLES" --run-name ci_g2
+          cp reports/poc_accuracy.json reports/ci_g2_accuracy.json
+          python scripts/check_eval_floor.py reports/ci_g2_accuracy.json \
+            --min-correct "$G2_MIN_CORRECT" --total "$G2_TOTAL" --label "g2"
+
+      # Report-only: label defects (ambiguous gold, inverse labels) — never blocks.
+      - name: Gold audit (report only)
+        run: |
+          python scripts/audit_gold.py "$G2_CASES" --triples "$G2_TRIPLES" \
+            --json reports/ci_gold_audit.json
+
       - name: Upload eval reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -135,5 +154,7 @@ jobs:
           name: poc-eval-reports
           path: |
             reports/ci_poc*.jsonl
-            reports/ci_poc*_accuracy.json
+            reports/ci_g2*.jsonl
+            reports/ci_*_accuracy.json
+            reports/ci_gold_audit.json
           if-no-files-found: ignore

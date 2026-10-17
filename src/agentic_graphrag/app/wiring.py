@@ -20,6 +20,7 @@ from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
+from agentic_graphrag.retrieval.rerankers import build_reranker
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.factory import StoreBundle
 
@@ -70,24 +71,37 @@ def build_executor_for_service(
     retrieval_cache: object | None,
     enable_cache: bool,
 ) -> Executor:
+    ret = cfg.retrieval
+    reranker = build_reranker(ret.rerank)
+    vec_k, ft_k = _recall_sizes(ret, reranked=reranker is not None)
     graph_ret = GraphRetriever.from_config(bundle.graph, cfg)
-    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=cfg.retrieval.fulltext_top_k)
+    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k)
     llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
-    vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=cfg.retrieval.vector_top_k)
+    vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k)
     deps = ExecutorDeps(
         vector=vector_ret,
         fulltext=fulltext_ret,
         llm=llm_for_embed if allow_llm else None,
         known_entities=known_entities,
     )
-    ret = cfg.retrieval
     config = ExecutorConfig(
         parallel=bool(ret.parallel),
         fusion_method=(ret.fusion_method or DEFAULT_FUSION_METHOD),
         fusion_k=int(ret.fusion_k),
         cache=retrieval_cache if enable_cache else None,  # type: ignore[arg-type]
+        reranker=reranker,
     )
+    if reranker is not None:
+        config.fusion_limit = int(ret.rerank.top_n)
     return Executor(graph=graph_ret, deps=deps, config=config)
+
+
+def _recall_sizes(ret: Any, *, reranked: bool) -> tuple[int, int]:
+    """Stage-1 recall per channel: widened to the candidate pool when re-ranking."""
+    if not reranked:
+        return int(ret.vector_top_k), int(ret.fulltext_top_k)
+    pool = int(ret.rerank.candidate_pool)
+    return max(pool, int(ret.vector_top_k)), max(pool, int(ret.fulltext_top_k))
 
 
 def build_llm_for_service(

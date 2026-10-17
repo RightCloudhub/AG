@@ -56,3 +56,4 @@ class CritiqueContext:
     max_hops: int = 5
     remaining_subquestions: int = 0
     excluded_hypotheses: list[str] = field(default_factory=list)
+    critic_mode: str = "llm"  # llm | tiered | offline (O-7)

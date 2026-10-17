@@ -168,11 +168,16 @@ def _critique_impl(
     allow_llm: bool,
 ) -> CriticResult:
     from agentic_graphrag.agent.critic_guard import force_incomplete_multihop
+    from agentic_graphrag.agent.critic_tiered import normalize_mode, tiered_critique
 
     if not ctx.evidence:
         return _critique_no_evidence(ctx)
-    if not allow_llm or llm is None:
+    mode = normalize_mode(ctx.critic_mode)
+    if not allow_llm or llm is None or mode == "offline":
         result = offline_critique(ctx)
+    elif mode == "tiered":
+        result, tier = tiered_critique(ctx, lambda c: _llm_critique(c, llm))
+        result.rationale = f"[critic_tier={tier}] {result.rationale}".strip()
     else:
         result = _llm_critique(ctx, llm)
     return force_incomplete_multihop(ctx, result)

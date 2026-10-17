@@ -85,6 +85,8 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块架构图与运行路径 |
 | [docs/product/PRD.md](./docs/product/PRD.md) | 产品需求与验收标准 |
 | [docs/ops/RUNBOOK.md](./docs/ops/RUNBOOK.md) | 部署、环境变量、运维 |
+| [docs/design/REFACTOR_PLAN.md](./docs/design/REFACTOR_PLAN.md) | 架构重构进度 |
+| [docs/design/ARCH_OPTIMIZATION_V2.md](./docs/design/ARCH_OPTIMIZATION_V2.md) | 架构优化评估的逐条核对、精细化设计与验证记录 |
 | [docs/README.md](./docs/README.md) | 全部文档索引 |
 
 ## License
