@@ -8,9 +8,10 @@ All limits load from ``configs/default.yaml`` → ``AppConfig.guardrails`` via
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from agentic_graphrag.config_register import RequirementRegisterConfig
 from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 
 if TYPE_CHECKING:
@@ -48,6 +49,9 @@ class GuardrailConfig:
     parallel_branches: bool = True
     max_parallel_branches: int = 3
     critic_mode: str = "llm"  # O-7 tiered critic
+    requirement_register: RequirementRegisterConfig = field(
+        default_factory=RequirementRegisterConfig
+    )
 
     @classmethod
     def from_app_config(
@@ -92,6 +96,7 @@ class GuardrailConfig:
             parallel_branches=bool(getattr(g, "parallel_branches", True)),
             max_parallel_branches=max(1, int(getattr(g, "max_parallel_branches", 3))),
             critic_mode=str(getattr(g, "critic_mode", "llm") or "llm"),
+            requirement_register=g.requirement_register.model_copy(deep=True),
         )
 
     def with_overrides(

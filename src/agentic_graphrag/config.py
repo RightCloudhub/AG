@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
 from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
+from agentic_graphrag.config_register import RequirementRegisterConfig
 
 if TYPE_CHECKING:
     from agentic_graphrag.governance.budget import BudgetTracker
@@ -24,6 +25,9 @@ DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.yaml"
 
 
 class GuardrailsConfig(BaseModel):
+    requirement_register: RequirementRegisterConfig = Field(
+        default_factory=RequirementRegisterConfig
+    )
     max_hops: int = 5
     max_llm_calls: int = 20
     max_tokens_per_query: int = 50_000
@@ -80,7 +84,6 @@ class KnowledgeConfig(BaseModel):
     chunk_overlap_chars: int = 150
     extract_confidence_threshold: float = 0.5
     schema_path: str = "configs/schema/domain_v0.yaml"
-    # P2-KG-01 extraction pipeline
     extract_max_attempts: int = 3
     extract_retry_base_delay_seconds: float = 0.5
     extract_journal_path: str = "data/processed/extract_journal.jsonl"
@@ -91,7 +94,6 @@ class LLMConfig(BaseModel):
     strong_model: str = "gpt-4.1"
     light_model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"
-    # Env LLM_EMBEDDING_BASE_URL / LLM_EMBEDDING_API_KEY override; empty → chat endpoint.
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     temperature: float = 0.0
@@ -143,7 +145,6 @@ class Settings(BaseSettings):
     llm_strong_model: str | None = Field(default=None, alias="LLM_STRONG_MODEL")
     llm_light_model: str | None = Field(default=None, alias="LLM_LIGHT_MODEL")
     llm_embedding_model: str | None = Field(default=None, alias="LLM_EMBEDDING_MODEL")
-    # Separate embedding provider (OpenAI-compatible). Empty → fall back to chat URL/key.
     llm_embedding_base_url: str | None = Field(default=None, alias="LLM_EMBEDDING_BASE_URL")
     llm_embedding_api_key: str | None = Field(default=None, alias="LLM_EMBEDDING_API_KEY")
 
@@ -286,8 +287,7 @@ def build_llm_provider(
 def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
     """Load a prompt file by stem name (e.g. 'extract' → extract.md).
 
-    Every load records ``name → version`` (content hash) for the current run so
-    the reasoning chain can say exactly which prompt produced it (§5.4).
+    Records content hashes for reasoning-chain audit (§5.4).
     """
     from agentic_graphrag.prompts import record_prompt_use
 

@@ -36,6 +36,12 @@
 
 ## 4. Baseline（P2-EV-03）
 
+需求登记表的归因实验另使用同配置 agentic 基线，仅关闭登记表开关；
+不得以纯向量 baseline 替代。新增分析脚本 `scripts/analyze_search_drift.py`
+报告 Contain-Match、可选 LLM 标签、弃答与选择性准确率、失败归因与可达性。
+段落召回要求先做 gold→chunk 对齐；当前 G2 的实体/关系金标不能充当段落 id。
+协议与字段见 [需求登记表评估](../../docs/design/REQUIREMENT_REGISTER.md#评估)。
+
 纯向量 RAG：同语料 chunk → 同 embedding → Top-K 召回 → 同款生成模型单轮生成。
 **公平性约束**：与 Agentic 用同一 LLM 档位、同一判卷器、同一评测集。
 

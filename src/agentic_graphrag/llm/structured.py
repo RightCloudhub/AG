@@ -28,6 +28,7 @@ def complete_structured[T: BaseModel](
     *,
     tier: Tier = Tier.STRONG,
     max_retries: int = 2,
+    temperature: float | None = None,
 ) -> T:
     """Call LLM and parse into a Pydantic model with limited retries."""
     history = list(messages)
@@ -37,6 +38,7 @@ def complete_structured[T: BaseModel](
             history,
             tier=tier,
             response_format={"type": "json_object"},
+            **({"temperature": temperature} if temperature is not None else {}),
         )
         try:
             data = extract_json(raw)

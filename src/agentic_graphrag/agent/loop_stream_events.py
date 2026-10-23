@@ -24,6 +24,8 @@ def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str
     if node_name == "executor":
         yield from _events_for_executor(hop, last)
     elif node_name == "critic":
+        if delta.get("register_progress"):
+            yield EVENT_THINKING, {"stage": "progress", "text": delta["register_progress"]}
         yield (
             EVENT_HOP_DONE,
             {

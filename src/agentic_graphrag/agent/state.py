@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 
 
 class AgentState(TypedDict, total=False):
@@ -33,6 +33,16 @@ class AgentState(TypedDict, total=False):
     # Structured "missing evidence" signal from the answer node (refactor §1.5).
     evidence_gap: dict[str, Any]
     answer_retries: int
+    requirement_register: dict[str, Any]
+    register_context: list[dict[str, str]]
+    register_events: list[dict[str, Any]]
+    register_cache: dict[str, list[str]]
+    register_seen: list[str]
+    register_attempts: dict[str, int]
+    register_fresh: list[str]
+    register_stop: str
+    register_progress: str
+    register_answer_policy: str
 
 
 def initial_state(

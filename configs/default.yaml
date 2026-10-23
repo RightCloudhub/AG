@@ -5,6 +5,20 @@ app:
   env: local
 
 guardrails:
+  # Opt in after paired evaluation on your retrieval stack. Disabled = same-stack
+  # agentic baseline. All existing hop/call/token/time ceilings still apply.
+  requirement_register:
+    enabled: false
+    seed_enabled: true
+    updates_enabled: true
+    delta_enabled: true
+    verifier_enabled: true
+    answer_policy: partial  # partial | abstain; factual claims still require citations
+    seed_top_k: 5
+    max_rounds: 15
+    context_limit_tokens: 128000
+    convergence_ratio: 0.8
+    max_requirements: 32
   max_hops: 4          # P95: cap agentic depth (was 5)
   # Breadth budget: plan nodes, a separate budget from depth (BL-12). One hop
   # executes one sub-question, so this must stay ≤ max_hops — above it the plan

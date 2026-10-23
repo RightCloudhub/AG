@@ -161,7 +161,10 @@ def handle_vector_search(
 ) -> list[Candidate]:
     if executor.vector is None:
         return []
-    return executor.vector.search(str(args.get("query") or sub_question), tenant_id=tenant_id)
+    options = {"top_k": int(args["top_k"])} if "top_k" in args else {}
+    return executor.vector.search(
+        str(args.get("query") or sub_question), tenant_id=tenant_id, **options
+    )
 
 
 def handle_fulltext_search(

@@ -46,6 +46,7 @@ def recover_chain_after_recursion(
         )
     if not chain.answer:
         chain.honest_fallback(_RECURSION_REASON)
+    chain = _annotate_register_recovery(chain, state)
     meta = dict(chain.metadata or {})
     meta["recursion_limit_hit"] = True
     meta["guardrail_status"] = _RECURSION_REASON
@@ -56,6 +57,14 @@ def recover_chain_after_recursion(
         "memory_snapshot": (state or {}).get("memory_snapshot") or {},
     }
     return finalize_agentic_chain(payload, budget=budget, tid=thread_id, t0=t0)
+
+
+def _annotate_register_recovery(chain: ReasoningChain, state: dict | None) -> ReasoningChain:
+    if not state or not state.get("requirement_register"):
+        return chain
+    from agentic_graphrag.agent.register_answer import annotate_register
+
+    return annotate_register(chain, {**state, "register_stop": "recursion_limit"})
 
 
 def _checkpoint_values(graph: Any, thread_id: str) -> dict[str, Any] | None:

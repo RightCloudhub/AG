@@ -1,8 +1,4 @@
-"""Agent loop node implementations (planner / executor / critic / answer).
-
-StateGraph assembly and public entrypoint live in
-:mod:`agentic_graphrag.agent.loop`.
-"""
+"""Agent nodes; StateGraph assembly lives in :mod:`agentic_graphrag.agent.loop`."""
 
 from __future__ import annotations
 
@@ -25,6 +21,7 @@ from agentic_graphrag.agent.parallel_branches import is_prefetched
 from agentic_graphrag.agent.plan_coverage import annotate_plan_coverage
 from agentic_graphrag.agent.plan_dag import cap_plan_breadth
 from agentic_graphrag.agent.planner import SubQuestion, plan
+from agentic_graphrag.agent.register_runtime import RegisterRuntime
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
@@ -60,6 +57,9 @@ class AgentRuntime:
         self.budget = budget
         self.guards = Guardrails(guard_cfg, budget=budget)
         self.memory = MemoryState()
+        self.register_runtime = RegisterRuntime(
+            AgentDeps(executor, llm, guard_cfg, budget), self.guards
+        )
 
     def _hydrate_from_state(self, state: AgentState) -> None:
         """Restore Memory (and hop floor) from checkpointer-backed state."""
@@ -77,6 +77,8 @@ class AgentRuntime:
 
     def node_planner(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
+        if self.register_runtime.enabled(state):
+            return self.register_runtime.node_planner(state)
         allow_llm = bool(state.get("allow_llm", True))
         known = list(self.executor.known_entities or [])
         sqs = plan(
@@ -86,8 +88,7 @@ class AgentRuntime:
             allow_llm=allow_llm and self.llm is not None,
             known_entities=known,
         )
-        # Breadth budget is enforced here, not left to the hop cap silently
-        # truncating the tail mid-run (BL-12).
+        # Enforce breadth explicitly instead of silently truncating the tail (BL-12).
         kept, dropped = cap_plan_breadth(sqs, self.guard_cfg.max_sub_questions)
         self.guards.note_plan_breadth(len(sqs))
         return {
@@ -102,6 +103,8 @@ class AgentRuntime:
 
     def node_executor(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
+        if self.register_runtime.enabled(state):
+            return self.register_runtime.node_executor(state)
         self._start_node(state)
         hop = self.guards.state.hop
         if self.guards.state.tripped:
@@ -160,6 +163,8 @@ class AgentRuntime:
 
     def node_critic(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
+        if self.register_runtime.enabled(state):
+            return self.register_runtime.node_critic(state)
         if state.get("done"):
             return state
 
@@ -203,6 +208,8 @@ class AgentRuntime:
 
     def node_answer(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
+        if self.register_runtime.enabled(state):
+            return self.register_runtime.node_answer(state)
         chain = ReasoningChain.model_validate(state["chain"])
         evidence = load_evidence(state)
         allow_llm = bool(state.get("allow_llm", True))
