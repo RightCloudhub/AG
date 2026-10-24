@@ -1,8 +1,11 @@
+// @ts-check
 /**
  * Chat view — multi-hop QA with SSE streaming, evidence, reasoning chain, feedback.
  */
 import { ref, computed, nextTick, onMounted } from '../../vendor/vue.esm-browser.prod.js';
 import { streamQuery, postFeedback } from '../api.js';
+import { record, text, number, parseAnswer } from '../responses.js';
+import { MessageRole, QueryRoute, StreamEvent, UiPolicy, KeyboardKey } from '../contracts.js';
 
 const HINTS = [
   'Apex Holdings 的 CEO 是谁？',
@@ -10,49 +13,63 @@ const HINTS = [
   'NovaTech 被哪家子公司收购了？',
 ];
 
+/** @typedef {{role: import('../contracts.js').MessageRoleName, text?: string, data?: import('../responses.js').Answer, feedbackSent?: boolean, feedbackValue?: boolean, showSteps?: boolean}} ChatMessage */
+
+function useChatState() {
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<ChatMessage[]>} */
+  const messages = ref([]);
+  const question = ref('');
+  const streaming = ref(false);
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<{icon: string, text: string, type: import('../contracts.js').StreamEventName}[]>} */
+  const streamSteps = ref([]);
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<AbortController | null>} */
+  const abortCtrl = ref(null);
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<HTMLElement | null>} */
+  const chatEl = ref(null);
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<HTMLTextAreaElement | null>} */
+  const inputEl = ref(null);
+
+  const canSend = computed(() => question.value.trim().length > 0 && !streaming.value);
+
+  function scrollBottom() {
+    nextTick(() => {
+      if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight;
+    });
+  }
+
+  /** @param {string} text */
+  function useHint(text) {
+    question.value = text;
+    if (inputEl.value) inputEl.value.focus();
+  }
+
+  onMounted(() => { if (inputEl.value) inputEl.value.focus(); });
+  return { messages, question, streaming, streamSteps, abortCtrl, chatEl, inputEl, canSend, scrollBottom, useHint };
+}
+
 export default {
   name: 'ChatView',
   setup() {
-    const messages = ref([]);
-    const question = ref('');
-    const streaming = ref(false);
-    const streamSteps = ref([]);
-    const abortCtrl = ref(null);
-    const chatEl = ref(null);
-    const inputEl = ref(null);
-
-    const canSend = computed(() => question.value.trim().length > 0 && !streaming.value);
-
-    function scrollBottom() {
-      nextTick(() => {
-        if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight;
-      });
-    }
-
-    function useHint(text) {
-      question.value = text;
-      if (inputEl.value) inputEl.value.focus();
-    }
+    const { messages, question, streaming, streamSteps, abortCtrl, chatEl, inputEl, canSend, scrollBottom, useHint } = useChatState();
 
     function sendQuestion() {
       const q = question.value.trim();
       if (!q || streaming.value) return;
-      messages.value.push({ role: 'user', text: q });
+      messages.value.push({ role: MessageRole.USER, text: q });
       question.value = '';
       streaming.value = true;
       streamSteps.value = [];
       scrollBottom();
 
-      const ctrl = streamQuery({ question: q, max_hops: 6 }, {
-        triage(p)       { streamSteps.value.push({ icon: '🧭', text: `路由: ${p.route || p.path || 'analyzing'}`, type: 'triage' }); scrollBottom(); },
-        thinking(p)     { streamSteps.value.push({ icon: '💭', text: p.thought || p.text || '思考中…', type: 'thinking' }); scrollBottom(); },
-        sub_question(p) { streamSteps.value.push({ icon: '🔍', text: p.sub_question || p.question || p.text || '', type: 'sub_question' }); scrollBottom(); },
-        hop_done(p)     { streamSteps.value.push({ icon: '✓', text: `第 ${p.hop ?? ''} 跳完成`, type: 'hop_done' }); scrollBottom(); },
-        cache_hit(p)    { streamSteps.value.push({ icon: '⚡', text: '缓存命中', type: 'cache_hit' }); scrollBottom(); },
-        answer(p)       { messages.value.push({ role: 'assistant', data: p }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
-        error(p)        { messages.value.push({ role: 'error', text: p.message || '未知错误' }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
+      const ctrl = streamQuery({ question: q, max_hops: UiPolicy.DEFAULT_MAX_HOPS }, {
+        [StreamEvent.TRIAGE](p)       { streamSteps.value.push({ icon: '🧭', text: `路由: ${text(record(p).route) || text(record(p).path) || 'analyzing'}`, type: StreamEvent.TRIAGE }); scrollBottom(); },
+        [StreamEvent.THINKING](p)     { streamSteps.value.push({ icon: '💭', text: text(record(p).thought) || text(record(p).text) || '思考中…', type: StreamEvent.THINKING }); scrollBottom(); },
+        [StreamEvent.SUB_QUESTION](p) { streamSteps.value.push({ icon: '🔍', text: text(record(p).sub_question) || text(record(p).question) || text(record(p).text) || '', type: StreamEvent.SUB_QUESTION }); scrollBottom(); },
+        [StreamEvent.HOP_DONE](p)     { streamSteps.value.push({ icon: '✓', text: `第 ${number(record(p).hop)} 跳完成`, type: StreamEvent.HOP_DONE }); scrollBottom(); },
+        [StreamEvent.CACHE_HIT](p)    { streamSteps.value.push({ icon: '⚡', text: '缓存命中', type: StreamEvent.CACHE_HIT }); scrollBottom(); },
+        [StreamEvent.ANSWER](p)       { messages.value.push({ role: MessageRole.ASSISTANT, data: parseAnswer(p) }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
+        [StreamEvent.ERROR](p)        { messages.value.push({ role: MessageRole.ERROR, text: text(record(p).message, '未知错误') }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
         done()          { if (streaming.value) { streaming.value = false; streamSteps.value = []; } },
-        unknown(p, e)   { /* silently ignore unknown event types per spec */ },
       });
       abortCtrl.value = ctrl;
     }
@@ -61,10 +78,12 @@ export default {
       if (abortCtrl.value) { abortCtrl.value.abort(); streaming.value = false; streamSteps.value = []; }
     }
 
+    /** @param {KeyboardEvent} e */
     function handleKeydown(e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+      if (e.key === KeyboardKey.ENTER && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
     }
 
+    /** @param {ChatMessage} msg @param {boolean} accurate */
     async function submitFeedback(msg, accurate) {
       if (!msg.data?.query_id || msg.feedbackSent) return;
       try {
@@ -74,16 +93,16 @@ export default {
       } catch { /* toast handled globally */ }
     }
 
+    /** @param {ChatMessage} msg */
     function toggleSteps(msg) {
       msg.showSteps = !msg.showSteps;
     }
 
-    onMounted(() => { if (inputEl.value) inputEl.value.focus(); });
 
     return {
       messages, question, streaming, streamSteps, canSend, chatEl, inputEl,
       HINTS, useHint, sendQuestion, cancelStream, handleKeydown,
-      submitFeedback, toggleSteps,
+      submitFeedback, toggleSteps, MessageRole, QueryRoute, UiPolicy,
     };
   },
 
@@ -103,12 +122,12 @@ export default {
     <!-- Messages -->
     <template v-for="(msg, i) in messages" :key="i">
       <!-- User message -->
-      <div v-if="msg.role === 'user'" class="msg msg--user">
+      <div v-if="msg.role === MessageRole.USER" class="msg msg--user">
         <div class="msg__bubble">{{ msg.text }}</div>
       </div>
 
       <!-- Error message -->
-      <div v-else-if="msg.role === 'error'" class="msg msg--assistant">
+      <div v-else-if="msg.role === MessageRole.ERROR" class="msg msg--assistant">
         <div class="msg__bubble" style="border-color: var(--color-danger);">
           <span class="badge badge--danger" style="margin-right:8px;">错误</span>
           {{ msg.text }}
@@ -120,22 +139,22 @@ export default {
         <div class="answer-card">
           <div class="answer-card__header">
             <div class="answer-card__route">
-              <span class="badge" :class="msg.data.route === 'fast_path' ? 'badge--success' : 'badge--accent'">
-                {{ msg.data.route || 'agentic' }}
+              <span class="badge" :class="msg.data.route === QueryRoute.FAST_PATH ? 'badge--success' : 'badge--accent'">
+                {{ msg.data.route || QueryRoute.AGENTIC }}
               </span>
               <span v-if="msg.data.status" class="badge badge--muted">{{ msg.data.status }}</span>
             </div>
             <span style="font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);">
-              {{ msg.data.query_id?.slice(0,8) }}
+              {{ msg.data.query_id?.slice(0, UiPolicy.SHORT_ID_PREVIEW) }}
             </span>
           </div>
           <div class="answer-card__body">{{ msg.data.answer }}</div>
 
           <!-- Evidence -->
-          <div v-if="msg.data.evidence?.length" class="evidence-list" style="padding:0 var(--space-5) var(--space-4);">
+          <div v-if="msg.data.evidence.length" class="evidence-list" style="padding:0 var(--space-5) var(--space-4);">
             <div v-for="ev in msg.data.evidence" :key="ev.id" class="evidence-item">
               <span class="evidence-item__id">[{{ ev.id }}]</span>
-              <span class="evidence-item__score">{{ (ev.score || 0).toFixed(2) }}</span>
+              <span class="evidence-item__score">{{ ev.score.toFixed(UiPolicy.SCORE_PRECISION) }}</span>
               {{ ev.content }}
             </div>
           </div>

@@ -13,18 +13,22 @@ measures dependency depth. Critic and answer semantics are unchanged.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner import SubQuestion
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ToolCallTrace
 
-PREFETCH_KEY = "prefetched"
-PARALLEL_GROUPS_KEY = "parallel_branches"
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.executor import Executor
+    from agentic_graphrag.agent.loop_handlers import ExecutorNodeCtx
+
+PREFETCH_KEY: Final = "prefetched"
+PARALLEL_GROUPS_KEY: Final = "parallel_branches"
 
 Retrieved = tuple[list[Candidate], list[ToolCallTrace]]
 
@@ -38,7 +42,7 @@ class BranchRun:
     tenant_id: str | None
 
 
-def is_prefetched(state: dict[str, Any], sq_id: str) -> bool:
+def is_prefetched(state: Mapping[str, Any], sq_id: str) -> bool:
     return sq_id in (state.get(PREFETCH_KEY) or {})
 
 
@@ -68,7 +72,7 @@ def _runnable_now(sq: SubQuestion, current_id: str, done_ids: set[str]) -> bool:
 
 
 def retrieve_group(
-    executor: Any, jobs: list[tuple[str, str]], run: BranchRun
+    executor: Executor, jobs: list[tuple[str, str]], run: BranchRun
 ) -> dict[str, Retrieved]:
     """Run ``executor.run`` for every ``(sq_id, text)`` job concurrently."""
     if len(jobs) == 1:
@@ -79,7 +83,7 @@ def retrieve_group(
         return {sq_id: fut.result() for sq_id, fut in futures.items()}
 
 
-def _run_one(executor: Any, text: str, run: BranchRun) -> Retrieved:
+def _run_one(executor: Executor, text: str, run: BranchRun) -> Retrieved:
     return executor.run(
         text,
         entities_hint=run.hints_for(text),
@@ -110,7 +114,7 @@ def take(store: dict[str, Any], sq_id: str) -> tuple[Retrieved | None, dict[str,
     return (cands, traces), remaining
 
 
-def retrieve_for_node(ctx: Any) -> tuple[Any, dict[str, Any], list[str]]:
+def retrieve_for_node(ctx: ExecutorNodeCtx) -> tuple[Retrieved, dict[str, Any], list[str]]:
     """Parked branch result, or this node plus its ready siblings concurrently (BL-12)."""
     parked, store = take(dict(ctx.state.get(PREFETCH_KEY) or {}), ctx.sq.id)
     if parked is not None:
@@ -131,7 +135,7 @@ def retrieve_for_node(ctx: Any) -> tuple[Any, dict[str, Any], list[str]]:
     return current, park(store, results), [sq_id for sq_id, _ in jobs]
 
 
-def hints_for(ctx: Any, text: str) -> list[str]:
+def hints_for(ctx: ExecutorNodeCtx, text: str) -> list[str]:
     known = ctx.executor.known_entities or None
     hints = extract_entity_mentions(ctx.state["question"] + " " + text, known)
     for conc in ctx.memory.conclusions_by_subquestion.values():

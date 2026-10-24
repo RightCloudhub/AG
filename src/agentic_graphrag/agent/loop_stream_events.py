@@ -5,25 +5,28 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-EVENT_FINAL_CHAIN = "__final_chain__"
-EVENT_SUB_QUESTION = "sub_question"
-EVENT_HOP_DONE = "hop_done"
-EVENT_TRIAGE = "triage"
-EVENT_THINKING = "thinking"
+from agentic_graphrag.core.enums import AgentNode, StreamEvent
+from agentic_graphrag.core.reasoning import ReasoningStep
+
+EVENT_FINAL_CHAIN = StreamEvent.FINAL_CHAIN
+EVENT_SUB_QUESTION = StreamEvent.SUB_QUESTION
+EVENT_HOP_DONE = StreamEvent.HOP_DONE
+EVENT_TRIAGE = StreamEvent.TRIAGE
+EVENT_THINKING = StreamEvent.THINKING
 
 
 def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
     """Map one LangGraph node update to zero-or-more SSE (event, payload) pairs."""
-    if node_name == "planner":
+    if node_name == AgentNode.PLANNER:
         yield from _events_for_planner(delta)
         return
     last = last_step(delta.get("chain"))
     if last is None:
         return
     hop = last.get("hop", 0)
-    if node_name == "executor":
+    if node_name == AgentNode.EXECUTOR:
         yield from _events_for_executor(hop, last)
-    elif node_name == "critic":
+    elif node_name == AgentNode.CRITIC:
         if delta.get("register_progress"):
             yield EVENT_THINKING, {"stage": "progress", "text": delta["register_progress"]}
         yield (
@@ -36,7 +39,7 @@ def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str
         )
 
 
-def fast_path_step_events(steps: list[Any]) -> Iterator[tuple[str, Any]]:
+def fast_path_step_events(steps: list[ReasoningStep]) -> Iterator[tuple[str, Any]]:
     """Replay a finished Fast Path chain's steps as progress events.
 
     Fast Path runs to completion before yielding, so unlike the agentic graph

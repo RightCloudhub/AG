@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
 
 from agentic_graphrag.knowledge.review.queue import ReviewType
 
 
 def submit_feedback(
-    svc: Any,
+    svc: QueryService,
     query_id: str,
     *,
     accurate: bool,
@@ -34,7 +37,7 @@ def submit_feedback(
     return payload
 
 
-def _attach_feedback_to_audit(svc: Any, query_id: str, payload: dict[str, Any]) -> None:
+def _attach_feedback_to_audit(svc: QueryService, query_id: str, payload: dict[str, Any]) -> None:
     if svc.audit_store is None:
         return
     chain = svc.audit_store.get(query_id)

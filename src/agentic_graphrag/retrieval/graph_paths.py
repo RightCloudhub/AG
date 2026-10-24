@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
-from agentic_graphrag.core.ports.stores import PathRecord
+from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.retrieval.graph_beam import edge_score, path_signature
 from agentic_graphrag.retrieval.provenance import source_chunk_ids, source_citations
 
@@ -69,15 +69,10 @@ def _edge_arrow(path: PathRecord, j: int) -> str:
     return f"-[{label}{rid}]->"
 
 
-def _is_forward(rel: object, head: object, tail: object) -> bool:
-    head_id = getattr(head, "id", None)
-    tail_id = getattr(tail, "id", None)
-    return bool(
-        head_id
-        and tail_id
-        and getattr(rel, "head_id", None) == head_id
-        and getattr(rel, "tail_id", None) == tail_id
-    )
+def _is_forward(rel: RelationRecord, head: EntityRecord, tail: EntityRecord) -> bool:
+    head_id = head.id
+    tail_id = tail.id
+    return bool(head_id and tail_id and rel.head_id == head_id and rel.tail_id == tail_id)
 
 
 def path_candidates(

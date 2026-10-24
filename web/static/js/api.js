@@ -1,198 +1,191 @@
-/**
- * API client — typed fetch wrapper for AgenticGraphRAG backend.
- * All responses follow the envelope: { success, data, error, meta }.
- */
+// @ts-check
+/** API client with validated envelopes and incremental SSE frames. */
+import {
+  ApiEndpoint, ErrorCode, ErrorMessage, ErrorName, FormField, HttpHeader,
+  HttpMethod, MediaType, PaginationKey, QueryKey, StorageKey, StreamEvent,
+  UiPolicy, isRecord,
+} from './contracts.js';
+import { consumeStream } from './stream.js';
+import {
+  parseMeta, parseIdentity, parseHealth, parseEntity, parseTask, parseReview,
+  parseAuditEvent, parseMetrics, rows, record,
+} from './responses.js';
 
-const BASE = '';
+/** @typedef {import('./contracts.js').ApiResult} ApiResult */
+/** @typedef {import('./contracts.js').ListParams} ListParams */
+/** @typedef {import('./contracts.js').QueryRequest} QueryRequest */
+/** @typedef {import('./contracts.js').StreamHandlers} StreamHandlers */
+
+export class ApiError extends Error {
+  /** @param {string} message @param {string} code @param {unknown} [details] */
+  constructor(message, code, details) {
+    super(message);
+    this.code = code;
+    this.details = details;
+  }
+}
 
 export function getApiKey() {
-  return localStorage.getItem('agr_api_key') || '';
+  return localStorage.getItem(StorageKey.API_KEY) || '';
 }
 
+/** @param {string} key */
 export function setApiKey(key) {
-  if (key) localStorage.setItem('agr_api_key', key.trim());
-  else localStorage.removeItem('agr_api_key');
+  const value = key.trim();
+  if (value) localStorage.setItem(StorageKey.API_KEY, value);
+  else localStorage.removeItem(StorageKey.API_KEY);
 }
 
-/** Unwrap the envelope; throw on error. */
-async function request(path, options = {}) {
-  const url = `${BASE}${path}`;
-  const headers = { 'Content-Type': 'application/json', ...options.headers };
+/** @param {HeadersInit} [initial] @param {boolean} [multipart] */
+function requestHeaders(initial, multipart = false) {
+  const headers = new Headers(initial);
+  if (!multipart) headers.set(HttpHeader.CONTENT_TYPE, MediaType.JSON);
   const key = getApiKey();
-  if (key) headers['Authorization'] = `Bearer ${key}`;
-
-  const res = await fetch(url, {
-    ...options,
-    headers,
-  });
-  if (!res.ok && !res.headers.get('content-type')?.includes('json')) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const envelope = await res.json();
-  if (!envelope.success) {
-    const err = new Error(envelope.error?.message || 'Unknown error');
-    err.code = envelope.error?.code;
-    err.details = envelope.error?.details;
-    throw err;
-  }
-  return { data: envelope.data, meta: envelope.meta };
+  if (key) headers.set(HttpHeader.AUTHORIZATION, `Bearer ${key}`);
+  return headers;
 }
 
-/* ── Identity ──────────────────────────────────────────────────────── */
-
-export function fetchMe() {
-  return request('/v1/me');
+/** @param {Response} response @returns {Promise<ApiResult>} */
+async function parseResponse(response) {
+  if (!response.ok && !response.headers.get(HttpHeader.CONTENT_TYPE)?.includes(MediaType.JSON)) {
+    throw new ApiError(`HTTP ${response.status}`, ErrorCode.HTTP);
+  }
+  /** @type {unknown} */
+  const envelope = await response.json();
+  if (!isRecord(envelope) || typeof envelope.success !== 'boolean') {
+    throw new ApiError(ErrorMessage.INVALID_RESPONSE, ErrorCode.INVALID_RESPONSE);
+  }
+  if (!response.ok || !envelope.success) {
+    const error = isRecord(envelope.error) ? envelope.error : {};
+    throw new ApiError(
+      typeof error.message === 'string' ? error.message : ErrorMessage.UNKNOWN,
+      typeof error.code === 'string' ? error.code : ErrorCode.HTTP,
+      error.details,
+    );
+  }
+  return { data: envelope.data, meta: parseMeta(envelope.meta) };
 }
 
-/* ── Query ─────────────────────────────────────────────────────────── */
+/** @param {string} path @param {RequestInit} [options] */
+async function request(path, options = {}) {
+  const headers = requestHeaders(options.headers, options.body instanceof FormData);
+  return parseResponse(await fetch(path, { ...options, headers }));
+}
 
+/** @template T @param {Promise<ApiResult>} response @param {(value: unknown) => T} parser */
+async function parsed(response, parser) {
+  const result = await response;
+  return { ...result, data: parser(result.data) };
+}
+
+export function fetchMe() { return parsed(request(ApiEndpoint.ME), parseIdentity); }
+
+/** @param {QueryRequest} body */
 export function postQuery(body) {
-  return request('/v1/query', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  return request(ApiEndpoint.QUERY, { method: HttpMethod.POST, body: JSON.stringify(body) });
 }
 
-/**
- * SSE streaming query — calls handlers for each event type.
- * Returns an AbortController so caller can cancel.
- */
+/** @param {Response} response */
+async function validateStream(response) {
+  if (!response.ok) await parseResponse(response);
+  if (!response.body || !response.headers.get(HttpHeader.CONTENT_TYPE)?.includes(MediaType.SSE)) {
+    throw new ApiError(ErrorMessage.INVALID_STREAM, ErrorCode.INVALID_RESPONSE);
+  }
+  return response.body;
+}
+
+/** @param {QueryRequest} body @param {StreamHandlers} [handlers] */
 export function streamQuery(body, handlers = {}) {
-  const ctrl = new AbortController();
+  const controller = new AbortController();
   const run = async () => {
-    const headers = { 'Content-Type': 'application/json' };
-    const key = getApiKey();
-    if (key) headers['Authorization'] = `Bearer ${key}`;
-
-    const res = await fetch(`${BASE}/v1/query/stream`, {
-      method: 'POST',
-      headers,
+    const response = await fetch(ApiEndpoint.STREAM, {
+      method: HttpMethod.POST,
+      headers: requestHeaders(),
       body: JSON.stringify(body),
-      signal: ctrl.signal,
+      signal: controller.signal,
     });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEvent = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-          const raw = line.slice(6);
-          let payload;
-          try { payload = JSON.parse(raw); } catch { payload = raw; }
-          const handler = handlers[currentEvent] || handlers.unknown;
-          if (handler) handler(payload, currentEvent);
-        }
-      }
-    }
-    if (handlers.done) handlers.done();
+    await consumeStream(await validateStream(response), handlers);
+    handlers.done?.();
   };
-  run().catch(err => {
-    if (err.name !== 'AbortError' && handlers.error) {
-      handlers.error({ code: 'STREAM_ERROR', message: err.message });
-    }
+  run().catch(error => {
+    if (error instanceof Error && error.name === ErrorName.ABORT) return;
+    handlers[StreamEvent.ERROR]?.({
+      code: error instanceof ApiError ? error.code : ErrorCode.STREAM,
+      message: error instanceof Error ? error.message : String(error),
+      details: error instanceof ApiError ? error.details : undefined,
+    }, StreamEvent.ERROR);
   });
-  return ctrl;
+  return controller;
 }
-
-/* ── Health ─────────────────────────────────────────────────────────── */
 
 export async function fetchHealth() {
-  const res = await fetch(`${BASE}/healthz`);
-  return res.json();
+  const response = await fetch(ApiEndpoint.HEALTH);
+  if (!response.ok) throw new ApiError(`HTTP ${response.status}`, ErrorCode.HTTP);
+  return parseHealth(await response.json());
 }
 
-/* ── Graph ──────────────────────────────────────────────────────────── */
+/** @param {ListParams} params */
+function pagination(params) {
+  return new URLSearchParams({
+    [PaginationKey.LIMIT]: String(params.limit ?? UiPolicy.DEFAULT_PAGE_SIZE),
+    [PaginationKey.OFFSET]: String(params.offset ?? 0),
+  });
+}
 
+/** @param {ListParams} [params] */
 export function fetchEntities(params = {}) {
-  const qs = new URLSearchParams();
-  if (params.limit) qs.set('limit', params.limit);
-  if (params.offset != null) qs.set('offset', params.offset);
-  if (params.query) qs.set('query', params.query);
-  if (params.entity_type) qs.set('entity_type', params.entity_type);
-  return request(`/v1/graph/entities?${qs}`);
+  const query = pagination(params);
+  if (params.query) query.set(QueryKey.QUERY, params.query);
+  if (params.entity_type) query.set(QueryKey.ENTITY_TYPE, params.entity_type);
+  return parsed(request(`${ApiEndpoint.ENTITIES}?${query}`), value => rows(value, parseEntity));
 }
 
-/* ── Knowledge ─────────────────────────────────────────────────────── */
-
+/** @param {ListParams} [params] */
 export function fetchIngestTasks(params = {}) {
-  const qs = new URLSearchParams();
-  qs.set('limit', params.limit || 50);
-  qs.set('offset', params.offset || 0);
-  return request(`/v1/ingest-tasks?${qs}`);
+  return parsed(request(`${ApiEndpoint.INGEST_TASKS}?${pagination(params)}`), value => rows(value, parseTask));
 }
 
-export function fetchIngestTask(taskId) {
-  return request(`/v1/ingest-tasks/${taskId}`);
-}
+/** @param {string} taskId */
+export function fetchIngestTask(taskId) { return request(ApiEndpoint.ingestTask(taskId)); }
 
-export async function uploadDocs(files) {
+/** @param {File[]} files */
+export function uploadDocs(files) {
   const form = new FormData();
-  for (const f of files) form.append('files', f);
-  const res = await fetch(`${BASE}/v1/docs`, { method: 'POST', body: form });
-  const envelope = await res.json();
-  if (!envelope.success) throw new Error(envelope.error?.message);
-  return { data: envelope.data, meta: envelope.meta };
+  for (const file of files) form.append(FormField.FILES, file);
+  return request(ApiEndpoint.DOCS, { method: HttpMethod.POST, body: form });
 }
 
-/* ── Review Queue ──────────────────────────────────────────────────── */
-
+/** @param {ListParams} [params] */
 export function fetchReviewQueue(params = {}) {
-  const qs = new URLSearchParams();
-  qs.set('limit', params.limit || 50);
-  qs.set('offset', params.offset || 0);
-  if (params.status) qs.set('status', params.status);
-  return request(`/v1/review-queue?${qs}`);
+  const query = pagination(params);
+  if (params.status) query.set(QueryKey.STATUS, params.status);
+  return parsed(request(`${ApiEndpoint.REVIEW_QUEUE}?${query}`), value => rows(value, parseReview));
 }
 
+/** @param {string} itemId @param {{decision: import('./contracts.js').ReviewDecisionName}} body */
 export function decideReview(itemId, body) {
-  return request(`/v1/review-queue/${itemId}/decision`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+  return request(ApiEndpoint.reviewDecision(itemId), {
+    method: HttpMethod.POST, body: JSON.stringify(body),
   });
 }
 
-/* ── Feedback ──────────────────────────────────────────────────────── */
-
+/** @param {{query_id: string, accurate: boolean, reason?: string}} body */
 export function postFeedback(body) {
-  return request('/v1/feedback', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  return request(ApiEndpoint.FEEDBACK, { method: HttpMethod.POST, body: JSON.stringify(body) });
 }
 
-/* ── Audit ─────────────────────────────────────────────────────────── */
+/** @param {string} queryId */
+export function fetchAuditQuery(queryId) { return request(ApiEndpoint.auditQuery(queryId)); }
 
-export function fetchAuditQuery(queryId) {
-  return request(`/v1/audit/queries/${queryId}`);
-}
+export function fetchMetrics() { return parsed(request(ApiEndpoint.METRICS), parseMetrics); }
+export function fetchBudgetSnapshot() { return parsed(request(ApiEndpoint.BUDGET), record); }
 
-/* ── Admin / Ops ───────────────────────────────────────────────────── */
-
-export function fetchMetrics() {
-  return request('/v1/metrics');
-}
-
-export function fetchBudgetSnapshot() {
-  return request('/v1/budget/snapshot');
-}
-
+/** @param {ListParams} [params] */
 export function fetchAuditEvents(params = {}) {
-  const qs = new URLSearchParams();
-  if (params.limit) qs.set('limit', params.limit);
-  if (params.action) qs.set('action', params.action);
-  return request(`/v1/audit-events?${qs}`);
+  const query = pagination(params);
+  if (params.action) query.set(QueryKey.ACTION, params.action);
+  return parsed(request(`${ApiEndpoint.AUDIT_EVENTS}?${query}`), value => rows(value, parseAuditEvent));
 }
 
-export function fetchTrace(queryId) {
-  return request(`/v1/traces/${queryId}`);
-}
+/** @param {string} queryId */
+export function fetchTrace(queryId) { return request(ApiEndpoint.trace(queryId)); }

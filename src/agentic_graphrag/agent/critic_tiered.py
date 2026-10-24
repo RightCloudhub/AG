@@ -16,24 +16,25 @@ suggestions and "need more evidence" always escalate.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.critic import CriticResult
 
 from agentic_graphrag.agent.critic_offline import extract_entity_conclusion, offline_critique
 from agentic_graphrag.agent.options import CritiqueContext
+from agentic_graphrag.core.enums import CriticMode
 
-CRITIC_MODES = ("llm", "tiered", "offline")
+CRITIC_MODES = tuple(CriticMode)
 TIER_DETERMINISTIC = "deterministic"
 TIER_LLM = "llm"
 
 
-def normalize_mode(mode: str | None) -> str:
-    m = (mode or "llm").strip().lower()
-    if m not in CRITIC_MODES:
-        raise ValueError(f"critic_mode must be one of {CRITIC_MODES}, got {mode!r}")
-    return m
+def normalize_mode(mode: CriticMode | None) -> CriticMode:
+    return CriticMode((mode or CriticMode.LLM).strip().lower())
 
 
-def is_decisive(ctx: CritiqueContext, result: Any) -> bool:
+def is_decisive(ctx: CritiqueContext, result: CriticResult) -> bool:
     from agentic_graphrag.agent.critic import CriticAction
 
     if result.action is not CriticAction.SUFFICIENT:
@@ -43,8 +44,8 @@ def is_decisive(ctx: CritiqueContext, result: Any) -> bool:
 
 def tiered_critique(
     ctx: CritiqueContext,
-    llm_critique: Callable[[CritiqueContext], Any],
-) -> tuple[Any, str]:
+    llm_critique: Callable[[CritiqueContext], CriticResult],
+) -> tuple[CriticResult, str]:
     """Return ``(result, tier)``; ``tier`` says who decided."""
     offline = offline_critique(ctx)
     if is_decisive(ctx, offline):

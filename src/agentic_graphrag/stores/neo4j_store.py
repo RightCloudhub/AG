@@ -12,6 +12,11 @@ from typing import Any
 
 from neo4j import Driver, GraphDatabase
 
+from agentic_graphrag.core.ports.capabilities import (
+    Closable,
+    EntityLister,
+    Pingable,
+)
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.stores.neo4j_codec import (
     attrs_for_neo4j,
@@ -21,6 +26,7 @@ from agentic_graphrag.stores.neo4j_codec import (
     sources_for_neo4j,
     sources_from_neo4j,
 )
+from agentic_graphrag.stores.neo4j_mutation import Neo4jEntityMutation
 from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record
 
 # Back-compat aliases used by unit tests.
@@ -46,7 +52,7 @@ def _validate_identifier(value: str, kind: str) -> str:
     return value
 
 
-class Neo4jGraphStore:
+class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
     def __init__(self, uri: str, user: str, password: str) -> None:
         self._uri = uri
         self._driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -237,8 +243,11 @@ class Neo4jGraphStore:
 
     def counts(self) -> dict[str, int]:
         with self._driver.session() as session:
-            nodes = session.run("MATCH (n) RETURN count(n) AS c").single()["c"]
-            rels = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()["c"]
+            node_record = session.run("MATCH (n) RETURN count(n) AS c").single()
+            relation_record = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()
+            if node_record is None or relation_record is None:
+                raise RuntimeError("Graph count query returned no record")
+            nodes, rels = node_record["c"], relation_record["c"]
         return {"nodes": int(nodes), "relationships": int(rels)}
 
     def list_entities(
@@ -261,33 +270,3 @@ class Neo4jGraphStore:
         with self._driver.session() as session:
             rows = session.run(query, tenant_id=tenant_id, offset=off, limit=lim)
             return [node_to_entity(rec["e"]) for rec in rows]
-
-    def list_relations(self, limit: int = 50_000) -> list[RelationRecord]:
-        """Enumerate relations for incremental conflict indexing."""
-        lim = max(1, min(int(limit), 100_000))
-        q = "MATCH (h)-[r]->(t) RETURN r, h, t LIMIT $limit"
-        out: list[RelationRecord] = []
-        with self._driver.session() as session:
-            for rec in session.run(q, limit=lim):
-                out.append(
-                    rel_to_record(
-                        rec["r"],
-                        walk_other_name=rec["t"].get("name") or "",
-                        walk_from_name=rec["h"].get("name") or "",
-                    )
-                )
-        return out
-
-    def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
-        """Delete a relationship by id; ``tenant_id`` scopes it to one tenant's copy."""
-        if not relation_id:
-            return False
-        with self._driver.session() as session:
-            row = session.run(
-                "MATCH ()-[r]->() WHERE r.id = $id "
-                "AND ($tenant_id IS NULL OR coalesce(r.tenant_id, '') = $tenant_id) "
-                "DELETE r RETURN count(*) AS c",
-                id=relation_id,
-                tenant_id=tenant_id,
-            ).single()
-        return bool(row and int(row["c"]) > 0)

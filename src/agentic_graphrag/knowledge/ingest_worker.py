@@ -13,14 +13,18 @@ import logging
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from agentic_graphrag.core.ports.stores import DocStore, VectorStore
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.stores import ChunkRecord, DocStore, FulltextStore, VectorStore
+from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.ingest import chunk_document
 from agentic_graphrag.knowledge.ingest_tasks import (
     DEFAULT_STALE_SECONDS,
     IngestStatus,
+    IngestTask,
     IngestTaskStore,
 )
 
@@ -93,12 +97,12 @@ class IngestWorker:
         *,
         doc_store: DocStore,
         vector_store: VectorStore,
-        fulltext_store: Any | None = None,
-        embed_fn: Any | None = None,
+        fulltext_store: FulltextStore | None = None,
+        embed_fn: Callable[[str], list[float]] | None = None,
         task_store: IngestTaskStore | None = None,
         config: IngestWorkerConfig | None = None,
         worker_id: str | None = None,
-        graph_ingestor: Any | None = None,
+        graph_ingestor: GraphIngestor | None = None,
     ) -> None:
         self.graph_ingestor = graph_ingestor
         self.doc_store = doc_store
@@ -136,7 +140,9 @@ class IngestWorker:
             graph=self._ingest_graph(chunks, doc.tenant_id, batch_id),
         )
 
-    def _ingest_graph(self, chunks: list[Any], tenant_id: str, batch_id: str) -> dict | None:
+    def _ingest_graph(
+        self, chunks: list[ChunkRecord], tenant_id: str, batch_id: str
+    ) -> JsonObject | None:
         """Graph stage (BL-01); a failure is reported, never silently dropped."""
         if self.graph_ingestor is None:
             return None
@@ -221,7 +227,7 @@ class IngestWorker:
             return False
         return True
 
-    def _run_task(self, task: Any) -> list[IngestResult]:
+    def _run_task(self, task: IngestTask) -> list[IngestResult]:
         """Index one claimed task's documents, then record its terminal status."""
         try:
             results = self._process_task_docs(task)
@@ -231,7 +237,7 @@ class IngestWorker:
         self._finalize(task.id, *task_outcome(results))
         return results
 
-    def _process_task_docs(self, task: Any) -> list[IngestResult]:
+    def _process_task_docs(self, task: IngestTask) -> list[IngestResult]:
         """Index every document, refreshing the lease between documents."""
         results: list[IngestResult] = []
         for row in task.docs:

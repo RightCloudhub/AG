@@ -6,11 +6,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.reasoning import QueryStatus
 from agentic_graphrag.generation.claim_support import content_tokens
 from agentic_graphrag.generation.relation_consistency import relation_consistent
 
 
-def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
+def gold_evidence_items(row: dict[str, Any], cases_by_id: dict[str, JsonObject]) -> list[str]:
     """Gold evidence tokens: gold_path nodes/relations or case gold_evidence."""
     cid = row.get("case_id") or row.get("id")
     case = cases_by_id.get(str(cid) if cid is not None else "", {})
@@ -97,7 +99,7 @@ def _one_step_parts(step: dict[str, Any]) -> list[str]:
 
 def evidence_recall_for_row(
     row: dict[str, Any],
-    cases_by_id: dict[str, dict],
+    cases_by_id: dict[str, JsonObject],
     *,
     min_hops: int = 2,
 ) -> float | None:
@@ -112,7 +114,9 @@ def evidence_recall_for_row(
     return hits / len(gold_items)
 
 
-def _skip_for_hops(row: dict[str, Any], cases_by_id: dict[str, dict], *, min_hops: int) -> bool:
+def _skip_for_hops(
+    row: dict[str, Any], cases_by_id: dict[str, JsonObject], *, min_hops: int
+) -> bool:
     cid = str(row.get("case_id") or row.get("id") or "")
     case = cases_by_id.get(cid, {})
     hops = int(case.get("hops") or row.get("hop_count") or row.get("hops") or 0)
@@ -144,7 +148,7 @@ def _item_in_blob(item: str, blob: str) -> bool:
 
 def _alias_hit(token: str, blob: str) -> bool:
     aliases = _RELATION_ALIASES.get(token)
-    return bool(aliases) and any(a in blob for a in aliases)
+    return aliases is not None and any(a in blob for a in aliases)
 
 
 def fabrication_rate(rows: list[dict[str, Any]]) -> float:
@@ -187,7 +191,7 @@ class _CatalogEntry:
 # id → persisted evidence; the callables that consume a row or its claims.
 _Catalog = dict[str, _CatalogEntry]
 _RowFlag = Callable[[dict[str, Any]], bool | None]
-_ClaimJudge = Callable[[list, _Catalog], bool]
+_ClaimJudge = Callable[[list[JsonObject], _Catalog], bool]
 
 
 def _rate(rows: list[dict[str, Any]], flag_of: _RowFlag) -> float:
@@ -214,18 +218,18 @@ def _unbound_flag(row: dict[str, Any]) -> bool | None:
 
 def _row_flag(row: dict[str, Any], judge: _ClaimJudge) -> bool | None:
     status = str(row.get("status") or "").lower()
-    if status in {"no_answer", ""}:
+    if status in {QueryStatus.NO_ANSWER, ""}:
         return None
     chain = row.get("chain") or {}
     claims = chain.get("claims") if isinstance(chain, dict) else None
     if claims:
         return bool(judge(claims, _catalog_by_id(chain)))
-    if status == "answered" and not (row.get("prediction") or "").startswith("无法"):
+    if status == QueryStatus.ANSWERED and not (row.get("prediction") or "").startswith("无法"):
         return True
     return False
 
 
-def _claims_fail_gate(claims: list, catalog: _Catalog) -> bool:
+def _claims_fail_gate(claims: list[JsonObject], catalog: _Catalog) -> bool:
     if _claims_unbound(claims):
         return True
     if not catalog:
@@ -277,5 +281,5 @@ def _catalog_by_id(chain: dict[str, Any]) -> _Catalog:
     return out
 
 
-def _claims_unbound(claims: list) -> bool:
+def _claims_unbound(claims: list[JsonObject]) -> bool:
     return any(not (c.get("evidence_ids") if isinstance(c, dict) else True) for c in claims)

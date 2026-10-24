@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-Status = Literal["pending", "active", "resolved", "retired"]
-OPEN_STATUSES = frozenset({"pending", "active"})
+from agentic_graphrag.core.enums import RequirementStatus
+from agentic_graphrag.core.json_types import JsonObject
+
+Status = RequirementStatus
+OPEN_STATUSES = frozenset({RequirementStatus.PENDING, RequirementStatus.ACTIVE})
 
 
 class Requirement(BaseModel):
@@ -15,7 +16,7 @@ class Requirement(BaseModel):
 
     req_id: str = ""
     text: str = Field(min_length=1)
-    status: Status = "pending"
+    status: RequirementStatus = RequirementStatus.PENDING
     notes: str = Field(default="", validation_alias=AliasChoices("notes", "evidence_notes"))
     passages: set[str] = Field(default_factory=set)
     retire_reason: str = ""
@@ -24,7 +25,7 @@ class Requirement(BaseModel):
     # An update must name the fresh passages that actually touched this need.
     touched_passages: set[str] = Field(default_factory=set)
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> JsonObject:
         data = self.model_dump(mode="json")
         data["passages"] = sorted(self.passages)
         data["touched_passages"] = sorted(self.touched_passages)
@@ -45,7 +46,7 @@ class Register(BaseModel):
         return [r for r in self.open_items() if self.dependencies_met(r)]
 
     def dependencies_met(self, item: Requirement) -> bool:
-        return all(self.items[d].status == "resolved" for d in item.depends_on)
+        return all(self.items[d].status == RequirementStatus.RESOLVED for d in item.depends_on)
 
     def search_target(self, item: Requirement) -> Requirement:
         anchors = list(item.anchors)
@@ -53,7 +54,7 @@ class Register(BaseModel):
             anchors.extend(self.items[rid].anchors)
         return item.model_copy(update={"anchors": list(dict.fromkeys(anchors))})
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> JsonObject:
         return {
             "question": self.question,
             "items": {k: r.snapshot() for k, r in self.items.items()},
@@ -74,7 +75,7 @@ def compose(question: str, item: Requirement) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def diff(old: Register, new: Register) -> list[dict]:
+def diff(old: Register, new: Register) -> list[JsonObject]:
     changes = []
     for rid, item in new.items.items():
         previous = old.items.get(rid)

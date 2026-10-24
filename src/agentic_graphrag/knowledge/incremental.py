@@ -16,8 +16,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.events import EventBus, GraphCommitted
-from agentic_graphrag.core.ports.stores import GraphStore, RelationRecord
+from agentic_graphrag.core.ports.capabilities import (
+    DEFAULT_RELATION_SCAN,
+    RelationDeletion,
+    RelationLister,
+)
+from agentic_graphrag.core.ports.stores import GraphStore, RelationDeleter, RelationRecord
 from agentic_graphrag.knowledge.cardinality import sides_resolver
 from agentic_graphrag.knowledge.graph_builder import (
     load_triples_into_graph,
@@ -32,6 +38,7 @@ from agentic_graphrag.knowledge.incremental_conflicts import (
     split_by_conflict,
     triple_key,
 )
+from agentic_graphrag.knowledge.review.queue import ReviewQueue
 from agentic_graphrag.knowledge.schema_check import (
     SchemaDefinition,
     Triple,
@@ -42,6 +49,7 @@ from agentic_graphrag.knowledge.schema_check import (
 from agentic_graphrag.knowledge.temporal import VALID_FROM, closed
 
 logger = logging.getLogger(__name__)
+
 
 TEMPORAL_ACTIONS = frozenset({ConflictAction.SUCCEED, ConflictAction.HISTORICAL})
 
@@ -90,7 +98,7 @@ class IncrementalUpdater:
         on_commit: Callable[[], None] | None = None,
         events: EventBus | None = None,
         review_log: Path | str | None = None,
-        review_queue: Any | None = None,
+        review_queue: ReviewQueue | None = None,
         tenant_id: str = "",
     ) -> None:
         self.store = store
@@ -125,15 +133,9 @@ class IncrementalUpdater:
             self._rel_index[index_key(r.head_name, r.type, r.tail_name)] = r
 
     def _iter_store_relations(self) -> list[RelationRecord]:
-        rels = getattr(self.store, "relations", None) or getattr(self.store, "_relations", None)
-        if isinstance(rels, dict):
-            return list(rels.values())
-        if isinstance(rels, list):
-            return list(rels)
-        lister = getattr(self.store, "list_relations", None)
-        if callable(lister):
+        if isinstance(self.store, RelationLister):
             try:
-                return list(lister(limit=50_000) or [])
+                return self.store.list_relations(limit=DEFAULT_RELATION_SCAN)
             except Exception:
                 logger.warning("list_relations failed; conflict index starts empty", exc_info=True)
                 return []
@@ -162,7 +164,7 @@ class IncrementalUpdater:
             stamp_tenant(triple, self.tenant_id)
         with self._lock:
             self._apply_locked(triples, result)
-        result.duration_ms = int((time.perf_counter() - t0) * 1000)
+        result.duration_ms = int((time.perf_counter() - t0) * MILLISECONDS_PER_SECOND)
         return result
 
     def _apply_locked(self, triples: list[Triple], result: BatchResult) -> None:
@@ -247,30 +249,18 @@ class IncrementalUpdater:
             self._rel_index[index_key(rec.head_name, rec.type, rec.tail_name)] = rec
 
     def _delete_relation(self, old: RelationRecord) -> None:
-        deleter = getattr(self.store, "delete_relation", None)
-        if callable(deleter):
-            self._call_deleter(deleter, old)
-            return
-        if self._drop_from_list(old):
+        if isinstance(self.store, RelationDeletion):
+            self._call_deleter(self.store.delete_relation, old)
             return
         logger.warning("store cannot delete relations; %s survives as a dual fact", old.id)
 
-    def _call_deleter(self, deleter: Callable[[str], Any], old: RelationRecord) -> None:
+    def _call_deleter(self, deleter: RelationDeleter, old: RelationRecord) -> None:
         try:
             deleter(old.id, tenant_id=old.tenant_id)
         except Exception:
             # Swallowing this left the old edge in the graph while the new one
             # was written — two contradictory facts, silently (BL-10).
             logger.warning("delete_relation(%s) failed; dual fact may remain", old.id)
-
-    def _drop_from_list(self, old: RelationRecord) -> bool:
-        """Fallback for stores holding relations in a plain list attribute."""
-        for attr in ("relations", "_relations"):
-            rels = getattr(self.store, attr, None)
-            if isinstance(rels, list):
-                setattr(self.store, attr, [r for r in rels if r.id != old.id])
-                return True
-        return False
 
     def _refresh_index(self, to_write: list[Triple]) -> None:
         _ents, rels = triples_to_records(to_write)

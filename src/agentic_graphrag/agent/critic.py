@@ -10,9 +10,8 @@ Actions: sufficient | next_hop | rewrite | give_up
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from agentic_graphrag.agent.critic_offline import (
     extract_entity_conclusion,
@@ -20,11 +19,19 @@ from agentic_graphrag.agent.critic_offline import (
 )
 from agentic_graphrag.agent.options import CritiqueContext
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
+from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
+from agentic_graphrag.core.enums import CriticAction, CriticMode, MessageRole, PromptName
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 _EVIDENCE_PROMPT_CAP = 20
 _EVIDENCE_CONTENT_CHARS = 300
+_EVIDENCE_LIST = TypeAdapter(list[Candidate])
+_PATH_LIST = TypeAdapter(list[str])
+_LEGACY_EVIDENCE_INDEX = 0
+_LEGACY_PATHS_INDEX = 1
+_LEGACY_LLM_INDEX = 2
 
 __all__ = [
     "CriticAction",
@@ -34,13 +41,6 @@ __all__ = [
     "critique",
     "extract_entity_conclusion",
 ]
-
-
-class CriticAction(StrEnum):
-    SUFFICIENT = "sufficient"
-    NEXT_HOP = "next_hop"
-    REWRITE = "rewrite"
-    GIVE_UP = "give_up"
 
 
 class CriticScope(StrEnum):
@@ -61,11 +61,11 @@ class CriticResult(BaseModel):
 
 def critique(
     question: str | CritiqueContext,
-    llm: LLMProvider | None = None,
-    *rest: Any,
+    llm: CompletionClient | str | None = None,
+    *rest: object,
     allow_llm: bool = True,
     sub_question: str = "",
-    evidence: list[Any] | None = None,
+    evidence: list[Candidate] | None = None,
     explored_paths: list[str] | None = None,
     hop: int = 1,
     max_hops: int = 5,
@@ -98,19 +98,19 @@ def critique(
 
 def _resolve_critique_args(
     question: str | CritiqueContext,
-    llm: LLMProvider | None,
-    rest: tuple[Any, ...],
+    llm: CompletionClient | str | None,
+    rest: tuple[object, ...],
     *,
     sub_question: str,
-    evidence: list[Any] | None,
+    evidence: list[Candidate] | None,
     explored_paths: list[str] | None,
     hop: int,
     max_hops: int,
     remaining_subquestions: int,
     excluded_hypotheses: list[str] | None,
-) -> tuple[CritiqueContext, LLMProvider | None]:
+) -> tuple[CritiqueContext, CompletionClient | None]:
     if isinstance(question, CritiqueContext):
-        return question, llm
+        return question, _client(llm)
     if isinstance(llm, str) and rest:
         return _legacy_positional(
             question,
@@ -131,23 +131,27 @@ def _resolve_critique_args(
         remaining_subquestions=remaining_subquestions,
         excluded_hypotheses=list(excluded_hypotheses or []),
     )
-    return ctx, llm
+    return ctx, _client(llm)
 
 
 def _legacy_positional(
     question: str,
     sub_question: str,
-    rest: tuple[Any, ...],
+    rest: tuple[object, ...],
     *,
     hop: int,
     max_hops: int,
     remaining_subquestions: int,
     excluded_hypotheses: list[str] | None,
-) -> tuple[CritiqueContext, LLMProvider | None]:
+) -> tuple[CritiqueContext, CompletionClient | None]:
     """Unpack critique(q, sq, evidence, paths, llm, ...)."""
-    evidence = list(rest[0] or []) if len(rest) > 0 else []
-    paths = list(rest[1] or []) if len(rest) > 1 else []
-    resolved_llm = rest[2] if len(rest) > 2 else None
+    evidence = _EVIDENCE_LIST.validate_python(rest[_LEGACY_EVIDENCE_INDEX] or []) if rest else []
+    paths = (
+        _PATH_LIST.validate_python(rest[_LEGACY_PATHS_INDEX] or [])
+        if len(rest) > _LEGACY_PATHS_INDEX
+        else []
+    )
+    resolved_llm = _client(rest[_LEGACY_LLM_INDEX]) if len(rest) > _LEGACY_LLM_INDEX else None
     ctx = CritiqueContext(
         question=question,
         sub_question=sub_question,
@@ -161,9 +165,15 @@ def _legacy_positional(
     return ctx, resolved_llm
 
 
+def _client(value: object) -> CompletionClient | None:
+    if value is None or isinstance(value, CompletionClient):
+        return value
+    raise TypeError("Critic requires a CompletionClient or None")
+
+
 def _critique_impl(
     ctx: CritiqueContext,
-    llm: LLMProvider | None,
+    llm: CompletionClient | None,
     *,
     allow_llm: bool,
 ) -> CriticResult:
@@ -173,9 +183,9 @@ def _critique_impl(
     if not ctx.evidence:
         return _critique_no_evidence(ctx)
     mode = normalize_mode(ctx.critic_mode)
-    if not allow_llm or llm is None or mode == "offline":
+    if not allow_llm or llm is None or mode is CriticMode.OFFLINE:
         result = offline_critique(ctx)
-    elif mode == "tiered":
+    elif mode is CriticMode.TIERED:
         result, tier = tiered_critique(ctx, lambda c: _llm_critique(c, llm))
         result.rationale = f"[critic_tier={tier}] {result.rationale}".strip()
     else:
@@ -198,8 +208,8 @@ def _critique_no_evidence(ctx: CritiqueContext) -> CriticResult:
     )
 
 
-def _llm_critique(ctx: CritiqueContext, llm: LLMProvider) -> CriticResult:
-    prompt = load_prompt("critic")
+def _llm_critique(ctx: CritiqueContext, llm: CompletionClient) -> CriticResult:
+    prompt = load_prompt(PromptName.CRITIC)
     evidence_list = "\n".join(
         f"[{c.id}] {c.content[:_EVIDENCE_CONTENT_CHARS]}"
         for c in ctx.evidence[:_EVIDENCE_PROMPT_CAP]
@@ -222,7 +232,10 @@ def _llm_critique(ctx: CritiqueContext, llm: LLMProvider) -> CriticResult:
     # LIGHT tier for critic: large latency win on live multi-hop (P95 path).
     raw = complete_structured(
         llm,
-        [Message(role="system", content=system), Message(role="user", content=user)],
+        [
+            Message(role=MessageRole.SYSTEM, content=system),
+            Message(role=MessageRole.USER, content=user),
+        ],
         CriticResult,
         tier=Tier.LIGHT,
     )
@@ -247,7 +260,7 @@ def _normalize_scope(result: CriticResult, *, remaining_subquestions: int) -> Cr
 
 
 def _split(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        return parts[0].replace("# System", "", 1).strip(), parts[1].strip()
+    if PROMPT_SYSTEM_HEADER in text and PROMPT_USER_HEADER in text:
+        parts = text.split(PROMPT_USER_HEADER, 1)
+        return parts[0].replace(PROMPT_SYSTEM_HEADER, "", 1).strip(), parts[1].strip()
     return "You are a critic.", text

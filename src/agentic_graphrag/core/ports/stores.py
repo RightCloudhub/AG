@@ -13,6 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 
+class RelationDeleter(Protocol):
+    def __call__(self, relation_id: str, *, tenant_id: str | None = None) -> bool: ...
+
+
 @dataclass
 class EntityRecord:
     id: str

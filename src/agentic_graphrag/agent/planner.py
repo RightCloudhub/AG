@@ -18,7 +18,9 @@ from agentic_graphrag.agent.plan_dag import (
 )
 from agentic_graphrag.agent.planner_patterns import OFFLINE_MATCHERS, PlanContext
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
+from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
+from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 # Backward-compatible re-exports.
@@ -37,7 +39,7 @@ __all__ = [
 def plan(
     question: str,
     memory_summary: str,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     allow_llm: bool = True,
     known_entities: list[str] | None = None,
@@ -45,13 +47,16 @@ def plan(
     if not allow_llm or llm is None:
         return plan_offline(question, known_entities=known_entities)
 
-    prompt = load_prompt("planner")
+    prompt = load_prompt(PromptName.PLANNER)
     system, user = _split(
         prompt.format(question=question, memory_summary=memory_summary or "(empty)")
     )
     result = complete_structured(
         llm,
-        [Message(role="system", content=system), Message(role="user", content=user)],
+        [
+            Message(role=MessageRole.SYSTEM, content=system),
+            Message(role=MessageRole.USER, content=user),
+        ],
         PlanResult,
         tier=Tier.STRONG,
     )
@@ -82,7 +87,7 @@ def plan_offline(
 
 
 def _split(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        return parts[0].replace("# System", "", 1).strip(), parts[1].strip()
+    if PROMPT_SYSTEM_HEADER in text and PROMPT_USER_HEADER in text:
+        parts = text.split(PROMPT_USER_HEADER, 1)
+        return parts[0].replace(PROMPT_SYSTEM_HEADER, "", 1).strip(), parts[1].strip()
     return "You are a planner.", text

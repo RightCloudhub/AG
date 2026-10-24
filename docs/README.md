@@ -16,6 +16,7 @@
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |
 | `reviews/` | [IMPORTANT.md](./reviews/IMPORTANT.md) | 延期工作总账 |
+| | [TYPE_SAFETY_AUDIT.md](./reviews/TYPE_SAFETY_AUDIT.md) | 全项目类型安全与常量化检查计划、问题台账和修复验证 |
 | | [IMPORTANT_DOCUMENTATION.md](./reviews/IMPORTANT_DOCUMENTATION.md) | BL 修复待验证清单 |
 | | [ENTERPRISE_READINESS.md](./reviews/ENTERPRISE_READINESS.md) | 企业级能力审计 |
 | | [PRODUCT_READINESS_GAP_ANALYSIS.md](./reviews/PRODUCT_READINESS_GAP_ANALYSIS.md) | 产品交付差距 |

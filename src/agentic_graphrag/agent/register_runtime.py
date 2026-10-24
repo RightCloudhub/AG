@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from agentic_graphrag.agent.guardrails import Guardrails
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps
 from agentic_graphrag.agent.register_answer import answer_from_register
@@ -24,20 +25,23 @@ from agentic_graphrag.agent.register_search import search, seed_search
 from agentic_graphrag.agent.requirements import Register, Requirement, compose
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.enums import CriticAction, MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
 
 
 class RegisterRuntime:
-    def __init__(self, deps: AgentDeps, guards) -> None:
+    def __init__(self, deps: AgentDeps, guards: Guardrails) -> None:
         self.executor = deps.executor
         self.llm = deps.llm
         self.guards = guards
         self.config = deps.guard_cfg.requirement_register
         self.round_limit = min(self.config.max_rounds, deps.guard_cfg.max_hops)
 
-    def _llm(self, state: AgentState):
+    def _llm(self, state: AgentState) -> LLMClient | None:
         return self.llm if state.get("allow_llm", True) else None
 
     def enabled(self, state: AgentState) -> bool:
@@ -50,7 +54,7 @@ class RegisterRuntime:
         self._seed(state, evidence, chain=chain, cache=cache)
         seed = list(evidence.values())
         register, error, audit = self._initialize(state, seed)
-        result = {
+        result: AgentState = {
             **state,
             "chain": chain.model_dump(),
             "evidence": [c.model_dump() for c in seed],
@@ -101,13 +105,15 @@ class RegisterRuntime:
             )
         )
 
-    def _initialize(self, state: AgentState, seed: list[Candidate]) -> tuple[Register, str, dict]:
-        audit: dict = {}
+    def _initialize(
+        self, state: AgentState, seed: list[Candidate]
+    ) -> tuple[Register, str, JsonObject]:
+        audit: JsonObject = {}
         try:
             user = initialization_prompt(state["question"], seed, config=self.config)
             messages = [
-                {"role": "system", "content": load_prompt("register_system")},
-                {"role": "user", "content": user},
+                {"role": MessageRole.SYSTEM, "content": load_prompt(PromptName.REGISTER_SYSTEM)},
+                {"role": MessageRole.USER, "content": user},
             ]
             if context_size(messages) > self.config.context_limit_tokens:
                 raise ValueError("seed context limit")
@@ -119,7 +125,9 @@ class RegisterRuntime:
             register = Register(
                 question=state["question"],
                 items={
-                    "req_0": Requirement(req_id="req_0", text=state["question"], status="active")
+                    "req_0": Requirement(
+                        req_id="req_0", text=state["question"], status=RequirementStatus.ACTIVE
+                    )
                 },
             )
             return register, type(exc).__name__, audit
@@ -136,7 +144,7 @@ class RegisterRuntime:
 
     def _retrieve(self, state: AgentState, register: Register) -> AgentState:
         active = register.search_target(
-            next(r for r in register.items.values() if r.status == "active")
+            next(r for r in register.items.values() if r.status == RequirementStatus.ACTIVE)
         )
         cache = dict(state.get("register_cache", {}))
         hits, traces = search(
@@ -183,7 +191,9 @@ class RegisterRuntime:
         fresh = [evidence[rid] for rid in state.get("register_fresh", [])]
         context = list(state.get("register_context") or [])
         if state["hop"] == math.ceil(self.config.convergence_ratio * self.round_limit):
-            context.append({"role": "user", "content": load_prompt("register_budget")})
+            context.append(
+                {"role": MessageRole.USER, "content": load_prompt(PromptName.REGISTER_BUDGET)}
+            )
         state = {**state, "register_context": context}
         if (
             context_size(context, update_prompt(old.question, fresh))
@@ -205,7 +215,9 @@ class RegisterRuntime:
         )
         chain = ReasoningChain.model_validate(result["chain"])
         chain.steps[-1].conclusion = result["register_progress"] or "No requirement was closed."
-        chain.steps[-1].critic_action = "sufficient" if new.is_clear() else "next_hop"
+        chain.steps[-1].critic_action = (
+            CriticAction.SUFFICIENT if new.is_clear() else CriticAction.NEXT_HOP
+        )
         result["chain"] = chain.model_dump()
         reason = self._stop_reason(result, new)
         result["done"] = bool(reason)
@@ -219,11 +231,11 @@ class RegisterRuntime:
         *,
         evidence: dict[str, Candidate],
         fresh: list[Candidate],
-    ) -> tuple[Register, list[dict]]:
+    ) -> tuple[Register, list[JsonObject]]:
         llm = self._llm(state)
         if not fresh or not self.config.updates_enabled or llm is None:
             return old.model_copy(deep=True), []
-        proposals: list[dict] = []
+        proposals: list[JsonObject] = []
         new = update(
             old,
             fresh,
@@ -240,7 +252,7 @@ class RegisterRuntime:
             )
         for proposal in proposals:
             item = new.items.get(proposal["req_id"])
-            proposal["accepted"] = item is not None and item.status == "resolved"
+            proposal["accepted"] = item is not None and item.status == RequirementStatus.RESOLVED
         return new, [*reports, *proposals]
 
     def node_answer(self, state: AgentState) -> AgentState:
@@ -275,6 +287,6 @@ def _snapshot(state: AgentState) -> AgentState:
     memory.add_evidence(_evidence(state))
     register = Register.model_validate(state["requirement_register"])
     for item in register.items.values():
-        if item.status == "resolved":
+        if item.status == RequirementStatus.RESOLVED:
             memory.mark_subquestion_done(item.req_id, item.notes)
     return {**state, "memory_snapshot": memory.to_snapshot()}

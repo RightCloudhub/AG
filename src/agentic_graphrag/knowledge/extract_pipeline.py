@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import ChunkRecord, DocStore
 from agentic_graphrag.knowledge.extract_chunk import extract_chunk_with_retry
 from agentic_graphrag.knowledge.extract_types import (
@@ -25,7 +26,6 @@ from agentic_graphrag.knowledge.extract_types import (
     RetryPolicy,
 )
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
-from agentic_graphrag.llm.provider import LLMProvider
 
 __all__ = [
     "ChunkExtractResult",
@@ -64,7 +64,7 @@ def load_completed_chunk_ids(journal_path: str | Path) -> set[str]:
 class _PipelineCtx:
     schema: SchemaDefinition
     extract_fn: ExtractFn | None
-    llm: LLMProvider | None
+    llm: LLMClient | None
     confidence_threshold: float
     retry: RetryPolicy
     sleep: Callable[[float], None]
@@ -79,7 +79,7 @@ def run_extract_pipeline(
     chunks: list[ChunkRecord],
     schema: SchemaDefinition,
     *,
-    llm: LLMProvider | None = None,
+    llm: LLMClient | None = None,
     extract_fn: ExtractFn | None = None,
     confidence_threshold: float = 0.5,
     retry: RetryPolicy | None = None,
@@ -132,7 +132,7 @@ class _PipelineState:
 def _make_ctx(
     schema: SchemaDefinition,
     *,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     extract_fn: ExtractFn | None,
     confidence_threshold: float,
     retry: RetryPolicy,
@@ -224,10 +224,7 @@ def _merge_one_doc(
     *,
     batch_id: str,
 ) -> None:
-    load = getattr(doc_store, "load", None) or getattr(doc_store, "get", None)
-    if not callable(load):
-        return
-    doc = load(doc_id)
+    doc = doc_store.get(doc_id)
     if doc is None:
         return
     meta = dict(doc.metadata or {})

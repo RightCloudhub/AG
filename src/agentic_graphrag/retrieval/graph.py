@@ -7,6 +7,7 @@ Beam traversal and relation scoring live in
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
@@ -15,6 +16,7 @@ from agentic_graphrag.knowledge.temporal import validity_label
 from agentic_graphrag.retrieval.graph_beam import (
     BeamConfig,
     BeamExpander,
+    BeamItem,
     RelationEmbedSim,
     blend_relation_score,
     edge_score,
@@ -134,7 +136,7 @@ class GraphRetriever:
 
     def _rank_neighbor_edges(
         self,
-        beams: list,
+        beams: list[BeamItem],
         entity_name: str,
         sub_question: str | None,
     ) -> list[tuple[float, RelationRecord, EntityRecord, str]]:
@@ -259,7 +261,7 @@ class GraphRetriever:
         return out[:lim]
 
 
-def _iter_beam_edges(beams: list):
+def _iter_beam_edges(beams: list[BeamItem]) -> Iterator[tuple[RelationRecord, EntityRecord]]:
     for item in beams:
         yield from item.edges
 

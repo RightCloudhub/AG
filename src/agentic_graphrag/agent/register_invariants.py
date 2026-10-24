@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agentic_graphrag.agent.requirements import Register, Requirement
+from agentic_graphrag.core.enums import RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
 
 
@@ -61,18 +62,18 @@ def _merge_item(
     proposed.depends_on = list(previous.depends_on)
     proposed.anchors = list(dict.fromkeys([*previous.anchors, *proposed.anchors]))
     proposed.passages = (proposed.passages & evidence.keys()) | previous.passages
-    if proposed.status == "resolved" and not proposed.passages:
+    if proposed.status == RequirementStatus.RESOLVED and not proposed.passages:
         proposed.status = previous.status
-    if proposed.status == "retired" and not proposed.retire_reason.strip():
+    if proposed.status == RequirementStatus.RETIRED and not proposed.retire_reason.strip():
         proposed.status = previous.status
     return proposed
 
 
 def _check_closure(item: Requirement) -> None:
-    if item.status == "resolved" and not item.passages:
-        item.status = "pending"
-    if item.status == "retired" and not item.retire_reason.strip():
-        item.status = "pending"
+    if item.status == RequirementStatus.RESOLVED and not item.passages:
+        item.status = RequirementStatus.PENDING
+    if item.status == RequirementStatus.RETIRED and not item.retire_reason.strip():
+        item.status = RequirementStatus.PENDING
 
 
 def _ground_anchors(item: Requirement, evidence: dict[str, Candidate]) -> None:
@@ -85,10 +86,10 @@ def _ground_anchors(item: Requirement, evidence: dict[str, Candidate]) -> None:
 def schedule(register: Register, *, attempts: dict[str, int] | None = None) -> None:
     """Exactly one active ready need; blocked dependencies remain visibly open."""
     ready = register.ready_items()
-    active = [r for r in ready if r.status == "active"]
+    active = [r for r in ready if r.status == RequirementStatus.ACTIVE]
     selected = active[0] if len(active) == 1 else None
     if attempts is not None or selected is None:
         counts = attempts or {}
         selected = min(ready, key=lambda r: counts.get(r.req_id, 0), default=None)
     for item in register.open_items():
-        item.status = "active" if item is selected else "pending"
+        item.status = RequirementStatus.ACTIVE if item is selected else RequirementStatus.PENDING

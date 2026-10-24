@@ -7,15 +7,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.agent.executor import Executor
+from agentic_graphrag.agent.guardrails import GuardrailConfig
+from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.cli._common import _open_graph_store
 from agentic_graphrag.config import AppConfig, Settings, resolve_path
-from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.ports.llm import LLMClient
+from agentic_graphrag.core.ports.stores import ChunkRecord, GraphStore
+from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
-from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
+from agentic_graphrag.llm.provider import MockLLMProvider
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.vector import VectorRetriever
+from agentic_graphrag.stores.factory import GraphBackend
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore, QdrantVectorStore
 
@@ -43,11 +50,11 @@ def open_case_graph(
     *,
     use_memory: bool,
     triples: list[Triple],
-) -> tuple[Any, str]:
+) -> tuple[GraphStore, GraphBackend]:
     graph_store, graph_backend = _open_graph_store(
         settings, memory=use_memory, allow_memory_fallback=False
     )
-    if graph_backend == "memory":
+    if graph_backend is GraphBackend.MEMORY:
         if triples:
             load_triples_into_graph(graph_store, triples, clear_first=True)
         print(f"Loaded {len(triples)} seed triples into in-memory graph ({graph_store.counts()})")
@@ -59,14 +66,14 @@ def open_case_graph(
 def build_retrievers(
     cfg: AppConfig,
     settings: Settings,
-    graph_store: Any,
+    graph_store: GraphStore,
     *,
     no_llm: bool,
 ) -> tuple[
     GraphRetriever,
     FulltextRetriever,
     VectorRetriever | None,
-    LLMProvider | MockLLMProvider,
+    LLMClient | MockLLMProvider,
 ]:
     graph_ret = GraphRetriever.from_config(graph_store, cfg)
     ft_store = BM25FulltextStore()
@@ -80,7 +87,7 @@ def build_retrievers(
 
 def _vector_and_llm(
     cfg: AppConfig, settings: Settings, *, no_llm: bool
-) -> tuple[VectorRetriever | None, LLMProvider | MockLLMProvider]:
+) -> tuple[VectorRetriever | None, LLMClient | MockLLMProvider]:
     if no_llm:
         return _offline_vector(cfg), MockLLMProvider()
     from agentic_graphrag.config import build_llm_provider
@@ -125,9 +132,9 @@ def _offline_vector(cfg: AppConfig) -> VectorRetriever | None:
 def run_case_row(
     case: dict[str, Any],
     *,
-    executor: Any,
-    llm: Any,
-    guard_cfg: Any,
+    executor: Executor,
+    llm: LLMClient | None,
+    guard_cfg: GuardrailConfig,
     no_llm: bool,
     enable_triage: bool = False,
     force_agentic: bool = False,
@@ -154,14 +161,14 @@ def run_case_row(
 def _invoke_case(
     question: str,
     *,
-    executor: Any,
-    llm: Any,
-    guard_cfg: Any,
-    budget: Any,
+    executor: Executor,
+    llm: LLMClient | None,
+    guard_cfg: GuardrailConfig,
+    budget: BudgetTracker,
     no_llm: bool,
     enable_triage: bool,
     force_agentic: bool,
-) -> Any:
+) -> ReasoningChain:
     if enable_triage or force_agentic:
         from agentic_graphrag.agent.loop import run_query
 
@@ -188,7 +195,7 @@ def _invoke_case(
     )
 
 
-def _success_row(case: dict[str, Any], q: str, chain: Any) -> dict[str, Any]:
+def _success_row(case: dict[str, Any], q: str, chain: ReasoningChain) -> dict[str, Any]:
     cost = chain.cost.model_dump()
     meta = dict(chain.metadata or {})
     return {
@@ -232,13 +239,14 @@ def _error_row(case: dict[str, Any], q: str, exc: Exception) -> dict[str, Any]:
     }
 
 
-def build_eval_app(*, no_llm: bool, use_neo4j: bool, seed_triples: Path, enable_triage: bool):
+def build_eval_app(
+    *, no_llm: bool, use_neo4j: bool, seed_triples: Path, enable_triage: bool
+) -> QueryService:
     """QueryApp wired by the ``eval`` profile (or ``hybrid`` for ``--neo4j``).
 
     Refactor §8.1: evaluation runs the production path (budget, pipeline,
     audit, metrics) with answer/retrieval caches off.
     """
-    from agentic_graphrag.app import QueryApp
     from agentic_graphrag.bootstrap import (
         CAPABILITY_MATRIX,
         LLMMode,
@@ -255,7 +263,7 @@ def build_eval_app(*, no_llm: bool, use_neo4j: bool, seed_triples: Path, enable_
         caps=CAPABILITY_MATRIX[profile],
         llm_mode=LLMMode.LIVE if live else LLMMode.OFF,
     )
-    app = QueryApp.create_for_profile(rp, seed_triples=seed_triples)
+    app = QueryService.create_for_profile(rp, seed_triples=seed_triples)
     app.enable_cache = False
     if app.retrieval_cache is not None and not CAPABILITY_MATRIX[profile].retrieval_cache:
         app.retrieval_cache = None
@@ -264,7 +272,7 @@ def build_eval_app(*, no_llm: bool, use_neo4j: bool, seed_triples: Path, enable_
 
 
 def run_case_row_via_app(
-    case: dict[str, Any], *, app: Any, force_agentic: bool = False
+    case: dict[str, Any], *, app: QueryService, force_agentic: bool = False
 ) -> dict[str, Any]:
     from agentic_graphrag.app.contracts import QueryRequest
 

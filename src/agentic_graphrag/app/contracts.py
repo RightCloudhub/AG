@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from agentic_graphrag.core.enums import CriticAction, QueryRoute, StepAction, ToolName
+from agentic_graphrag.core.reasoning import QueryStatus
 
 
 class QueryRequest(BaseModel):
@@ -38,7 +41,7 @@ class ClaimOut(BaseModel):
 
 
 class ToolCallOut(BaseModel):
-    tool: str
+    tool: ToolName
     reason: str = ""
     args: dict[str, Any] = Field(default_factory=dict)
     hits: list[str] = Field(default_factory=list)
@@ -51,7 +54,7 @@ class StepOut(BaseModel):
     tool_calls: list[ToolCallOut] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     conclusion: str = ""
-    critic_action: str = ""
+    critic_action: CriticAction | StepAction | Literal[""] = ""
 
 
 class EvidenceOut(BaseModel):
@@ -69,8 +72,8 @@ class QueryResultData(BaseModel):
     query_id: str
     question: str
     answer: str
-    status: str
-    route: str = "agentic"
+    status: QueryStatus
+    route: QueryRoute = QueryRoute.AGENTIC
     claims: list[ClaimOut] = Field(default_factory=list)
     steps: list[StepOut] = Field(default_factory=list)
     cost: CostOut = Field(default_factory=CostOut)

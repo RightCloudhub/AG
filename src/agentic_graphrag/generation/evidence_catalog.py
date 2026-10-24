@@ -31,6 +31,6 @@ def _catalog_entry(candidate: Candidate) -> dict[str, object]:
         "id": candidate.id,
         "content": content[:EVIDENCE_CONTENT_CHARS],
         "truncated": len(content) > EVIDENCE_CONTENT_CHARS,
-        "source": source.value if hasattr(source, "value") else str(source),
+        "source": source.value,
         "score": candidate.score,
     }

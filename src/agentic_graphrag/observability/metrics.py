@@ -6,13 +6,27 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
+
+from agentic_graphrag.core.enums import QueryRoute
+
+
+class MetricsSummary(TypedDict):
+    count: int
+    latency_p50_ms: float
+    latency_p95_ms: float
+    latency_p99_ms: float
+    hops_avg: float
+    route_counts: dict[str, int]
+    error_counts: dict[str, int]
+    budget_trips: int
+    event_handler_failures: dict[str, int]
 
 
 @dataclass
 class QueryMetrics:
     query_id: str
-    route: str = "agentic"
+    route: QueryRoute = QueryRoute.AGENTIC
     hops: int = 0
     llm_calls: int = 0
     tokens: int = 0
@@ -91,7 +105,7 @@ class MetricsRegistry:
         idx = int(round((p / 100.0) * (len(data) - 1)))
         return float(data[idx])
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self) -> MetricsSummary:
         with self._lock:
             lat = list(self._latency)
             hops = list(self._hops)

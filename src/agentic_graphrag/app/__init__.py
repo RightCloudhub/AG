@@ -15,12 +15,19 @@ free of import cycles.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.ingest_app import IngestApp as IngestApp
+    from agentic_graphrag.app.query_service import QueryService as QueryApp
+    from agentic_graphrag.app.query_service import QueryService as QueryService
+    from agentic_graphrag.app.query_service import build_default_service as build_query_app
+    from agentic_graphrag.app.review_app import ReviewApp as ReviewApp
 
 __all__ = ["IngestApp", "QueryApp", "QueryService", "ReviewApp", "build_query_app"]
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
     if name in {"QueryApp", "QueryService"}:
         from agentic_graphrag.app.query_service import QueryService
 

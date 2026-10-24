@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.generation.relation_consistency import relation_consistent
 
 MIN_LATIN_TOKEN_LEN = 2
@@ -70,13 +71,13 @@ def content_tokens(text: str) -> set[str]:
 
 def claim_supported_by(
     claim_tokens: set[str],
-    candidate: Any,
+    candidate: Candidate,
     *,
     min_overlap: int = DEFAULT_MIN_OVERLAP,
     require_object_anchor: bool = True,
 ) -> bool:
     """True when one cited candidate lexically supports the claim."""
-    evidence_tokens = content_tokens(getattr(candidate, "content", "") or "")
+    evidence_tokens = content_tokens(candidate.content or "")
     if len(claim_tokens & evidence_tokens) < min_overlap:
         return False
     if not require_object_anchor:
@@ -84,21 +85,32 @@ def claim_supported_by(
     return _object_anchored(claim_tokens, candidate)
 
 
-def claim_supported(claim_text: str, candidate: Any, **kw: Any) -> bool:
+def claim_supported(
+    claim_text: str,
+    candidate: Candidate,
+    *,
+    min_overlap: int = DEFAULT_MIN_OVERLAP,
+    require_object_anchor: bool = True,
+) -> bool:
     """Full rule gate for one claim/candidate pair: lexical + anchor + relation (BL-13)."""
-    content = getattr(candidate, "content", "") or ""
+    content = candidate.content or ""
     if not relation_consistent(claim_text, content):
         return False
-    return claim_supported_by(content_tokens(claim_text), candidate, **kw)
+    return claim_supported_by(
+        content_tokens(claim_text),
+        candidate,
+        min_overlap=min_overlap,
+        require_object_anchor=require_object_anchor,
+    )
 
 
-def _object_anchored(claim_tokens: set[str], candidate: Any) -> bool:
+def _object_anchored(claim_tokens: set[str], candidate: Candidate) -> bool:
     """Graph evidence must be anchored on the entity the edge asserts (BL-13).
 
     Without this, ``Apex Holdings -[FOUNDED_BY]-> X`` supports the claim
     "Apex Holdings' CEO is Y" purely through the shared subject.
     """
-    structured = getattr(candidate, "structured", None) or {}
+    structured = candidate.structured or {}
     if not isinstance(structured, dict):
         return True
     kind = str(structured.get("kind") or "")

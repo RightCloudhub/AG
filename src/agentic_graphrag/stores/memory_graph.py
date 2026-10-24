@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from collections import deque
 
+from agentic_graphrag.core.ports.capabilities import (
+    DEFAULT_RELATION_SCAN,
+    EntityLister,
+    EntityMutation,
+    RelationDeletion,
+    RelationLister,
+)
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 
 
-class InMemoryGraphStore:
+class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityMutation):
     def __init__(self) -> None:
         self._entities: dict[str, EntityRecord] = {}
         self._relations: dict[str, RelationRecord] = {}
@@ -25,6 +32,21 @@ class InMemoryGraphStore:
         for relation in relations:
             self._relations[_key(relation.tenant_id, relation.id)] = relation
         return len(relations)
+
+    def list_relations(self, limit: int = DEFAULT_RELATION_SCAN) -> list[RelationRecord]:
+        return list(self._relations.values())[:limit]
+
+    def rewire_entity(self, drop_id: str, keep_id: str, *, keep_name: str, tenant_id: str) -> None:
+        for relation in self._relations.values():
+            if relation.tenant_id != tenant_id:
+                continue
+            if relation.head_id == drop_id:
+                relation.head_id, relation.head_name = keep_id, keep_name
+            if relation.tail_id == drop_id:
+                relation.tail_id, relation.tail_name = keep_id, keep_name
+
+    def delete_entity(self, entity_id: str, *, tenant_id: str) -> None:
+        self._entities.pop(_key(tenant_id, entity_id), None)
 
     def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
         """Remove an edge by id (one tenant's copy when ``tenant_id`` is given).
@@ -117,7 +139,9 @@ class InMemoryGraphStore:
         target = self._entity_for_name(target_name, tenant_id)
         if source is None or target is None:
             return []
-        queue = deque([(source, [source], [])])
+        queue: deque[tuple[EntityRecord, list[EntityRecord], list[RelationRecord]]] = deque(
+            [(source, [source], [])]
+        )
         found: list[PathRecord] = []
         while queue and len(found) < limit:
             current, nodes, relations = queue.popleft()
@@ -136,7 +160,7 @@ class InMemoryGraphStore:
 
     def _extend_paths(
         self,
-        queue: deque,
+        queue: deque[tuple[EntityRecord, list[EntityRecord], list[RelationRecord]]],
         found: list[PathRecord],
         *,
         current: EntityRecord,

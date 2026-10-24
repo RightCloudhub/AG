@@ -20,9 +20,11 @@ from agentic_graphrag.agent.executor_plan import (
     sanitize_spec,
     split_prompt,
 )
+from agentic_graphrag.core.constants import DEFAULT_RRF_K
+from agentic_graphrag.core.enums import ExternalToolName, FusionMethod, RetrievalTool
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ToolCallTrace
-from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.fusion import Reranker
@@ -32,8 +34,8 @@ from agentic_graphrag.retrieval.vector import VectorRetriever
 if TYPE_CHECKING:
     from agentic_graphrag.agent.tools import ToolRegistry
 
-DEFAULT_FUSION_METHOD = "rrf"
-DEFAULT_FUSION_K = 60
+DEFAULT_FUSION_METHOD = FusionMethod.RRF
+DEFAULT_FUSION_K = DEFAULT_RRF_K
 DEFAULT_FUSION_LIMIT = 30
 
 __all__ = [
@@ -48,7 +50,7 @@ __all__ = [
 
 
 class ToolCallSpec(BaseModel):
-    tool: str
+    tool: RetrievalTool | ExternalToolName
     args: dict[str, Any] = Field(default_factory=dict)
     reason: str = ""
 
@@ -63,7 +65,7 @@ class ExecutorDeps:
 
     vector: VectorRetriever | None = None
     fulltext: FulltextRetriever | None = None
-    llm: LLMProvider | None = None
+    llm: LLMClient | None = None
     known_entities: list[str] | None = None
 
 
@@ -72,7 +74,7 @@ class ExecutorConfig:
     """Runtime options for parallel retrieval and fusion."""
 
     parallel: bool = True
-    fusion_method: str = DEFAULT_FUSION_METHOD
+    fusion_method: FusionMethod = DEFAULT_FUSION_METHOD
     fusion_k: int = DEFAULT_FUSION_K
     fusion_limit: int | None = DEFAULT_FUSION_LIMIT
     cache: RetrievalCache | None = None
@@ -97,15 +99,15 @@ class Executor:
         *,
         vector: VectorRetriever | None = None,
         fulltext: FulltextRetriever | None = None,
-        llm: LLMProvider | None = None,
+        llm: LLMClient | None = None,
         known_entities: list[str] | None = None,
         parallel: bool | None = None,
-        fusion_method: str | None = None,
+        fusion_method: FusionMethod | None = None,
         fusion_k: int | None = None,
         fusion_limit: int | None = None,
         cache: RetrievalCache | None = None,
         reranker: Reranker | None = None,
-        tools: ToolRegistry | None = None,
+        tools: ToolRegistry[list[Candidate]] | None = None,
     ) -> None:
         self.graph = graph
         self.deps = deps or ExecutorDeps(
@@ -191,7 +193,9 @@ class Executor:
     def _heuristic(self, sub_question: str, entities_hint: list[str]) -> list[ToolCallSpec]:
         return build_heuristic(self, sub_question, entities_hint)
 
-    def _dispatch(self, tool: str, args: dict[str, Any], sub_question: str) -> list[Candidate]:
+    def _dispatch(
+        self, tool: RetrievalTool | ExternalToolName, args: dict[str, Any], sub_question: str
+    ) -> list[Candidate]:
         return dispatch(self, tool, args, sub_question=sub_question)
 
     def _run_parallel(
@@ -206,7 +210,7 @@ def _merge_config(
     config: ExecutorConfig | None,
     *,
     parallel: bool | None,
-    fusion_method: str | None,
+    fusion_method: FusionMethod | None,
     fusion_k: int | None,
     fusion_limit: int | None,
     cache: RetrievalCache | None,

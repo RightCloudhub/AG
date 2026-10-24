@@ -8,6 +8,7 @@ accuracy delta, so a 1-case swing on 31 cases is reported as noise.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,11 @@ def run_summary(rows: list[dict[str, Any]], cases: dict[str, dict[str, Any]]) ->
     }
 
 
-def _groups(results, cases, key) -> dict[str, Any]:
+def _groups(
+    results: Mapping[str, bool],
+    cases: Mapping[str, Mapping[str, Any]],
+    key: Callable[[Mapping[str, Any]], str],
+) -> dict[str, Any]:
     return {k: v.to_dict() for k, v in breakdown(results, cases, key).items()}
 
 

@@ -23,11 +23,12 @@ from agentic_graphrag.agent.plan_dag import cap_plan_breadth
 from agentic_graphrag.agent.planner import SubQuestion, plan
 from agentic_graphrag.agent.register_runtime import RegisterRuntime
 from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.enums import AgentNode
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.generation.verdict import evidence_gap
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.provider import LLMProvider
 
 # Answer → executor back-edges per run, and new sub-questions per back-edge.
 MAX_ANSWER_RETRIEVALS = 1
@@ -40,7 +41,7 @@ class AgentRuntime:
     def __init__(
         self,
         executor: Executor,
-        llm: LLMProvider | None,
+        llm: LLMClient | None,
         guard_cfg: GuardrailConfig,
         *,
         budget: BudgetTracker | None = None,
@@ -153,13 +154,13 @@ class AgentRuntime:
         else:
             self.guards.on_hop_start()
 
-    def route_after_executor(self, state: AgentState) -> str:
+    def route_after_executor(self, state: AgentState) -> AgentNode:
         """Skip critic when hop already terminal (saves recursion budget)."""
         if state.get("done") or self.guards.state.tripped:
-            return "answer"
+            return AgentNode.ANSWER
         if int(state.get("hop") or 0) > self.guard_cfg.max_hops:
-            return "answer"
-        return "critic"
+            return AgentNode.ANSWER
+        return AgentNode.CRITIC
 
     def node_critic(self, state: AgentState) -> AgentState:
         self._hydrate_from_state(state)
@@ -276,8 +277,8 @@ class AgentRuntime:
             "memory_snapshot": self.memory.to_snapshot(),
         }
 
-    def route_after_answer(self, state: AgentState) -> str:
-        return "end" if state.get("done") else "executor"
+    def route_after_answer(self, state: AgentState) -> AgentNode:
+        return AgentNode.END if state.get("done") else AgentNode.EXECUTOR
 
     def _apply_budget_to_chain(self, chain: ReasoningChain) -> None:
         if not self.budget:
@@ -288,12 +289,12 @@ class AgentRuntime:
         chain.cost.prompt_tokens = snap["prompt_tokens"]
         chain.cost.completion_tokens = snap["completion_tokens"]
 
-    def route_after_critic(self, state: AgentState) -> str:
+    def route_after_critic(self, state: AgentState) -> AgentNode:
         if state.get("done") or self.guards.state.tripped:
-            return "answer"
+            return AgentNode.ANSWER
         # Belt-and-suspenders: hop cap must end the loop even if done was lost.
         if int(state.get("hop") or 0) >= self.guard_cfg.max_hops:
-            return "answer"
+            return AgentNode.ANSWER
         if self.guards.state.hop >= self.guard_cfg.max_hops:
-            return "answer"
-        return "executor"
+            return AgentNode.ANSWER
+        return AgentNode.EXECUTOR

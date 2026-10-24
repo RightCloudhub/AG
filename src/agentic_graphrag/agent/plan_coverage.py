@@ -7,11 +7,13 @@ reported on the chain rather than silently disappearing.
 
 from __future__ import annotations
 
+from typing import Final
+
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.reasoning import ReasoningChain
 
-KEY_DROPPED = "dropped_sub_questions"
-KEY_UNEXECUTED = "unexecuted_sub_questions"
+KEY_DROPPED: Final = "dropped_sub_questions"
+KEY_UNEXECUTED: Final = "unexecuted_sub_questions"
 
 
 def record_dropped_subquestion(state: AgentState, text: str) -> None:

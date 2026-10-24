@@ -139,7 +139,7 @@ def _content_aligns(ql: str, content: str) -> bool:
         tail = right.split("(")[0].strip()
     except (IndexError, ValueError):
         return False
-    return (head and head in ql) or (tail and tail in ql)
+    return bool((head and head in ql) or (tail and tail in ql))
 
 
 def _should_honest_no_answer(

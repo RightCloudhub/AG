@@ -11,7 +11,10 @@ per relation with ``functional_on: [head]`` / ``[tail]`` / ``[head, tail]`` /
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentic_graphrag.knowledge.schema_check import SchemaDefinition
 
 HEAD = "head"
 TAIL = "tail"
@@ -30,9 +33,9 @@ def functional_sides(relation_meta: dict[str, Any] | None) -> frozenset[str]:
     return frozenset(str(side) for side in raw if side in (HEAD, TAIL))
 
 
-def sides_resolver(schema: Any | None) -> SidesFn:
+def sides_resolver(schema: SchemaDefinition | None) -> SidesFn:
     """Build a ``relation → sides`` lookup from a ``SchemaDefinition`` (or None)."""
-    relation_types: dict[str, dict[str, Any]] = getattr(schema, "relation_types", None) or {}
+    relation_types: dict[str, dict[str, Any]] = schema.relation_types if schema is not None else {}
 
     def resolve(relation: str) -> frozenset[str]:
         if relation not in relation_types:

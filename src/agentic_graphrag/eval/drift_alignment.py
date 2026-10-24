@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from difflib import SequenceMatcher
 
+from agentic_graphrag.core.json_types import JsonObject
+
 FINGERPRINT_CHARS = 40
 FUZZY_THRESHOLD = 0.9
 
@@ -15,11 +17,11 @@ def normalize_text(text: str) -> str:
 
 def align_passages(
     passages: list[str],
-    chunks: list[dict],
+    chunks: list[JsonObject],
     *,
     fingerprint_chars: int = FINGERPRINT_CHARS,
     fuzzy_threshold: float = FUZZY_THRESHOLD,
-) -> dict:
+) -> JsonObject:
     """Exact fingerprint first, fuzzy window second; never invent chunk mappings."""
     if fingerprint_chars < 1 or not 0 < fuzzy_threshold <= 1:
         raise ValueError("invalid alignment settings")
@@ -40,7 +42,7 @@ def align_passages(
 
 def _align_one(
     index: int, fingerprint: str, corpus: list[tuple[str, str]], *, fuzzy_threshold: float
-) -> dict:
+) -> JsonObject:
     ids = [rid for rid, text in corpus if fingerprint and fingerprint in text]
     method = "fingerprint"
     if not ids and fingerprint:

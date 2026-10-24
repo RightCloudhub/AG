@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from agentic_graphrag.core.constants import DEFAULT_RRF_K
+from agentic_graphrag.core.enums import FusionMethod
 from agentic_graphrag.core.evidence import (
     Candidate,
     CandidateSource,
@@ -42,8 +44,8 @@ class IdentityReranker:
 def fuse_candidates(
     *ranked_lists: list[Candidate],
     query: str = "",
-    method: str = "rrf",
-    k: int = 60,
+    method: FusionMethod = FusionMethod.RRF,
+    k: int = DEFAULT_RRF_K,
     limit: int | None = None,
     reranker: Reranker | None = None,
 ) -> list[Candidate]:
@@ -53,17 +55,21 @@ def fuse_candidates(
     - ``rrf`` — Reciprocal Rank Fusion (default, P3)
     - ``concat`` — POC simple concat (legacy)
     """
+    resolved_method = FusionMethod(method.strip().lower())
     lists = [lst for lst in ranked_lists if lst]
     if not lists:
         return []
 
-    method_l = (method or "rrf").lower().strip()
-    fused = concat_candidates(*lists) if method_l == "concat" else rrf_fuse(*lists, k=k, limit=None)
+    fused = (
+        concat_candidates(*lists)
+        if resolved_method is FusionMethod.CONCAT
+        else rrf_fuse(*lists, k=k, limit=None)
+    )
     if reranker is not None:
         fused = reranker.rerank(query, fused)
     if limit is not None:
         fused = fused[:limit]
-    if len(lists) > 1 and method_l != "concat":
+    if len(lists) > 1 and resolved_method is not FusionMethod.CONCAT:
         return _tag_fusion(fused)
     return fused
 

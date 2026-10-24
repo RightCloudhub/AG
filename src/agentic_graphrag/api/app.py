@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from agentic_graphrag.api.auth import AuthRateLimitMiddleware
@@ -21,6 +21,8 @@ from agentic_graphrag.api.routes import workspace as workspace_routes
 from agentic_graphrag.app.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService, build_default_service
 from agentic_graphrag.config import ROOT_DIR
+from agentic_graphrag.core.enums import ReviewStatus
+from agentic_graphrag.core.ports.capabilities import Pingable
 from agentic_graphrag.observability.logging_setup import get_logger, setup_logging
 
 _log = get_logger("api.app")
@@ -167,15 +169,15 @@ def _register_routes(app: FastAPI) -> None:
 
 def _health_payload(request: Request) -> dict[str, Any]:
     svc = getattr(request.app.state, "query_service", None)
-    if svc is None:
+    if not isinstance(svc, QueryService):
         return {"status": "degraded", "checks": {"query_service": "missing"}}
     checks: dict[str, str] = {"query_service": "ok"}
     degraded = not _check_graph(svc, checks)
     _check_vector(svc, checks)
     degraded = not _check_graph_ping(svc, checks) or degraded
     checks["allow_llm"] = "1" if svc.allow_llm else "0"
-    checks["graph_backend"] = str(getattr(svc.bundle, "graph_backend", "unknown"))
-    checks["vector_backend"] = str(getattr(svc.bundle, "vector_backend", "unknown"))
+    checks["graph_backend"] = str(svc.bundle.graph_backend)
+    checks["vector_backend"] = str(svc.bundle.vector_backend)
     _add_operational_checks(svc, checks)
     return {"status": "degraded" if degraded else "ok", "checks": checks}
 
@@ -201,9 +203,8 @@ def _check_vector(svc: QueryService, checks: dict[str, str]) -> None:
 
 def _check_graph_ping(svc: QueryService, checks: dict[str, str]) -> bool:
     try:
-        ping = getattr(svc.bundle.graph, "ping", None)
-        if callable(ping):
-            ping()
+        if isinstance(svc.bundle.graph, Pingable):
+            svc.bundle.graph.ping()
             checks["graph_ping"] = "ok"
         return True
     except Exception as exc:  # noqa: BLE001
@@ -212,18 +213,10 @@ def _check_graph_ping(svc: QueryService, checks: dict[str, str]) -> bool:
 
 
 def _add_operational_checks(svc: QueryService, checks: dict[str, str]) -> None:
-    try:
-        from agentic_graphrag.llm.circuit import CircuitBreaker
-
-        circuit = getattr(svc, "_circuit_breaker", None)
-        if isinstance(circuit, CircuitBreaker):
-            checks["llm_circuit"] = circuit.state.value
-    except Exception:  # noqa: BLE001
-        pass
     if svc.review_queue is None:
         return
     try:
-        checks["review_queue_pending"] = str(svc.review_queue.counts().get("pending", 0))
+        checks["review_queue_pending"] = str(svc.review_queue.counts().get(ReviewStatus.PENDING, 0))
     except Exception:  # noqa: BLE001
         pass
 
@@ -238,14 +231,14 @@ def _mount_web_ui(app: FastAPI) -> None:
 
     @app.get("/web", response_class=HTMLResponse)
     @app.get("/web/", response_class=HTMLResponse)
-    def web_ui() -> FileResponse:
+    def web_ui() -> Response:
         index = web_dir / "index.html"
         if not index.exists():
-            return HTMLResponse("<h1>Web UI missing</h1>", status_code=404)  # type: ignore[return-value]
+            return HTMLResponse("<h1>Web UI missing</h1>", status_code=404)
         return FileResponse(index)
 
 
-def _public_validation_errors(errors: list[Any]) -> list[dict[str, Any]]:
+def _public_validation_errors(errors: Sequence[Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for err in errors:
         out.append(

@@ -27,7 +27,7 @@ Web 工作台：<http://localhost:8000/web>
 | `offline`（默认） | 内存 | 内存 | 开 | 加载 | 本地 / CI |
 | `live` | Neo4j | Qdrant | 开 | 不加载 | 生产；旧开关 `AGR_USE_LIVE_STORES=1` 等价 |
 | `hybrid` | Neo4j | 内存 | 开 | 不加载 | 显式混合部署 |
-| `eval` | 内存 | 内存 | 关 | 加载 | `agr-run-cases` 默认使用 |
+| `eval` | 内存 | 内存 | 关 | 加载 | `agr-run-cases` 默认使用；不读取本地 BM25/向量索引快照 |
 
 `AGR_ALLOW_LLM=1`（且 `LLM_API_KEY` 有效）在所有 Profile 下都会启用真实 LLM；`eval` 下真实 LLM 的响应可从 `data/cache/llm` 磁盘缓存回放。
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import VectorStore
-from agentic_graphrag.llm.provider import LLMProvider
 
 
 class VectorRetriever:
-    def __init__(self, store: VectorStore, llm: LLMProvider, top_k: int = 10) -> None:
+    def __init__(self, store: VectorStore, llm: LLMClient, top_k: int = 10) -> None:
         self.store = store
         self.llm = llm
         self.top_k = top_k

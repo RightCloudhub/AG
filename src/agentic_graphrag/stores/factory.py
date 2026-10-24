@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.core.ports.capabilities import Closable, SnapshotLoader
 from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, GraphStore, VectorStore
 from agentic_graphrag.stores.doc_store import FileDocStore, InMemoryDocStore
 from agentic_graphrag.stores.fulltext_shared import SharedFileBM25Store
@@ -51,12 +52,9 @@ class StoreBundle:
     vector_backend: VectorBackend
 
     def close(self) -> None:
-        close = getattr(self.graph, "close", None)
-        if callable(close):
-            close()
-        close_v = getattr(self.vector, "close", None)
-        if callable(close_v):
-            close_v()
+        if isinstance(self.graph, Closable):
+            self.graph.close()
+        self.vector.close()
 
 
 def create_graph_store(
@@ -159,9 +157,8 @@ def create_bundle(
     try:
         vector, v_backend = create_vector_store(vector_backend, settings=settings, ping=True)
     except Exception:
-        close = getattr(graph, "close", None)
-        if callable(close):
-            close()
+        if isinstance(graph, Closable):
+            graph.close()
         raise
     fulltext = _open_fulltext(cfg, FulltextBackend(fulltext_backend), load=load_bm25)
     docs = create_doc_store(cfg=cfg)
@@ -198,9 +195,8 @@ def create_offline_bundle(
 
 def _try_load_bm25(fulltext: FulltextStore, cfg: AppConfig) -> None:
     ft_path = bm25_snapshot_path(cfg)
-    load = getattr(fulltext, "load", None)
-    if callable(load) and ft_path.exists():
-        load(str(ft_path))
+    if isinstance(fulltext, SnapshotLoader) and ft_path.exists():
+        fulltext.load(str(ft_path))
 
 
 def _try_load_embeddings(vector: VectorStore, cfg: AppConfig) -> None:

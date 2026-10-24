@@ -1,19 +1,42 @@
+// @ts-check
 /**
  * Knowledge view — document upload + ingest task list.
  */
 import { ref, onMounted } from '../../vendor/vue.esm-browser.prod.js';
 import { uploadDocs, fetchIngestTasks } from '../api.js';
+import { IngestStatus, UiPolicy, UploadPolicy } from '../contracts.js';
+
+function useKnowledgeState() {
+  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../responses.js').Task[]>} */
+  const tasks = ref([]);
+  const total = ref(0);
+  const loading = ref(false);
+  const uploading = ref(false);
+  const dragActive = ref(false);
+  const page = ref(1);
+  const limit = UiPolicy.TABLE_PAGE_SIZE;
+  function onDragLeave() { dragActive.value = false; }
+
+  return { tasks, total, loading, uploading, dragActive, page, limit, onDragLeave };
+}
+
+/** @param {import('../contracts.js').IngestStatusName} status */
+function statusBadge(status) {
+  const map = {
+    [IngestStatus.QUEUED]: 'badge--warning',
+    [IngestStatus.EXTRACTING]: 'badge--info',
+    [IngestStatus.REVIEW]: 'badge--warning',
+    [IngestStatus.DONE]: 'badge--success',
+    [IngestStatus.FAILED]: 'badge--danger',
+    [IngestStatus.EMPTY]: 'badge--muted',
+  };
+  return map[status] || 'badge--muted';
+}
 
 export default {
   name: 'KnowledgeView',
   setup() {
-    const tasks = ref([]);
-    const total = ref(0);
-    const loading = ref(false);
-    const uploading = ref(false);
-    const dragActive = ref(false);
-    const page = ref(1);
-    const limit = 20;
+    const { tasks, total, loading, uploading, dragActive, page, limit, onDragLeave } = useKnowledgeState();
 
     async function loadTasks() {
       loading.value = true;
@@ -27,6 +50,7 @@ export default {
       finally { loading.value = false; }
     }
 
+    /** @param {FileList | null} fileList */
     async function handleFiles(fileList) {
       if (!fileList?.length) return;
       uploading.value = true;
@@ -34,36 +58,29 @@ export default {
         await uploadDocs(Array.from(fileList));
         await loadTasks();
       } catch (e) {
-        alert('Upload failed: ' + e.message);
+        alert('上传失败：' + (e instanceof Error ? e.message : String(e)));
       } finally {
         uploading.value = false;
       }
     }
 
+    /** @param {DragEvent} e */
     function onDrop(e) {
       e.preventDefault();
       dragActive.value = false;
-      handleFiles(e.dataTransfer.files);
+      handleFiles(e.dataTransfer?.files ?? null);
     }
 
+    /** @param {DragEvent} e */
     function onDragOver(e) { e.preventDefault(); dragActive.value = true; }
-    function onDragLeave() { dragActive.value = false; }
 
     function triggerUpload() {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = '.md,.txt';
+      input.accept = UploadPolicy.ACCEPT;
       input.onchange = () => handleFiles(input.files);
       input.click();
-    }
-
-    function statusBadge(status) {
-      const map = {
-        pending: 'badge--warning', running: 'badge--info',
-        completed: 'badge--success', failed: 'badge--danger',
-      };
-      return map[status] || 'badge--muted';
     }
 
     function totalPages() { return Math.max(1, Math.ceil(total.value / limit)); }
@@ -74,7 +91,7 @@ export default {
 
     return { tasks, total, loading, uploading, dragActive, page, limit,
              onDrop, onDragOver, onDragLeave, triggerUpload, statusBadge,
-             totalPages, prevPage, nextPage, loadTasks };
+             totalPages, prevPage, nextPage, loadTasks, UiPolicy };
   },
 
   template: `
@@ -118,12 +135,12 @@ export default {
         <tbody>
           <tr v-for="t in tasks" :key="t.task_id || t.id">
             <td style="font-family:var(--font-mono);font-size:var(--text-xs);">
-              {{ (t.task_id || t.id || '').slice(0, 12) }}
+              {{ (t.task_id || t.id || '').slice(0, UiPolicy.ID_PREVIEW) }}
             </td>
             <td><span class="badge" :class="statusBadge(t.status)">{{ t.status || 'unknown' }}</span></td>
-            <td>{{ t.doc_count ?? t.documents?.length ?? '—' }}</td>
+            <td>{{ t.docs.length ?? '—' }}</td>
             <td style="font-size:var(--text-xs);color:var(--color-text-muted);">
-              {{ t.created_at ? new Date(t.created_at).toLocaleString() : '—' }}
+              {{ t.created_at ? new Date(t.created_at * UiPolicy.MILLISECONDS_PER_SECOND).toLocaleString() : '—' }}
             </td>
           </tr>
         </tbody>

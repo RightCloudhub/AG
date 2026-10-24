@@ -7,7 +7,11 @@ always lands on the ledger *and* takes effect on the graph, and always emits
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
+
 
 from agentic_graphrag.app.write_path import review_executor_for
 from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewItem
@@ -18,7 +22,7 @@ class ReviewQueueUnavailable(RuntimeError):
 
 
 class ReviewApp:
-    def __init__(self, svc: Any) -> None:
+    def __init__(self, svc: QueryService) -> None:
         self._svc = svc
 
     def decide(
@@ -31,7 +35,7 @@ class ReviewApp:
         tenant_id: str | None = None,
     ) -> ReviewItem:
         """Record + execute. Raises ``KeyError`` / ``ReviewAlreadyDecided`` from the queue."""
-        queue = getattr(self._svc, "review_queue", None)
+        queue = self._svc.review_queue
         if queue is None:
             raise ReviewQueueUnavailable("review queue not configured")
         dec = decision if isinstance(decision, ReviewDecision) else ReviewDecision(decision)

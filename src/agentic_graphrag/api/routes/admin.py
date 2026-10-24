@@ -9,6 +9,7 @@ Includes:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -18,6 +19,7 @@ from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService
+from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["admin"])
 
@@ -32,7 +34,7 @@ _PROM_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 def _service(request: Request) -> QueryService:
     svc = getattr(request.app.state, "query_service", None)
-    if svc is None:
+    if not isinstance(svc, QueryService):
         raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
     return svc
 
@@ -43,7 +45,7 @@ def _service(request: Request) -> QueryService:
 
 
 @router.get("/traces/{query_id}", dependencies=[Depends(require_role(Role.ADMIN))])
-def get_trace(query_id: str) -> dict:
+def get_trace(query_id: str) -> JsonObject:
     """Return trace spans for a given query_id (admin only)."""
     from agentic_graphrag.observability.trace import get_tracer
 
@@ -54,7 +56,7 @@ def get_trace(query_id: str) -> dict:
 
 
 @router.get("/budget/snapshot", dependencies=[Depends(require_role(Role.ADMIN))])
-def budget_snapshot(request: Request) -> dict:
+def budget_snapshot(request: Request) -> JsonObject:
     """Multi-level budget usage snapshot (admin only)."""
     svc = _service(request)
     if svc.multi_budget is None:
@@ -83,7 +85,7 @@ def _audit_event_query(
 
 
 @router.get("/audit-events", dependencies=[Depends(require_role(Role.ADMIN))])
-def list_audit_events(q: Annotated[AuditEventQuery, Depends(_audit_event_query)]) -> dict:
+def list_audit_events(q: Annotated[AuditEventQuery, Depends(_audit_event_query)]) -> JsonObject:
     """List security/management audit events (admin only)."""
     from agentic_graphrag.governance.audit_events import get_audit_event_store
 
@@ -141,14 +143,22 @@ def prometheus_metrics_text() -> str:
     lines.append(_prom_line("agr_latency_p99_ms", s.get("latency_p99_ms", 0.0)))
     lines.append("")
 
-    _labelled(lines, "agr_route_queries_total", "Queries by route", s.get("route_counts"), "route")
-    _labelled(lines, "agr_errors_total", "Errors by code", s.get("error_counts"), "code")
+    _labelled(
+        lines,
+        "agr_route_queries_total",
+        "Queries by route",
+        counts=s.get("route_counts"),
+        label="route",
+    )
+    _labelled(
+        lines, "agr_errors_total", "Errors by code", counts=s.get("error_counts"), label="code"
+    )
     _labelled(
         lines,
         "agr_event_handler_failures_total",
         "Critical event handlers that failed after retries (alert on increase)",
-        s.get("event_handler_failures"),
-        "handler",
+        counts=s.get("event_handler_failures"),
+        label="handler",
     )
 
     lines.append("# HELP agr_budget_trips_total Budget trip events")
@@ -159,13 +169,14 @@ def prometheus_metrics_text() -> str:
     return "\n".join(lines) + "\n"
 
 
-def _labelled(lines: list[str], *spec: object) -> None:
+def _labelled(
+    lines: list[str], name: str, help_text: str, *, counts: Mapping[str, int] | None, label: str
+) -> None:
     """Append one labelled counter family: (name, help, {label_value: count}, label)."""
-    name, help_text, counts, label = spec
     if not counts:
         return
     lines.append(f"# HELP {name} {help_text}")
     lines.append(f"# TYPE {name} counter")
-    for key, count in sorted(dict(counts).items()):  # type: ignore[call-overload]
-        lines.append(_prom_line(str(name), count, {str(label): key}))
+    for key, count in sorted(counts.items()):
+        lines.append(_prom_line(name, count, {label: key}))
     lines.append("")

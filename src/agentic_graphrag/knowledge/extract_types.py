@@ -39,7 +39,7 @@ class RetryPolicy:
         """Backoff before attempt N (1-based). First attempt → 0."""
         if attempt <= 1 or self.base_delay_seconds <= 0:
             return 0.0
-        return self.base_delay_seconds * (2 ** (attempt - 2))
+        return self.base_delay_seconds * (2.0 ** (attempt - 2))
 
 
 @dataclass

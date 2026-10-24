@@ -18,6 +18,7 @@ from agentic_graphrag.llm.circuit import (
     CircuitBreaker,
     CircuitBreakerSet,
 )
+from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
 
 
 class LLMProvider:
@@ -120,8 +121,9 @@ class LLMProvider:
             key_env="LLM_API_KEY",
             route=ROUTE_STRONG if tier == Tier.STRONG else ROUTE_LIGHT,
         )
-        content = data["choices"][0]["message"]["content"]
-        usage = data.get("usage") or {}
+        response = CompletionResponse.model_validate(data)
+        content = response.choices[0].message.content
+        usage = (response.usage or CompletionUsage()).model_dump()
         if self.budget:
             self.budget.record_call(
                 int(usage.get("prompt_tokens", 0)),
@@ -199,7 +201,7 @@ class LLMProvider:
             with httpx.Client(base_url=base_url, timeout=timeout) as client:
                 resp = client.post(path, headers=headers, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
+                data = JSON_OBJECT.validate_python(resp.json())
         except Exception:
             breaker.record_failure()
             raise
@@ -216,7 +218,7 @@ class LLMProvider:
         path = self.cache_dir / f"{key}.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        return JSON_OBJECT.validate_json(path.read_text(encoding="utf-8"))
 
     def _write_cache(self, key: str, value: dict[str, Any]) -> None:
         if not self.cache_dir:

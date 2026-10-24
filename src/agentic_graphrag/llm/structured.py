@@ -8,7 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
+from agentic_graphrag.core.enums import MessageRole
+from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 
@@ -22,7 +23,7 @@ def extract_json(text: str) -> Any:
 
 
 def complete_structured[T: BaseModel](
-    llm: LLMProvider,
+    llm: CompletionClient,
     messages: list[Message],
     model_type: type[T],
     *,
@@ -46,9 +47,9 @@ def complete_structured[T: BaseModel](
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             last_error = exc
             history = list(history) + [
-                Message(role="assistant", content=raw),
+                Message(role=MessageRole.ASSISTANT, content=raw),
                 Message(
-                    role="user",
+                    role=MessageRole.USER,
                     content=(
                         f"Your previous response was invalid JSON for the required schema. "
                         f"Error: {exc}. Reply with corrected JSON only."

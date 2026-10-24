@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from agentic_graphrag.config import get_config, get_settings, resolve_path
+from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 
@@ -34,7 +34,7 @@ def _parse_index(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _index_bm25(chunks: list[ChunkRecord], cfg) -> None:
+def _index_bm25(chunks: list[ChunkRecord], cfg: AppConfig) -> None:
     ft = BM25FulltextStore()
     n = ft.index(chunks)
     ft_path = resolve_path(f"{cfg.paths.indexes_dir}/bm25.json")
@@ -42,7 +42,9 @@ def _index_bm25(chunks: list[ChunkRecord], cfg) -> None:
     print(f"BM25 indexed {n} chunks → {ft_path}")
 
 
-def _index_vectors(chunks: list[ChunkRecord], cfg, settings, *, memory: bool) -> None:
+def _index_vectors(
+    chunks: list[ChunkRecord], cfg: AppConfig, settings: Settings, *, memory: bool
+) -> None:
     from agentic_graphrag.config import build_llm_provider
     from agentic_graphrag.stores.vector_store import QdrantVectorStore
 
@@ -64,7 +66,7 @@ def _index_vectors(chunks: list[ChunkRecord], cfg, settings, *, memory: bool) ->
     print(f"Qdrant upserted {n_vec} vectors")
 
 
-def _persist_memory_vectors(chunks: list[ChunkRecord], cfg) -> None:
+def _persist_memory_vectors(chunks: list[ChunkRecord], cfg: AppConfig) -> None:
     from agentic_graphrag.stores.vector_store import InMemoryVectorStore
 
     store = InMemoryVectorStore()

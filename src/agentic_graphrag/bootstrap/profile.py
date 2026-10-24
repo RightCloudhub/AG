@@ -16,6 +16,11 @@ Resolution order:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentic_graphrag.config import Settings
+
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -55,6 +60,7 @@ class Capabilities:
     deterministic: bool = False
     # Live/hybrid run an API and a standalone worker: BM25 must be shared (O-3).
     fulltext: FulltextBackend = FulltextBackend.PROCESS
+    load_local_indexes: bool = True
 
 
 CAPABILITY_MATRIX: Mapping[Profile, Capabilities] = {
@@ -94,6 +100,7 @@ CAPABILITY_MATRIX: Mapping[Profile, Capabilities] = {
         retrieval_cache=False,
         load_seed_graph=True,
         deterministic=True,
+        load_local_indexes=False,
     ),
 }
 
@@ -151,18 +158,18 @@ def resolve_runtime_profile(
     return RuntimeProfile(profile=profile, caps=caps, llm_mode=mode)
 
 
-def missing_credentials(rp: RuntimeProfile, settings: object) -> list[str]:
+def missing_credentials(rp: RuntimeProfile, settings: Settings) -> list[str]:
     """Env vars the profile needs but the settings leave empty."""
     required: dict[str, object] = {}
     if rp.caps.graph is GraphBackend.NEO4J:
         required |= {
-            "NEO4J_URI": getattr(settings, "neo4j_uri", ""),
-            "NEO4J_USER": getattr(settings, "neo4j_user", ""),
-            "NEO4J_PASSWORD": getattr(settings, "neo4j_password", ""),
+            "NEO4J_URI": settings.neo4j_uri,
+            "NEO4J_USER": settings.neo4j_user,
+            "NEO4J_PASSWORD": settings.neo4j_password,
         }
     if rp.caps.vector is VectorBackend.QDRANT:
         required |= {
-            "QDRANT_URL": getattr(settings, "qdrant_url", ""),
-            "QDRANT_COLLECTION": getattr(settings, "qdrant_collection", ""),
+            "QDRANT_URL": settings.qdrant_url,
+            "QDRANT_COLLECTION": settings.qdrant_collection,
         }
     return [name for name, value in required.items() if not str(value or "").strip()]

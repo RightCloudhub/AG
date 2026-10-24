@@ -20,7 +20,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from agentic_graphrag.core.constants import SCORE_PRECISION
+from agentic_graphrag.core.enums import RerankKind
+
+if TYPE_CHECKING:
+    from agentic_graphrag.config import RerankConfig
 
 from agentic_graphrag.core.evidence import Candidate
 
@@ -55,7 +61,10 @@ class LexicalReranker:
             prior = _PRIOR_WEIGHT / (1 + rank)
             scored.append((coverage + prior, rank, c))
         scored.sort(key=lambda t: (-t[0], t[1]))
-        return [_with_meta(c, rerank_score=round(s, 6), rerank="lexical") for s, _r, c in scored]
+        return [
+            _with_meta(c, rerank_score=round(s, SCORE_PRECISION), rerank="lexical")
+            for s, _r, c in scored
+        ]
 
 
 class HttpCrossEncoderReranker:
@@ -99,16 +108,16 @@ class HttpCrossEncoderReranker:
         return {int(r["index"]): float(r.get("score", r.get("relevance_score", 0.0))) for r in rows}
 
 
-def build_reranker(cfg: Any) -> LexicalReranker | HttpCrossEncoderReranker | None:
+def build_reranker(cfg: RerankConfig) -> LexicalReranker | HttpCrossEncoderReranker | None:
     """``cfg`` is :class:`~agentic_graphrag.config.RerankConfig` (kind none|lexical|http)."""
-    kind = str(getattr(cfg, "kind", "none") or "none").lower()
-    if kind == "none":
+    kind = RerankKind(cfg.kind)
+    if kind is RerankKind.NONE:
         return None
-    if kind == "lexical":
+    if kind is RerankKind.LEXICAL:
         return LexicalReranker()
-    if kind == "http":
+    if kind is RerankKind.HTTP:
         return HttpCrossEncoderReranker(
-            str(getattr(cfg, "endpoint", "")),
-            timeout_seconds=float(getattr(cfg, "timeout_seconds", 2.0)),
+            cfg.endpoint,
+            timeout_seconds=cfg.timeout_seconds,
         )
     raise ValueError(f"unknown reranker kind {kind!r} (expected none|lexical|http)")

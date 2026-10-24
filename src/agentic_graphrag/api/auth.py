@@ -15,12 +15,12 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp
 
 from agentic_graphrag.api.envelope import fail
 from agentic_graphrag.api.rbac import KeyInfo, Role, parse_api_keys_with_roles
@@ -116,7 +116,7 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app: Callable,
+        app: ASGIApp,
         *,
         api_keys: dict[str, str] | None = None,
         require_auth: bool | None = None,
@@ -137,11 +137,13 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
             {"/healthz", "/docs", "/openapi.json", "/redoc", "/metrics-prom"}
         )
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         with extract_otel_context(dict(request.headers)):
             return await self._dispatch_authenticated(request, call_next)
 
-    async def _dispatch_authenticated(self, request: Request, call_next: Callable) -> Response:
+    async def _dispatch_authenticated(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         path = request.url.path
         if path in self.public_paths or path.startswith("/web"):
             return await call_next(request)

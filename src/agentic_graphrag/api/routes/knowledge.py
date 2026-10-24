@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -16,6 +16,8 @@ from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remembe
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.app.review_app import ReviewApp
+from agentic_graphrag.core.enums import ReviewStatus
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
     ReviewDecision,
@@ -49,7 +51,7 @@ class FeedbackBody(BaseModel):
 
 def _service(request: Request) -> QueryService:
     svc = getattr(request.app.state, "query_service", None)
-    if svc is None:
+    if not isinstance(svc, QueryService):
         raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
     return svc
 
@@ -58,7 +60,7 @@ def _service(request: Request) -> QueryService:
 async def upload_docs(
     request: Request,
     files: list[UploadFile] | None = None,
-) -> dict:
+) -> JsonObject:
     """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
     svc = _service(request)
     tenant_id, _user_id = _principal(request)
@@ -92,7 +94,7 @@ async def upload_docs(
     "/ingest-tasks/{task_id}",
     dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
 )
-def get_ingest_task(task_id: str, request: Request) -> dict:
+def get_ingest_task(task_id: str, request: Request) -> JsonObject:
     tenant_id, _user_id = _principal(request)
     svc = _service(request)
     persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
@@ -106,7 +108,7 @@ def get_ingest_task(task_id: str, request: Request) -> dict:
 
 @dataclass
 class ReviewQueueQuery:
-    status: str | None = "pending"
+    status: ReviewStatus | None = ReviewStatus.PENDING
     type: str | None = None
     limit: int = 50
     offset: int = 0
@@ -114,7 +116,7 @@ class ReviewQueueQuery:
 
 def _review_query(
     *,
-    status: str | None = Query("pending"),
+    status: Annotated[ReviewStatus | Literal[""] | None, Query()] = ReviewStatus.PENDING,
     type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -129,12 +131,12 @@ def _review_query(
 def list_review_queue(
     request: Request,
     q: Annotated[ReviewQueueQuery, Depends(_review_query)],
-) -> dict:
+) -> JsonObject:
     svc = _service(request)
     if svc.review_queue is None:
         return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
     tenant_id, _user_id = _principal(request)
-    pending_count = svc.review_queue.count(status="pending", tenant_id=tenant_id)
+    pending_count = svc.review_queue.count(status=ReviewStatus.PENDING, tenant_id=tenant_id)
     items, total = svc.review_queue.list_page(
         status=q.status,
         type=q.type,
@@ -157,7 +159,7 @@ def list_review_queue(
     "/review-queue/{item_id}/decision",
     dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
 )
-def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> dict:
+def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> JsonObject:
     svc = _service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
@@ -206,7 +208,7 @@ def _principal(request: Request) -> tuple[str, str]:
 
 
 @router.get("/audit/queries/{query_id}")
-def get_audit_query(query_id: str, request: Request) -> dict:
+def get_audit_query(query_id: str, request: Request) -> JsonObject:
     """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01) — tenant-scoped."""
     svc = _service(request)
     if svc.audit_store is None:
@@ -220,7 +222,7 @@ def get_audit_query(query_id: str, request: Request) -> dict:
 
 
 @router.post("/feedback")
-def post_feedback(body: FeedbackBody, request: Request) -> dict:
+def post_feedback(body: FeedbackBody, request: Request) -> JsonObject:
     """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
     svc = _service(request)
     tenant_id, user_id = _principal(request)
@@ -249,7 +251,7 @@ def post_feedback(body: FeedbackBody, request: Request) -> dict:
 
 
 @router.get("/metrics", dependencies=[Depends(require_role(Role.ADMIN))])
-def get_metrics_summary() -> dict:
+def get_metrics_summary() -> JsonObject:
     from agentic_graphrag.observability.metrics import get_metrics
 
     return ok(get_metrics().summary())

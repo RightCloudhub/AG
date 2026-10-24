@@ -6,10 +6,11 @@ from agentic_graphrag.agent.loop_stream_events import (
     EVENT_THINKING,
     EVENT_TRIAGE,
 )
+from agentic_graphrag.core.enums import StreamEvent
 
-EVENT_ANSWER = "answer"
-EVENT_ERROR = "error"
-EVENT_CACHE_HIT = "cache_hit"
+EVENT_ANSWER = StreamEvent.ANSWER
+EVENT_ERROR = StreamEvent.ERROR
+EVENT_CACHE_HIT = StreamEvent.CACHE_HIT
 
 __all__ = [
     "EVENT_ANSWER",

@@ -14,7 +14,8 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol, runtime_checkable
+from functools import wraps
+from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ class ReviewDecided(DomainEvent):
     applied: bool = False
 
 
-Handler = Callable[[Any], None]
+Handler = Callable[[DomainEvent], None]
 FailureHook = Callable[[DomainEvent, BaseException], None]
 
 
@@ -91,10 +92,10 @@ class Subscription:
 class EventBus(Protocol):
     def publish(self, event: DomainEvent) -> None: ...
 
-    def subscribe(
+    def subscribe[EventT: DomainEvent](
         self,
-        event_type: type[DomainEvent],
-        handler: Handler,
+        event_type: type[EventT],
+        handler: Callable[[EventT], None],
         *,
         critical: bool = False,
         retries: int = 0,
@@ -114,16 +115,21 @@ class InProcessEventBus:
         #: ``"<event>:<handler>"`` → final failures (after retries).
         self.handler_failures: Counter[str] = Counter()
 
-    def subscribe(
+    def subscribe[EventT: DomainEvent](
         self,
-        event_type: type[DomainEvent],
-        handler: Handler,
+        event_type: type[EventT],
+        handler: Callable[[EventT], None],
         *,
         critical: bool = False,
         retries: int = 0,
         on_failure: FailureHook | None = None,
     ) -> None:
-        sub = Subscription(handler, critical, max(0, int(retries)), on_failure)
+        @wraps(handler)
+        def deliver(event: DomainEvent) -> None:
+            if isinstance(event, event_type):
+                handler(event)
+
+        sub = Subscription(deliver, critical, max(0, int(retries)), on_failure)
         with self._lock:
             self._subs[event_type].append(sub)
 
@@ -150,8 +156,11 @@ class InProcessEventBus:
 
     @staticmethod
     def _fail_safe(sub: Subscription, event: DomainEvent, error: BaseException) -> None:
+        failure_hook = sub.on_failure
+        if failure_hook is None:
+            return
         try:
-            sub.on_failure(event, error)  # type: ignore[misc]
+            failure_hook(event, error)
         except Exception:  # noqa: BLE001 — the fail-safe itself must never raise
             logger.exception("fail-safe for %s failed on %s", sub.name, event.name)
 

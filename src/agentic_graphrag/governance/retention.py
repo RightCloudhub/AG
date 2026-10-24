@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_SECONDS_PER_DAY = 86_400
+from agentic_graphrag.core.constants import SECONDS_PER_DAY
+
+_SECONDS_PER_DAY = SECONDS_PER_DAY
 
 
 @dataclass(frozen=True)

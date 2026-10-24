@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
+from agentic_graphrag.agent.executor import Executor
+from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.cli.cases_run import (
     build_retrievers,
     known_entity_names,
@@ -14,6 +17,7 @@ from agentic_graphrag.cli.cases_run import (
     run_case_row,
 )
 from agentic_graphrag.config import get_config, get_settings, resolve_path
+from agentic_graphrag.core.ports.llm import LLMClient
 
 
 def run_cases_main(argv: list[str] | None = None) -> None:
@@ -105,7 +109,7 @@ def _parse_run_cases(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _run_cases_via_app(args: argparse.Namespace, cases_path, report_dir) -> None:
+def _run_cases_via_app(args: argparse.Namespace, cases_path: Path, report_dir: Path) -> None:
     from agentic_graphrag.cli.cases_run import build_eval_app, run_case_row_via_app
     from agentic_graphrag.eval.scoring import write_accuracy_summary
 
@@ -141,17 +145,17 @@ def _run_cases_via_app(args: argparse.Namespace, cases_path, report_dir) -> None
 
 
 def _write_case_report(
-    cases_path,
-    report_dir,
+    cases_path: Path,
+    report_dir: Path,
     *,
-    executor,
-    llm,
-    guard_cfg,
+    executor: Executor,
+    llm: LLMClient | None,
+    guard_cfg: GuardrailConfig,
     no_llm: bool,
     enable_triage: bool = False,
     force_agentic: bool = False,
     run_name: str = "poc_run",
-):
+) -> Path:
     cases = [
         json.loads(line)
         for line in cases_path.read_text(encoding="utf-8").splitlines()

@@ -2,7 +2,8 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-08-08  
+**最近汇总：** 2026-10-24
+
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
 **符号约定**
@@ -184,6 +185,18 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | `observability/otel_bridge.py` | 可选 OTel live 适配器（无 SDK 时 no-op） | collector 联调时补集成验证（ENT-08） |
 
 另延期：**分支覆盖**（`branch = false`）。
+
+### 类型审查后的部署验证
+
+2026-10-24 类型与契约修复的代码、离线回归与评测结果见
+[TYPE_SAFETY_AUDIT.md](./TYPE_SAFETY_AUDIT.md)。未扩大覆盖率 omit。
+
+| 项目 | 已验证 | 部署时补验 |
+| --- | --- | --- |
+| Neo4j 实体合并 | 托管事务调用、租户参数、端点语义与关系类型校验；内存图完整行为回归 | 真实 Neo4j 出入边、自环、租户隔离与事务回滚 |
+| Qdrant 检索 | 当前 query_points 接口与租户过滤 mock 回归 | 实际 collection、索引和租户过滤 |
+| SQLite 检查点 | 真实 sqlite3 连接传入 saver，构造失败关闭连接 | 安装可选 saver 后持久化、重启恢复与连接生命周期 |
+| 可选 OTel | 无 SDK 离线路径可用，类型声明边界明确 | 实际 SDK/collector 联调 |
 
 ### 产品面部分完成
 

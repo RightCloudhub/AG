@@ -6,17 +6,19 @@ import json
 
 from agentic_graphrag.agent.executor import Executor, ToolCallSpec
 from agentic_graphrag.agent.executor_dispatch import run_tool_specs
+from agentic_graphrag.core.enums import RetrievalTool
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.reasoning import ToolCallTrace
 from agentic_graphrag.retrieval.fusion import fuse_candidates
 
 
-def query_key(tool: str, args: dict) -> str:
+def query_key(tool: str, args: JsonObject) -> str:
     normalized = dict(args)
     if "query" in normalized:
         query = " ".join(str(normalized["query"]).casefold().split())
         normalized["query"] = (
-            " ".join(sorted(query.split())) if tool == "fulltext_search" else query
+            " ".join(sorted(query.split())) if tool == RetrievalTool.FULLTEXT_SEARCH else query
         )
     return tool + ":" + json.dumps(normalized, ensure_ascii=False, sort_keys=True)
 
@@ -51,7 +53,7 @@ def seed_search(
     executor: Executor, question: str, *, top_k: int, tenant_id: str, cache: dict[str, list[str]]
 ) -> tuple[list[Candidate], ToolCallTrace]:
     spec = ToolCallSpec(
-        tool="vector_search",
+        tool=RetrievalTool.VECTOR_SEARCH,
         args={"query": question, "top_k": top_k},
         reason="requirement register seed",
     )
@@ -72,7 +74,7 @@ def _uncached(
         if key in cache or key in keys:
             reused.append(
                 ToolCallTrace(
-                    tool="cache",
+                    tool=RetrievalTool.CACHE,
                     args={"tool": spec.tool, **spec.args},
                     reason="duplicate query; revise the need or read evidence",
                     hits=cache.get(key, []),

@@ -17,6 +17,7 @@ from agentic_graphrag.api.routes.knowledge_graph_browse import (
 from agentic_graphrag.api.routes.workspace_tasks import list_cached_tasks
 from agentic_graphrag.app.errors import ApiError
 from agentic_graphrag.app.query_service import QueryService
+from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["workspace"])
 
@@ -42,7 +43,7 @@ def _task_list_query(
 def list_ingest_tasks(
     request: Request,
     page: Annotated[TaskListQuery, Depends(_task_list_query)],
-) -> dict:
+) -> JsonObject:
     """List recent ingest tasks for the current tenant."""
     tenant_id, _user_id = _principal(request)
     service = _service(request)
@@ -64,7 +65,7 @@ def list_ingest_tasks(
 
 
 @router.get("/me")
-def get_current_user(request: Request) -> dict:
+def get_current_user(request: Request) -> JsonObject:
     """Return the authenticated identity and capabilities without role probing."""
     principal = getattr(request.state, "principal", None)
     role = principal.role.value if principal is not None else Role.READER.value
@@ -111,7 +112,7 @@ def _graph_entity_query(
 def list_graph_entities(
     request: Request,
     page: Annotated[GraphEntityQuery, Depends(_graph_entity_query)],
-) -> dict:
+) -> JsonObject:
     """Return a tenant-scoped, searchable page of graph entities."""
     service = _service(request)
     tenant_id, _user_id = _principal(request)
@@ -128,7 +129,7 @@ def list_graph_entities(
             "id": entity.id,
             "name": entity.name,
             "type": entity.type,
-            "aliases": list(getattr(entity, "aliases", None) or []),
+            "aliases": list(entity.aliases),
         }
         for entity in result.records
     ]
@@ -143,7 +144,7 @@ def list_graph_entities(
 
 def _service(request: Request) -> QueryService:
     service = getattr(request.app.state, "query_service", None)
-    if service is None:
+    if not isinstance(service, QueryService):
         raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
     return service
 

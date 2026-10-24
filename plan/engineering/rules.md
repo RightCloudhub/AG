@@ -1,7 +1,7 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.3（2026-10-17，CI 增加 g2 下限与金标审计；架构 A/B 必须报告配对显著性）
+**版本**：V1.4（2026-10-24，增加全源 Python/自有 JS 严格类型门禁，恢复前端测试；保留 g2 下限、金标审计与配对显著性要求）
 
 | 强制层级 | 机制 |
 |---|---|
@@ -28,6 +28,10 @@
 
 - `ruff check src tests scripts` 与 `ruff format --check src tests scripts` 零告警。
 - 配置即 `pyproject.toml`：line-length 100、target py312、规则集 `E,F,I,UP,B`。不得局部关闭规则来"过检"，确需豁免时注明理由。
+- `mypy` 对全部 Python 源模块执行严格检查；前端自有 JS 使用 `web/jsconfig.json`
+  执行严格 JSDoc/checkJs 检查。CI 使用临时钉版 TypeScript 检查器，浏览器仍直接
+  加载原始 ESM，没有构建步骤或 npm 项目。第三方 Vue 的已用 API 单独声明边界类型；
+  Vue 模板仍由浏览器运行时编译，模板表达式不属于 checkJs 的静态检查范围。
 
 ## 3. 测试与覆盖率（CI 强制）
 
@@ -78,7 +82,7 @@
 
 ## 8. 前端（`web/`）规则
 
-- **零构建（无工具链）**：不引入 npm / 打包器 / Node 工具链；改完刷新即生效。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)。
+- **零构建运行时**：不引入 npm 清单、打包器或浏览器运行所需的 Node 工具链；改完刷新即生效。Node/TypeScript 仅用于 §2 的开发与 CI 验证。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
 - SSE 消费必须覆盖全部事件类型（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`），未知事件静默忽略。

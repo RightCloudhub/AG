@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentic_graphrag.agent.entities import is_stopword_entity
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.llm.provider import Message, Tier
+from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
+from agentic_graphrag.core.enums import (
+    GRAPH_TOOLS,
+    MessageRole,
+    PromptName,
+    RetrievalTool,
+    ToolArgument,
+)
+from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 if TYPE_CHECKING:
@@ -52,7 +60,7 @@ DEFAULT_NEIGHBOR_HOPS = 2
 LONG_NEIGHBOR_HOPS = 3
 PATH_MAX_HOPS = 4
 MAX_NAMED_ENTITIES = 2
-ENTITY_ARG_KEYS = ("entity", "name", "source", "target")
+ENTITY_ARG_KEYS = (ToolArgument.ENTITY, ToolArgument.NAME, ToolArgument.SOURCE, ToolArgument.TARGET)
 
 
 def choose_tools(
@@ -71,7 +79,7 @@ def choose_tools(
     if not allow_llm or executor.llm is None:
         return heuristic
     # Strong signal already: graph expand / path — skip extra LLM plan call.
-    if any(s.tool in {"graph_neighbors", "graph_path", "graph_subgraph"} for s in heuristic):
+    if any(s.tool in GRAPH_TOOLS for s in heuristic):
         return heuristic
     llm_plan = _try_llm_plan(executor, sub_question, entities_hint)
     if llm_plan:
@@ -91,7 +99,7 @@ def build_heuristic(
     if not specs and names:
         specs.extend(_default_neighbor_specs(names))
     # Skip remote embedding when graph already expanded (AC-4 latency).
-    has_graph = any(s.tool.startswith("graph_") for s in specs)
+    has_graph = any(s.tool in GRAPH_TOOLS for s in specs)
     specs.extend(_lexical_backup_specs(sub_question, skip_vector=has_graph))
     return specs
 
@@ -111,33 +119,37 @@ def sanitize_spec(executor: Executor, spec: ToolCallSpec, sub_question: str) -> 
 
 
 def split_prompt(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        return parts[0].replace("# System", "", 1).strip(), parts[1].strip()
+    if PROMPT_SYSTEM_HEADER in text and PROMPT_USER_HEADER in text:
+        parts = text.split(PROMPT_USER_HEADER, 1)
+        return parts[0].replace(PROMPT_SYSTEM_HEADER, "", 1).strip(), parts[1].strip()
     return "You are an executor.", text
 
 
 def _replacement_name(key: str, names: list[str]) -> str:
-    if key != "target":
+    if key != ToolArgument.TARGET:
         return names[0]
     return names[1] if len(names) > 1 else names[0]
 
 
-def _path_specs(q: str, names: list[str]) -> list[Any]:
+def _path_specs(q: str, names: list[str]) -> list[ToolCallSpec]:
     from agentic_graphrag.agent.executor import ToolCallSpec
 
     if not (any(k in q for k in PATH_CUES) and len(names) >= 2):
         return []
     return [
         ToolCallSpec(
-            tool="graph_path",
-            args={"source": names[0], "target": names[1], "max_hops": PATH_MAX_HOPS},
+            tool=RetrievalTool.GRAPH_PATH,
+            args={
+                ToolArgument.SOURCE: names[0],
+                ToolArgument.TARGET: names[1],
+                ToolArgument.MAX_HOPS: PATH_MAX_HOPS,
+            },
             reason="path-style question",
         )
     ]
 
 
-def _relation_specs(q: str, names: list[str]) -> list[Any]:
+def _relation_specs(q: str, names: list[str]) -> list[ToolCallSpec]:
     from agentic_graphrag.agent.executor import ToolCallSpec
 
     if not any(k in q for k in RELATION_CUES):
@@ -145,40 +157,44 @@ def _relation_specs(q: str, names: list[str]) -> list[Any]:
     hops = LONG_NEIGHBOR_HOPS if any(k in q for k in LONG_HOP_CUES) else DEFAULT_NEIGHBOR_HOPS
     return [
         ToolCallSpec(
-            tool="graph_neighbors",
-            args={"entity": ent, "max_hops": hops},
+            tool=RetrievalTool.GRAPH_NEIGHBORS,
+            args={ToolArgument.ENTITY: ent, ToolArgument.MAX_HOPS: hops},
             reason=f"relation expand around {ent}",
         )
         for ent in names[:MAX_NAMED_ENTITIES]
     ]
 
 
-def _default_neighbor_specs(names: list[str]) -> list[Any]:
+def _default_neighbor_specs(names: list[str]) -> list[ToolCallSpec]:
     from agentic_graphrag.agent.executor import ToolCallSpec
 
     return [
         ToolCallSpec(
-            tool="graph_neighbors",
-            args={"entity": ent, "max_hops": DEFAULT_NEIGHBOR_HOPS},
+            tool=RetrievalTool.GRAPH_NEIGHBORS,
+            args={ToolArgument.ENTITY: ent, ToolArgument.MAX_HOPS: DEFAULT_NEIGHBOR_HOPS},
             reason="default graph expand",
         )
         for ent in names[:MAX_NAMED_ENTITIES]
     ]
 
 
-def _lexical_backup_specs(sub_question: str, *, skip_vector: bool = False) -> list[Any]:
+def _lexical_backup_specs(sub_question: str, *, skip_vector: bool = False) -> list[ToolCallSpec]:
     """Fulltext always; vector optional (remote embed is a major live P95 cost)."""
     from agentic_graphrag.agent.executor import ToolCallSpec
 
-    specs: list[Any] = [
-        ToolCallSpec(tool="fulltext_search", args={"query": sub_question}, reason="keyword recall"),
+    specs: list[ToolCallSpec] = [
+        ToolCallSpec(
+            tool=RetrievalTool.FULLTEXT_SEARCH,
+            args={ToolArgument.QUERY: sub_question},
+            reason="keyword recall",
+        ),
     ]
     if not skip_vector:
         specs.insert(
             0,
             ToolCallSpec(
-                tool="vector_search",
-                args={"query": sub_question},
+                tool=RetrievalTool.VECTOR_SEARCH,
+                args={ToolArgument.QUERY: sub_question},
                 reason="semantic recall",
             ),
         )
@@ -190,8 +206,10 @@ def _try_llm_plan(
 ) -> list[ToolCallSpec] | None:
     from agentic_graphrag.agent.executor import ExecutorPlan
 
+    if executor.llm is None:
+        return None
     try:
-        prompt = load_prompt("executor")
+        prompt = load_prompt(PromptName.EXECUTOR)
         system, user = split_prompt(
             prompt.format(
                 sub_question=sub_question,
@@ -200,7 +218,10 @@ def _try_llm_plan(
         )
         plan = complete_structured(
             executor.llm,
-            [Message(role="system", content=system), Message(role="user", content=user)],
+            [
+                Message(role=MessageRole.SYSTEM, content=system),
+                Message(role=MessageRole.USER, content=user),
+            ],
             ExecutorPlan,
             tier=Tier.LIGHT,
         )

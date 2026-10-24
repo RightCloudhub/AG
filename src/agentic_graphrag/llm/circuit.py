@@ -46,7 +46,7 @@ class CircuitBreaker:
     _opened_at: float = 0.0
     _state: CircuitState = CircuitState.CLOSED
     _lock: threading.Lock | None = None
-    _window: deque = field(default_factory=deque)
+    _window: deque[tuple[float, bool]] = field(default_factory=deque)
 
     def __post_init__(self) -> None:
         self._lock = threading.Lock()

@@ -11,7 +11,10 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
+from agentic_graphrag.core.enums import MessageRole, PromptName
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import CircuitControlledClient, LLMClient, Message, Tier
 from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
 
 # Re-export for older imports / tests
@@ -30,7 +33,6 @@ from agentic_graphrag.generation.evidence_catalog import (  # noqa: F401 — re-
 )
 from agentic_graphrag.generation.offline_answer import offline_answer
 from agentic_graphrag.generation.verdict import report_gap
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 
@@ -83,9 +85,9 @@ def _format_evidence(evidence: list[Candidate]) -> str:
 
 
 def _split(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        return parts[0].replace("# System", "", 1).strip(), parts[1].strip()
+    if PROMPT_SYSTEM_HEADER in text and PROMPT_USER_HEADER in text:
+        parts = text.split(PROMPT_USER_HEADER, 1)
+        return parts[0].replace(PROMPT_SYSTEM_HEADER, "", 1).strip(), parts[1].strip()
     return "You generate grounded answers.", text
 
 
@@ -94,7 +96,7 @@ def _apply_payload(
     payload: AnswerPayload,
     evidence: list[Candidate],
     *,
-    llm: LLMProvider | None = None,
+    llm: LLMClient | None = None,
 ) -> tuple[ReasoningChain | None, str]:
     """Apply a validated payload.
 
@@ -126,14 +128,14 @@ def _apply_payload(
 def _llm_answer(
     chain: ReasoningChain,
     evidence: list[Candidate],
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     conclusions: str,
     guardrail_status: str,
     repair_reason: str = "",
     tier: Tier = Tier.STRONG,
 ) -> AnswerPayload:
-    prompt = load_prompt("answer")
+    prompt = load_prompt(PromptName.ANSWER)
     extra = _repair_instruction(repair_reason) if repair_reason else ""
     system, user = _split(
         prompt.format(
@@ -146,7 +148,10 @@ def _llm_answer(
     )
     return complete_structured(
         llm,
-        [Message(role="system", content=system), Message(role="user", content=user)],
+        [
+            Message(role=MessageRole.SYSTEM, content=system),
+            Message(role=MessageRole.USER, content=user),
+        ],
         AnswerPayload,
         tier=tier,
         max_retries=1,  # P95: one repair pass max (was 2 → up to 3 LLM calls)
@@ -156,7 +161,7 @@ def _llm_answer(
 def generate_answer(
     chain: ReasoningChain,
     evidence: list[Candidate],
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     conclusions: str = "",
     guardrail_status: str = "ok",
@@ -178,7 +183,7 @@ def generate_answer(
         return offline_answer(chain, evidence, conclusions)
 
     # Skip remote call entirely when circuit is already open (P95: avoid 3s connect).
-    circuit = getattr(llm, "circuit", None)
+    circuit = llm.circuit if isinstance(llm, CircuitControlledClient) else None
     if circuit is not None and not circuit.allow():
         chain.metadata = {
             **(chain.metadata or {}),
@@ -222,7 +227,7 @@ def _degrade(
 def _generate_with_llm(
     chain: ReasoningChain,
     evidence: list[Candidate],
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     conclusions: str,
     guardrail_status: str,
@@ -256,7 +261,7 @@ def _generate_with_llm(
 def _regenerate_after_intercept(
     chain: ReasoningChain,
     evidence: list[Candidate],
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     reason: str,
     conclusions: str,

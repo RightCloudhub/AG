@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.extract_core import llm_extract_raw, stamp_provenance
 from agentic_graphrag.knowledge.extract_types import (
@@ -19,9 +21,8 @@ from agentic_graphrag.knowledge.schema_check import (
     Triple,
     gate_triples,
 )
-from agentic_graphrag.llm.provider import LLMProvider
 
-_MS_PER_S = 1000
+_MS_PER_S = MILLISECONDS_PER_SECOND
 
 
 def extract_chunk_with_retry(
@@ -29,7 +30,7 @@ def extract_chunk_with_retry(
     schema: SchemaDefinition,
     *,
     extract_fn: ExtractFn | None,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     confidence_threshold: float,
     retry: RetryPolicy,
     sleep: Callable[[float], None],
@@ -60,7 +61,7 @@ def _try_once(
     schema: SchemaDefinition,
     *,
     extract_fn: ExtractFn | None,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     confidence_threshold: float,
     retry: RetryPolicy,
     sleep: Callable[[float], None],
@@ -93,7 +94,7 @@ def _attempt_extract(
     schema: SchemaDefinition,
     *,
     extract_fn: ExtractFn | None,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     confidence_threshold: float,
     batch_id: str,
     attempt: int,
@@ -119,7 +120,7 @@ def _raw_extract(
     schema: SchemaDefinition,
     *,
     extract_fn: ExtractFn | None,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
 ) -> ExtractResult:
     if extract_fn is not None:
         return extract_fn(chunk, schema)

@@ -11,20 +11,29 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from agentic_graphrag.core.enums import RetrievalTool, ToolName
+from agentic_graphrag.core.evidence import Candidate
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.executor import Executor
+    from agentic_graphrag.agent.tools.contracts import ToolHandler
 
 # A middleware receives the spec, the kwargs, and ``call_next`` (the rest of the
 # chain). It may short-circuit, transform kwargs, or observe the result.
-ToolMiddleware = Callable[["ToolSpec", dict[str, Any], Callable[[dict[str, Any]], Any]], Any]
+type ToolMiddleware[Result] = Callable[
+    [ToolSpec[Result], dict[str, Any], Callable[[dict[str, Any]], Result]], Result
+]
 
 
 @dataclass
-class ToolSpec:
-    name: str
+class ToolSpec[Result]:
+    name: ToolName
     description: str
     parameters_schema: dict[str, Any] = field(default_factory=dict)
     permissions: list[str] = field(default_factory=list)
-    handler: Callable[..., Any] | None = None
+    handler: Callable[..., Result] | None = None
     enabled: bool = True
     cost_units: float = 0.0
     timeout_s: float | None = None
@@ -45,32 +54,32 @@ class ToolSpec:
 ExternalToolSpec = ToolSpec
 
 
-class ToolRegistry:
-    def __init__(self, middleware: list[ToolMiddleware] | None = None) -> None:
-        self._tools: dict[str, ToolSpec] = {}
-        self._middleware: list[ToolMiddleware] = list(middleware or [])
+class ToolRegistry[Result]:
+    def __init__(self, middleware: list[ToolMiddleware[Result]] | None = None) -> None:
+        self._tools: dict[ToolName, ToolSpec[Result]] = {}
+        self._middleware: list[ToolMiddleware[Result]] = list(middleware or [])
 
-    def register(self, spec: ToolSpec) -> None:
+    def register(self, spec: ToolSpec[Result]) -> None:
         self._tools[spec.name] = spec
 
-    def use(self, middleware: ToolMiddleware) -> None:
+    def use(self, middleware: ToolMiddleware[Result]) -> None:
         """Append a middleware; the first registered is the outermost."""
         self._middleware.append(middleware)
 
-    def get(self, name: str) -> ToolSpec | None:
+    def get(self, name: ToolName) -> ToolSpec[Result] | None:
         return self._tools.get(name)
 
-    def has(self, name: str) -> bool:
+    def has(self, name: ToolName) -> bool:
         spec = self._tools.get(name)
         return spec is not None and spec.enabled and spec.handler is not None
 
-    def list(self, *, enabled_only: bool = True) -> list[ToolSpec]:
+    def list(self, *, enabled_only: bool = True) -> list[ToolSpec[Result]]:
         tools = list(self._tools.values())
         if enabled_only:
             tools = [t for t in tools if t.enabled]
         return tools
 
-    def invoke(self, name: str, **kwargs: Any) -> Any:
+    def invoke(self, name: ToolName, **kwargs: Any) -> Result:
         spec = self._tools.get(name)
         if spec is None or not spec.enabled:
             raise KeyError(f"tool not found or disabled: {name}")
@@ -78,10 +87,10 @@ class ToolRegistry:
             raise NotImplementedError(f"tool {name} has no handler")
         handler = spec.handler
 
-        def terminal(kw: dict[str, Any]) -> Any:
+        def terminal(kw: dict[str, Any]) -> Result:
             return handler(**kw)
 
-        call: Callable[[dict[str, Any]], Any] = terminal
+        call: Callable[[dict[str, Any]], Result] = terminal
         for mw in reversed(self._middleware):
             call = _bind(mw, spec, call)
         return call(dict(kwargs))
@@ -93,29 +102,33 @@ class ToolRegistry:
         return "\n".join(lines) or "(no tools)"
 
 
-def _bind(
-    mw: ToolMiddleware, spec: ToolSpec, nxt: Callable[[dict[str, Any]], Any]
-) -> Callable[[dict[str, Any]], Any]:
+def _bind[Result](
+    mw: ToolMiddleware[Result],
+    spec: ToolSpec[Result],
+    nxt: Callable[[dict[str, Any]], Result],
+) -> Callable[[dict[str, Any]], Result]:
     return lambda kw: mw(spec, kw, nxt)
 
 
-_RETRIEVAL_TOOLS: list[tuple[str, str, float]] = [
-    ("graph_neighbors", "k-hop graph neighbors for an entity", 1.0),
-    ("graph_path", "paths between two entities", 2.0),
-    ("graph_subgraph", "subgraph around seed entities", 2.0),
-    ("vector_search", "semantic chunk retrieval", 1.0),
-    ("fulltext_search", "BM25 keyword retrieval", 0.5),
+_RETRIEVAL_TOOLS: list[tuple[RetrievalTool, str, float]] = [
+    (RetrievalTool.GRAPH_NEIGHBORS, "k-hop graph neighbors for an entity", 1.0),
+    (RetrievalTool.GRAPH_PATH, "paths between two entities", 2.0),
+    (RetrievalTool.GRAPH_SUBGRAPH, "subgraph around seed entities", 2.0),
+    (RetrievalTool.VECTOR_SEARCH, "semantic chunk retrieval", 1.0),
+    (RetrievalTool.FULLTEXT_SEARCH, "BM25 keyword retrieval", 0.5),
 ]
 
 
-def default_retrieval_tools(middleware: list[ToolMiddleware] | None = None) -> ToolRegistry:
+def default_retrieval_tools(
+    middleware: list[ToolMiddleware[list[Candidate]]] | None = None,
+) -> ToolRegistry[list[Candidate]]:
     """Built-in retrieval tools, bound to the executor's handlers.
 
     Handlers take keyword args ``executor``, ``args``, ``sub_question``, ``tenant_id``.
     """
     from agentic_graphrag.agent.executor_dispatch import TOOL_HANDLERS
 
-    reg = ToolRegistry(middleware)
+    reg: ToolRegistry[list[Candidate]] = ToolRegistry(middleware)
     for name, desc, cost in _RETRIEVAL_TOOLS:
         handler = TOOL_HANDLERS[name]
         reg.register(
@@ -131,8 +144,14 @@ def default_retrieval_tools(middleware: list[ToolMiddleware] | None = None) -> T
     return reg
 
 
-def _adapt(handler: Callable[..., Any]) -> Callable[..., Any]:
-    def call(*, executor: Any, args: dict[str, Any], sub_question: str, tenant_id: Any = None):
+def _adapt(handler: ToolHandler) -> Callable[..., list[Candidate]]:
+    def call(
+        *,
+        executor: Executor,
+        args: dict[str, Any],
+        sub_question: str,
+        tenant_id: str | None = None,
+    ) -> list[Candidate]:
         return handler(executor, args, sub_question, tenant_id=tenant_id)
 
     return call

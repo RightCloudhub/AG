@@ -5,16 +5,22 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
 
 from fastapi import Request, UploadFile
 
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.core.constants import BYTES_PER_MEBIBYTE
+from agentic_graphrag.core.enums import IngestStatus
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.stores import DocumentRecord
 
 logger = logging.getLogger(__name__)
 
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = 5 * BYTES_PER_MEBIBYTE
 MAX_BATCH_FILES = 20
 READ_CHUNK_BYTES = 256 * 1024
 # Text-only: every upload is decoded as UTF-8 and chunked as plain text. ``pdf``
@@ -53,8 +59,8 @@ def validate_upload(file: UploadFile) -> None:
 
 
 async def save_uploads(
-    svc: Any, files: list[UploadFile], *, tenant_id: str, task_id: str
-) -> list[dict]:
+    svc: QueryService, files: list[UploadFile], *, tenant_id: str, task_id: str
+) -> list[JsonObject]:
     if len(files) > MAX_BATCH_FILES:
         raise ApiError(
             INVALID_INPUT,
@@ -102,7 +108,7 @@ def _decode_text(file: UploadFile, content: bytes) -> str:
 
 
 async def _save_upload(
-    svc: Any, file: UploadFile, *, tenant_id: str, task_id: str
+    svc: QueryService, file: UploadFile, *, tenant_id: str, task_id: str
 ) -> dict[str, str]:
     validate_upload(file)
     content = await _read_capped(file)
@@ -135,7 +141,7 @@ def task_row(task_id: str, tenant_id: str, saved: list[dict[str, str]]) -> dict[
     return {
         "id": task_id,
         "tenant_id": tenant_id,
-        "status": "queued" if saved else "empty",
+        "status": IngestStatus.QUEUED if saved else IngestStatus.EMPTY,
         "docs": saved,
         "created_at": time.time(),
         "message": (

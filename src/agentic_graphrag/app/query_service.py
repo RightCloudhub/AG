@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.query_run import (
     execute_run_query,
@@ -20,19 +21,23 @@ from agentic_graphrag.app.wiring import (
     ANSWER_CACHE_TTL_SECONDS,
     _chain_to_data,
     _entities_from_triples,
+    _load_seed_graph,
     _load_triples,
     build_executor_for_service,
     build_llm_for_service,
 )
+from agentic_graphrag.bootstrap.profile import RuntimeProfile
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.core.events import EventBus
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.audit_store import AuditStore
 from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.governance.budget_policy import MultiLevelBudget
-from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
+from agentic_graphrag.knowledge.review.executor import ReviewExecutor
 from agentic_graphrag.knowledge.review.queue import ReviewQueue
-from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
+from agentic_graphrag.llm.provider import MockLLMProvider
 from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.stores.factory import (
     StoreBundle,
@@ -52,19 +57,6 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def _load_seed_graph(graph: Any, triples: list[Any]) -> None:
-    """Load seed triples through the ingestion gate, logging any rejections."""
-    stats = load_triples_into_graph(graph, triples, clear_first=True)
-    rejected = int(stats.get("triples_rejected", 0))
-    if rejected:
-        logger.warning(
-            "seed graph: %s/%s triples rejected by the ingestion gate (%s)",
-            rejected,
-            stats.get("triples_input", len(triples)),
-            stats.get("rejection_reasons", {}),
-        )
-
-
 @dataclass
 class QueryService:
     """Stateful query runner (holds StoreBundle for process lifetime)."""
@@ -82,11 +74,12 @@ class QueryService:
     multi_budget: MultiLevelBudget | None = None
     ingest_tasks: IngestTaskStore | None = None
     # BL-03: applies review decisions to the graph (set by ``attach_write_path``).
-    review_executor: Any | None = None
+    review_executor: ReviewExecutor | None = None
     # Runtime profile name (offline | live | hybrid | eval) when built via bootstrap.
     profile: str = "offline"
     # In-process domain event bus (GraphCommitted / IndexUpdated / ReviewDecided).
-    events: Any | None = None
+    events: EventBus | None = None
+    _read_side_subscribed: bool = False
     # Legacy field retained for tests that monkeypatch it; query paths no longer
     # hold this lock across agent/SSE lifetimes (see service_query / service_stream).
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -137,7 +130,7 @@ class QueryService:
     @classmethod
     def create_for_profile(
         cls,
-        rp: Any,
+        rp: RuntimeProfile,
         *,
         seed_triples: str | Path = "data/processed/seed_triples.jsonl",
         cfg: AppConfig | None = None,
@@ -259,7 +252,7 @@ class QueryService:
             self, query_id, accurate=accurate, reason=reason, user_id=user_id, tenant_id=tenant_id
         )
 
-    def _build_executor(self):
+    def _build_executor(self) -> Executor:
         return build_executor_for_service(
             bundle=self.bundle,
             cfg=self.cfg,
@@ -270,7 +263,7 @@ class QueryService:
             enable_cache=self.enable_cache,
         )
 
-    def _build_llm(self, budget: BudgetTracker) -> LLMProvider | MockLLMProvider:
+    def _build_llm(self, budget: BudgetTracker) -> LLMClient | MockLLMProvider:
         return build_llm_for_service(
             allow_llm=self.allow_llm,
             settings=self.settings,

@@ -2,46 +2,29 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
+from agentic_graphrag.core.enums import ReviewDecision as ReviewDecision
+from agentic_graphrag.core.enums import ReviewStatus as ReviewStatus
+from agentic_graphrag.core.enums import ReviewType as ReviewType
 from agentic_graphrag.knowledge.review.filters import filter_items, tenant_allows
 
 logger = logging.getLogger(__name__)
 
 
-class ReviewType(StrEnum):
-    EXTRACTION = "extraction"
-    RESOLUTION = "resolution"
-    CONFLICT = "conflict"
-    SPOTCHECK = "spotcheck"
-    FEEDBACK = "feedback"
-
-
-class ReviewStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    SKIPPED = "skipped"
-
-
-class ReviewDecision(StrEnum):
-    APPROVE = "approve"
-    REJECT = "reject"
-    SKIP = "skip"
-
-
 _DECISION_STATUS = {
-    ReviewDecision.APPROVE.value: ReviewStatus.APPROVED.value,
-    ReviewDecision.REJECT.value: ReviewStatus.REJECTED.value,
-    ReviewDecision.SKIP.value: ReviewStatus.SKIPPED.value,
+    ReviewDecision.APPROVE: ReviewStatus.APPROVED,
+    ReviewDecision.REJECT: ReviewStatus.REJECTED,
+    ReviewDecision.SKIP: ReviewStatus.SKIPPED,
 }
 
 
@@ -56,9 +39,9 @@ class ReviewAlreadyDecided(RuntimeError):
 @dataclass
 class ReviewItem:
     id: str
-    type: str
+    type: ReviewType
     payload: dict[str, Any]
-    status: str = ReviewStatus.PENDING.value
+    status: ReviewStatus = ReviewStatus.PENDING
     confidence: float = 0.0
     created_at: float = field(default_factory=time.time)
     decided_at: float | None = None
@@ -74,24 +57,20 @@ class ReviewItem:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ReviewItem:
-        coerce: dict[str, tuple[Any, Any]] = {
-            "id": (str, str(uuid.uuid4())),
-            "type": (str, ReviewType.EXTRACTION.value),
-            "payload": (dict, {}),
-            "status": (str, ReviewStatus.PENDING.value),
-            "confidence": (float, 0.0),
-            "created_at": (float, time.time()),
-            "reviewer": (str, ""),
-            "decision_note": (str, ""),
-            "batch_id": (str, ""),
-            "tenant_id": (str, ""),
-            "execution": (dict, {}),
-        }
-        normalized = dict(data)
-        for key, (cast, default) in coerce.items():
-            normalized[key] = cast(data.get(key) or default)
-        allowed = cls.__dataclass_fields__
-        return cls(**{key: value for key, value in normalized.items() if key in allowed})
+        return cls(
+            id=str(data.get("id") or uuid.uuid4()),
+            type=ReviewType(data.get("type") or ReviewType.EXTRACTION),
+            payload=dict(data.get("payload", {})),
+            status=ReviewStatus(data.get("status") or ReviewStatus.PENDING),
+            confidence=float(data.get("confidence") or 0.0),
+            created_at=float(data.get("created_at") or time.time()),
+            decided_at=data.get("decided_at"),
+            reviewer=str(data.get("reviewer") or ""),
+            decision_note=str(data.get("decision_note") or ""),
+            batch_id=str(data.get("batch_id") or ""),
+            tenant_id=str(data.get("tenant_id") or ""),
+            execution=dict(data.get("execution", {})),
+        )
 
 
 class ReviewQueue:
@@ -141,7 +120,7 @@ class ReviewQueue:
     ) -> ReviewItem:
         item = ReviewItem(
             id=item_id or str(uuid.uuid4()),
-            type=type.value if isinstance(type, ReviewType) else str(type),
+            type=ReviewType(type),
             payload=payload,
             confidence=confidence,
             batch_id=batch_id,
@@ -164,7 +143,7 @@ class ReviewQueue:
         min_confidence: float | None = None,
         max_confidence: float | None = None,
         tenant_id: str | None = None,
-        limit: int = 50,
+        limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> list[ReviewItem]:
         return self.list_page(
@@ -185,9 +164,9 @@ class ReviewQueue:
         min_confidence: float | None = None,
         max_confidence: float | None = None,
         tenant_id: str | None = None,
-        limit: int = 50,
+        limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
-    ) -> tuple[list[ReviewItem], int]:
+    ) -> tuple[builtins.list[ReviewItem], int]:
         """Return one filtered page and its tenant-scoped total."""
         with self._lock:
             items = list(self._items.values())
@@ -227,8 +206,7 @@ class ReviewQueue:
                 raise KeyError(item_id)
             if item.status != ReviewStatus.PENDING.value:
                 raise ReviewAlreadyDecided(item)
-            dec = decision.value if isinstance(decision, ReviewDecision) else str(decision)
-            item.status = _DECISION_STATUS.get(dec, ReviewStatus.SKIPPED.value)
+            item.status = _DECISION_STATUS[ReviewDecision(decision)]
             item.reviewer = reviewer
             item.decision_note = note
             item.decided_at = time.time()

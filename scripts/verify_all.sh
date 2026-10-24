@@ -157,6 +157,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "E4 strict Python types"
+run_ok E4 "strict_python_types" "pyproject.toml" "$PY" -m mypy
+
+# ---------------------------------------------------------------------------
 if [[ $WITH_TESTS -eq 1 ]]; then
   section "E3 unit tests + coverage≥80"
   run_ok E3 "unit_tests_cov80" "pytest" \

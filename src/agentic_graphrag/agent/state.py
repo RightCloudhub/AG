@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from agentic_graphrag.agent.memory import MemorySnapshot
+
 STATE_SCHEMA_VERSION = 2
 
 
@@ -23,7 +25,7 @@ class AgentState(TypedDict, total=False):
     hop: int
     evidence: list[dict[str, Any]]
     memory_summary: str
-    memory_snapshot: dict[str, Any]
+    memory_snapshot: MemorySnapshot
     done: bool
     guardrail_status: str
     allow_llm: bool

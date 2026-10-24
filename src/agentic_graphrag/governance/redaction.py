@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -149,7 +150,9 @@ class Redactor:
         """
         if not self._enabled:
             return data
-        return _walk(data, self._redact_value, depth=0)
+        result = _walk(data, self._redact_value, depth=0)
+        assert isinstance(result, dict)
+        return result
 
     # -- internals -----------------------------------------------------------
 
@@ -168,7 +171,7 @@ class Redactor:
 
 def _walk(
     obj: Any,
-    transform: Any,
+    transform: Callable[[str], str],
     *,
     depth: int,
 ) -> Any:

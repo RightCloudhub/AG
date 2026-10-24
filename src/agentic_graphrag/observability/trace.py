@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.observability.otel_bridge import otel_span
 
 
@@ -31,7 +32,9 @@ class SpanEvent:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "duration_ms": (
-                int((self.ended_at - self.started_at) * 1000) if self.ended_at else None
+                int((self.ended_at - self.started_at) * MILLISECONDS_PER_SECOND)
+                if self.ended_at
+                else None
             ),
             "attributes": dict(self.attributes),
             "parent": self.parent,

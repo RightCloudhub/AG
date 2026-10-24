@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from agentic_graphrag.llm.circuit import CircuitBreaker
 
 
 class LLMResilienceConfig(BaseModel):
@@ -19,7 +24,7 @@ class LLMResilienceConfig(BaseModel):
     min_calls: int = 5
     fallback_to_light: bool = False
 
-    def breaker_template(self):
+    def breaker_template(self) -> CircuitBreaker:
         from agentic_graphrag.llm.circuit import CircuitBreaker
 
         return CircuitBreaker(

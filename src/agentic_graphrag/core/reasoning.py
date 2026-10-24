@@ -10,10 +10,18 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
+
+from agentic_graphrag.core.enums import (
+    CriticAction,
+    ExternalToolName,
+    QueryRoute,
+    RetrievalTool,
+    StepAction,
+)
 
 SCHEMA_VERSION = "1.0.0"
 SCHEMA_ID = "https://agentic-graphrag.local/schemas/reasoning_chain_v1.json"
@@ -26,7 +34,7 @@ class QueryStatus(StrEnum):
 
 
 class ToolCallTrace(BaseModel):
-    tool: str
+    tool: RetrievalTool | ExternalToolName
     reason: str = ""
     args: dict[str, Any] = Field(default_factory=dict)
     hits: list[str] = Field(default_factory=list)
@@ -44,7 +52,7 @@ class ReasoningStep(BaseModel):
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     conclusion: str = ""
-    critic_action: str = Field(
+    critic_action: CriticAction | StepAction | Literal[""] = Field(
         default="",
         description="sufficient|next_hop|rewrite|give_up (CriticAction value)",
     )
@@ -64,7 +72,7 @@ class ReasoningChain(BaseModel):
     schema_version: str = Field(default=SCHEMA_VERSION)
     query_id: str = Field(default_factory=lambda: str(uuid4()))
     question: str
-    route: str = Field(default="agentic", description="agentic|fast_path|baseline")
+    route: QueryRoute = Field(default=QueryRoute.AGENTIC)
     steps: list[ReasoningStep] = Field(default_factory=list)
     answer: str = ""
     claims: list[Claim] = Field(default_factory=list)

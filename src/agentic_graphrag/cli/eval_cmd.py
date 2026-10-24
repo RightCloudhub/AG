@@ -8,6 +8,8 @@ import sys
 
 from agentic_graphrag.config import get_config, resolve_path
 from agentic_graphrag.eval.cases import (
+    EvalCase,
+    StratificationReport,
     StratificationSpec,
     dump_cases,
     validate_stratification,
@@ -73,7 +75,13 @@ def _load_or_write_triples(args: argparse.Namespace) -> list[Triple]:
     return triples
 
 
-def _write_dataset(args, *, cases, triples, report) -> None:
+def _write_dataset(
+    args: argparse.Namespace,
+    *,
+    cases: list[EvalCase],
+    triples: list[Triple],
+    report: StratificationReport,
+) -> None:
     guardrail = generate_guardrail_set(max_n=args.guardrail_n)
     out_dir = resolve_path(args.out_dir)
     paths = write_split_datasets(

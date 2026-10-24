@@ -1,15 +1,15 @@
 """Shared query-service telemetry helpers."""
 
 import logging
-from typing import Any
 
 from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.audit_store import AuditStore
 from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
 
 logger = logging.getLogger(__name__)
 
 
-def save_chain_audit(audit_store: Any, chain: ReasoningChain) -> bool:
+def save_chain_audit(audit_store: AuditStore | None, chain: ReasoningChain) -> bool:
     """Persist a chain to the audit store; log (never raise) on failure.
 
     A bare ``except: pass`` here let compliance records vanish silently — the

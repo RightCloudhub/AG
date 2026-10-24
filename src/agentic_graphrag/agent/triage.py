@@ -16,7 +16,8 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
+from agentic_graphrag.core.enums import MessageRole
+from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 # Multi-hop / complex cues → force Agentic
@@ -83,7 +84,7 @@ RuleFn = Callable[[str, list[str]], TriageResult | None]
 
 def triage(
     question: str,
-    llm: LLMProvider | None = None,
+    llm: LLMClient | None = None,
     *,
     allow_llm: bool = True,
     force_agentic: bool = False,
@@ -192,20 +193,20 @@ def _looks_nested(q: str) -> bool:
     return any(k in ql for k in ("competitor", "producer of", "parent of the"))
 
 
-def _llm_triage(q: str, llm: LLMProvider) -> TriageResult | None:
+def _llm_triage(q: str, llm: LLMClient) -> TriageResult | None:
     try:
         raw = complete_structured(
             llm,
             [
                 Message(
-                    role="system",
+                    role=MessageRole.SYSTEM,
                     content=(
                         "Classify QA complexity. route=fast_path for single-hop "
                         "fact lookups; route=agentic for multi-hop, comparison, "
                         "or multi-entity reasoning. Reply with JSON only."
                     ),
                 ),
-                Message(role="user", content=f"Question: {q}"),
+                Message(role=MessageRole.USER, content=f"Question: {q}"),
             ],
             _LlmTriage,
             tier=Tier.LIGHT,

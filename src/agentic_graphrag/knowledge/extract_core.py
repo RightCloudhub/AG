@@ -8,6 +8,9 @@ Pipeline orchestration (journal / retry / quarantine) lives in
 from __future__ import annotations
 
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
+from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.schema_check import (
     ExtractResult,
@@ -15,14 +18,13 @@ from agentic_graphrag.knowledge.schema_check import (
     Triple,
     gate_triples,
 )
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 
 def extract_from_chunk(
     chunk: ChunkRecord,
     schema: SchemaDefinition,
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     confidence_threshold: float = 0.5,
 ) -> tuple[list[Triple], list[tuple[Triple, str]]]:
@@ -39,7 +41,7 @@ def extract_from_chunk(
 def extract_from_chunks(
     chunks: list[ChunkRecord],
     schema: SchemaDefinition,
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     confidence_threshold: float = 0.5,
 ) -> tuple[list[Triple], list[tuple[Triple, str]]]:
@@ -55,10 +57,8 @@ def extract_from_chunks(
     return all_accepted, all_rejected
 
 
-def llm_extract_raw(
-    chunk: ChunkRecord, schema: SchemaDefinition, llm: LLMProvider
-) -> ExtractResult:
-    prompt_template = load_prompt("extract")
+def llm_extract_raw(chunk: ChunkRecord, schema: SchemaDefinition, llm: LLMClient) -> ExtractResult:
+    prompt_template = load_prompt(PromptName.EXTRACT)
     system, user = split_prompt(
         prompt_template.format(
             schema_summary=schema.summary(),
@@ -68,8 +68,8 @@ def llm_extract_raw(
         )
     )
     messages = [
-        Message(role="system", content=system),
-        Message(role="user", content=user),
+        Message(role=MessageRole.SYSTEM, content=system),
+        Message(role=MessageRole.USER, content=user),
     ]
     return complete_structured(llm, messages, ExtractResult, tier=Tier.STRONG)
 
@@ -91,9 +91,9 @@ def stamp_provenance(triple: Triple, chunk: ChunkRecord, *, batch_id: str | None
 
 
 def split_prompt(text: str) -> tuple[str, str]:
-    if "# System" in text and "# User" in text:
-        parts = text.split("# User", 1)
-        system = parts[0].replace("# System", "", 1).strip()
+    if PROMPT_SYSTEM_HEADER in text and PROMPT_USER_HEADER in text:
+        parts = text.split(PROMPT_USER_HEADER, 1)
+        system = parts[0].replace(PROMPT_SYSTEM_HEADER, "", 1).strip()
         user = parts[1].strip()
         return system, user
     return "You are a knowledge extraction engine.", text

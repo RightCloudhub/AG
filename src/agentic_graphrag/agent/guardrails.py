@@ -12,6 +12,8 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.config_register import RequirementRegisterConfig
+from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT
+from agentic_graphrag.core.enums import CriticMode
 from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ class GuardrailConfig:
     max_llm_calls: int = 20
     max_tokens: int = 50_000
     query_timeout_seconds: int = 60
-    recursion_limit: int = 15
+    recursion_limit: int = DEFAULT_RECURSION_LIMIT
     # Server hard ceiling — request overrides cannot exceed this
     hard_max_hops: int = 20
     # Breadth budget (BL-12): plan nodes, not reasoning depth. One hop executes
@@ -48,7 +50,7 @@ class GuardrailConfig:
     # BL-12: independent ready DAG nodes are retrieved concurrently and share a hop.
     parallel_branches: bool = True
     max_parallel_branches: int = 3
-    critic_mode: str = "llm"  # O-7 tiered critic
+    critic_mode: CriticMode = CriticMode.LLM  # O-7 tiered critic
     requirement_register: RequirementRegisterConfig = field(
         default_factory=RequirementRegisterConfig
     )
@@ -65,12 +67,12 @@ class GuardrailConfig:
         recursion_limit: int | None = None,
     ) -> GuardrailConfig:
         """Build from YAML/app config with optional per-request overrides (P2-AG-04)."""
-        if cfg is None:
-            from agentic_graphrag.config import get_config
+        from agentic_graphrag.config import AppConfig, get_config
 
+        if cfg is None:
             g = get_config().guardrails
-        elif hasattr(cfg, "guardrails"):
-            g = cfg.guardrails  # type: ignore[union-attr]
+        elif isinstance(cfg, AppConfig):
+            g = cfg.guardrails
         else:
             g = cfg  # GuardrailsConfig
 
@@ -93,9 +95,9 @@ class GuardrailConfig:
             recursion_limit=rec,
             hard_max_hops=hard,
             max_sub_questions=max(1, min(int(g.max_sub_questions), hops)),
-            parallel_branches=bool(getattr(g, "parallel_branches", True)),
-            max_parallel_branches=max(1, int(getattr(g, "max_parallel_branches", 3))),
-            critic_mode=str(getattr(g, "critic_mode", "llm") or "llm"),
+            parallel_branches=bool(g.parallel_branches),
+            max_parallel_branches=max(1, int(g.max_parallel_branches)),
+            critic_mode=CriticMode(g.critic_mode),
             requirement_register=g.requirement_register.model_copy(deep=True),
         )
 

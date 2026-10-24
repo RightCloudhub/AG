@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-
-class IngestStatus(StrEnum):
-    QUEUED = "queued"
-    EXTRACTING = "extracting"
-    REVIEW = "review"
-    DONE = "done"
-    FAILED = "failed"
-    EMPTY = "empty"
-
+from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
+from agentic_graphrag.core.enums import IngestStatus as IngestStatus
 
 _ALLOWED_TRANSITIONS = {
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
@@ -46,7 +39,7 @@ class IngestTask:
     id: str
     tenant_id: str
     docs: list[dict[str, str]]
-    status: str = IngestStatus.QUEUED.value
+    status: IngestStatus = IngestStatus.QUEUED
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     message: str = ""
@@ -62,7 +55,7 @@ class IngestTask:
             id=str(value.get("id") or uuid.uuid4()),
             tenant_id=str(value.get("tenant_id") or "default"),
             docs=list(value.get("docs") or []),
-            status=str(value.get("status") or IngestStatus.QUEUED.value),
+            status=IngestStatus(value.get("status") or IngestStatus.QUEUED),
             created_at=float(value.get("created_at") or time.time()),
             updated_at=float(value.get("updated_at") or time.time()),
             message=str(value.get("message") or ""),
@@ -88,7 +81,7 @@ class IngestTaskStore:
             id=task_id or str(uuid.uuid4()),
             tenant_id=tenant_id,
             docs=docs,
-            status=status.value,
+            status=status,
             message="Queued for background indexing" if docs else "No documents received",
         )
         with self._lock:
@@ -104,7 +97,7 @@ class IngestTaskStore:
             return IngestTask.from_dict(task.to_dict())
 
     def list(
-        self, *, tenant_id: str | None = None, limit: int = 50, offset: int = 0
+        self, *, tenant_id: str | None = None, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0
     ) -> tuple[list[IngestTask], int]:
         """Return a tenant-scoped page, newest first, and its exact total."""
         with self._lock:
@@ -118,7 +111,7 @@ class IngestTaskStore:
             page = tasks[max(0, offset) : max(0, offset) + max(1, limit)]
             return [IngestTask.from_dict(task.to_dict()) for task in page], total
 
-    def pending(self, limit: int = 10) -> list[IngestTask]:
+    def pending(self, limit: int = 10) -> builtins.list[IngestTask]:
         with self._lock:
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]
         tasks.sort(key=lambda task: task.created_at)
@@ -129,7 +122,7 @@ class IngestTaskStore:
         *,
         stale_seconds: float = DEFAULT_STALE_SECONDS,
         exclude_owner: str | None = None,
-    ) -> list[str]:
+    ) -> builtins.list[str]:
         """Return EXTRACTING tasks abandoned by a dead worker to QUEUED.
 
         Without this a worker crash strands the task in EXTRACTING permanently
@@ -200,7 +193,7 @@ class IngestTaskStore:
             allowed = _ALLOWED_TRANSITIONS.get(current, set())
             if status not in allowed:
                 raise ValueError(f"Invalid ingest transition: {current.value} -> {status.value}")
-            task.status = status.value
+            task.status = status
             task.updated_at = time.time()
             task.message = message
             if owner is not None:

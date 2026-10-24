@@ -19,9 +19,12 @@ accepted on input and normalized to fine-grained types.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field, computed_field, field_validator
+
+from agentic_graphrag.core.constants import DEFAULT_RRF_K
+from agentic_graphrag.core.enums import RetrievalChannel
 
 
 class CandidateSource(StrEnum):
@@ -46,28 +49,28 @@ class CandidateSource(StrEnum):
 # Alias matching the workstream field name ``type``
 CandidateType = CandidateSource
 
-Channel = Literal["vector", "graph", "fulltext", "fusion"]
+Channel = RetrievalChannel
 
 _SOURCE_NORMALIZE: dict[str, CandidateSource] = {
-    "vector": CandidateSource.VECTOR_CHUNK,
-    "vector_chunk": CandidateSource.VECTOR_CHUNK,
-    "fulltext": CandidateSource.FULLTEXT_CHUNK,
-    "fulltext_chunk": CandidateSource.FULLTEXT_CHUNK,
-    "graph": CandidateSource.GRAPH_NEIGHBOR,  # default when kind unknown
-    "graph_neighbor": CandidateSource.GRAPH_NEIGHBOR,
-    "graph_path": CandidateSource.GRAPH_PATH,
-    "fusion": CandidateSource.FUSION,
+    CandidateSource.VECTOR: CandidateSource.VECTOR_CHUNK,
+    CandidateSource.VECTOR_CHUNK: CandidateSource.VECTOR_CHUNK,
+    CandidateSource.FULLTEXT: CandidateSource.FULLTEXT_CHUNK,
+    CandidateSource.FULLTEXT_CHUNK: CandidateSource.FULLTEXT_CHUNK,
+    CandidateSource.GRAPH: CandidateSource.GRAPH_NEIGHBOR,  # default when kind unknown
+    CandidateSource.GRAPH_NEIGHBOR: CandidateSource.GRAPH_NEIGHBOR,
+    CandidateSource.GRAPH_PATH: CandidateSource.GRAPH_PATH,
+    CandidateSource.FUSION: CandidateSource.FUSION,
 }
 
 _CHANNEL: dict[CandidateSource, Channel] = {
-    CandidateSource.VECTOR_CHUNK: "vector",
-    CandidateSource.VECTOR: "vector",
-    CandidateSource.FULLTEXT_CHUNK: "fulltext",
-    CandidateSource.FULLTEXT: "fulltext",
-    CandidateSource.GRAPH_PATH: "graph",
-    CandidateSource.GRAPH_NEIGHBOR: "graph",
-    CandidateSource.GRAPH: "graph",
-    CandidateSource.FUSION: "fusion",
+    CandidateSource.VECTOR_CHUNK: RetrievalChannel.VECTOR,
+    CandidateSource.VECTOR: RetrievalChannel.VECTOR,
+    CandidateSource.FULLTEXT_CHUNK: RetrievalChannel.FULLTEXT,
+    CandidateSource.FULLTEXT: RetrievalChannel.FULLTEXT,
+    CandidateSource.GRAPH_PATH: RetrievalChannel.GRAPH,
+    CandidateSource.GRAPH_NEIGHBOR: RetrievalChannel.GRAPH,
+    CandidateSource.GRAPH: RetrievalChannel.GRAPH,
+    CandidateSource.FUSION: RetrievalChannel.FUSION,
 }
 
 
@@ -100,11 +103,11 @@ def normalize_source(
 def channel_of(source: CandidateSource | str) -> Channel:
     """Return the coarse retrieval channel for a source value."""
     src = source if isinstance(source, CandidateSource) else normalize_source(source)
-    return _CHANNEL.get(src, "fusion")
+    return _CHANNEL.get(src, RetrievalChannel.FUSION)
 
 
 def is_graph_source(source: CandidateSource | str) -> bool:
-    return channel_of(source) == "graph"
+    return channel_of(source) == RetrievalChannel.GRAPH
 
 
 class Citation(BaseModel):
@@ -151,7 +154,7 @@ class Candidate(BaseModel):
         graph vs text correctly.
         """
         ch = channel_of(self.source)
-        if ch != "fusion":
+        if ch != RetrievalChannel.FUSION:
             return ch
         origin = (self.structured or {}).get("origin_source")
         if origin:
@@ -162,7 +165,7 @@ class Candidate(BaseModel):
         return ch
 
     def is_graph(self) -> bool:
-        return self.channel == "graph"
+        return self.channel == RetrievalChannel.GRAPH
 
     def citation_keys(self) -> list[str]:
         """Stable citation keys for evidence-recall scoring."""
@@ -201,7 +204,7 @@ def concat_candidates(*lists: list[Candidate]) -> list[Candidate]:
 
 def rrf_fuse(
     *ranked_lists: list[Candidate],
-    k: int = 60,
+    k: int = DEFAULT_RRF_K,
     limit: int | None = None,
 ) -> list[Candidate]:
     """Reciprocal Rank Fusion across channel-ranked lists (FR-RT-04 prep).

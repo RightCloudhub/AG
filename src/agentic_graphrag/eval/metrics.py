@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.eval.metrics_evidence import (
     evidence_recall_for_row,
     fabrication_rate,
@@ -20,6 +21,7 @@ from agentic_graphrag.eval.metrics_evidence import (
     unbound_claim_rate,
 )
 from agentic_graphrag.eval.scoring import score_pair
+from agentic_graphrag.eval.scoring_types import PairScore
 
 _P50 = 50.0
 _P95 = 95.0
@@ -141,7 +143,7 @@ def score_system_rows(
     rows: list[dict[str, Any]],
     *,
     system: str,
-    cases_by_id: dict[str, dict] | None = None,
+    cases_by_id: dict[str, JsonObject] | None = None,
 ) -> SystemMetrics:
     cases_by_id = cases_by_id or {}
     metrics = SystemMetrics(system=system)
@@ -156,7 +158,7 @@ def _score_one_row(
     row: dict[str, Any],
     metrics: SystemMetrics,
     *,
-    cases_by_id: dict[str, dict],
+    cases_by_id: dict[str, JsonObject],
     acc: _ScoreAccum,
 ) -> None:
     gold = row.get("gold") or row.get("gold_answer") or ""
@@ -189,13 +191,13 @@ def _score_one_row(
     )
 
 
-def _pair_score(row: dict[str, Any], pred: Any, gold: Any) -> dict[str, Any]:
+def _pair_score(row: dict[str, Any], pred: Any, gold: Any) -> PairScore:
     if row.get("error") and not pred:
         return {"correct": False, "score": 0.0, "method": "error"}
     return score_pair(str(pred), str(gold))
 
 
-def _row_hops(row: dict[str, Any], cases_by_id: dict[str, dict]) -> str:
+def _row_hops(row: dict[str, Any], cases_by_id: dict[str, JsonObject]) -> str:
     cid = str(row.get("case_id") or row.get("id") or "")
     case = cases_by_id.get(cid, {})
     return str(case.get("hops") or row.get("hop_count") or row.get("hops") or "unknown")
@@ -235,8 +237,8 @@ def _finalize_metrics(
     }
 
 
-def load_cases(path: Path) -> dict[str, dict]:
-    by_id: dict[str, dict] = {}
+def load_cases(path: Path) -> dict[str, JsonObject]:
+    by_id: dict[str, JsonObject] = {}
     if not path.exists():
         return by_id
     for line in path.read_text(encoding="utf-8").splitlines():

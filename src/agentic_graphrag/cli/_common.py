@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
 
-from agentic_graphrag.config import resolve_path
+from agentic_graphrag.config import AppConfig, Settings, resolve_path
+from agentic_graphrag.core.ports.capabilities import Closable
+from agentic_graphrag.core.ports.stores import GraphStore
+from agentic_graphrag.stores.factory import GraphBackend
 
 
-def _ensure_dirs(cfg) -> None:
-    for key in ("data_dir", "raw_docs_dir", "processed_dir", "cache_dir", "indexes_dir"):
-        resolve_path(getattr(cfg.paths, key)).mkdir(parents=True, exist_ok=True)
+def _ensure_dirs(cfg: AppConfig) -> None:
+    for path in (
+        cfg.paths.data_dir,
+        cfg.paths.raw_docs_dir,
+        cfg.paths.processed_dir,
+        cfg.paths.cache_dir,
+        cfg.paths.indexes_dir,
+    ):
+        resolve_path(path).mkdir(parents=True, exist_ok=True)
 
 
 def _neo4j_unavailable_hint(uri: str, exc: BaseException) -> str:
@@ -23,11 +31,11 @@ def _neo4j_unavailable_hint(uri: str, exc: BaseException) -> str:
 
 
 def _open_graph_store(
-    settings: Any,
+    settings: Settings,
     *,
     memory: bool = False,
     allow_memory_fallback: bool = False,
-) -> tuple[Any, str]:
+) -> tuple[GraphStore, GraphBackend]:
     """Open a GraphStore.
 
     - ``memory=True`` → always InMemoryGraphStore (process-local).
@@ -38,20 +46,22 @@ def _open_graph_store(
     return _try_neo4j(settings, allow_memory_fallback=allow_memory_fallback)
 
 
-def _memory_graph() -> tuple[Any, str]:
+def _memory_graph() -> tuple[GraphStore, GraphBackend]:
     from agentic_graphrag.stores.memory_graph import InMemoryGraphStore
 
-    return InMemoryGraphStore(), "memory"
+    return InMemoryGraphStore(), GraphBackend.MEMORY
 
 
-def _try_neo4j(settings: Any, *, allow_memory_fallback: bool) -> tuple[Any, str]:
+def _try_neo4j(
+    settings: Settings, *, allow_memory_fallback: bool
+) -> tuple[GraphStore, GraphBackend]:
     from agentic_graphrag.stores.neo4j_store import Neo4jGraphStore
 
-    store: Any = None
+    store: GraphStore | None = None
     try:
         store = Neo4jGraphStore(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
         store.ping()
-        return store, "neo4j"
+        return store, GraphBackend.NEO4J
     except Exception as exc:
         _close_quiet(store)
         if allow_memory_fallback:
@@ -65,8 +75,8 @@ def _try_neo4j(settings: Any, *, allow_memory_fallback: bool) -> tuple[Any, str]
         sys.exit(1)
 
 
-def _close_quiet(store: Any) -> None:
-    if store is None:
+def _close_quiet(store: object) -> None:
+    if not isinstance(store, Closable):
         return
     try:
         store.close()

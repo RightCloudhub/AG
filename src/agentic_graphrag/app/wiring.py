@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,14 +11,20 @@ from agentic_graphrag.agent.executor import Executor, ExecutorConfig, ExecutorDe
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.config import (
     AppConfig,
+    RetrievalConfig,
     Settings,
     build_llm_provider,
     resolve_path,
 )
+from agentic_graphrag.core.enums import FusionMethod
+from agentic_graphrag.core.ports.llm import LLMClient
+from agentic_graphrag.core.ports.stores import GraphStore
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
-from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
+from agentic_graphrag.llm.provider import MockLLMProvider
+from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
 from agentic_graphrag.retrieval.rerankers import build_reranker
@@ -28,7 +35,7 @@ if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
 ANSWER_CACHE_TTL_SECONDS = 3600.0
-DEFAULT_FUSION_METHOD = "rrf"
+DEFAULT_FUSION_METHOD = FusionMethod.RRF
 MIN_COST_UNITS = 0.01
 COST_UNITS_PER_LLM_CALL = 0.01
 
@@ -68,7 +75,7 @@ def build_executor_for_service(
     settings: Settings,
     allow_llm: bool,
     known_entities: list[str],
-    retrieval_cache: object | None,
+    retrieval_cache: RetrievalCache | None,
     enable_cache: bool,
 ) -> Executor:
     ret = cfg.retrieval
@@ -88,7 +95,7 @@ def build_executor_for_service(
         parallel=bool(ret.parallel),
         fusion_method=(ret.fusion_method or DEFAULT_FUSION_METHOD),
         fusion_k=int(ret.fusion_k),
-        cache=retrieval_cache if enable_cache else None,  # type: ignore[arg-type]
+        cache=retrieval_cache if enable_cache else None,
         reranker=reranker,
     )
     if reranker is not None:
@@ -96,7 +103,7 @@ def build_executor_for_service(
     return Executor(graph=graph_ret, deps=deps, config=config)
 
 
-def _recall_sizes(ret: Any, *, reranked: bool) -> tuple[int, int]:
+def _recall_sizes(ret: RetrievalConfig, *, reranked: bool) -> tuple[int, int]:
     """Stage-1 recall per channel: widened to the candidate pool when re-ranking."""
     if not reranked:
         return int(ret.vector_top_k), int(ret.fulltext_top_k)
@@ -110,7 +117,7 @@ def build_llm_for_service(
     settings: Settings,
     cfg: AppConfig,
     budget: BudgetTracker,
-) -> LLMProvider | MockLLMProvider:
+) -> LLMClient | MockLLMProvider:
     if allow_llm and settings.llm_api_key:
         return build_llm_provider(
             budget=budget,
@@ -126,7 +133,7 @@ def _embed_llm(
     allow_llm: bool,
     settings: Settings,
     cfg: AppConfig,
-) -> LLMProvider | MockLLMProvider:
+) -> LLMClient | MockLLMProvider:
     if allow_llm and settings.llm_api_key:
         return build_llm_provider(settings=settings, cfg=cfg)
     return MockLLMProvider()
@@ -162,3 +169,16 @@ def stream_cache_hit_events(
     if isinstance(meta, dict) and meta.get("tenant_id") not in (None, tenant_id):
         return None
     return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]
+
+
+def _load_seed_graph(graph: GraphStore, triples: list[Triple]) -> None:
+    """Load seed triples through the ingestion gate, logging any rejections."""
+    stats = load_triples_into_graph(graph, triples, clear_first=True)
+    rejected = int(stats.get("triples_rejected", 0))
+    if rejected:
+        logging.getLogger(__name__).warning(
+            "seed graph: %s/%s triples rejected by the ingestion gate (%s)",
+            rejected,
+            stats.get("triples_input", len(triples)),
+            stats.get("rejection_reasons", {}),
+        )

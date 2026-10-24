@@ -6,6 +6,8 @@ from collections import OrderedDict
 from threading import Lock
 from typing import Any
 
+from agentic_graphrag.core.json_types import JsonObject
+
 MAX_CACHED_TASKS = 500
 _TASKS: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _TASKS_LOCK = Lock()
@@ -24,7 +26,7 @@ def get_cached_task(task_id: str) -> dict[str, Any] | None:
         return _TASKS.get(task_id)
 
 
-def list_cached_tasks(*, tenant_id: str, limit: int, offset: int) -> tuple[list, int]:
+def list_cached_tasks(*, tenant_id: str, limit: int, offset: int) -> tuple[list[JsonObject], int]:
     with _TASKS_LOCK:
         cached = list(_TASKS.values())
     rows = [row for row in reversed(cached) if row.get("tenant_id") in {None, tenant_id}]

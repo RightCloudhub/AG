@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, RelationRecord
 from agentic_graphrag.knowledge.schema_check import (
     EntityMention,
@@ -53,7 +54,7 @@ def triples_to_records(
 ) -> tuple[list[EntityRecord], list[RelationRecord]]:
     entities: dict[tuple[str, str], EntityRecord] = {}
     relations: dict[tuple[str, str], RelationRecord] = {}
-    sources_by_entity: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    sources_by_entity: dict[tuple[str, str], list[JsonObject]] = defaultdict(list)
 
     for t in triples:
         tenant = _tenant_of(t)

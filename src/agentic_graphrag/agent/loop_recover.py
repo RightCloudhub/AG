@@ -8,23 +8,29 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import TypeAdapter
+
+from agentic_graphrag.agent.graph_types import AgentGraph
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.enums import QueryRoute
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.provider import LLMProvider
 
 _RECURSION_REASON = "agent recursion_limit reached (guardrail backstop)"
 
 
 def recover_chain_after_recursion(
-    graph: Any,
+    graph: AgentGraph,
     *,
     thread_id: str,
     question: str,
     budget: BudgetTracker | None,
     t0: float,
-    llm: LLMProvider | None = None,
+    llm: LLMClient | None = None,
     allow_llm: bool = False,
 ) -> ReasoningChain:
     """Build a chain from checkpointed state after GraphRecursionError."""
@@ -59,15 +65,17 @@ def recover_chain_after_recursion(
     return finalize_agentic_chain(payload, budget=budget, tid=thread_id, t0=t0)
 
 
-def _annotate_register_recovery(chain: ReasoningChain, state: dict | None) -> ReasoningChain:
+def _annotate_register_recovery(chain: ReasoningChain, state: JsonObject | None) -> ReasoningChain:
     if not state or not state.get("requirement_register"):
         return chain
     from agentic_graphrag.agent.register_answer import annotate_register
 
-    return annotate_register(chain, {**state, "register_stop": "recursion_limit"})
+    resumed = TypeAdapter(AgentState).validate_python(state)
+    resumed["register_stop"] = "recursion_limit"
+    return annotate_register(chain, resumed)
 
 
-def _checkpoint_values(graph: Any, thread_id: str) -> dict[str, Any] | None:
+def _checkpoint_values(graph: AgentGraph, thread_id: str) -> dict[str, Any] | None:
     try:
         from agentic_graphrag.agent.loop import invoke_config
 
@@ -76,7 +84,7 @@ def _checkpoint_values(graph: Any, thread_id: str) -> dict[str, Any] | None:
         return None
     if snap is None:
         return None
-    values = getattr(snap, "values", None)
+    values = snap.values
     return values if isinstance(values, dict) else None
 
 
@@ -86,7 +94,7 @@ def _chain_from_state(state: dict[str, Any] | None, question: str) -> ReasoningC
             return ReasoningChain.model_validate(state["chain"])
         except Exception:  # noqa: BLE001
             pass
-    return ReasoningChain(question=question, route="agentic")
+    return ReasoningChain(question=question, route=QueryRoute.AGENTIC)
 
 
 def _evidence_from_state(state: dict[str, Any] | None) -> list[Candidate]:

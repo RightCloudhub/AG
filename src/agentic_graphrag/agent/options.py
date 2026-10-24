@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from agentic_graphrag.agent.graph_types import AgentCheckpointer
+from agentic_graphrag.core.enums import CriticMode
+from agentic_graphrag.core.evidence import Candidate
 
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor
     from agentic_graphrag.agent.guardrails import GuardrailConfig
+    from agentic_graphrag.core.ports.llm import LLMClient
     from agentic_graphrag.governance.budget import BudgetTracker
-    from agentic_graphrag.llm.provider import LLMProvider
 
 
 @dataclass(frozen=True)
@@ -17,7 +21,7 @@ class AgentDeps:
     """Core runtime wiring: executor + LLM + guardrails (+ optional budget)."""
 
     executor: Executor
-    llm: LLMProvider | None
+    llm: LLMClient | None
     guard_cfg: GuardrailConfig
     budget: BudgetTracker | None = None
 
@@ -30,7 +34,7 @@ class AgentRunOptions:
     budget: BudgetTracker | None = None
     allow_llm: bool = True
     recursion_limit: int | None = None
-    checkpointer: Any | None = None
+    checkpointer: AgentCheckpointer | None = None
     thread_id: str | None = None
     tenant_id: str = ""
 
@@ -50,10 +54,10 @@ class CritiqueContext:
 
     question: str
     sub_question: str
-    evidence: list[Any]
+    evidence: list[Candidate]
     explored_paths: list[str] = field(default_factory=list)
     hop: int = 1
     max_hops: int = 5
     remaining_subquestions: int = 0
     excluded_hypotheses: list[str] = field(default_factory=list)
-    critic_mode: str = "llm"  # llm | tiered | offline (O-7)
+    critic_mode: CriticMode = CriticMode.LLM  # llm | tiered | offline (O-7)

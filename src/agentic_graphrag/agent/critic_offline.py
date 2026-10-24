@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.critic import CriticAction, CriticResult, CriticScope
+
+
 from dataclasses import dataclass
 
 from agentic_graphrag.agent.critic_offline_rel import (
@@ -18,7 +24,7 @@ _PARTIAL_CONTENT_MAX_LEN = 80
 _MIN_TEXT_EVIDENCE = 3
 
 
-def _results():
+def _results() -> tuple[type[CriticAction], type[CriticResult], type[CriticScope]]:
     from agentic_graphrag.agent.critic import CriticAction, CriticResult, CriticScope
 
     return CriticAction, CriticResult, CriticScope
@@ -94,7 +100,7 @@ class _OfflineBits:
     ctx: CritiqueContext
 
 
-def offline_critique(ctx: CritiqueContext):
+def offline_critique(ctx: CritiqueContext) -> CriticResult:
     CriticAction, CriticResult, CriticScope = _results()
     evidence = list(ctx.evidence)
     bits = _OfflineBits(
@@ -125,7 +131,7 @@ def offline_critique(ctx: CritiqueContext):
     )
 
 
-def _offline_planned_remaining(bits: _OfflineBits):
+def _offline_planned_remaining(bits: _OfflineBits) -> CriticResult | None:
     CriticAction, CriticResult, CriticScope = _results()
     ctx = bits.ctx
     if ctx.remaining_subquestions <= 0 or ctx.hop >= ctx.max_hops:
@@ -141,7 +147,7 @@ def _offline_planned_remaining(bits: _OfflineBits):
     )
 
 
-def _offline_graph_sufficient(bits: _OfflineBits):
+def _offline_graph_sufficient(bits: _OfflineBits) -> CriticResult | None:
     CriticAction, CriticResult, CriticScope = _results()
     if not bits.graph_hits:
         return None
@@ -156,7 +162,7 @@ def _offline_graph_sufficient(bits: _OfflineBits):
     )
 
 
-def _offline_text_or_limit(bits: _OfflineBits):
+def _offline_text_or_limit(bits: _OfflineBits) -> CriticResult | None:
     CriticAction, CriticResult, CriticScope = _results()
     ctx, evidence = bits.ctx, bits.evidence
     if len(evidence) < _MIN_TEXT_EVIDENCE and ctx.hop < ctx.max_hops:
@@ -172,7 +178,7 @@ def _offline_text_or_limit(bits: _OfflineBits):
     )
 
 
-def _offline_rewrite_excluded(bits: _OfflineBits):
+def _offline_rewrite_excluded(bits: _OfflineBits) -> CriticResult | None:
     CriticAction, CriticResult, CriticScope = _results()
     ctx = bits.ctx
     excluded = ctx.excluded_hypotheses

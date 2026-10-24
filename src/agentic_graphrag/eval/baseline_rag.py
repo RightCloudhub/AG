@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
+from agentic_graphrag.core.enums import CriticAction, MessageRole, QueryRoute, RetrievalTool
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient, Message, MeteredLLMClient, Tier
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.core.reasoning import (
     Claim,
@@ -29,7 +33,7 @@ from agentic_graphrag.core.reasoning import (
 )
 from agentic_graphrag.eval.baseline_corpus import ensure_embeddings, load_or_build_chunks
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.provider import LLMProvider, Message, MockLLMProvider, Tier
+from agentic_graphrag.llm.provider import MockLLMProvider
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore
 
@@ -77,7 +81,7 @@ class BaselineVectorRAG:
     def __init__(
         self,
         retriever: VectorRetriever,
-        llm: LLMProvider | MockLLMProvider | None,
+        llm: LLMClient | MockLLMProvider | None,
         *,
         top_k: int = 10,
         allow_llm: bool = False,
@@ -89,7 +93,7 @@ class BaselineVectorRAG:
 
     def answer(self, question: str) -> ReasoningChain:
         t0 = time.perf_counter()
-        chain = ReasoningChain(question=question, route="baseline")
+        chain = ReasoningChain(question=question, route=QueryRoute.BASELINE)
         candidates = self.retriever.search(question, top_k=self.top_k)
         hits = [c.id for c in candidates]
         chain.steps.append(self._retrieval_step(question, hits))
@@ -97,7 +101,7 @@ class BaselineVectorRAG:
             chain.honest_fallback("vector baseline retrieved no chunks")
         else:
             self._fill_answer(chain, question, candidates)
-        chain.cost.latency_ms = int((time.perf_counter() - t0) * 1000)
+        chain.cost.latency_ms = int((time.perf_counter() - t0) * MILLISECONDS_PER_SECOND)
         self._copy_budget(chain)
         return validate_reasoning_chain(chain)
 
@@ -107,7 +111,7 @@ class BaselineVectorRAG:
             sub_question=question,
             tool_calls=[
                 ToolCallTrace(
-                    tool="vector_search",
+                    tool=RetrievalTool.VECTOR_SEARCH,
                     reason="baseline pure vector RAG",
                     args={"top_k": self.top_k},
                     hits=hits,
@@ -115,10 +119,12 @@ class BaselineVectorRAG:
             ],
             evidence_ids=hits,
             conclusion="",
-            critic_action="sufficient",
+            critic_action=CriticAction.SUFFICIENT,
         )
 
-    def _fill_answer(self, chain: ReasoningChain, question: str, candidates: list) -> None:
+    def _fill_answer(
+        self, chain: ReasoningChain, question: str, candidates: list[Candidate]
+    ) -> None:
         hits = [c.id for c in candidates]
         use_llm = (
             self.allow_llm and self.llm is not None and not isinstance(self.llm, MockLLMProvider)
@@ -131,7 +137,7 @@ class BaselineVectorRAG:
             return
         self._extractive_answer(chain, candidates)
 
-    def _extractive_answer(self, chain: ReasoningChain, candidates: list) -> None:
+    def _extractive_answer(self, chain: ReasoningChain, candidates: list[Candidate]) -> None:
         snippets = [c.content.strip() for c in candidates[: self.top_k] if c.content.strip()]
         joined = "\n---\n".join(snippets[:5])
         chain.answer = (
@@ -144,27 +150,27 @@ class BaselineVectorRAG:
         chain.metadata["baseline_mode"] = "extractive_offline"
 
     def _copy_budget(self, chain: ReasoningChain) -> None:
-        if self.llm is None or not getattr(self.llm, "budget", None):
+        if not isinstance(self.llm, MeteredLLMClient) or self.llm.budget is None:
             return
-        snap = self.llm.budget.snapshot()  # type: ignore[union-attr]
+        snap = self.llm.budget.snapshot()
         chain.cost.llm_calls = snap["llm_calls"]
         chain.cost.tokens = snap["total_tokens"]
         chain.cost.prompt_tokens = snap["prompt_tokens"]
         chain.cost.completion_tokens = snap["completion_tokens"]
 
-    def _llm_generate(self, question: str, candidates: list) -> str:
+    def _llm_generate(self, question: str, candidates: list[Candidate]) -> str:
         assert self.llm is not None
         ctx = "\n\n".join(f"[{c.id}] {c.content[:800]}" for c in candidates)
         messages = [
             Message(
-                role="system",
+                role=MessageRole.SYSTEM,
                 content=(
                     "You are a baseline RAG assistant. Answer only from the provided "
                     "passages. If insufficient, say you cannot answer."
                 ),
             ),
             Message(
-                role="user",
+                role=MessageRole.USER,
                 content=f"Question: {question}\n\nPassages:\n{ctx}\n\nAnswer:",
             ),
         ]
@@ -202,7 +208,7 @@ def build_baseline_pipeline(
 
 def _baseline_llm(
     allow_llm: bool, settings: Settings, cfg: AppConfig
-) -> tuple[LLMProvider | MockLLMProvider, bool]:
+) -> tuple[LLMClient | MockLLMProvider, bool]:
     budget = BudgetTracker(max_llm_calls=_MAX_BASELINE_CALLS, max_tokens=_MAX_BASELINE_TOKENS)
     if allow_llm and settings.llm_api_key:
         from agentic_graphrag.config import build_llm_provider

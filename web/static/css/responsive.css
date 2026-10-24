@@ -1,0 +1,17 @@
+/* ── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0; top: 0;
+    transform: translateX(-100%);
+  }
+  .sidebar--open { transform: translateX(0); }
+  .view-body { padding: var(--space-4); }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Respect keyboard navigation and user motion preferences. */
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

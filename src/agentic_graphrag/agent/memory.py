@@ -129,8 +129,8 @@ class MemoryState:
                 lines.append(f"  - {sid}: {conc[:120]}")
         elif self.conclusions:
             lines.append("Conclusions:")
-            for c in self.conclusions[:max_items]:
-                lines.append(f"  - {c}")
+            for conclusion in self.conclusions[:max_items]:
+                lines.append(f"  - {conclusion}")
         if self.excluded_hypotheses:
             lines.append("Excluded:")
             for h in list(self.excluded_hypotheses)[:max_items]:

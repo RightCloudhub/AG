@@ -7,9 +7,12 @@ type against this protocol so providers stay swappable.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
+
+from agentic_graphrag.core.enums import MessageRole
 
 
 class Tier(StrEnum):
@@ -19,13 +22,16 @@ class Tier(StrEnum):
 
 @dataclass
 class Message:
-    role: str
+    role: MessageRole
     content: str
+
+    def __post_init__(self) -> None:
+        self.role = MessageRole(self.role)
 
 
 @runtime_checkable
-class LLMClient(Protocol):
-    """Minimal surface used by agent, retrieval, and knowledge extraction."""
+class CompletionClient(Protocol):
+    """Text generation capability independent of embedding support."""
 
     def complete(
         self,
@@ -36,6 +42,37 @@ class LLMClient(Protocol):
         response_format: dict[str, Any] | None = None,
     ) -> str: ...
 
+
+@runtime_checkable
+class LLMClient(CompletionClient, Protocol):
+    """Generation and embedding surface used by combined runtime providers."""
+
     def embed(self, text: str) -> list[float]: ...
 
     def embed_many(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class BudgetReporter(Protocol):
+    def snapshot(self) -> Mapping[str, int]: ...
+
+
+@runtime_checkable
+class MeteredLLMClient(LLMClient, Protocol):
+    @property
+    def budget(self) -> BudgetReporter | None: ...
+
+
+@runtime_checkable
+class EntailmentPolicy(Protocol):
+    @property
+    def supports_entailment(self) -> bool: ...
+
+
+class CircuitGate(Protocol):
+    def allow(self) -> bool: ...
+
+
+@runtime_checkable
+class CircuitControlledClient(LLMClient, Protocol):
+    @property
+    def circuit(self) -> CircuitGate: ...

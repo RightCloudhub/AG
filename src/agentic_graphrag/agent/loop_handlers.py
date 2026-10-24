@@ -19,8 +19,8 @@ from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
-from agentic_graphrag.llm.provider import LLMProvider
 
 
 @dataclass
@@ -34,7 +34,7 @@ class ExecutorNodeCtx:
     memory: MemoryState
     guards: Guardrails
     executor: Executor
-    llm: LLMProvider | None
+    llm: LLMClient | None
 
 
 @dataclass
@@ -159,7 +159,7 @@ def _record_critic_on_chain(ctx: CriticApplyCtx) -> str:
     chain = ReasoningChain.model_validate(ctx.state["chain"])
     conclusion = result.partial_answer or ""
     if chain.steps:
-        chain.steps[-1].critic_action = result.action.value
+        chain.steps[-1].critic_action = result.action
         if conclusion:
             chain.steps[-1].conclusion = conclusion
     if result.sub_answered or result.action == CriticAction.SUFFICIENT or conclusion:

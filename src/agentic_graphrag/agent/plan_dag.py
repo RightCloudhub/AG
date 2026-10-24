@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field, field_validator
 
+from agentic_graphrag.core.enums import SubQuestionStatus
+
 # Placeholder token: {from:sq1} or {from:sq1:entity}
 PLACEHOLDER = re.compile(r"\{from:([A-Za-z0-9_]+)(?::([A-Za-z0-9_]+))?\}")
 
@@ -24,19 +26,19 @@ class SubQuestion(BaseModel):
     rationale: str = ""
     # When True, ``text`` may contain ``{from:sqN}`` slots filled after deps resolve
     is_placeholder: bool = False
-    status: str = Field(
-        default="pending",
+    status: SubQuestionStatus = Field(
+        default=SubQuestionStatus.PENDING,
         description="pending|ready|running|done|skipped",
     )
 
     @field_validator("depends_on", mode="before")
     @classmethod
-    def _coerce_deps(cls, v: object) -> list[str]:
+    def _coerce_deps(cls, v: object) -> object:
         if v is None:
             return []
         if isinstance(v, str):
             return [v]
-        return list(v)  # type: ignore[arg-type]
+        return v
 
     def unresolved_placeholders(self) -> list[str]:
         return [m.group(1) for m in PLACEHOLDER.finditer(self.text)]
@@ -65,7 +67,7 @@ def normalize_plan(sub_questions: list[SubQuestion]) -> list[SubQuestion]:
             depends_on=deps,
             rationale=sq.rationale,
             is_placeholder=ph,
-            status=sq.status or "pending",
+            status=sq.status or SubQuestionStatus.PENDING,
         )
     return topological_sort(list(by_id.values()))
 
@@ -128,7 +130,11 @@ def ready_subquestions(
     """Return pending nodes whose dependencies are all done."""
     ready: list[SubQuestion] = []
     for sq in sub_questions:
-        if sq.id in done_ids or sq.status in {"done", "skipped", "running"}:
+        if sq.id in done_ids or sq.status in {
+            SubQuestionStatus.DONE,
+            SubQuestionStatus.SKIPPED,
+            SubQuestionStatus.RUNNING,
+        }:
             continue
         if all(d in done_ids for d in sq.depends_on):
             ready.append(sq)

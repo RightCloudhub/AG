@@ -25,22 +25,16 @@ def filter_items(
     tenant_id: str | None,
     batch_id: str | None = None,
 ) -> list[ReviewItem]:
-    preds = _equality_preds({"batch_id": batch_id, "status": status or None, "type": type or None})
-    if min_confidence is not None:
-        preds.append(lambda i, m=min_confidence: i.confidence >= m)
-    if max_confidence is not None:
-        preds.append(lambda i, m=max_confidence: i.confidence <= m)
-    if tenant_id is not None:
-        preds.append(lambda i, t=tenant_id: i.tenant_id == t)
-    if not preds:
-        return items
-    return [i for i in items if all(p(i) for p in preds)]
+    def matches(item: ReviewItem) -> bool:
+        return all(
+            (
+                batch_id is None or item.batch_id == batch_id,
+                not status or item.status == status,
+                not type or item.type == type,
+                min_confidence is None or item.confidence >= min_confidence,
+                max_confidence is None or item.confidence <= max_confidence,
+                tenant_id is None or item.tenant_id == tenant_id,
+            )
+        )
 
-
-def _equality_preds(fields: dict[str, str | None]) -> list:
-    """``item.<field> == value`` predicates for every field given a value."""
-    return [
-        (lambda i, f=name, v=value: getattr(i, f) == v)
-        for name, value in fields.items()
-        if value is not None
-    ]
+    return [item for item in items if matches(item)]

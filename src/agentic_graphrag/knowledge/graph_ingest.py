@@ -15,14 +15,18 @@ document, so an upload reaches the graph without a separate CLI step.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from agentic_graphrag.core.events import EventBus
+from agentic_graphrag.core.ports.capabilities import EntityLister
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import ChunkRecord, GraphStore
 from agentic_graphrag.knowledge.extract_rules import extract_rules_from_chunk
 from agentic_graphrag.knowledge.incremental import IncrementalUpdater
 from agentic_graphrag.knowledge.resolution import normalize_key
+from agentic_graphrag.knowledge.review.queue import ReviewQueue
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, default_schema
 
 logger = logging.getLogger(__name__)
@@ -53,10 +57,10 @@ class GraphIngestDeps:
     """Collaborators of the graph stage; only ``graph`` is required."""
 
     graph: GraphStore
-    review_queue: Any | None = None
-    llm: Any | None = None
+    review_queue: ReviewQueue | None = None
+    llm: LLMClient | None = None
     schema: SchemaDefinition | None = None
-    on_commit: Any | None = None  # legacy hook; prefer ``events``
+    on_commit: Callable[[], None] | None = None  # legacy hook; prefer ``events``
     events: EventBus | None = None  # publishes GraphCommitted after every write
 
 
@@ -89,15 +93,12 @@ class GraphIngestor:
             events=self.events,
         )
         batch = updater.apply_batch(triples, batch_id=batch_id or None)
-        for name in (
-            "accepted",
-            "rejected",
-            "conflicts_auto",
-            "conflicts_review",
-            "conflicts_temporal",
-            "conflicts_kept",
-        ):
-            setattr(result, name, getattr(batch, name))
+        result.accepted = batch.accepted
+        result.rejected = batch.rejected
+        result.conflicts_auto = batch.conflicts_auto
+        result.conflicts_review = batch.conflicts_review
+        result.conflicts_temporal = batch.conflicts_temporal
+        result.conflicts_kept = batch.conflicts_kept
         return result
 
     def _extract(self, chunks: list[ChunkRecord], result: GraphIngestResult) -> list[Triple]:
@@ -128,11 +129,7 @@ class GraphIngestor:
                 mention.name = known.get(normalize_key(mention.name), mention.name.strip())
 
     def _known_names(self, tenant_id: str) -> dict[str, str]:
-        lister = getattr(self.graph, "list_entities", None)
-        if not callable(lister):
+        if not isinstance(self.graph, EntityLister):
             return {}
-        try:
-            entities = lister(limit=_ENTITY_SCAN_LIMIT, tenant_id=tenant_id or None)
-        except TypeError:
-            entities = lister(limit=_ENTITY_SCAN_LIMIT)
+        entities = self.graph.list_entities(limit=_ENTITY_SCAN_LIMIT, tenant_id=tenant_id or None)
         return {normalize_key(e.name): e.name for e in entities}

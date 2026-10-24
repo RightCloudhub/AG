@@ -74,12 +74,12 @@ class QdrantVectorStore:
             query_filter = qm.Filter(
                 must=[qm.FieldCondition(key="tenant_id", match=qm.MatchValue(value=tenant_id))]
             )
-        hits = self._client.search(
+        hits = self._client.query_points(
             collection_name=self._collection,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=query_filter,
             limit=top_k,
-        )
+        ).points
         out: list[tuple[ChunkRecord, float]] = []
         for hit in hits:
             payload: dict[str, Any] = hit.payload or {}

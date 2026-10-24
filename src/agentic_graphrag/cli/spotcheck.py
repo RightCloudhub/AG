@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from agentic_graphrag.config import resolve_path
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, validate_triple
 
 _GATE_RATE = 0.70
 _TARGET_PCT = 70.0
@@ -16,7 +19,7 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
     """Generate triple spot-check sample for P1-KG-05 / G1→G2 live extract audit."""
     args = _parse_spotcheck(argv)
     from agentic_graphrag.config import resolve_path as rp
-    from agentic_graphrag.knowledge.schema_check import Triple, load_schema, validate_triple
+    from agentic_graphrag.knowledge.schema_check import load_schema
 
     triples_path = rp(args.triples)
     if not triples_path.exists():
@@ -30,8 +33,6 @@ def spotcheck_main(argv: list[str] | None = None) -> None:
         schema,
         mode=args.mode,
         limit=args.limit,
-        Triple=Triple,
-        validate_triple=validate_triple,
     )
     _write_spotcheck(out_path, rows, mode=args.mode)
 
@@ -46,7 +47,9 @@ def _parse_spotcheck(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _sample_rows(triples_path, schema, *, mode, limit, Triple, validate_triple):
+def _sample_rows(
+    triples_path: Path, schema: SchemaDefinition, *, mode: str, limit: int
+) -> list[JsonObject]:
     rows = []
     for line in triples_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -85,7 +88,7 @@ def _label_for(mode: str, reason: str | None) -> tuple[str, str]:
     return "pending_human", "llm_extract_pending_human"
 
 
-def _write_spotcheck(out_path, rows, *, mode: str) -> None:
+def _write_spotcheck(out_path: Path, rows: list[JsonObject], *, mode: str) -> None:
     with out_path.open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -95,7 +98,7 @@ def _write_spotcheck(out_path, rows, *, mode: str) -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
-def _build_spotcheck_summary(rows, out_path, *, mode: str) -> dict:
+def _build_spotcheck_summary(rows: list[JsonObject], out_path: Path, *, mode: str) -> JsonObject:
     counts = _label_counts(rows)
     seed = mode == "seed"
     return {
@@ -113,7 +116,7 @@ def _build_spotcheck_summary(rows, out_path, *, mode: str) -> dict:
     }
 
 
-def _label_counts(rows: list[dict]) -> dict:
+def _label_counts(rows: list[JsonObject]) -> JsonObject:
     labeled = [r for r in rows if r.get("human_label") in ("correct", "incorrect")]
     correct = sum(1 for r in labeled if r["human_label"] == "correct")
     rate = (correct / len(labeled)) if labeled else None
@@ -167,7 +170,7 @@ def score_spotcheck_main(argv: list[str] | None = None) -> None:
         sys.exit(3)
 
 
-def _score_summary(rows: list[dict], inp) -> dict:
+def _score_summary(rows: list[JsonObject], inp: Path) -> JsonObject:
     counts = _label_counts(rows)
     rate = counts["rate"]
     pending_n = counts["pending"]

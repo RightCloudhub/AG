@@ -70,7 +70,7 @@ def _should_force(ctx: CritiqueContext, result: CriticResult) -> bool:
     if ctx.hop >= ctx.max_hops:
         return False
     # Respect remaining planned sub-questions (do not short-circuit 3-hop plans).
-    if getattr(ctx, "remaining_subquestions", 0) > 0:
+    if ctx.remaining_subquestions > 0:
         return False
     q = ctx.question or ""
     if not _needs_role_person(q):
@@ -97,8 +97,8 @@ def _role_token(question: str) -> str | None:
 def _evidence_blob(ctx: CritiqueContext) -> str:
     parts = [str(ctx.sub_question or "")]
     for c in ctx.evidence or []:
-        parts.append(getattr(c, "content", "") or "")
-        parts.append(str(getattr(c, "id", "") or ""))
+        parts.append(c.content or "")
+        parts.append(str(c.id or ""))
     for p in ctx.explored_paths or []:
         parts.append(str(p))
     return "\n".join(parts)
@@ -117,7 +117,7 @@ def _next_org_for_role(ctx: CritiqueContext, blob: str) -> str | None:
 def _orgs_from_evidence(ctx: CritiqueContext) -> list[str]:
     out: list[str] = []
     for c in ctx.evidence or []:
-        content = getattr(c, "content", "") or ""
+        content = c.content or ""
         m = _EDGE_PAIR.search(content)
         if not m:
             continue

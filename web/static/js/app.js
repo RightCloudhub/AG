@@ -1,44 +1,80 @@
+// @ts-check
 /**
  * Main application — Vue 3 SPA with hash router and role-aware navigation.
  */
-import { createApp, ref, computed, onMounted, shallowRef, defineAsyncComponent }
+import { createApp, ref, computed, onMounted, shallowRef }
   from '../vendor/vue.esm-browser.prod.js';
+import { View, Role, HealthStatus } from './contracts.js';
 import { fetchMe, fetchHealth, getApiKey, setApiKey } from './api.js';
 
 /* ── Lazy view imports ─────────────────────────────────────────────── */
 const viewModules = {
-  chat:      () => import('./views/chat.js'),
-  graph:     () => import('./views/graph.js'),
-  knowledge: () => import('./views/knowledge.js'),
-  review:    () => import('./views/review.js'),
-  ops:       () => import('./views/ops.js'),
+  [View.CHAT]:      () => import('./views/chat.js'),
+  [View.GRAPH]:     () => import('./views/graph.js'),
+  [View.KNOWLEDGE]: () => import('./views/knowledge.js'),
+  [View.REVIEW]:    () => import('./views/review.js'),
+  [View.OPS]:       () => import('./views/ops.js'),
 };
 
 /* ── Navigation config ─────────────────────────────────────────────── */
 const NAV_ITEMS = [
-  { id: 'chat',      icon: '💬', label: '对话',      capability: 'chat' },
-  { id: 'graph',     icon: '🕸', label: '知识图谱',     capability: 'graph' },
-  { id: 'knowledge', icon: '📚', label: '知识库', capability: 'knowledge' },
-  { id: 'review',    icon: '🔍', label: '人工审核',    capability: 'review' },
-  { id: 'ops',       icon: '📡', label: '系统运维', capability: 'ops' },
+  { id: View.CHAT,      icon: '💬', label: '对话',      capability: View.CHAT },
+  { id: View.GRAPH,     icon: '🕸', label: '知识图谱',     capability: View.GRAPH },
+  { id: View.KNOWLEDGE, icon: '📚', label: '知识库', capability: View.KNOWLEDGE },
+  { id: View.REVIEW,    icon: '🔍', label: '人工审核',    capability: View.REVIEW },
+  { id: View.OPS,       icon: '📡', label: '系统运维', capability: View.OPS },
 ];
 
 /* ── App component ─────────────────────────────────────────────────── */
+function useAppState() {
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./contracts.js').ViewName>} */
+  const currentView = ref(View.CHAT);
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./responses.js').Identity | null>} */
+  const user = ref(null);
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<Partial<Record<import('./contracts.js').ViewName, boolean>>>} */
+  const capabilities = ref({});
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./responses.js').Health | null>} */
+  const health = ref(null);
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('../vendor/vue.esm-browser.prod.js').Component | null>} */
+  const currentComponent = shallowRef(null);
+  const sidebarOpen = ref(false);
+  const apiKey = ref(getApiKey());
+  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<string | null>} */
+  const loadError = ref(null);
+
+  const visibleNav = computed(() =>
+    NAV_ITEMS.filter(n => capabilities.value[n.capability])
+  );
+
+  async function loadUser() {
+    try {
+      const { data } = await fetchMe();
+      user.value = data;
+      capabilities.value = data.capabilities || {};
+    } catch {
+      // Unauthenticated — show all reader capabilities
+      capabilities.value = { [View.CHAT]: true, [View.GRAPH]: true };
+    }
+  }
+
+  async function loadHealth() {
+    try { health.value = await fetchHealth(); }
+    catch { health.value = null; }
+  }
+
+  function userInitial() {
+    const uid = user.value?.user_id || 'A';
+    return uid.charAt(0).toUpperCase();
+  }
+
+  return { currentView, user, capabilities, health, currentComponent, sidebarOpen, apiKey, loadError, visibleNav, loadUser, loadHealth, userInitial };
+}
+
 const App = {
   setup() {
-    const currentView = ref('chat');
-    const user = ref(null);
-    const capabilities = ref({});
-    const health = ref(null);
-    const currentComponent = shallowRef(null);
-    const sidebarOpen = ref(false);
-    const apiKey = ref(getApiKey());
-    const loadError = ref(null);
+    const { currentView, user, capabilities, health, currentComponent, sidebarOpen, apiKey, loadError, visibleNav, loadUser, loadHealth, userInitial } = useAppState();
 
-    const visibleNav = computed(() =>
-      NAV_ITEMS.filter(n => capabilities.value[n.capability])
-    );
-
+    /** @param {string} key */
     async function updateApiKey(key) {
       apiKey.value = key;
       setApiKey(key);
@@ -46,22 +82,7 @@ const App = {
       handleHashChange();
     }
 
-    async function loadUser() {
-      try {
-        const { data } = await fetchMe();
-        user.value = data;
-        capabilities.value = data.capabilities || {};
-      } catch {
-        // Unauthenticated — show all reader capabilities
-        capabilities.value = { chat: true, graph: true };
-      }
-    }
-
-    async function loadHealth() {
-      try { health.value = await fetchHealth(); }
-      catch { health.value = null; }
-    }
-
+    /** @param {import('./contracts.js').ViewName} viewId */
     async function navigate(viewId) {
       if (!viewModules[viewId]) return;
       currentView.value = viewId;
@@ -78,15 +99,8 @@ const App = {
     }
 
     function handleHashChange() {
-      const hash = window.location.hash.slice(1) || 'chat';
-      if (viewModules[hash] && capabilities.value[NAV_ITEMS.find(n => n.id === hash)?.capability]) {
-        navigate(hash);
-      }
-    }
-
-    function userInitial() {
-      const uid = user.value?.user_id || 'A';
-      return uid.charAt(0).toUpperCase();
+      const target = NAV_ITEMS.find(n => n.id === (window.location.hash.slice(1) || View.CHAT));
+      if (target && capabilities.value[target.capability]) navigate(target.id);
     }
 
     onMounted(async () => {
@@ -94,14 +108,14 @@ const App = {
       await loadHealth();
       window.addEventListener('hashchange', handleHashChange);
       const hash = window.location.hash.slice(1);
-      const target = hash && viewModules[hash] ? hash : 'chat';
+      const target = NAV_ITEMS.find(n => n.id === hash && capabilities.value[n.capability])?.id || View.CHAT;
       navigate(target);
     });
 
     return {
       currentView, user, capabilities, health, currentComponent,
       visibleNav, navigate, sidebarOpen, userInitial, NAV_ITEMS,
-      apiKey, updateApiKey, loadError,
+      apiKey, updateApiKey, loadError, Role, HealthStatus,
     };
   },
 
@@ -144,14 +158,14 @@ const App = {
         <div>
           <div style="color:var(--color-text-primary);font-weight:600;">{{ user.user_id || '匿名用户' }}</div>
           <div style="color:var(--color-text-muted);font-size:11px;display:flex;align-items:center;gap:4px;">
-            <span class="badge badge--accent" style="font-size:9px;padding:1px 4px;">{{ user.role || 'reader' }}</span>
+            <span class="badge badge--accent" style="font-size:9px;padding:1px 4px;">{{ user.role || Role.READER }}</span>
             {{ user.tenant_id || 'default' }}
           </div>
         </div>
       </div>
       <div v-if="health" style="margin-top:var(--space-3);display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-3);">
         <span style="width:6px;height:6px;border-radius:50%;display:inline-block;"
-              :style="{ background: health.status === 'ok' ? 'var(--color-success)' : 'var(--color-warning)' }"></span>
+              :style="{ background: health.status === HealthStatus.OK ? 'var(--color-success)' : 'var(--color-warning)' }"></span>
         <span style="font-size:var(--text-xs);color:var(--color-text-muted);">{{ health.status }}</span>
       </div>
     </div>

@@ -17,9 +17,12 @@ cp .env.example .env          # LLM_API_KEY optional — offline path needs none
 # Lint / format (CI-enforced)
 ruff check src tests scripts
 ruff format --check src tests scripts
+mypy                              # all src modules, strict + Pydantic models
+# Optional local JS validation; CI runs this with a pinned standalone checker.
+npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json
 
 # Tests (CI gate: unit tests + coverage ≥80%). tests/ contains only tests/unit.
-# CI ignores tests/unit/test_web_claude_ui.py (pre-existing: web/static/* missing).
+# Includes current Web structure, injection safety, and offline JS runtime checks.
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 pytest tests/unit/test_scoring.py -q          # single file
 pytest tests/unit -k "guardrails" -q          # by keyword

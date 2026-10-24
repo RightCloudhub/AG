@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -13,13 +14,14 @@ from agentic_graphrag.api.sse import format_sse
 from agentic_graphrag.app.contracts import QueryRequest
 from agentic_graphrag.app.errors import ApiError
 from agentic_graphrag.app.query_service import QueryService
+from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["query"])
 
 
 def _service(request: Request) -> QueryService:
     svc = getattr(request.app.state, "query_service", None)
-    if svc is None:
+    if not isinstance(svc, QueryService):
         raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
     return svc
 
@@ -33,7 +35,7 @@ def _principal(request: Request) -> tuple[str, str]:
 
 
 @router.post("/query")
-def post_query(body: QueryRequest, request: Request) -> dict:
+def post_query(body: QueryRequest, request: Request) -> JsonObject:
     request_id = request.headers.get("x-request-id") or str(uuid4())
     meta = MetaBody(request_id=request_id)
     tenant_id, user_id = _principal(request)
@@ -51,7 +53,7 @@ async def post_query_stream(body: QueryRequest, request: Request) -> StreamingRe
     tenant_id, user_id = _principal(request)
     svc = _service(request)
 
-    async def gen():
+    async def gen() -> AsyncIterator[str]:
         # Async generator + sleep(0) lets ASGI flush each frame before the next
         # agent hop blocks (sync iterators often buffer until the whole run ends).
         for etype, payload in svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id):

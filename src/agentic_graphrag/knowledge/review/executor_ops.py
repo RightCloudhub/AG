@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
+from agentic_graphrag.core.ports.capabilities import (
+    DEFAULT_RELATION_SCAN,
+    RelationDeletion,
+    RelationLister,
+)
 from agentic_graphrag.core.ports.stores import GraphStore, RelationRecord
 
 logger = logging.getLogger(__name__)
@@ -12,14 +17,8 @@ logger = logging.getLogger(__name__)
 
 def all_relations(graph: GraphStore) -> list[RelationRecord]:
     """Every relation the store exposes (memory dict / list, or ``list_relations``)."""
-    rels = getattr(graph, "_relations", None)
-    if isinstance(rels, dict):
-        return list(rels.values())
-    if isinstance(rels, list):
-        return list(rels)
-    lister = getattr(graph, "list_relations", None)
-    if callable(lister):
-        return list(lister(limit=100_000) or [])
+    if isinstance(graph, RelationLister):
+        return graph.list_relations(limit=DEFAULT_RELATION_SCAN)
     return []
 
 
@@ -27,14 +26,13 @@ def delete_relations(
     graph: GraphStore, relation_ids: Iterable[str], *, tenant_id: str | None = None
 ) -> int:
     """Delete by id within one tenant; returns how many were removed."""
-    deleter = getattr(graph, "delete_relation", None)
-    if not callable(deleter):
+    if not isinstance(graph, RelationDeletion):
         logger.warning("graph store %s cannot delete relations", type(graph).__name__)
         return 0
     removed = 0
     for rid in dict.fromkeys(relation_ids):
         try:
-            removed += 1 if deleter(rid, tenant_id=tenant_id) else 0
+            removed += 1 if graph.delete_relation(rid, tenant_id=tenant_id) else 0
         except Exception:  # noqa: BLE001
             logger.warning("delete_relation(%s) failed", rid)
     return removed

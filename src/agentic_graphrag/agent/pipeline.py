@@ -8,20 +8,14 @@ iterator. Fast → Deep escalation carries the fast path's evidence forward.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
-from uuid import uuid4
 
 from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path_with_evidence
-from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import (
-    build_graph,
-    finalize_agentic_chain,
-    invoke_config,
     resolved_run_opts,
     should_escalate_chain,
 )
@@ -34,11 +28,12 @@ from agentic_graphrag.agent.loop_stream_events import (
     fast_path_step_events,
 )
 from agentic_graphrag.agent.options import AgentRunOptions, QueryOptions
-from agentic_graphrag.agent.pipeline_graph import _initial_state, _stream_graph_updates
+from agentic_graphrag.agent.pipeline_graph import _initial_state as _initial_state
+from agentic_graphrag.agent.pipeline_graph import _iter_agentic
 from agentic_graphrag.agent.triage import Route, TriageResult, triage
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
-from agentic_graphrag.llm.provider import LLMProvider
 from agentic_graphrag.prompts import prompt_versions, reset_prompt_versions
 
 # Re-export SSE event names for callers that import from this module.
@@ -66,7 +61,7 @@ class _StreamCtx:
 
     question: str
     executor: Executor
-    llm: LLMProvider | None
+    llm: LLMClient | None
     opts: QueryOptions
     run_opts: AgentRunOptions
 
@@ -74,7 +69,7 @@ class _StreamCtx:
 def iter_query_progress(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
 ) -> Iterator[tuple[str, Any]]:
@@ -94,7 +89,7 @@ def iter_query_progress(
 def _route(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
 ) -> Iterator[tuple[str, Any]]:
@@ -130,7 +125,7 @@ def _route(
 def run_pipeline(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
 ) -> ReasoningChain:
@@ -151,7 +146,7 @@ def drain(events: Iterator[tuple[str, Any]]) -> ReasoningChain:
 def iter_agentic(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     run_opts: AgentRunOptions,
 ) -> Iterator[tuple[str, Any]]:
@@ -252,49 +247,3 @@ def _iter_fast_or_escalate(
 def _emit_steps_then_chain(chain: ReasoningChain) -> Iterator[tuple[str, Any]]:
     yield from fast_path_step_events(list(chain.steps))
     yield EVENT_FINAL_CHAIN, chain
-
-
-def _iter_agentic(
-    ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
-) -> Iterator[tuple[str, Any]]:
-    opts = ctx.run_opts
-    guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
-    budget = opts.budget or guard_cfg.budget_tracker()
-    rec_limit = (
-        opts.recursion_limit if opts.recursion_limit is not None else guard_cfg.recursion_limit
-    )
-    chain = ReasoningChain(question=ctx.question, route="agentic")
-    tid = opts.thread_id or chain.query_id or str(uuid4())
-    graph = build_graph(
-        ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer
-    )
-    t0 = time.perf_counter()
-    initial = _initial_state(
-        ctx.question,
-        chain,
-        allow_llm=opts.allow_llm,
-        tenant_id=opts.tenant_id or "",
-        seed_evidence=seed_evidence,
-    )
-    config = invoke_config(tid, recursion_limit=rec_limit)
-    try:
-        final_state = yield from _stream_graph_updates(graph, initial, config)
-    except Exception as exc:  # noqa: BLE001 — recursion backstop → partial answer
-        if type(exc).__name__ != "GraphRecursionError":
-            raise
-        from agentic_graphrag.agent.loop_recover import recover_chain_after_recursion
-
-        recovered = recover_chain_after_recursion(
-            graph,
-            thread_id=tid,
-            question=ctx.question,
-            budget=budget,
-            t0=t0,
-            llm=ctx.llm,
-            allow_llm=opts.allow_llm,
-        )
-        yield EVENT_FINAL_CHAIN, recovered
-        return
-    if final_state is None:
-        raise AgentStreamEmptyError("agent graph stream produced no state")
-    yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)

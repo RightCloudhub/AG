@@ -7,6 +7,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agentic_graphrag.eval.scoring_types import (
+    AccuracySummary,
+    PairScore,
+    PredictionRow,
+    ScoredCase,
+)
+
 _TOKEN_RATIO = 0.6
 _ALIAS_PARTIAL_RATIO = 0.4
 _PRED_PREVIEW = 300
@@ -73,7 +80,7 @@ def _tokens(text: str) -> set[str]:
     return {t for t in _norm(text).split() if t and t not in _STOP and len(t) > 1}
 
 
-def score_pair(prediction: str, gold: str) -> dict:
+def score_pair(prediction: str, gold: str) -> PairScore:
     """Token-overlap + substring match score for one case."""
     pred = prediction or ""
     gold = gold or ""
@@ -126,7 +133,7 @@ def _containment_match(pn: str, gn: str) -> bool:
     return False
 
 
-def _early_score(pn: str, gn: str, *, pred: str = "", gold: str = "") -> dict | None:
+def _early_score(pn: str, gn: str, *, pred: str = "", gold: str = "") -> PairScore | None:
     if not gn:
         return {"correct": False, "score": 0.0, "method": "empty_gold"}
     if is_no_answer_gold(gold or gn) and is_honest_abstention(pred or pn):
@@ -136,7 +143,7 @@ def _early_score(pn: str, gn: str, *, pred: str = "", gold: str = "") -> dict | 
     return None
 
 
-def _overlap_score(*, gold: str, pn: str, gn: str) -> dict:
+def _overlap_score(*, gold: str, pn: str, gn: str) -> PairScore:
     gt, pt = _tokens(gold), _tokens(pn)
     if not gt:
         # Single-char / stopword golds (e.g. "no") may yield empty token sets.
@@ -169,13 +176,13 @@ def _alias_hits(gold: str, pn: str) -> tuple[int, int]:
 class AccuracyReport:
     total: int = 0
     correct: int = 0
-    cases: list[dict] = field(default_factory=list)
+    cases: list[ScoredCase] = field(default_factory=list)
 
     @property
     def accuracy(self) -> float:
         return (self.correct / self.total) if self.total else 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> AccuracySummary:
         return {
             "total": self.total,
             "correct": self.correct,
@@ -195,7 +202,7 @@ def score_report_file(report_path: str | Path) -> AccuracyReport:
     return report
 
 
-def _score_report_row(row: dict, report: AccuracyReport) -> None:
+def _score_report_row(row: PredictionRow, report: AccuracyReport) -> None:
     if row.get("error") and not row.get("prediction"):
         report.total += 1
         report.cases.append(

@@ -122,7 +122,7 @@ def keys_to_tenant_map(keys: dict[str, KeyInfo]) -> dict[str, str]:
 # ── role-based route guard ──────────────────────────────────────────────
 
 
-def require_role(*allowed_roles: Role) -> Callable:
+def require_role(*allowed_roles: Role) -> Callable[[Request], None]:
     """FastAPI ``Depends()`` factory that enforces role membership.
 
     Usage::

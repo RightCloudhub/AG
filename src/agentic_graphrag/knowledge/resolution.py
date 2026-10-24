@@ -15,9 +15,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentic_graphrag.core.enums import MergeAction, MessageRole, ResolutionMethod
+from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore
 from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
-from agentic_graphrag.llm.provider import LLMProvider, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
 _ALIAS_SCORE = 0.95
@@ -61,7 +62,7 @@ def char_ngram_sim(a: str, b: str, n: int = _NGRAM_N) -> float:
 
 
 class MergeDecision(BaseModel):
-    action: str = Field(description="merge | keep_separate | uncertain")
+    action: MergeAction = Field(description="merge | keep_separate | uncertain")
     confidence: float = 0.5
     rationale: str = ""
     canonical_name: str = ""
@@ -72,7 +73,7 @@ class ResolutionCandidate:
     left: EntityRecord
     right: EntityRecord
     score: float
-    method: str = "similarity"
+    method: ResolutionMethod = ResolutionMethod.SIMILARITY
 
 
 @dataclass
@@ -107,7 +108,7 @@ class EntityResolver:
         alias_map: dict[str, str] | None = None,
         similarity_threshold: float = 0.72,
         auto_merge_threshold: float = 0.92,
-        llm: LLMProvider | None = None,
+        llm: LLMClient | None = None,
     ) -> None:
         self.alias_map = {normalize_key(k): v for k, v in (alias_map or {}).items()}
         self.similarity_threshold = similarity_threshold
@@ -149,13 +150,13 @@ class EntityResolver:
 
     def _score_pair(self, a: EntityRecord, b: EntityRecord) -> ResolutionCandidate | None:
         if normalize_key(a.name) == normalize_key(b.name):
-            score, method = 1.0, "exact_norm"
+            score, method = 1.0, ResolutionMethod.EXACT_NORMALIZED
         else:
             score = max(jaccard(a.name, b.name), char_ngram_sim(a.name, b.name))
-            method = "similarity"
+            method = ResolutionMethod.SIMILARITY
             if self.canonical_name(a.name) == self.canonical_name(b.name):
                 score = max(score, _ALIAS_SCORE)
-                method = "alias"
+                method = ResolutionMethod.ALIAS
         if score < self.similarity_threshold:
             return None
         return ResolutionCandidate(left=a, right=b, score=score, method=method)
@@ -223,7 +224,7 @@ class EntityResolver:
         dry_run: bool,
     ) -> None:
         decision = self._llm_decide(cand)
-        if decision.action == "merge":
+        if decision.action is MergeAction.MERGE:
             self._record_merge(
                 cand,
                 store,
@@ -231,25 +232,30 @@ class EntityResolver:
                 dry_run=dry_run,
                 name=decision.canonical_name or cand.left.name,
             )
-        elif decision.action == "uncertain":
+        elif decision.action is MergeAction.UNCERTAIN:
             result.uncertain.append(cand)
         else:
             result.skipped += 1
 
     def _llm_decide(self, cand: ResolutionCandidate) -> MergeDecision:
+        llm = self.llm
+        if llm is None:
+            return MergeDecision(
+                action=MergeAction.UNCERTAIN, confidence=0.0, rationale="LLM unavailable"
+            )
         try:
             return complete_structured(
-                self.llm,  # type: ignore[arg-type]
+                llm,
                 [
                     Message(
-                        role="system",
+                        role=MessageRole.SYSTEM,
                         content=(
                             "Decide if two entity mentions refer to the same real-world "
                             "entity. action=merge|keep_separate|uncertain."
                         ),
                     ),
                     Message(
-                        role="user",
+                        role=MessageRole.USER,
                         content=(
                             f"A: {cand.left.name} ({cand.left.type})\n"
                             f"B: {cand.right.name} ({cand.right.type})\n"
@@ -261,7 +267,9 @@ class EntityResolver:
                 tier=Tier.LIGHT,
             )
         except Exception:
-            return MergeDecision(action="uncertain", confidence=0.0, rationale="llm failed")
+            return MergeDecision(
+                action=MergeAction.UNCERTAIN, confidence=0.0, rationale="llm failed"
+            )
 
     def _apply_merge(self, req: MergeApply) -> None:
         apply_entity_merge(req)

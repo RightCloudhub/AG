@@ -17,6 +17,7 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
     load_schema,
 )
+from agentic_graphrag.stores.factory import GraphBackend
 
 
 def build_graph_main(argv: list[str] | None = None) -> None:
@@ -111,7 +112,7 @@ def _extract_triples(
     return pipe.accepted
 
 
-def _write_rejected(rejected: list, cfg: AppConfig) -> Path:
+def _write_rejected(rejected: list[tuple[Triple, str]], cfg: AppConfig) -> Path:
     reject_path = resolve_path(f"{cfg.paths.processed_dir}/rejected_triples.jsonl")
     with reject_path.open("w", encoding="utf-8") as f:
         for t, reason in rejected:
@@ -156,7 +157,7 @@ def _write_graph(
         stats["backend"] = backend
         stats["gate_rejected"] = gate_rejected
         print(json.dumps(stats, indent=2), flush=True)
-        if backend == "memory":
+        if backend is GraphBackend.MEMORY:
             print(
                 "Note: in-memory graph is process-local. "
                 "Offline eval does not need this step — use: agr-run-cases --no-llm",

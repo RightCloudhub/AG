@@ -14,6 +14,8 @@ from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConf
 from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
+from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, DEFAULT_RRF_K
+from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, RerankKind
 
 if TYPE_CHECKING:
     from agentic_graphrag.governance.budget import BudgetTracker
@@ -32,12 +34,12 @@ class GuardrailsConfig(BaseModel):
     max_llm_calls: int = 20
     max_tokens_per_query: int = 50_000
     query_timeout_seconds: int = 60
-    recursion_limit: int = 15
+    recursion_limit: int = DEFAULT_RECURSION_LIMIT
     # Breadth budget (plan nodes, BL-12); GuardrailConfig clamps it to max_hops.
     max_sub_questions: int = 5
     parallel_branches: bool = True
     max_parallel_branches: int = 3
-    critic_mode: str = "llm"  # O-7: llm | tiered | offline
+    critic_mode: CriticMode = CriticMode.LLM
 
 
 class GraphRetrievalConfig(BaseModel):
@@ -55,7 +57,7 @@ class GraphRetrievalConfig(BaseModel):
 class RerankConfig(BaseModel):
     """Two-stage retrieval (ARCH_OPTIMIZATION_V2 O-5). ``none`` keeps V1 behaviour."""
 
-    kind: str = "none"  # none | lexical | http
+    kind: RerankKind = RerankKind.NONE
     candidate_pool: int = 30  # per-channel recall when a re-ranker is on
     top_n: int = 10  # fused hits kept after re-ranking
     endpoint: str = ""  # http: TEI / Infinity compatible POST /rerank
@@ -66,8 +68,8 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     vector_top_k: int = 10
     fulltext_top_k: int = 10
-    fusion_method: str = "rrf"
-    fusion_k: int = 60
+    fusion_method: FusionMethod = FusionMethod.RRF
+    fusion_k: int = DEFAULT_RRF_K
     parallel: bool = True
     cache_answer_ttl_seconds: float = 3600.0
     graph: GraphRetrievalConfig = Field(default_factory=GraphRetrievalConfig)
@@ -158,8 +160,8 @@ class Settings(BaseSettings):
     max_hops: int | None = Field(default=None, alias="MAX_HOPS")
     max_llm_calls: int | None = Field(default=None, alias="MAX_LLM_CALLS")
     max_tokens_per_query: int | None = Field(default=None, alias="MAX_TOKENS_PER_QUERY")
-    rerank_kind: str | None = Field(default=None, alias="AGR_RERANK")
-    critic_mode: str | None = Field(default=None, alias="AGR_CRITIC_MODE")
+    rerank_kind: RerankKind | None = Field(default=None, alias="AGR_RERANK")
+    critic_mode: CriticMode | None = Field(default=None, alias="AGR_CRITIC_MODE")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -255,36 +257,7 @@ def resolve_embedding_api_key(
     return s.llm_api_key or ""
 
 
-def build_llm_provider(
-    *,
-    budget: BudgetTracker | None = None,
-    cache_dir: str | Path | None = None,
-    settings: Settings | None = None,
-    cfg: AppConfig | None = None,
-) -> LLMProvider:
-    """Construct ``LLMProvider`` with chat vs embedding endpoint split."""
-    from agentic_graphrag.llm.provider import LLMProvider
-
-    s = settings or get_settings()
-    c = cfg or get_config()
-    return LLMProvider(
-        api_key=s.llm_api_key,
-        base_url=resolve_chat_base_url(s),
-        strong_model=c.llm.strong_model,
-        light_model=c.llm.light_model,
-        embedding_model=c.llm.embedding_model,
-        embedding_base_url=resolve_embedding_base_url(s, c),
-        embedding_api_key=resolve_embedding_api_key(s, c),
-        temperature=c.llm.temperature,
-        timeout_seconds=c.llm.timeout_seconds,
-        budget=budget,
-        cache_dir=cache_dir,
-        circuit=c.llm.resilience.breaker_template(),
-        fallback_to_light=c.llm.resilience.fallback_to_light,
-    )
-
-
-def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
+def load_prompt(name: PromptName, prompts_dir: str | Path | None = None) -> str:
     """Load a prompt file by stem name (e.g. 'extract' → extract.md).
 
     Records content hashes for reasoning-chain audit (§5.4).
@@ -298,3 +271,15 @@ def load_prompt(name: str, prompts_dir: str | Path | None = None) -> str:
     text = path.read_text(encoding="utf-8")
     record_prompt_use(name, text)
     return text
+
+
+def build_llm_provider(
+    *,
+    budget: BudgetTracker | None = None,
+    cache_dir: str | Path | None = None,
+    settings: Settings | None = None,
+    cfg: AppConfig | None = None,
+) -> LLMProvider:
+    from agentic_graphrag.llm.factory import build_llm_provider as build
+
+    return build(budget=budget, cache_dir=cache_dir, settings=settings, cfg=cfg)

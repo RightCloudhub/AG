@@ -51,7 +51,7 @@ def _binom_two_sided(k: int, n: int) -> float:
     if n == 0:
         return 1.0
     tail = sum(math.comb(n, i) for i in range(0, min(k, n - k) + 1)) / 2**n
-    return min(1.0, 2.0 * tail)
+    return float(min(1.0, 2.0 * tail))
 
 
 def mcnemar(a: Mapping[str, bool], b: Mapping[str, bool]) -> McNemarResult:

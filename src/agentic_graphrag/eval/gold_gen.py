@@ -8,6 +8,7 @@ and optional guardrail cases (AC-6, not in the 200).
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import TypedDict, Unpack
 
 from agentic_graphrag.eval.cases import CaseCategory, EvalCase, StratificationSpec
 from agentic_graphrag.eval.gold_index import index_triples
@@ -20,6 +21,14 @@ from agentic_graphrag.eval.gold_templates import (
     emit_open_cases,
 )
 from agentic_graphrag.knowledge.schema_check import Triple
+
+
+class GoldGenerationOptions(TypedDict, total=False):
+    max_2hop: int
+    max_3hop: int
+    max_open: int
+    max_no_answer: int
+    include_no_answer: bool
 
 
 def generate_gold_cases(
@@ -144,10 +153,10 @@ def generate_guardrail_set(*, max_n: int = 25) -> list[EvalCase]:
 def generate_and_write(
     triples: list[Triple],
     out_path: str,
-    **kwargs: object,
+    **kwargs: Unpack[GoldGenerationOptions],
 ) -> list[EvalCase]:
     from agentic_graphrag.eval.cases import dump_cases
 
-    cases = generate_gold_cases(triples, **kwargs)  # type: ignore[arg-type]
+    cases = generate_gold_cases(triples, **kwargs)
     dump_cases(cases, out_path)
     return cases

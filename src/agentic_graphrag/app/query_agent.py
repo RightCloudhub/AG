@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import run_query as agent_run_query
 from agentic_graphrag.app.contracts import QueryRequest
 from agentic_graphrag.app.errors import INTERNAL_ERROR, SERVICE_UNAVAILABLE, ApiError
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
-from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.observability.trace import span
+from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
+from agentic_graphrag.observability.trace import TraceContext, span
 
 if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
@@ -37,12 +40,12 @@ def run_agent_with_timeout(
     svc: QueryService,
     req: QueryRequest,
     *,
-    executor: object,
-    llm: object,
+    executor: Executor,
+    llm: LLMClient | None,
     guard_cfg: GuardrailConfig,
-    budget: object,
-    trace_ctx: object,
-    budget_error_factory: Any,
+    budget: BudgetTracker,
+    trace_ctx: TraceContext,
+    budget_error_factory: Callable[[BudgetExceeded], ApiError],
     tenant_id: str = "",
 ) -> ReasoningChain:
     """Hard wall-clock timeout around the agent (hop checks alone cannot cancel LLM I/O)."""
@@ -76,22 +79,22 @@ def run_agent(
     svc: QueryService,
     req: QueryRequest,
     *,
-    executor: object,
-    llm: object,
+    executor: Executor,
+    llm: LLMClient | None,
     guard_cfg: GuardrailConfig,
-    budget: object,
-    trace_ctx: object,
-    budget_error_factory: Any,
+    budget: BudgetTracker,
+    trace_ctx: TraceContext,
+    budget_error_factory: Callable[[BudgetExceeded], ApiError],
     tenant_id: str = "",
 ) -> ReasoningChain:
     try:
         with span(trace_ctx, "run_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
             return agent_run_query(
                 req.question,
-                executor,  # type: ignore[arg-type]
-                llm if svc.allow_llm else None,  # type: ignore[arg-type]
+                executor,
+                llm if svc.allow_llm else None,
                 guard_cfg=guard_cfg,
-                budget=budget,  # type: ignore[arg-type]
+                budget=budget,
                 allow_llm=svc.allow_llm,
                 force_agentic=req.force_agentic,
                 enable_triage=svc.enable_triage and not req.force_agentic,

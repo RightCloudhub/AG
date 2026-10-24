@@ -14,14 +14,16 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
+from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.events import (
+    DomainEvent,
     EventBus,
     GraphCommitted,
     IndexUpdated,
     InProcessEventBus,
 )
+from agentic_graphrag.core.ports.capabilities import EntityLister
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
 from agentic_graphrag.knowledge.ingest_worker import IngestWorker, IngestWorkerConfig
 from agentic_graphrag.knowledge.review.executor import ReviewExecutor, ReviewExecutorDeps
@@ -37,24 +39,24 @@ def inline_worker_enabled() -> bool:
     return os.environ.get(INLINE_ENV, "").lower() in {"1", "true", "yes"}
 
 
-def on_graph_commit(svc: Any) -> None:
+def on_graph_commit(svc: QueryService) -> None:
     """Legacy entry point: publish ``GraphCommitted`` on the service's event bus."""
     events_for(svc).publish(GraphCommitted(source="direct"))
 
 
-def events_for(svc: Any) -> EventBus:
+def events_for(svc: QueryService) -> EventBus:
     """The service's event bus, created and subscribed on first use."""
-    bus = getattr(svc, "events", None)
+    bus = svc.events
     if bus is None:
         bus = InProcessEventBus()
         svc.events = bus
-    if not getattr(svc, "_read_side_subscribed", False):
+    if not svc._read_side_subscribed:
         subscribe_read_side(svc, bus)
         svc._read_side_subscribed = True
     return bus
 
 
-def subscribe_read_side(svc: Any, bus: EventBus) -> None:
+def subscribe_read_side(svc: QueryService, bus: EventBus) -> None:
     """Read-side projections of write events (refactor §0-D).
 
     * ``GraphCommitted`` → bump the index version (invalidates retrieval/answer
@@ -63,15 +65,15 @@ def subscribe_read_side(svc: Any, bus: EventBus) -> None:
     """
 
     def invalidate(event: GraphCommitted) -> None:
-        cache = getattr(svc, "retrieval_cache", None)
+        cache = svc.retrieval_cache
         version = cache.on_index_update() if cache is not None else 0
         bus.publish(IndexUpdated(tenant_id=event.tenant_id, version=int(version or 0)))
 
     def refresh_lexicon(_event: IndexUpdated) -> None:
-        lister = getattr(svc.bundle.graph, "list_entities", None)
-        if not callable(lister):
+        graph = svc.bundle.graph
+        if not isinstance(graph, EntityLister):
             return
-        names = [e.name for e in lister(limit=_ENTITY_SCAN_LIMIT)]
+        names = [e.name for e in graph.list_entities(limit=_ENTITY_SCAN_LIMIT)]
         merged = list(dict.fromkeys([*svc.known_entities, *names]))
         # Mutate in place: executors built per query read this list.
         svc.known_entities[:] = merged
@@ -88,19 +90,19 @@ def subscribe_read_side(svc: Any, bus: EventBus) -> None:
     bus.subscribe(IndexUpdated, refresh_lexicon)
 
 
-def drop_caches(svc: Any, event: Any, exc: BaseException) -> None:
+def drop_caches(svc: QueryService, event: DomainEvent, exc: BaseException) -> None:
     """Fail-safe for a failed invalidation: clear caches and count the failure."""
     from agentic_graphrag.observability.metrics import get_metrics
 
     get_metrics().record_event_failure(f"{event.name}:invalidate:{type(exc).__name__}")
-    cache = getattr(svc, "retrieval_cache", None)
+    cache = svc.retrieval_cache
     if cache is None:
         return
     for part in (cache.retrieval, cache.answers):
         part.clear()
 
 
-def attach_write_path(svc: Any) -> None:
+def attach_write_path(svc: QueryService) -> None:
     """Give the service a review executor bound to its graph, queue and tasks."""
     svc.review_executor = ReviewExecutor(
         ReviewExecutorDeps(
@@ -112,10 +114,10 @@ def attach_write_path(svc: Any) -> None:
     )
 
 
-def review_executor_for(svc: Any) -> ReviewExecutor | None:
+def review_executor_for(svc: QueryService) -> ReviewExecutor | None:
     """The service's executor, re-bound to its *current* graph, queue and task store
     (tests and operators may swap those after construction)."""
-    executor = getattr(svc, "review_executor", None)
+    executor = svc.review_executor
     if executor is None:
         return None
     executor.graph = svc.bundle.graph
@@ -124,7 +126,7 @@ def review_executor_for(svc: Any) -> ReviewExecutor | None:
     return executor
 
 
-def build_graph_ingestor(svc: Any) -> GraphIngestor:
+def build_graph_ingestor(svc: QueryService) -> GraphIngestor:
     llm = None
     if svc.allow_llm:
         from agentic_graphrag.governance.budget import BudgetTracker
@@ -140,7 +142,7 @@ def build_graph_ingestor(svc: Any) -> GraphIngestor:
     )
 
 
-def build_inline_worker(svc: Any) -> IngestWorker:
+def build_inline_worker(svc: QueryService) -> IngestWorker:
     """Ingest worker sharing the API's stores (docs, vectors, BM25, graph)."""
     return IngestWorker(
         doc_store=svc.bundle.docs,
@@ -156,7 +158,7 @@ def build_inline_worker(svc: Any) -> IngestWorker:
     )
 
 
-def start_inline_worker(svc: Any) -> IngestWorker | None:
+def start_inline_worker(svc: QueryService) -> IngestWorker | None:
     if not inline_worker_enabled() or svc.ingest_tasks is None:
         return None
     worker = build_inline_worker(svc)

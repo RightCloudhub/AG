@@ -4,23 +4,45 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from enum import StrEnum
 
-_COMMANDS: dict[str, str] = {
-    "ingest": "ingest_main",
-    "build-graph": "build_graph_main",
-    "index": "index_main",
-    "run-cases": "run_cases_main",
-    "run-baseline": "run_baseline_main",
-    "score": "score_main",
-    "eval": "eval_main",
-    "gen-cases": "gen_cases_main",
-    "pilot-triples": "pilot_triples_main",
-    "badcase": "badcase_main",
-    "spotcheck": "spotcheck_main",
-    "score-spotcheck": "score_spotcheck_main",
-    "export-reasoning-schema": "export_reasoning_schema_main",
-    "query": "query_main",
-}
+
+class Command(StrEnum):
+    INGEST = "ingest"
+    BUILD_GRAPH = "build-graph"
+    INDEX = "index"
+    RUN_CASES = "run-cases"
+    RUN_BASELINE = "run-baseline"
+    SCORE = "score"
+    EVAL = "eval"
+    GEN_CASES = "gen-cases"
+    PILOT_TRIPLES = "pilot-triples"
+    BADCASE = "badcase"
+    SPOTCHECK = "spotcheck"
+    SCORE_SPOTCHECK = "score-spotcheck"
+    EXPORT_REASONING_SCHEMA = "export-reasoning-schema"
+    QUERY = "query"
+
+
+def _commands() -> dict[Command, Callable[[list[str]], None]]:
+    from agentic_graphrag import cli
+
+    return {
+        Command.INGEST: cli.ingest_main,
+        Command.BUILD_GRAPH: cli.build_graph_main,
+        Command.INDEX: cli.index_main,
+        Command.RUN_CASES: cli.run_cases_main,
+        Command.RUN_BASELINE: cli.run_baseline_main,
+        Command.SCORE: cli.score_main,
+        Command.EVAL: cli.eval_main,
+        Command.GEN_CASES: cli.gen_cases_main,
+        Command.PILOT_TRIPLES: cli.pilot_triples_main,
+        Command.BADCASE: cli.badcase_main,
+        Command.SPOTCHECK: cli.spotcheck_main,
+        Command.SCORE_SPOTCHECK: cli.score_spotcheck_main,
+        Command.EXPORT_REASONING_SCHEMA: cli.export_reasoning_schema_main,
+        Command.QUERY: cli.query_main,
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -46,18 +68,11 @@ def _print_help() -> None:
 
 
 def _resolve(cmd: str) -> Callable[[list[str]], None] | None:
-    name = _COMMANDS.get(cmd)
-    if name is None:
-        return None
-    from agentic_graphrag import cli as cli_pkg
-
     try:
-        handler = getattr(cli_pkg, name)
-    except AttributeError:
+        command = Command(cmd)
+    except ValueError:
         return None
-    if not callable(handler):
-        return None
-    return handler
+    return _commands()[command]
 
 
 if __name__ == "__main__":

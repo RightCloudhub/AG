@@ -71,7 +71,7 @@ class ReviewExecutor:
         outcome = {"applied": False, "effect": "none"} if handler is None else handler(item)
         applied = bool(outcome.get("applied"))
         if self.events is not None:
-            tenant = str(getattr(item, "tenant_id", "") or "")
+            tenant = str(item.tenant_id or "")
             if applied:
                 self.events.publish(GraphCommitted(tenant_id=tenant, source="review"))
             self.events.publish(

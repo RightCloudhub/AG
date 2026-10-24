@@ -76,6 +76,8 @@ plan/ reports/          阶段计划与门禁报告
 
 ```bash
 ruff check src tests scripts && ruff format --check src tests scripts
+mypy
+npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 ```
 

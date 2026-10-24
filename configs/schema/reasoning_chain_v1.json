@@ -51,6 +51,26 @@
       "title": "CostStats",
       "type": "object"
     },
+    "CriticAction": {
+      "enum": [
+        "sufficient",
+        "next_hop",
+        "rewrite",
+        "give_up"
+      ],
+      "title": "CriticAction",
+      "type": "string"
+    },
+    "QueryRoute": {
+      "enum": [
+        "agentic",
+        "fast_path",
+        "baseline",
+        "chitchat"
+      ],
+      "title": "QueryRoute",
+      "type": "string"
+    },
     "QueryStatus": {
       "enum": [
         "answered",
@@ -99,10 +119,21 @@
           "type": "string"
         },
         "critic_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CriticAction"
+            },
+            {
+              "$ref": "#/$defs/StepAction"
+            },
+            {
+              "const": "",
+              "type": "string"
+            }
+          ],
           "default": "",
           "description": "sufficient|next_hop|rewrite|give_up (CriticAction value)",
-          "title": "Critic Action",
-          "type": "string"
+          "title": "Critic Action"
         }
       },
       "required": [
@@ -112,11 +143,37 @@
       "title": "ReasoningStep",
       "type": "object"
     },
+    "RetrievalTool": {
+      "enum": [
+        "graph_neighbors",
+        "graph_path",
+        "graph_subgraph",
+        "vector_search",
+        "fulltext_search",
+        "cache"
+      ],
+      "title": "RetrievalTool",
+      "type": "string"
+    },
+    "StepAction": {
+      "enum": [
+        "fast_path"
+      ],
+      "title": "StepAction",
+      "type": "string"
+    },
     "ToolCallTrace": {
       "properties": {
         "tool": {
-          "title": "Tool",
-          "type": "string"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalTool"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Tool"
         },
         "reason": {
           "default": "",
@@ -160,10 +217,8 @@
       "type": "string"
     },
     "route": {
-      "default": "agentic",
-      "description": "agentic|fast_path|baseline",
-      "title": "Route",
-      "type": "string"
+      "$ref": "#/$defs/QueryRoute",
+      "default": "agentic"
     },
     "steps": {
       "items": {

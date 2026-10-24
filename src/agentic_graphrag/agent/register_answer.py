@@ -7,15 +7,16 @@ from agentic_graphrag.agent.register_progress import context_size
 from agentic_graphrag.agent.requirements import Register
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.enums import PromptName
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.llm.provider import LLMProvider
 
 
 def answer_from_register(
-    state: AgentState, llm: LLMProvider | None, *, allow_llm: bool, context_limit: int
+    state: AgentState, llm: LLMClient | None, *, allow_llm: bool, context_limit: int
 ) -> ReasoningChain:
     register = Register.model_validate(state["requirement_register"])
     chain = ReasoningChain.model_validate(state["chain"])
@@ -23,10 +24,12 @@ def answer_from_register(
     if register.open_items() and state.get("register_answer_policy") == "abstain":
         chain.honest_fallback("unresolved information needs")
         return annotate_register(chain, state)
-    conclusions = load_prompt("register_force_answer") + "\n" + json_text(register.snapshot())
+    conclusions = (
+        load_prompt(PromptName.REGISTER_FORCE_ANSWER) + "\n" + json_text(register.snapshot())
+    )
     prompt_bound = (
         conclusions
-        + load_prompt("answer")
+        + load_prompt(PromptName.ANSWER)
         + json_text([c.model_dump(mode="json") for c in evidence])
     )
     allow_llm = allow_llm and context_size([], prompt_bound) <= context_limit
@@ -45,7 +48,7 @@ def answer_from_register(
     return annotate_register(chain, state)
 
 
-def annotate_register(chain: ReasoningChain, state: dict) -> ReasoningChain:
+def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChain:
     register = Register.model_validate(state["requirement_register"])
     missing = [r.text for r in register.open_items()]
     if missing:

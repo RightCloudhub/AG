@@ -24,9 +24,10 @@ from agentic_graphrag.app.wiring import (
     build_llm_for_service,
     cost_units_for_chain,
 )
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance import audit_events
 from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.observability import audit_events
 from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
@@ -34,7 +35,7 @@ from agentic_graphrag.observability.trace import get_tracer
 if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
-MS_PER_SECOND = 1000
+MS_PER_SECOND = MILLISECONDS_PER_SECOND
 # Must match MultiLevelBudget.check_and_reserve defaults used by the API path.
 RESERVE_CALLS = 1
 RESERVE_TOKENS = 0

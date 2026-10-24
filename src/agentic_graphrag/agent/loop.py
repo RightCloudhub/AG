@@ -8,21 +8,27 @@ and exposes :func:`run_agentic_query` / :func:`run_query` (with triage).
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop_policy import should_escalate_chain
-from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
+from agentic_graphrag.agent.loop_runtime import AgentRuntime
 from agentic_graphrag.agent.options import AgentDeps, AgentRunOptions, QueryOptions
+from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, MILLISECONDS_PER_SECOND
+from agentic_graphrag.core.enums import AgentNode
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.confidence import grade_confidence
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.provider import LLMProvider
 
-_MS_PER_SEC = 1000
+_MS_PER_SEC = MILLISECONDS_PER_SECOND
+
+if TYPE_CHECKING:
+    from agentic_graphrag.agent.graph_types import AgentCheckpointer, AgentGraph, RunnableConfig
 
 __all__ = [
     "AgentDeps",
@@ -41,13 +47,13 @@ __all__ = [
 
 def build_graph(
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     guard_cfg: GuardrailConfig,
     *,
     budget: BudgetTracker | None = None,
-    checkpointer: Any | None = None,
+    checkpointer: AgentCheckpointer | None = None,
     deps: AgentDeps | None = None,
-):
+) -> AgentGraph:
     """Compile StateGraph with checkpointer for durable agent state."""
     from langgraph.graph import END, StateGraph
 
@@ -55,33 +61,39 @@ def build_graph(
         deps = AgentDeps(executor, llm, guard_cfg, budget=budget)
     rt = AgentRuntime(deps.executor, deps.llm, deps.guard_cfg, budget=deps.budget)
     cp = checkpointer if checkpointer is not None else default_checkpointer()
-    g = StateGraph(AgentState)
-    g.add_node("planner", rt.node_planner)
-    g.add_node("executor", rt.node_executor)
-    g.add_node("critic", rt.node_critic)
-    g.add_node("answer", rt.node_answer)
-    g.set_entry_point("planner")
-    g.add_edge("planner", "executor")
+    g: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
+    g.add_node(AgentNode.PLANNER, rt.node_planner)
+    g.add_node(AgentNode.EXECUTOR, rt.node_executor)
+    g.add_node(AgentNode.CRITIC, rt.node_critic)
+    g.add_node(AgentNode.ANSWER, rt.node_answer)
+    g.set_entry_point(AgentNode.PLANNER)
+    g.add_edge(AgentNode.PLANNER, AgentNode.EXECUTOR)
     # Skip critic when executor already finished (guardrail trip / empty plan).
     g.add_conditional_edges(
-        "executor",
+        AgentNode.EXECUTOR,
         rt.route_after_executor,
-        {"critic": "critic", "answer": "answer"},
+        {AgentNode.CRITIC: AgentNode.CRITIC, AgentNode.ANSWER: AgentNode.ANSWER},
     )
     g.add_conditional_edges(
-        "critic", rt.route_after_critic, {"executor": "executor", "answer": "answer"}
+        AgentNode.CRITIC,
+        rt.route_after_critic,
+        {AgentNode.EXECUTOR: AgentNode.EXECUTOR, AgentNode.ANSWER: AgentNode.ANSWER},
     )
     # §1.5: a structured evidence gap sends the answer back to retrieval
     # (bounded by max_hops and MAX_ANSWER_RETRIEVALS).
-    g.add_conditional_edges("answer", rt.route_after_answer, {"executor": "executor", "end": END})
+    g.add_conditional_edges(
+        AgentNode.ANSWER,
+        rt.route_after_answer,
+        {AgentNode.EXECUTOR: AgentNode.EXECUTOR, AgentNode.END: END},
+    )
     return g.compile(checkpointer=cp)
 
 
 def invoke_config(
     thread_id: str,
     *,
-    recursion_limit: int = 15,
-) -> dict[str, Any]:
+    recursion_limit: int = DEFAULT_RECURSION_LIMIT,
+) -> RunnableConfig:
     """RunnableConfig for checkpointer-backed invoke / get_state."""
     return {
         "recursion_limit": recursion_limit,
@@ -92,14 +104,14 @@ def invoke_config(
 def run_agentic_query(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     options: AgentRunOptions | None = None,
     guard_cfg: GuardrailConfig | None = None,
     budget: BudgetTracker | None = None,
     allow_llm: bool = True,
     recursion_limit: int | None = None,
-    checkpointer: Any | None = None,
+    checkpointer: AgentCheckpointer | None = None,
     thread_id: str | None = None,
     tenant_id: str = "",
 ) -> ReasoningChain:
@@ -119,14 +131,14 @@ def run_agentic_query(
 def run_query(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
     guard_cfg: GuardrailConfig | None = None,
     budget: BudgetTracker | None = None,
     allow_llm: bool = True,
     recursion_limit: int | None = None,
-    checkpointer: Any | None = None,
+    checkpointer: AgentCheckpointer | None = None,
     thread_id: str | None = None,
     force_agentic: bool = False,
     enable_triage: bool = True,
@@ -154,7 +166,7 @@ def run_query(
 def _run_agentic(
     question: str,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     *,
     opts: AgentRunOptions,
 ) -> ReasoningChain:

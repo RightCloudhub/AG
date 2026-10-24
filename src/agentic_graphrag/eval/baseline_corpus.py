@@ -6,9 +6,10 @@ import json
 from pathlib import Path
 
 from agentic_graphrag.config import AppConfig, resolve_path
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
-from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
+from agentic_graphrag.llm.provider import MockLLMProvider
 
 
 def load_or_build_chunks(
@@ -56,7 +57,7 @@ def _load_chunks_jsonl(chunks_path: Path) -> list[ChunkRecord]:
 
 def ensure_embeddings(
     chunks: list[ChunkRecord],
-    llm: LLMProvider | MockLLMProvider,
+    llm: LLMClient | MockLLMProvider,
     *,
     embeddings_path: Path | None = None,
 ) -> list[ChunkRecord]:

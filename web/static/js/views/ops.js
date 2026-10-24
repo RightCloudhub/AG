@@ -1,16 +1,29 @@
+// @ts-check
 /**
  * Ops view — admin dashboard: metrics, budget, audit events.
  */
 import { ref, onMounted } from '../../vendor/vue.esm-browser.prod.js';
 import { fetchMetrics, fetchBudgetSnapshot, fetchAuditEvents, fetchHealth } from '../api.js';
+import { OpsTab, HealthStatus, AuditOutcome, UiPolicy } from '../contracts.js';
+
+/** @param {number} ts */
+function fmtTime(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts * UiPolicy.MILLISECONDS_PER_SECOND).toLocaleString(); } catch { return String(ts); }
+}
 
 export default {
   name: 'OpsView',
   setup() {
-    const activeTab = ref('metrics');
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../contracts.js').OpsTabName>} */
+    const activeTab = ref(OpsTab.METRICS);
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../responses.js').Metrics | null>} */
     const metrics = ref(null);
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<Record<string, unknown> | null>} */
     const budget = ref(null);
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../responses.js').AuditEvent[]>} */
     const auditEvents = ref([]);
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../responses.js').Health | null>} */
     const health = ref(null);
     const loading = ref(false);
 
@@ -38,28 +51,24 @@ export default {
     async function loadAudit() {
       loading.value = true;
       try {
-        const { data } = await fetchAuditEvents({ limit: 100 });
+        const { data } = await fetchAuditEvents({ limit: UiPolicy.AUDIT_PAGE_SIZE });
         auditEvents.value = data || [];
       } catch { auditEvents.value = []; }
       finally { loading.value = false; }
     }
 
+    /** @param {import('../contracts.js').OpsTabName} tab */
     function switchTab(tab) {
       activeTab.value = tab;
-      if (tab === 'metrics') loadMetrics();
-      else if (tab === 'budget') loadBudget();
-      else if (tab === 'audit') loadAudit();
-    }
-
-    function fmtTime(ts) {
-      if (!ts) return '—';
-      try { return new Date(ts * 1000).toLocaleString(); } catch { return String(ts); }
+      if (tab === OpsTab.METRICS) loadMetrics();
+      else if (tab === OpsTab.BUDGET) loadBudget();
+      else if (tab === OpsTab.AUDIT) loadAudit();
     }
 
     onMounted(loadMetrics);
 
     return { activeTab, metrics, budget, auditEvents, health, loading,
-             switchTab, loadMetrics, loadBudget, loadAudit, fmtTime };
+             switchTab, loadMetrics, loadBudget, loadAudit, fmtTime, OpsTab, HealthStatus, AuditOutcome, UiPolicy };
   },
 
   template: `
@@ -67,22 +76,22 @@ export default {
   <div class="view-header">
     <div class="view-header__title">📡 系统运维</div>
     <div class="view-header__actions">
-      <span v-if="health" class="badge" :class="health.status === 'ok' ? 'badge--success' : 'badge--warning'">
+      <span v-if="health" class="badge" :class="health.status === HealthStatus.OK ? 'badge--success' : 'badge--warning'">
         {{ health.status }}
       </span>
     </div>
   </div>
   <div class="view-body">
     <div class="tab-bar" style="max-width:400px;">
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === 'metrics' }" @click="switchTab('metrics')">监控指标</button>
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === 'budget' }" @click="switchTab('budget')">配额分析</button>
-      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === 'audit' }" @click="switchTab('audit')">安全审计</button>
+      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.METRICS }" @click="switchTab(OpsTab.METRICS)">监控指标</button>
+      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.BUDGET }" @click="switchTab(OpsTab.BUDGET)">配额分析</button>
+      <button class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.AUDIT }" @click="switchTab(OpsTab.AUDIT)">安全审计</button>
     </div>
 
     <div v-if="loading" class="empty-state"><div class="spinner spinner--lg"></div></div>
 
     <!-- Metrics -->
-    <template v-else-if="activeTab === 'metrics'">
+    <template v-else-if="activeTab === OpsTab.METRICS">
       <div v-if="!metrics" class="empty-state">
         <div class="empty-state__icon">📊</div>
         <div class="empty-state__text">暂无指标数据</div>
@@ -140,7 +149,7 @@ export default {
               <tbody>
                 <tr v-for="(v, k) in health.checks" :key="k">
                   <td>{{ k }}</td>
-                  <td><span class="badge" :class="v === 'ok' || v === '1' ? 'badge--success' : 'badge--warning'">{{ v }}</span></td>
+                  <td><span class="badge" :class="v === HealthStatus.OK || v === HealthStatus.PASSED ? 'badge--success' : 'badge--warning'">{{ v }}</span></td>
                 </tr>
               </tbody>
             </table>
@@ -150,7 +159,7 @@ export default {
     </template>
 
     <!-- Budget -->
-    <template v-else-if="activeTab === 'budget'">
+    <template v-else-if="activeTab === OpsTab.BUDGET">
       <div v-if="!budget || Object.keys(budget).length === 0" class="empty-state">
         <div class="empty-state__icon">💰</div>
         <div class="empty-state__text">暂无配额数据</div>
@@ -161,7 +170,7 @@ export default {
     </template>
 
     <!-- Audit Events -->
-    <template v-else-if="activeTab === 'audit'">
+    <template v-else-if="activeTab === OpsTab.AUDIT">
       <div v-if="auditEvents.length === 0" class="empty-state">
         <div class="empty-state__icon">🔒</div>
         <div class="empty-state__text">暂无审计事件</div>
@@ -184,7 +193,7 @@ export default {
               <td style="font-family:var(--font-mono);font-size:var(--text-xs);max-width:160px;overflow:hidden;text-overflow:ellipsis;">
                 {{ ev.target || '—' }}
               </td>
-              <td><span class="badge" :class="ev.outcome === 'success' ? 'badge--success' : 'badge--muted'">{{ ev.outcome || '—' }}</span></td>
+              <td><span class="badge" :class="ev.outcome === AuditOutcome.SUCCESS ? 'badge--success' : 'badge--muted'">{{ ev.outcome || '—' }}</span></td>
               <td style="font-size:var(--text-xs);">{{ ev.tenant_id || '—' }}</td>
             </tr>
           </tbody>

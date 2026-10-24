@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.eval.scoring import score_pair
+from agentic_graphrag.eval.scoring_types import PairScore
 
 ATTRIBUTIONS = (
     "graph_missing",
@@ -59,7 +61,7 @@ def _claim_blob(chain: dict[str, Any]) -> list[str]:
     return parts
 
 
-def _gold_tokens(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]:
+def _gold_tokens(row: dict[str, Any], cases_by_id: dict[str, JsonObject]) -> list[str]:
     cid = str(row.get("case_id") or row.get("id") or "")
     case = cases_by_id.get(cid, {})
     items: list[str] = []
@@ -75,10 +77,10 @@ def _gold_tokens(row: dict[str, Any], cases_by_id: dict[str, dict]) -> list[str]
 @dataclass
 class _AttrCtx:
     cid: str
-    case: dict
+    case: JsonObject
     gold: str
     pred: str
-    scored: dict
+    scored: PairScore
     correct: bool
     status: str
     blob: str
@@ -93,7 +95,7 @@ class _AttrCtx:
 
 def attribute_row(
     row: dict[str, Any],
-    cases_by_id: dict[str, dict] | None = None,
+    cases_by_id: dict[str, JsonObject] | None = None,
 ) -> dict[str, Any]:
     """Return attribution record for one run row."""
     cases_by_id = cases_by_id or {}
@@ -113,7 +115,7 @@ def attribute_row(
     }
 
 
-def _row_context(row: dict[str, Any], cases_by_id: dict[str, dict]) -> _AttrCtx:
+def _row_context(row: dict[str, Any], cases_by_id: dict[str, JsonObject]) -> _AttrCtx:
     cid = str(row.get("case_id") or row.get("id") or "")
     case = cases_by_id.get(cid, {})
     gold = str(row.get("gold") or row.get("gold_answer") or case.get("gold_answer") or "")
@@ -142,7 +144,7 @@ def _row_context(row: dict[str, Any], cases_by_id: dict[str, dict]) -> _AttrCtx:
     )
 
 
-def _chain_lists(chain: Any) -> tuple[list, list]:
+def _chain_lists(chain: Any) -> tuple[list[JsonObject], list[JsonObject]]:
     if not isinstance(chain, dict):
         return [], []
     return list(chain.get("steps") or []), list(chain.get("claims") or [])
@@ -166,7 +168,7 @@ def _guardrail_text(chain: Any, row: dict[str, Any]) -> str:
     return meta + str(row.get("guardrail_status") or "")
 
 
-def _unbound_claims(claims: list) -> bool:
+def _unbound_claims(claims: list[JsonObject]) -> bool:
     if not claims:
         return False
     return any(isinstance(c, dict) and not (c.get("evidence_ids") or []) for c in claims)
@@ -207,7 +209,7 @@ def _evidence_attr(ctx: _AttrCtx) -> tuple[str, str]:
 
 def attribute_run(
     rows: list[dict[str, Any]],
-    cases_by_id: dict[str, dict] | None = None,
+    cases_by_id: dict[str, JsonObject] | None = None,
 ) -> dict[str, Any]:
     """Aggregate attributions for a full run."""
     items = [attribute_row(r, cases_by_id) for r in rows]

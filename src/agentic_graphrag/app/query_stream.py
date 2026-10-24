@@ -40,7 +40,7 @@ from agentic_graphrag.observability.trace import get_tracer, span
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor
     from agentic_graphrag.app.query_service import QueryService
-    from agentic_graphrag.llm.provider import LLMProvider
+    from agentic_graphrag.core.ports.llm import LLMClient
 
 
 def stream_query_events(
@@ -135,7 +135,7 @@ def _build_stream_deps(
     guard_budget: tuple[GuardrailConfig, Any],
     *,
     tenant_id: str,
-) -> tuple[Executor, LLMProvider | None, QueryOptions]:
+) -> tuple[Executor, LLMClient | None, QueryOptions]:
     guard_cfg, budget = guard_budget
     executor = build_executor_for_service(
         bundle=svc.bundle,
@@ -166,7 +166,7 @@ def _consume_progress(
     req: QueryRequest,
     *,
     executor: Executor,
-    llm: LLMProvider | None,
+    llm: LLMClient | None,
     opts: QueryOptions,
     tenant_id: str,
     user_id: str,

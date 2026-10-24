@@ -4,49 +4,55 @@ from __future__ import annotations
 
 from agentic_graphrag.agent.register_invariants import schedule
 from agentic_graphrag.agent.register_llm import initial_context, json_text, verify
-from agentic_graphrag.agent.requirements import Register, diff
+from agentic_graphrag.agent.requirements import Register, Requirement, diff
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.llm.provider import LLMProvider
 
 
 def context_size(context: list[dict[str, str]], extra: str = "") -> int:
     """Conservative UTF-8 byte bound, rather than an optimistic chars/4 estimate."""
     messages = list(context)
     if extra:
-        messages.append({"role": "user", "content": extra})
+        messages.append({"role": MessageRole.USER, "content": extra})
     return len(json_text(messages).encode("utf-8"))
 
 
 def verify_resolutions(
     new: Register,
     old: Register,
-    llm: LLMProvider,
+    llm: LLMClient,
     *,
     evidence: dict[str, Candidate],
     context_limit: int,
-) -> list[dict]:
+) -> list[JsonObject]:
     events = []
     for rid, item in new.items.items():
         previous = old.items.get(rid)
-        if item.status != "resolved" or (previous and previous.snapshot() == item.snapshot()):
+        if item.status != RequirementStatus.RESOLVED or (
+            previous and previous.snapshot() == item.snapshot()
+        ):
             continue
         report = _verify_one(item, evidence, llm, context_limit=context_limit)
         events.append({"req_id": rid, "passages": sorted(item.passages), **report})
         if not report["entailed"]:
-            item.status = "pending"
+            item.status = RequirementStatus.PENDING
     schedule(new)
     return events
 
 
 def _verify_one(
-    item, evidence: dict[str, Candidate], llm: LLMProvider, *, context_limit: int
-) -> dict:
+    item: Requirement, evidence: dict[str, Candidate], llm: LLMClient, *, context_limit: int
+) -> JsonObject:
     supporting = [evidence[i].model_dump(mode="json") for i in sorted(item.passages)]
     if (
-        context_size([], json_text(supporting) + item.text + load_prompt("register_verify"))
+        context_size(
+            [], json_text(supporting) + item.text + load_prompt(PromptName.REGISTER_VERIFY)
+        )
         > context_limit
     ):
         return {"entailed": False, "reason": "verifier context limit", "error": "context_limit"}
@@ -63,13 +69,18 @@ def _verify_one(
 
 
 def progress_state(
-    state: AgentState, old: Register, new: Register, *, verifier: list[dict], delta_enabled: bool
+    state: AgentState,
+    old: Register,
+    new: Register,
+    *,
+    verifier: list[JsonObject],
+    delta_enabled: bool,
 ) -> AgentState:
     changes = diff(old, new)
     context = list(state.get("register_context") or [])
     text = format_progress(changes, new) if changes else ""
     if text and delta_enabled:
-        context.append({"role": "user", "content": text})
+        context.append({"role": MessageRole.USER, "content": text})
     elif not delta_enabled:
         context = initial_context(new)
     event = {
@@ -88,7 +99,7 @@ def progress_state(
     }
 
 
-def format_progress(changes: list[dict], register: Register) -> str:
+def format_progress(changes: list[JsonObject], register: Register) -> str:
     lines = ["[Progress]"]
     for change in changes:
         lines.append(

@@ -1,20 +1,24 @@
+// @ts-check
 /**
  * Graph view — entity browser with search, type filter, pagination.
  */
-import { ref, watch, onMounted } from '../../vendor/vue.esm-browser.prod.js';
+import { ref, onMounted } from '../../vendor/vue.esm-browser.prod.js';
 import { fetchEntities } from '../api.js';
+import { UiPolicy } from '../contracts.js';
 
 export default {
   name: 'GraphView',
   setup() {
+    /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../responses.js').Entity[]>} */
     const entities = ref([]);
     const total = ref(0);
     const loading = ref(false);
     const search = ref('');
     const typeFilter = ref('');
     const page = ref(1);
-    const limit = 24;
-    let debounceTimer = null;
+    const limit = UiPolicy.GRAPH_PAGE_SIZE;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let debounceTimer;
 
     async function load() {
       loading.value = true;
@@ -44,7 +48,7 @@ export default {
 
     function onSearchInput() {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => { page.value = 1; load(); }, 300);
+      debounceTimer = setTimeout(() => { page.value = 1; load(); }, UiPolicy.SEARCH_DEBOUNCE_MS);
     }
 
     function onTypeChange() { page.value = 1; load(); }
@@ -52,7 +56,7 @@ export default {
     onMounted(load);
 
     return { entities, total, loading, search, typeFilter, page, limit,
-             totalPages, prevPage, nextPage, onSearchInput, onTypeChange, load };
+             totalPages, prevPage, nextPage, onSearchInput, onTypeChange, load, UiPolicy };
   },
 
   template: `
@@ -92,7 +96,7 @@ export default {
           <span v-for="a in e.aliases" :key="a" class="chip">{{ a }}</span>
         </div>
         <div style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);">
-          {{ e.id?.slice(0, 12) }}
+          {{ e.id?.slice(0, UiPolicy.ID_PREVIEW) }}
         </div>
       </div>
     </div>

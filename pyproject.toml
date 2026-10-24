@@ -30,6 +30,8 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
+    "mypy>=2.4.0,<3",
+    "types-PyYAML>=6.0.12",
 ]
 sqlite-checkpoint = [
     "langgraph-checkpoint-sqlite>=2.0.0",
@@ -72,6 +74,21 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/agentic_graphrag"]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_typed = true
+
+# Optional runtime integrations are imported lazily and need not be installed
+# for the offline development and CI path. Their adapters are still checked.
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*", "langgraph.checkpoint.sqlite"]
+ignore_missing_imports = true
 
 # Coverage gate (P2-ARCH-04 / NFR-09).
 # Omitted: CLI entrypoints, LLM HTTP client, Neo4j/Qdrant live adapters, and the

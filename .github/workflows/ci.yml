@@ -68,14 +68,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # tests/unit/test_web_claude_ui.py is excluded: 7 of its tests failed
-      # before the refactor because web/static/* is not in the repo
-      # (tracked in docs/design/REFACTOR_PLAN.md). Remove the --ignore once fixed.
+      - name: Strict Python types
+        run: mypy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Validation only: the browser still serves source ESM without a build.
+      - name: Strict JavaScript types
+        run: npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json
+
       # The core/ dependency-boundary check runs as part of this suite.
       - name: Unit tests + coverage gate
         run: |
           pytest tests/unit \
-            --ignore=tests/unit/test_web_claude_ui.py \
             --cov=agentic_graphrag \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml \

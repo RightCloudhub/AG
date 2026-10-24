@@ -10,6 +10,7 @@ import re
 from enum import StrEnum
 from uuid import uuid4
 
+from agentic_graphrag.core.enums import QueryRoute
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 
 _GREETING_MAX_LEN = 40
@@ -94,7 +95,7 @@ def try_chitchat_answer(question: str) -> ReasoningChain | None:
     return ReasoningChain(
         query_id=str(uuid4()),
         question=question.strip(),
-        route="chitchat",
+        route=QueryRoute.CHITCHAT,
         answer=text,
         status=QueryStatus.ANSWERED,
         claims=[],

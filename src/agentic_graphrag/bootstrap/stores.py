@@ -26,6 +26,8 @@ def build_stores(
             cfg=cfg,
             settings=settings,
             fulltext_backend=rp.caps.fulltext,
+            load_bm25=rp.caps.load_local_indexes,
+            load_embeddings=rp.caps.load_local_indexes,
         )
     except Exception as exc:  # noqa: BLE001 — re-raised with profile context
         raise ProfileError(

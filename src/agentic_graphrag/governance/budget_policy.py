@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from agentic_graphrag.core.constants import SECONDS_PER_DAY
 from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 
 
@@ -52,7 +53,7 @@ class MultiLevelBudget:
         tenant_limits: BudgetLimits | None = None,
         user_limits: BudgetLimits | None = None,
         query_limits: BudgetLimits | None = None,
-        window_seconds: float = 86400.0,
+        window_seconds: float = SECONDS_PER_DAY,
         tenant_overrides: dict[str, BudgetLimits] | None = None,
     ) -> None:
         self.tenant_limits = tenant_limits or BudgetLimits(
