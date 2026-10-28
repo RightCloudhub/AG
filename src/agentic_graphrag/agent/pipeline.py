@@ -15,6 +15,7 @@ from typing import Any
 from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path_with_evidence
+from agentic_graphrag.agent.input_policy import refusal_chain, screen_question
 from agentic_graphrag.agent.loop import (
     resolved_run_opts,
     should_escalate_chain,
@@ -109,6 +110,21 @@ def _route(
         )
         yield EVENT_FINAL_CHAIN, chitchat
         return
+    screened = screen_question(question)
+    if screened.refused:
+        yield (
+            EVENT_TRIAGE,
+            {
+                "route": "agentic",
+                "rationale": screened.reason,
+                "estimated_hops": 0,
+                "confidence": 1.0,
+                "rule_hit": "input_policy",
+            },
+        )
+        yield EVENT_FINAL_CHAIN, refusal_chain(question, screened.reason)
+        return
+    question = screened.question
     ctx = _StreamCtx(
         question=question,
         executor=executor,

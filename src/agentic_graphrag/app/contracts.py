@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from agentic_graphrag.core.enums import CriticAction, QueryRoute, StepAction, ToolName
 from agentic_graphrag.core.reasoning import QueryStatus
+
+_REPEATED_SENTENCE = re.compile(r"([^.!?]{3,}[.!?])(?:\s*\1)+", re.IGNORECASE)
 
 
 class QueryRequest(BaseModel):
@@ -17,6 +20,19 @@ class QueryRequest(BaseModel):
     max_hops: int | None = Field(default=None, ge=1, le=20)
     timeout_ms: int | None = Field(default=None, ge=100, le=600_000)
     force_agentic: bool = False
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def collapse_repeats(cls, v: object) -> object:
+        """Collapse consecutive duplicate sentences (padding) before the length cap.
+
+        "What is the parent of X? please investigate further. please investigate
+        further. ..." is one question plus filler; rejecting it with 422 helps no
+        one. Genuinely long, non-repetitive input is still rejected by max_length.
+        """
+        if not isinstance(v, str):
+            return v
+        return _REPEATED_SENTENCE.sub(r"\1", v)
 
     @field_validator("question")
     @classmethod
