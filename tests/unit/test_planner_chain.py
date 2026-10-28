@@ -57,9 +57,10 @@ def test_outer_verb_frames() -> None:
 def test_partial_or_single_hop_parses_fall_through() -> None:
     # Single frame: left to the specific matchers.
     assert parse_chain("Who is the CEO of NovaTech Industries?", ["NovaTech Industries"]) is None
-    # Unparsed qualifier ("power modules") must not be silently dropped.
+    # The qualifier ("power modules") is kept on its hop, never silently dropped.
     q = "Who founded the company that supplies power modules for NovaTech Industries?"
-    assert parse_chain(q, ["NovaTech Industries"]) is None
+    parsed = parse_chain(q, ["NovaTech Industries"])
+    assert parsed is not None and parsed.qualifiers == ("power modules", "")
     assert parse_chain("Who is the CEO of the parent company of Unknown Co?", ["Zed"]) is None
     assert parse_chain("Who is the CEO of the parent company of X?", []) is None
 
@@ -80,7 +81,8 @@ def test_constraint_intersection_plan_and_answer() -> None:
     assert got == "Priya Nair"
     assert intersect_conclusions(q, ["Elena Varga", "Priya Nair"], known) is None
     assert intersect_conclusions(q, ["Priya Nair"], known) is None
-    assert parse_constraints("Which CEO leads Helix Compute?", known) is None
+    single = parse_constraints("Which CEO leads Helix Compute?", known)
+    assert single is not None and len(single) == 1 and single[0].frame.key == "ceo"
     assert parse_constraints("Which CEO leads Helix Compute and likes tea?", known) is None
     assert parse_constraints("Which CEO leads Unknown Co and owns Helix Compute?", known) is None
 
@@ -99,4 +101,62 @@ def test_possessive_and_lead_verb_synonyms() -> None:
     assert (
         len(plan_offline("Who runs the parent company of Polaris Cloud?", known_entities=known))
         == 2
+    )
+
+
+def test_qualified_supplier_chain_and_acquisition_outer() -> None:
+    from agentic_graphrag.agent.planner_chain import chain_subquestions
+
+    q = "Which company did the chip supplier of QuantumEdge Server acquire?"
+    parsed = parse_chain(q, ["QuantumEdge Server"])
+    assert parsed is not None and [f.key for f in parsed.frames] == ["supplier", "acquisition"]
+    assert [sq.text for sq in chain_subquestions(parsed)] == [
+        "Which companies supply chip for QuantumEdge Server?",
+        "Which company did {from:sq1} acquire?",
+    ]
+    # A qualifier that names an entity is not a qualifier.
+    assert parse_chain("Who founded the Acme supplier of Beta?", ["Acme", "Beta"]) is None
+
+
+def test_constraint_clause_with_chain_object_and_filler() -> None:
+    from agentic_graphrag.agent.planner_constraints import (
+        constraint_subquestions,
+        intersect_conclusions,
+        parse_constraints,
+    )
+
+    known = ["HelixCore Server", "QuantumEdge Server"]
+    q = (
+        "Which company supplies HelixCore Server and was acquired by the chip supplier "
+        "of QuantumEdge Server?"
+    )
+    cons = parse_constraints(q, known)
+    assert cons is not None
+    plan = constraint_subquestions(cons)
+    assert [sq.text for sq in plan] == [
+        "Which companies supply HelixCore Server?",
+        "Which companies supply chip for QuantumEdge Server?",
+        "Which company did {from:sq2} acquire?",
+    ]
+    concl = ["Lumen Photonics and Acme", "SiliconForge", "Lumen Photonics"]
+    assert intersect_conclusions(q, concl, known) == "Lumen Photonics"
+    alumni = parse_constraints(
+        "Which executives in this corpus previously worked at Orion?", ["Orion"]
+    )
+    assert alumni is not None and alumni[0].frame.key == "alumni"
+
+
+def test_compound_follow_up_plans_from_first_answer() -> None:
+    from agentic_graphrag.agent.planner_compound import compound_answer
+
+    known = ["NovaTech Industries"]
+    q = "What is the parent company of NovaTech Industries, and who leads it?"
+    plan = plan_offline(q, known_entities=known)
+    assert [sq.text for sq in plan] == [
+        "What is the parent company of NovaTech Industries?",
+        "Who is the CEO of {from:sq1}?",
+    ]
+    assert plan[1].depends_on == ["sq1"]
+    assert compound_answer(q, ["Apex Holdings", "Elena Varga"], known) == (
+        "Apex Holdings; Elena Varga"
     )

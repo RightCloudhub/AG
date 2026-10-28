@@ -29,7 +29,7 @@ def offline_answer(
     extra = [c.content for c in evidence if c not in preferred and c.content]
     all_texts = texts + extra
     edges = parse_edges(all_texts)
-    from_hops = _answer_from_hops(chain, conclusions, preferred)
+    from_hops = _answer_from_hops(chain, conclusions, (preferred, edges))
     if from_hops is not None:
         return from_hops
     focused = focused_extract(chain.question, edges, all_texts)
@@ -40,10 +40,37 @@ def offline_answer(
     return _apply_extractive(chain, preferred, conclusions)
 
 
+def _composed_answer(
+    question: str, conclusions: str, edges: list[tuple[str, str, str]]
+) -> str | None:
+    """Constraint intersection or shared-connection summary, when the question has that shape."""
+    from agentic_graphrag.agent.entities import extract_entity_mentions
+    from agentic_graphrag.generation.offline_compose import (
+        compose_shared_connections,
+        constraint_answer,
+        shared_pair,
+    )
+
+    entities = extract_entity_mentions(question or "")
+    pair = shared_pair(question, entities)
+    if pair is not None:
+        return compose_shared_connections(pair, edges)
+    return constraint_answer(question, conclusions, entities)
+
+
 def _answer_from_hops(
-    chain: ReasoningChain, conclusions: str, preferred: list[Candidate]
+    chain: ReasoningChain,
+    conclusions: str,
+    pool: tuple[list[Candidate], list[tuple[str, str, str]]],
 ) -> ReasoningChain | None:
-    """Answer from per-hop conclusions, or an honest stop when a parsed chain broke."""
+    """Answer from per-hop conclusions, or an honest stop when a parsed chain broke.
+
+    ``pool`` is (preferred evidence, parsed edges)."""
+    preferred, edges = pool
+    composed = _composed_answer(chain.question, conclusions, edges)
+    if composed:
+        chain.metadata["offline_answerer"] = "composed"
+        return _apply_focused(chain, composed, preferred)
     if _chain_incomplete(chain.question, conclusions):
         return _honest(chain, "relation chain unresolved (a hop found no qualifying edge)")
     hop_answer = _hop_answer(chain.question, conclusions)

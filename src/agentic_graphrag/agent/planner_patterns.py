@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.planner_chain import match_relation_chain
+from agentic_graphrag.agent.planner_compound import match_compound
 from agentic_graphrag.agent.planner_constraints import match_constraint_intersection
 
 # Relation / multi-hop cue constants (no magic strings scattered in matchers)
@@ -243,6 +244,7 @@ def match_single_hop_primary(ctx: PlanContext) -> list[SubQuestion] | None:
 # Order matters: more specific multi-hop patterns before generic ones.
 # match_relation_chain parses any fully nested frame chain (>= 2 hops) generically.
 OFFLINE_MATCHERS: tuple[Matcher, ...] = (
+    match_compound,
     match_relation_chain,
     match_constraint_intersection,
     match_ceo_of_parent,

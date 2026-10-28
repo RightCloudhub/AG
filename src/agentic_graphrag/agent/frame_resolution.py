@@ -71,12 +71,13 @@ def resolve_frame_answers(sub_question: str, evidence: list[Candidate]) -> list[
     anchors = frame_anchors(sub_question, graph)
     if not anchors:
         return None
-    fr = frame_for_subquestion(sub_question, anchors)
-    if fr is None:
+    resolved = _frame_and_qualifier(sub_question, anchors)
+    if resolved is None:
         return None
+    fr = resolved[0]
     found: list[str] = []
     for anchor in anchors:
-        per_anchor = _answers_for_anchor(fr, anchor, graph)
+        per_anchor = _answers_for_anchor(resolved, anchor, graph)
         if not fr.multi:
             per_anchor = per_anchor[:1]
         found.extend(a for a in per_anchor if a.lower() not in {f.lower() for f in found})
@@ -144,11 +145,52 @@ def _slot_shape(text: str, names: list[str]) -> str:
     return _SLOT_RUN.sub(_SLOT, out)
 
 
-def _answers_for_anchor(fr: RelationFrame, anchor: str, graph: list[Candidate]) -> list[str]:
-    out: list[str] = []
+def _frame_and_qualifier(sub_question: str, anchors: list[str]) -> tuple[RelationFrame, str] | None:
+    fr = frame_for_subquestion(sub_question, anchors)
+    return (fr, "") if fr is not None else qualified_frame(sub_question, anchors)
+
+
+def qualified_frame(sub_question: str, anchors: list[str]) -> tuple[RelationFrame, str] | None:
+    """``Which companies supply chips for {x}`` → (supplier frame, "chips")."""
+    shape = _slot_shape(sub_question, anchors)
+    for fr in FRAMES:
+        if not fr.qualified:
+            continue
+        pat = re.escape(fr.qualified.lower().rstrip("?")).replace(r"\{q\}", "(?P<q>.+?)")
+        m = re.fullmatch(pat.replace(r"\{x\}", re.escape(_SLOT)), shape)
+        if m:
+            return fr, m.group("q")
+    return None
+
+
+def _answers_for_anchor(
+    resolved: tuple[RelationFrame, str], anchor: str, graph: list[Candidate]
+) -> list[str]:
+    fr, qualifier = resolved
+    hits: list[tuple[str, Candidate]] = []
     for c in graph:
         hit = match_edge(fr, anchor, c)
-        if hit is None or hit.answer.lower() in {o.lower() for o in out}:
+        if hit is None or hit.answer.lower() in {a.lower() for a, _ in hits}:
             continue
-        out.append(hit.answer)
-    return out
+        hits.append((hit.answer, c))
+    if qualifier:
+        # Keep edges whose source text names what is supplied ("chips", "power
+        # modules"); when no edge's provenance mentions it, keep them all.
+        narrowed = [(a, c) for a, c in hits if _mentions(qualifier, _edge_text(c))]
+        hits = narrowed or hits
+    return [a for a, _ in hits]
+
+
+def _edge_text(c: Candidate) -> str:
+    spans = [cite.span or "" for cite in c.citations]
+    return " ".join([c.content or "", *spans]).lower()
+
+
+def _mentions(qualifier: str, text: str) -> bool:
+    """Every qualifier word appears (singular/plural-insensitive) in ``text``."""
+    words = [_singular(w) for w in re.findall(r"[a-z0-9]+", qualifier.lower()) if len(w) > 2]
+    return bool(words) and all(re.search(rf"\b{re.escape(w)}", text) for w in words)
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word

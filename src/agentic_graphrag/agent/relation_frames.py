@@ -35,6 +35,8 @@ class RelationFrame:
     rels: tuple[tuple[str, Side], ...]
     template: str
     multi: bool = False
+    # Optional "what" qualifier form ("chip supplier of X" → "supply chips for X").
+    qualified: str = ""
 
 
 FRAMES: tuple[RelationFrame, ...] = (
@@ -76,6 +78,20 @@ FRAMES: tuple[RelationFrame, ...] = (
         (("SUPPLIES_FOR", Side.HEAD), ("SUPPLIES", Side.HEAD)),
         "Which companies supply {x}?",
         multi=True,
+        qualified="Which companies supply {q} for {x}?",
+    ),
+    RelationFrame(
+        "acquisition",
+        ("acquisitions", "acquisition", "acquired company"),
+        (("ACQUIRED", Side.TAIL),),
+        "Which company did {x} acquire?",
+        multi=True,
+    ),
+    RelationFrame(
+        "acquirer",
+        ("acquirer", "buyer"),
+        (("ACQUIRED", Side.HEAD),),
+        "Which company acquired {x}?",
     ),
     RelationFrame(
         "founder",
@@ -125,6 +141,14 @@ _BY_KEY = {f.key: f for f in FRAMES}
 # introduces the anchor, so "the company that produces X" reads like "the
 # producer of X". Applied before noun parsing (see planner_chain.normalize_chain).
 CLAUSE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # "company that supplies power modules for X" keeps its qualifier.
+    (
+        re.compile(
+            r"\b(?:company|firm|business) (?:that|which) supplies "
+            r"(?P<q>(?!for\b|to\b)[a-z][a-z\-]*(?: [a-z][a-z\-]*){0,2}) (?:for|to)\b"
+        ),
+        r"\g<q> supplier of",
+    ),
     (
         re.compile(r"\b(?:company|firm|business) (?:that|which) (?:produces|makes|manufactures)\b"),
         "producer of",
@@ -155,6 +179,10 @@ LEAD_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"^which (?:company|companies|firm) (?:produces|makes) (?:the )?"),
         "what is the producer of the ",
+    ),
+    (
+        re.compile(r"^which (?:company|companies|firm) (?:acquired|bought) (?:the )?"),
+        "what is the acquirer of the ",
     ),
 )
 
