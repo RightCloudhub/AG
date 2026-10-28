@@ -18,7 +18,9 @@ class ScoredCase(PairScore):
 
 class PredictionRow(TypedDict, total=False):
     case_id: str
+    question: str
     gold: str
+    gold_set: list[str]
     prediction: str
     error: str
 
@@ -29,3 +31,4 @@ class AccuracySummary(TypedDict):
     accuracy: float
     accuracy_pct: float
     cases: list[ScoredCase]
+    strict: NotRequired[dict[str, int | float]]

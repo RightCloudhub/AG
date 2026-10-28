@@ -202,6 +202,7 @@ def _success_row(case: dict[str, Any], q: str, chain: ReasoningChain) -> dict[st
         "case_id": case.get("id"),
         "question": q,
         "gold": case.get("gold_answer"),
+        "gold_set": case.get("gold_set"),
         "prediction": chain.answer,
         "status": chain.status.value,
         "route": chain.route,

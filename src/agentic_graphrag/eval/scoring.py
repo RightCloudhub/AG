@@ -234,9 +234,25 @@ def _score_report_row(row: PredictionRow, report: AccuracyReport) -> None:
     )
 
 
-def write_accuracy_summary(report_path: str | Path, out_path: str | Path) -> AccuracyReport:
+def write_accuracy_summary(
+    report_path: str | Path,
+    out_path: str | Path,
+    *,
+    known_entities: list[str] | None = None,
+) -> AccuracyReport:
+    """Write the accuracy JSON; with ``known_entities`` also a strict set view."""
     acc = score_report_file(report_path)
+    summary = acc.to_dict()
+    if known_entities:
+        from agentic_graphrag.eval.scoring_strict import EntityMatcher, strict_summary
+
+        rows = [
+            json.loads(line)
+            for line in Path(report_path).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        summary["strict"] = strict_summary(rows, EntityMatcher(known_entities)).to_dict()
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(acc.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return acc

@@ -78,7 +78,7 @@ def _write_accuracy(report_path: Path, report_dir: Path, args: argparse.Namespac
     from agentic_graphrag.eval.scoring import write_accuracy_summary
 
     acc_path = report_dir / "poc_accuracy.json"
-    acc = write_accuracy_summary(report_path, acc_path)
+    acc = write_accuracy_summary(report_path, acc_path, known_entities=_known_entities(args))
     extra = {report_dir / f"{report_path.stem}_accuracy.json"}
     if args.out and Path(args.out).name != acc_path.name:
         extra.add(Path(args.out))
@@ -86,6 +86,15 @@ def _write_accuracy(report_path: Path, report_dir: Path, args: argparse.Namespac
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(acc_path.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
+
+
+def _known_entities(args: argparse.Namespace) -> list[str] | None:
+    """Entity lexicon for the strict set metric (memory-graph runs only)."""
+    from agentic_graphrag.cli.cases_run import known_entity_names, load_seed_triples
+
+    if not getattr(args, "memory_graph", False) or not args.seed_triples:
+        return None
+    return known_entity_names(load_seed_triples(resolve_path(args.seed_triples))) or None
 
 
 def _parse_run_cases(argv: list[str] | None) -> argparse.Namespace:
