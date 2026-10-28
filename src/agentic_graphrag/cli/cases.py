@@ -33,7 +33,6 @@ def run_cases_main(argv: list[str] | None = None) -> None:
 
     from agentic_graphrag.agent.executor import Executor
     from agentic_graphrag.agent.guardrails import GuardrailConfig
-    from agentic_graphrag.eval.scoring import write_accuracy_summary
 
     if not args.direct:
         _run_cases_via_app(args, cases_path, report_dir)
@@ -67,8 +66,25 @@ def run_cases_main(argv: list[str] | None = None) -> None:
     )
     graph_store.close()
     print(f"Report written to {report_path}")
+    _write_accuracy(report_path, report_dir, args)
+
+
+def _write_accuracy(report_path: Path, report_dir: Path, args: argparse.Namespace) -> None:
+    """Write ``poc_accuracy.json`` (CI contract) plus a per-run copy.
+
+    Previously every run overwrote ``poc_accuracy.json`` and ``--out`` was
+    parsed but ignored, so sequential runs clobbered each other's summaries.
+    """
+    from agentic_graphrag.eval.scoring import write_accuracy_summary
+
     acc_path = report_dir / "poc_accuracy.json"
     acc = write_accuracy_summary(report_path, acc_path)
+    extra = {report_dir / f"{report_path.stem}_accuracy.json"}
+    if args.out and Path(args.out).name != acc_path.name:
+        extra.add(Path(args.out))
+    for path in extra:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(acc_path.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
 
 
@@ -111,7 +127,6 @@ def _parse_run_cases(argv: list[str] | None) -> argparse.Namespace:
 
 def _run_cases_via_app(args: argparse.Namespace, cases_path: Path, report_dir: Path) -> None:
     from agentic_graphrag.cli.cases_run import build_eval_app, run_case_row_via_app
-    from agentic_graphrag.eval.scoring import write_accuracy_summary
 
     use_neo4j = bool(args.neo4j)
     app = build_eval_app(
@@ -139,9 +154,7 @@ def _run_cases_via_app(args: argparse.Namespace, cases_path: Path, report_dir: P
             )
     app.close()
     print(f"Report written to {report_path}")
-    acc_path = report_dir / "poc_accuracy.json"
-    acc = write_accuracy_summary(report_path, acc_path)
-    print(f"Accuracy: {acc.correct}/{acc.total} = {acc.accuracy * 100:.1f}% → {acc_path}")
+    _write_accuracy(report_path, report_dir, args)
 
 
 def _write_case_report(

@@ -30,10 +30,10 @@ pytest tests/unit -k "guardrails" -q          # by keyword
 # Hard code-metrics gate (file ≤300 lines, function ≤50, nesting ≤3, ≤3 positional params, CC ≤10) — CI-enforced
 python scripts/check_code_metrics.py
 
-# Offline eval floor (CI job eval-offline): ≥21/31 on poc_cases, with and without --enable-triage
+# Offline eval floor (CI job eval-offline): ≥28/31 on poc_cases, with and without --enable-triage
 agr-run-cases --no-llm --memory-graph --cases evals/datasets/poc_cases.jsonl
-python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 21 --total 31
-# G2 floor (200 cases, CI-enforced): ≥167/200 with pilot triples
+python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 28 --total 31
+# G2 floor (200 cases, CI-enforced): ≥196/200 with pilot triples; probe sets: evals/datasets/probe_*.jsonl
 agr-run-cases --no-llm --memory-graph --cases evals/datasets/g2_all.jsonl --seed-triples data/processed/pilot_triples.jsonl
 
 # Architecture A/B (required for retrieval/planning/critic/generation changes): paired McNemar

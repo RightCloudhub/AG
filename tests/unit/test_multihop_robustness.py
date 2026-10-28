@@ -135,3 +135,17 @@ def test_end_to_end_chain_answers_and_honest_break() -> None:
     assert broken["status"] == "no_answer"
     hops = [s["sub_question"] for s in broken["chain"]["steps"]]
     assert not any("{from:" in h for h in hops)  # unresolved slots are not retrieved
+
+
+def test_memory_normalize_is_idempotent_for_dedup() -> None:
+    from agentic_graphrag.agent.memory import MemoryState, _normalize
+
+    raw = "'; MATCH (n) DETACH DELETE n; // Who owns NovaTech?"
+    assert (
+        _normalize(_normalize(raw))
+        == _normalize(raw)
+        == "match n detach delete n who owns novatech"
+    )
+    mem = MemoryState()
+    mem.mark_subquestion(raw)
+    assert mem.is_duplicate_subquestion(raw)

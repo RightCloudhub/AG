@@ -15,10 +15,12 @@ from agentic_graphrag.core.evidence import Candidate
 
 
 def _normalize(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"[^\w\s\u4e00-\u9fff]", "", text)
-    return text
+    # Strip punctuation *before* collapsing whitespace so the result is
+    # idempotent: "'; MATCH (n) ... // Who" used to keep a leading space and a
+    # double space, so a key restored from a snapshot never matched again and
+    # the same sub-question was re-run until the hop budget tripped.
+    text = re.sub(r"[^\w\s\u4e00-\u9fff]", "", text.lower())
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _near_duplicate_text(a: str, b: str) -> bool:

@@ -98,16 +98,16 @@ jobs:
           if-no-files-found: ignore
 
   eval-offline:
-    name: Offline eval (POC 21/31, G2 167/200)
+    name: Offline eval (POC 28/31, G2 196/200, probes)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       POC_CASES: evals/datasets/poc_cases.jsonl
-      POC_MIN_CORRECT: "21"
+      POC_MIN_CORRECT: "28"
       POC_TOTAL: "31"
       G2_CASES: evals/datasets/g2_all.jsonl
       G2_TRIPLES: data/processed/pilot_triples.jsonl
-      G2_MIN_CORRECT: "167"
+      G2_MIN_CORRECT: "196"
       G2_TOTAL: "200"
     steps:
       - uses: actions/checkout@v4
@@ -147,6 +147,20 @@ jobs:
           cp reports/poc_accuracy.json reports/ci_g2_accuracy.json
           python scripts/check_eval_floor.py reports/ci_g2_accuracy.json \
             --min-correct "$G2_MIN_CORRECT" --total "$G2_TOTAL" --label "g2"
+
+      # Unseen compositional forms (4-hop, relative clauses, possessive-free
+      # synonyms, constraint intersection) + true negatives (no parent / type
+      # breaks / phantom entities) — guards against template overfitting.
+      - name: Eval — compositional + negative probes
+        run: |
+          agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_compositional.jsonl \
+            --seed-triples "$G2_TRIPLES" --run-name ci_probe
+          python scripts/check_eval_floor.py reports/ci_probe_accuracy.json \
+            --min-correct 52 --total 54 --label "probe"
+          agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_negative.jsonl \
+            --seed-triples "$G2_TRIPLES" --run-name ci_probe_neg
+          python scripts/check_eval_floor.py reports/ci_probe_neg_accuracy.json \
+            --min-correct 19 --total 20 --label "probe-negative"
 
       # Report-only: label defects (ambiguous gold, inverse labels) — never blocks.
       - name: Gold audit (report only)

@@ -1,0 +1,20 @@
+{"id": "neg-noparent-Vertex_Chips", "question": "Who is the CEO of the parent company of Vertex Chips?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Helix_Compute", "question": "Who is the CEO of the parent company of Helix Compute?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Jade_Mobility", "question": "Who is the CEO of the parent company of Jade Mobility?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Ironclad_LegalTech", "question": "Who is the CEO of the parent company of Ironclad LegalTech?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Lumen_Networks", "question": "Who is the CEO of the parent company of Lumen Networks?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Horizon_Optics", "question": "Who is the CEO of the parent company of Horizon Optics?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-SiliconForge", "question": "Who is the CEO of the parent company of SiliconForge?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent-Terra_Farm_Tech", "question": "Who is the CEO of the parent company of Terra Farm Tech?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent3-Redwood_Energy", "question": "Who is the CEO of the parent company of the parent company of Redwood Energy?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent3-Apex_Holdings", "question": "Who is the CEO of the parent company of the parent company of Apex Holdings?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent3-Harbor_Components", "question": "Who is the CEO of the parent company of the parent company of Harbor Components?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-noparent3-Cascade_Bio", "question": "Who is the CEO of the parent company of the parent company of Cascade Bio?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-typebreak-Umbra_MRI_Core", "question": "Who is the CEO of the producer of the producer of Umbra MRI Core?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-typebreak-Nimbus_Shield", "question": "Who is the CEO of the producer of the producer of Nimbus Shield?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-typebreak-CedarLink_FPGA", "question": "Who is the CEO of the producer of the producer of CedarLink FPGA?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-typebreak-Cascade_Sequencer", "question": "Who is the CEO of the producer of the producer of Cascade Sequencer?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-phantom-0", "question": "Who is the CEO of the parent company of the producer of Zylo Quantum Widget?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-phantom-1", "question": "Who is the CEO of the parent company of the producer of Aurora Phantom Labs?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-phantom-2", "question": "Who is the CEO of the parent company of the producer of Kestrel Imaginary Corp?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}
+{"id": "neg-phantom-3", "question": "Who is the CEO of the parent company of the producer of Nimbus Fictional Systems?", "gold_answer": "no answer", "hops": 0, "category": "no_answer"}

@@ -58,7 +58,7 @@ for arg in "$@"; do
     --target=*) HTTP_TARGET="${arg#--target=}" ;;
     --n=*) LOAD_N="${arg#--n=}" ;;
     -h|--help)
-      sed -n '2,25p' "$0" | sed 's/^# \?//'
+      sed -n '2,18p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     --target|--n)
