@@ -29,6 +29,10 @@ __all__ = [
 ]
 
 
+# Edges kept when relation pruning would otherwise empty a beam layer.
+_BRIDGE_EDGES = 3
+
+
 @dataclass
 class BeamItem:
     score: float
@@ -87,19 +91,37 @@ class BeamExpander:
                 tenant_id=tenant_id,
             )
 
-        scored: list[tuple[float, RelationRecord, EntityRecord]] = []
-        for rel, ent in rows:
-            sc = edge_score(rel, sub_question, embed_sim=self._embed_sim(rel.type, sub_question))
-            # Prune low-relevance when we have preferred types
-            if preferred_relations and rel.type.upper() not in {
-                r.upper() for r in preferred_relations
-            }:
-                if sc < self.cfg.relation_relevance_threshold:
-                    continue
-            scored.append((sc, rel, ent))
-
+        scored = self._score_rows(rows, preferred_relations, sub_question)
         scored.sort(key=lambda t: (-t[0], t[1].type, t[2].name))
         return scored[: self.cfg.max_neighbors_per_layer]
+
+    def _score_rows(
+        self,
+        rows: list[tuple[RelationRecord, EntityRecord]],
+        preferred_relations: list[str] | None,
+        sub_question: str | None,
+    ) -> list[tuple[float, RelationRecord, EntityRecord]]:
+        """Score edges; prune low-relevance non-preferred ones, keeping bridges.
+
+        When pruning would empty the layer (e.g. a product node whose only edge is
+        PRODUCES while the question asks for PARENT_OF), keep the best few edges
+        as low-score bridges so the beam can still reach the preferred relation
+        one hop further instead of dying at hop 1.
+        """
+        pref = {r.upper() for r in preferred_relations or []}
+        kept: list[tuple[float, RelationRecord, EntityRecord]] = []
+        pruned: list[tuple[float, RelationRecord, EntityRecord]] = []
+        for rel, ent in rows:
+            sc = edge_score(rel, sub_question, embed_sim=self._embed_sim(rel.type, sub_question))
+            low = bool(pref) and rel.type.upper() not in pref
+            if low and sc < self.cfg.relation_relevance_threshold:
+                pruned.append((sc, rel, ent))
+            else:
+                kept.append((sc, rel, ent))
+        if kept or not pruned:
+            return kept
+        pruned.sort(key=lambda t: (-t[0], t[1].type, t[2].name))
+        return pruned[:_BRIDGE_EDGES]
 
     def _embed_sim(self, relation_type: str, sub_question: str | None) -> float | None:
         scorer = self.cfg.relation_embed_sim
