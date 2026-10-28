@@ -439,7 +439,7 @@ flowchart LR
 
 `agr-run-cases` 默认通过 `QueryApp.run_query_chain()` 运行（eval Profile：关闭答案和检索缓存、加载 seed 图；指定 `--neo4j` 时使用 hybrid Profile），评测的就是生产路径（预算、Pipeline、审计、指标）。真实 LLM 的响应由 provider 的磁盘缓存回放。`--direct` 保留旧的直接调用 Agent 循环的方式。重构前后 `poc_cases` 的结果一致（21/31，31 条预测、状态和路由逐条相同）。
 
-V2 评测工具（O-1 / O-2）：`scripts/eval_compare.py` 对两次运行做配对 A/B（Wilson 95% CI、精确 McNemar、分类别和分模板准确率、P50/P95 延迟、LLM 调用均值），p < 0.05 才判定“更好”或“更差”；`scripts/audit_gold.py` 在三元组上校验金标（`path_edge_missing` / `inverse_label` / `gold_unreachable` / `ambiguous_gold`），CI 中以 `--max-flagged 0` 阻断（金标已按正确方向与完整答案集合重生成）。CI 门禁：poc ≥28/31，g2_all ≥196/200，probe_compositional ≥52/54，probe_negative ≥19/20；准确率 JSON 另含 `strict`（答案实体集合精确匹配，仅报告）。
+V2 评测工具（O-1 / O-2）：`scripts/eval_compare.py` 对两次运行做配对 A/B（Wilson 95% CI、精确 McNemar、分类别和分模板准确率、P50/P95 延迟、LLM 调用均值），p < 0.05 才判定“更好”或“更差”；`scripts/audit_gold.py` 在三元组上校验金标（`path_edge_missing` / `inverse_label` / `gold_unreachable` / `ambiguous_gold`），CI 中以 `--max-flagged 0` 阻断（金标已按正确方向与完整答案集合重生成）。CI 门禁：poc ≥30/31，g2_all ≥196/200，probe_compositional ≥52/54，probe_negative ≥19/20；准确率 JSON 另含 `strict`（答案实体集合精确匹配，仅报告）。
 
 ---
 

@@ -103,7 +103,7 @@ jobs:
     timeout-minutes: 15
     env:
       POC_CASES: evals/datasets/poc_cases.jsonl
-      POC_MIN_CORRECT: "28"
+      POC_MIN_CORRECT: "30"
       POC_TOTAL: "31"
       G2_CASES: evals/datasets/g2_all.jsonl
       G2_TRIPLES: data/processed/pilot_triples.jsonl
