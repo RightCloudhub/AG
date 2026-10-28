@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from agentic_graphrag.config import get_config, resolve_path
 from agentic_graphrag.eval.cases import (
@@ -42,6 +43,13 @@ def gen_cases_main(argv: list[str] | None = None) -> None:
         dump_cases(cases, resolve_path(args.out_dir) / "g2_partial.jsonl")
         sys.exit(1)
     _write_dataset(args, cases=cases, triples=triples, report=report)
+
+
+def _rel(path: Path) -> str:
+    try:
+        return str(Path(path).resolve().relative_to(resolve_path(".").resolve()))
+    except ValueError:
+        return str(path)
 
 
 def _parse_gen_cases(argv: list[str] | None) -> argparse.Namespace:
@@ -98,7 +106,8 @@ def _write_dataset(
         "gold_total": len(cases),
         "stratification": report.to_dict(),
         "splits": split_summary(splits),
-        "paths": {k: str(v) for k, v in paths.items()},
+        # Repo-relative: absolute paths leaked the generating machine's home dir.
+        "paths": {k: _rel(v) for k, v in paths.items()},
     }
     summary_path = out_dir / "g2_dataset_summary.json"
     summary_path.write_text(

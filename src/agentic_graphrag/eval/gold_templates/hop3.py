@@ -7,8 +7,8 @@ from agentic_graphrag.eval.gold_templates.context import EmitContext
 from agentic_graphrag.eval.gold_templates.helpers import (
     REL_CEO_OF,
     REL_COMPETES_WITH,
-    REL_PARENT_OF,
     REL_PRODUCES,
+    REL_SUBSIDIARY_OF,
     REL_SUPPLIES,
     REL_WORKED_AT,
     ceos_of,
@@ -73,7 +73,10 @@ def _emit_ceo_competitor_producer(ctx: EmitContext) -> None:
         if e.relation != REL_PRODUCES:
             continue
         producer, product = e.head, e.tail
-        for comp in competitors_of(producer, ctx.out_adj, ctx.in_adj):
+        comps = competitors_of(producer, ctx.out_adj, ctx.in_adj)
+        # "the competitor" with several competitors: all their CEOs are correct.
+        all_ceos = join_names([c for comp in comps for c in ceos_of(comp, ctx.in_adj)])
+        for comp in comps:
             if ctx.full():
                 return
             ceos = ceos_of(comp, ctx.in_adj)
@@ -84,7 +87,7 @@ def _emit_ceo_competitor_producer(ctx: EmitContext) -> None:
                     ctx,
                     prefix=_ID_CEO_COMPET_PROD,
                     question=(f"Who is the CEO of the competitor of the producer of {product}?"),
-                    gold=ceos[0],
+                    gold=all_ceos,
                     path=[
                         product,
                         REL_PRODUCES,
@@ -123,7 +126,7 @@ def _emit_ceo_parent_producer(ctx: EmitContext) -> None:
                         product,
                         REL_PRODUCES,
                         producer,
-                        REL_PARENT_OF,
+                        REL_SUBSIDIARY_OF,
                         parent,
                         REL_CEO_OF,
                         ceos[0],
@@ -158,7 +161,7 @@ def _emit_prior_of_parent_ceo(ctx: EmitContext) -> None:
                     gold=gold,
                     path=[
                         child,
-                        REL_PARENT_OF,
+                        REL_SUBSIDIARY_OF,
                         parent,
                         REL_CEO_OF,
                         person,

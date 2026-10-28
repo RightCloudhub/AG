@@ -51,11 +51,9 @@ def _emit_ceo_of_parent(ctx: EmitContext) -> None:
         if pair is None:
             continue
         child, parent = pair
-        path = (
-            [child, REL_SUBSIDIARY_OF, parent]
-            if e.relation == REL_SUBSIDIARY_OF
-            else [child, REL_PARENT_OF, parent]
-        )
+        # Walked child → parent, so the label is SUBSIDIARY_OF whichever way
+        # the seed edge was written (audit_gold flagged reversed PARENT_OF).
+        path = [child, REL_SUBSIDIARY_OF, parent]
         for e2 in ctx.in_adj.get(parent, []):
             if e2.relation != REL_CEO_OF:
                 continue
@@ -111,11 +109,12 @@ def _emit_competitor_of_producer(ctx: EmitContext) -> None:
         case = EvalCase(
             id=ctx.case_id(_ID_COMPET_PROD),
             question=f"Which company competes with the producer of {product}?",
-            gold_answer=comps[0],
+            # "the competitor" with several competitors: every one is correct.
+            gold_answer=join_names(comps),
             hops=HOPS_2,
             category=CaseCategory.HOP2,
             gold_path=[product, REL_PRODUCES, producer, REL_COMPETES_WITH, comps[0]],
-            gold_evidence=[product, producer, comps[0]],
+            gold_evidence=[product, producer, *dict.fromkeys(comps)],
             metadata={"template": "competitor_of_producer"},
         )
         ctx.try_add(case)
@@ -137,7 +136,7 @@ def _emit_parent_of_producer(ctx: EmitContext) -> None:
             gold_answer=parents[0],
             hops=HOPS_2,
             category=CaseCategory.HOP2,
-            gold_path=[product, REL_PRODUCES, producer, REL_PARENT_OF, parents[0]],
+            gold_path=[product, REL_PRODUCES, producer, REL_SUBSIDIARY_OF, parents[0]],
             gold_evidence=[product, producer, parents[0]],
             metadata={"template": "parent_of_producer"},
         )
@@ -216,7 +215,7 @@ def _emit_parent_of_competitor(ctx: EmitContext) -> None:
             gold_answer=parents[0],
             hops=HOPS_2,
             category=CaseCategory.HOP2,
-            gold_path=[a, REL_COMPETES_WITH, b, REL_PARENT_OF, parents[0]],
+            gold_path=[a, REL_COMPETES_WITH, b, REL_SUBSIDIARY_OF, parents[0]],
             gold_evidence=[a, b, parents[0]],
             metadata={"template": "parent_of_competitor"},
         )

@@ -51,12 +51,12 @@
     }
   },
   "paths": {
-    "all": "/home/arch1/AG/evals/datasets/g2_all.jsonl",
-    "dev": "/home/arch1/AG/evals/datasets/g2_dev.jsonl",
-    "heldout": "/home/arch1/AG/evals/datasets/g2_heldout.jsonl",
-    "guardrail": "/home/arch1/AG/evals/datasets/g2_guardrail.jsonl",
-    "dev_alias": "/home/arch1/AG/evals/datasets/dev.jsonl",
-    "heldout_alias": "/home/arch1/AG/evals/datasets/heldout.jsonl",
-    "guardrail_alias": "/home/arch1/AG/evals/datasets/guardrail.jsonl"
+    "all": "evals/datasets/g2_all.jsonl",
+    "dev": "evals/datasets/g2_dev.jsonl",
+    "heldout": "evals/datasets/g2_heldout.jsonl",
+    "guardrail": "evals/datasets/g2_guardrail.jsonl",
+    "dev_alias": "evals/datasets/dev.jsonl",
+    "heldout_alias": "evals/datasets/heldout.jsonl",
+    "guardrail_alias": "evals/datasets/guardrail.jsonl"
   }
 }
