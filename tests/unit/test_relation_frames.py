@@ -106,9 +106,10 @@ def test_nested_names_and_non_graph_evidence() -> None:
 
 def test_unknown_frame_or_anchor_returns_empty() -> None:
     hits = [_edge("A Corp", "PARTNER_OF", "B Corp")]
-    assert resolve_frame_answers("Tell me about A Corp", hits) == []
-    assert resolve_frame_answers("Who is the CEO of Zed Inc?", hits) == []
-    assert resolve_frame_answers("Who is the CEO of A Corp?", hits) == []
+    assert resolve_frame_answers("Tell me about A Corp", hits) is None  # no frame shape
+    assert resolve_frame_answers("Who is the CEO of Zed Inc?", hits) is None  # no anchor
+    assert resolve_frame_answers("Who is the CEO of A Corp?", hits) == []  # frame, no edge
+    assert extract_entity_conclusion("Who is the CEO of A Corp?", hits) is None
 
 
 def test_critic_conclusion_uses_direction_checked_frame() -> None:

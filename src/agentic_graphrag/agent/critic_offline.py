@@ -42,8 +42,16 @@ def extract_entity_conclusion(
     # Direction-checked frame resolution first (anchor must sit on the frame's
     # anchor side); fall back to the cue-ranked pickers below when no frame fits.
     framed = resolve_frame_answers(sub_question, graph_hits)
-    if framed:
-        return " and ".join(framed)
+    if framed is not None:
+        # Recognized frame: its (possibly empty) answer is authoritative. An
+        # empty result must not fall back to cue pickers, which would hand the
+        # next hop an off-direction entity.
+        return " and ".join(framed) or None
+    return _legacy_pick(sub_question, graph_hits)
+
+
+def _legacy_pick(sub_question: str, graph_hits: list[Candidate]) -> str | None:
+    """Cue-ranked pickers for sub-questions that are not a canonical frame shape."""
     # Prefer higher relevance; break ties by earlier retrieval rank (stable, deterministic).
     ranked = sorted(
         enumerate(graph_hits),

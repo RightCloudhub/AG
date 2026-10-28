@@ -63,7 +63,9 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
     memory, guards, state = ctx.memory, ctx.guards, ctx.state
     hop = guards.state.hop
     hop_cap = hop >= guards.config.max_hops
-    if memory.is_excluded(sq.text):
+    # A slot whose dependency produced no conclusion stays "{from:sqN}"; running
+    # retrieval on that literal text only fetches noise (and spends a hop).
+    if memory.is_excluded(sq.text) or sq.unresolved_placeholders():
         memory.mark_subquestion_done(sq.id)
         return {
             **state,

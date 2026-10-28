@@ -75,7 +75,7 @@ def parse_chain(question: str, entities: list[str]) -> ParsedChain | None:
     """Parse a nested relation chain; ``None`` unless every token is consumed."""
     if not entities:
         return None
-    text = normalize_chain(question)
+    text = _expand_possessives(normalize_chain(question), entities)
     outer: RelationFrame | None = None
     for pat, key in _OUTER:
         m = pat.match(text)
@@ -91,6 +91,15 @@ def parse_chain(question: str, entities: list[str]) -> ParsedChain | None:
     if not (_MIN_CHAIN <= len(frames) <= _MAX_CHAIN):
         return None
     return ParsedChain(frames=frames, anchor=inner.anchor)
+
+
+def _expand_possessives(text: str, entities: list[str]) -> str:
+    """``X's parent company`` → ``parent company of X`` for known entities X."""
+    for ent in sorted(entities, key=len, reverse=True):
+        e = re.escape(ent.lower())
+        for noun, _fr in _NOUNS:
+            text = re.sub(rf"{e}'s {re.escape(noun)}\b", f"{noun} of {ent.lower()}", text)
+    return text
 
 
 def _parse_noun_chain(text: str, entities: list[str]) -> ParsedChain | None:

@@ -29,21 +29,47 @@ def offline_answer(
     extra = [c.content for c in evidence if c not in preferred and c.content]
     all_texts = texts + extra
     edges = parse_edges(all_texts)
-    hop_answer = _hop_answer(chain.question, conclusions)
-    if hop_answer:
-        return _apply_focused(chain, hop_answer, preferred)
+    from_hops = _answer_from_hops(chain, conclusions, preferred)
+    if from_hops is not None:
+        return from_hops
     focused = focused_extract(chain.question, edges, all_texts)
     if focused:
         return _apply_focused(chain, focused, preferred)
     if _should_honest_no_answer(chain.question, edges, conclusions):
-        chain.honest_fallback("no matching relation for the asked entity")
-        chain.metadata["offline_answerer"] = "honest_no_match"
-        return chain
+        return _honest(chain, "no matching relation for the asked entity", tag="honest_no_match")
     return _apply_extractive(chain, preferred, conclusions)
+
+
+def _answer_from_hops(
+    chain: ReasoningChain, conclusions: str, preferred: list[Candidate]
+) -> ReasoningChain | None:
+    """Answer from per-hop conclusions, or an honest stop when a parsed chain broke."""
+    if _chain_incomplete(chain.question, conclusions):
+        return _honest(chain, "relation chain unresolved (a hop found no qualifying edge)")
+    hop_answer = _hop_answer(chain.question, conclusions)
+    return _apply_focused(chain, hop_answer, preferred) if hop_answer else None
+
+
+def _honest(chain: ReasoningChain, reason: str, *, tag: str = "chain_incomplete") -> ReasoningChain:
+    chain.honest_fallback(reason)
+    chain.metadata["offline_answerer"] = tag
+    return chain
 
 
 def _hop_answer(question: str, conclusions: str) -> str | None:
     return _chain_hop_answer(question, conclusions) or _prefer_hop_conclusion(question, conclusions)
+
+
+def _chain_incomplete(question: str, conclusions: str) -> bool:
+    """True when the question is a parsed relation chain but some hop concluded nothing."""
+    from agentic_graphrag.agent.entities import extract_entity_mentions
+    from agentic_graphrag.agent.planner_chain import parse_chain
+
+    parsed = parse_chain(question or "", extract_entity_mentions(question or ""))
+    if parsed is None:
+        return False
+    parts = [p.strip() for p in (conclusions or "").split(";") if p.strip()]
+    return len(parts) < len(parsed.frames)
 
 
 def _chain_hop_answer(question: str, conclusions: str) -> str | None:

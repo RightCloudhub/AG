@@ -83,3 +83,20 @@ def test_constraint_intersection_plan_and_answer() -> None:
     assert parse_constraints("Which CEO leads Helix Compute?", known) is None
     assert parse_constraints("Which CEO leads Helix Compute and likes tea?", known) is None
     assert parse_constraints("Which CEO leads Unknown Co and owns Helix Compute?", known) is None
+
+
+def test_possessive_and_lead_verb_synonyms() -> None:
+    known = ["Polaris Cloud"]
+    assert [
+        sq.text
+        for sq in plan_offline(
+            "Who is the CEO of Polaris Cloud's parent company?", known_entities=known
+        )
+    ] == [
+        "What is the parent company of Polaris Cloud?",
+        "Who is the CEO of {from:sq1}?",
+    ]
+    assert (
+        len(plan_offline("Who runs the parent company of Polaris Cloud?", known_entities=known))
+        == 2
+    )

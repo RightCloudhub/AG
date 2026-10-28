@@ -55,22 +55,25 @@ def _norm(name: str) -> str:
     return re.sub(r"\s+", " ", (name or "").strip().lower())
 
 
-def resolve_frame_answers(sub_question: str, evidence: list[Candidate]) -> list[str]:
+def resolve_frame_answers(sub_question: str, evidence: list[Candidate]) -> list[str] | None:
     """Direction-checked answers for a frame sub-question over graph evidence.
 
     Only edges that touch an anchor (an entity named in the sub-question) on the
     frame's anchor side count, so ``Polaris Cloud -[PARENT_OF]-> Lattice AI`` can
     never answer "parent company of Polaris Cloud". Single-valued frames keep the
-    best-ranked answer per anchor; multi-valued frames keep all. Returns ``[]``
-    when no frame or anchor is recognized (callers fall back to older heuristics).
+    best-ranked answer per anchor; multi-valued frames keep all.
+
+    Returns ``None`` when the sub-question is not a recognized frame shape (the
+    caller may use other heuristics) and ``[]`` when it is one but no edge
+    qualifies — an honest "not found" that must not be papered over.
     """
     graph = [c for c in evidence if c.is_graph()]
     anchors = frame_anchors(sub_question, graph)
     if not anchors:
-        return []
+        return None
     fr = frame_for_subquestion(sub_question, anchors)
     if fr is None:
-        return []
+        return None
     found: list[str] = []
     for anchor in anchors:
         per_anchor = _answers_for_anchor(fr, anchor, graph)

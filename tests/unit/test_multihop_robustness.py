@@ -6,6 +6,7 @@ from agentic_graphrag.agent.entity_linking import link_ambiguous_mention
 from agentic_graphrag.agent.input_policy import refusal_chain, screen_question
 from agentic_graphrag.agent.triage import Route, triage
 from agentic_graphrag.app.contracts import QueryRequest
+from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.reasoning import QueryStatus
 from agentic_graphrag.knowledge.graph_builder import triples_to_records
 from agentic_graphrag.knowledge.schema_check import EntityMention, Triple
@@ -107,3 +108,30 @@ def test_query_request_collapses_padding_but_keeps_cap() -> None:
         pass
     else:  # pragma: no cover - must reject
         raise AssertionError("non-repetitive long input must still be rejected")
+
+
+def _eval_app() -> QueryService:
+    from pathlib import Path
+
+    from agentic_graphrag.cli.cases_run import build_eval_app
+    from agentic_graphrag.config import resolve_path
+
+    seed = Path(resolve_path("data/processed/pilot_triples.jsonl"))
+    return build_eval_app(no_llm=True, use_neo4j=False, seed_triples=seed, enable_triage=False)
+
+
+def test_end_to_end_chain_answers_and_honest_break() -> None:
+    from agentic_graphrag.cli.cases_run import run_case_row_via_app
+
+    app = _eval_app()
+    ok = run_case_row_via_app(
+        {"id": "a", "question": "Who runs the parent company of Polaris Cloud?"}, app=app
+    )
+    assert ok["prediction"] == "Amelia Brooks"
+    # "producer of <a company>" has no PRODUCES edge with a company on the tail:
+    # the chain breaks at hop 2 and must abstain, not answer an intermediate hop.
+    q = "Who is the CEO of the parent company of the producer of the competitor of Polaris Cloud?"
+    broken = run_case_row_via_app({"id": "b", "question": q}, app=app)
+    assert broken["status"] == "no_answer"
+    hops = [s["sub_question"] for s in broken["chain"]["steps"]]
+    assert not any("{from:" in h for h in hops)  # unresolved slots are not retrieved

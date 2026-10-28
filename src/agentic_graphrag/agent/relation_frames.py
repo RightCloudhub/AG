@@ -147,6 +147,7 @@ LEAD_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "what is the competitor of the ",
     ),
     (re.compile(r"^who founded (?:the )?"), "who is the founder of the "),
+    (re.compile(r"^who (?:runs|leads|heads|manages) (?:the )?"), "who is the ceo of the "),
     (
         re.compile(r"^which (?:company|companies|firm) (?:owns|own|controls) (?:the )?"),
         "what is the parent company of the ",
