@@ -62,3 +62,24 @@ def test_partial_or_single_hop_parses_fall_through() -> None:
     assert parse_chain(q, ["NovaTech Industries"]) is None
     assert parse_chain("Who is the CEO of the parent company of Unknown Co?", ["Zed"]) is None
     assert parse_chain("Who is the CEO of the parent company of X?", []) is None
+
+
+def test_constraint_intersection_plan_and_answer() -> None:
+    from agentic_graphrag.agent.planner_constraints import (
+        intersect_conclusions,
+        parse_constraints,
+    )
+
+    known = ["Meridian Capital", "Helix Compute"]
+    q = "Which CEO previously worked at Meridian Capital and now leads Helix Compute?"
+    assert [sq.text for sq in plan_offline(q, known_entities=known)] == [
+        "Who previously worked at Meridian Capital?",
+        "Who is the CEO of Helix Compute?",
+    ]
+    got = intersect_conclusions(q, ["Elena Varga and Priya Nair", "Priya Nair"], known)
+    assert got == "Priya Nair"
+    assert intersect_conclusions(q, ["Elena Varga", "Priya Nair"], known) is None
+    assert intersect_conclusions(q, ["Priya Nair"], known) is None
+    assert parse_constraints("Which CEO leads Helix Compute?", known) is None
+    assert parse_constraints("Which CEO leads Helix Compute and likes tea?", known) is None
+    assert parse_constraints("Which CEO leads Unknown Co and owns Helix Compute?", known) is None

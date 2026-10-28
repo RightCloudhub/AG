@@ -16,8 +16,8 @@ from agentic_graphrag.agent.critic_offline_rel import (
     conclusion_from_structured,
     hit_relevance,
 )
+from agentic_graphrag.agent.frame_resolution import resolve_frame_answers
 from agentic_graphrag.agent.options import CritiqueContext
-from agentic_graphrag.agent.relation_frames import resolve_frame_answers
 from agentic_graphrag.core.evidence import Candidate
 
 _EVIDENCE_ID_CAP = 8

@@ -92,13 +92,18 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
     memory, guards, sq = ctx.memory, ctx.guards, ctx.sq
     memory.mark_subquestion(sq.text)
     (candidates, traces), prefetch, group = retrieve_for_node(ctx)
-    added = memory.add_evidence(candidates)
+    memory.add_evidence(candidates)
+    # Record every id this step retrieved, not only ids new to the pool: the
+    # critic reads the step's evidence_ids as "this hop's evidence", and a hit
+    # already pooled by an earlier/sibling hop (same edge id) used to vanish,
+    # leaving only off-target edges (e.g. another company's CEO_OF).
+    step_ids = list(dict.fromkeys(c.id for c in candidates))
     step = ReasoningStep(
         hop=guards.state.hop,
         sub_question=sq.text,
         depends_on=sq.depends_on,
         tool_calls=traces,
-        evidence_ids=added,
+        evidence_ids=step_ids,
     )
     chain = ReasoningChain.model_validate(ctx.state["chain"])
     chain.steps.append(step)

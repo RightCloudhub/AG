@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from agentic_graphrag.agent.critic_offline import extract_entity_conclusion
-from agentic_graphrag.agent.relation_frames import (
-    detect_frame,
-    frame,
+from agentic_graphrag.agent.frame_resolution import (
     frame_anchors,
+    frame_for_subquestion,
     match_edge,
     resolve_frame_answers,
 )
+from agentic_graphrag.agent.relation_frames import frame
 from agentic_graphrag.core.evidence import Candidate, CandidateSource
 
 
@@ -27,15 +27,18 @@ def _text(content: str) -> Candidate:
     return Candidate(id="t1", source=CandidateSource.FULLTEXT_CHUNK, content=content, score=1.0)
 
 
-def test_detect_frame_by_noun_and_verb() -> None:
-    assert detect_frame("What is the parent company of X?") == frame("parent")
-    assert detect_frame("Who is the CEO of X?") == frame("ceo")
-    assert detect_frame("Which company produces X?") == frame("producer")
-    assert detect_frame("Which company competes with X?") == frame("competitor")
-    assert detect_frame("Which companies did X previously work at?") == frame("employer")
-    assert detect_frame("Where is X headquartered?") == frame("hq")
-    assert detect_frame("Which event did X participate in?") == frame("event")
-    assert detect_frame("Tell me a story") is None
+def test_frame_for_subquestion_canonical_shapes_only() -> None:
+    a = ["Acme Corp", "Beta Inc"]
+    assert frame_for_subquestion("What is the parent company of Acme Corp?", a) == frame("parent")
+    assert frame_for_subquestion("Who is the CEO of Acme Corp and Beta Inc?", a) == frame("ceo")
+    assert frame_for_subquestion("Which company produces Acme Corp?", a) == frame("producer")
+    assert frame_for_subquestion("Who is the chief executive of Acme Corp?", a) == frame("ceo")
+    assert frame_for_subquestion("Where is Acme Corp headquartered?", a) == frame("hq")
+    assert frame_for_subquestion("Who previously worked at Acme Corp?", a) == frame("alumni")
+    # Free-form / direction-ambiguous questions get no frame.
+    q = "Which CEO previously worked at Acme Corp and now leads Beta Inc?"
+    assert frame_for_subquestion(q, a) is None
+    assert frame_for_subquestion("What is the color of Acme Corp?", a) is None
 
 
 def test_parent_requires_anchor_on_tail_of_parent_of() -> None:

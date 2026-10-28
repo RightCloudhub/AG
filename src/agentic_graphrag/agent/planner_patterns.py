@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.planner_chain import match_relation_chain
+from agentic_graphrag.agent.planner_constraints import match_constraint_intersection
 
 # Relation / multi-hop cue constants (no magic strings scattered in matchers)
 _CEO = "ceo"
@@ -96,7 +97,9 @@ def match_ceo_of_parent(ctx: PlanContext) -> list[SubQuestion] | None:
 
 
 def match_ceo_previous_work(ctx: PlanContext) -> list[SubQuestion] | None:
-    if not ctx.primary or _CEO not in ctx.ql:
+    # Needs "CEO of <entity>": "Which CEO previously worked at X and now leads Y?"
+    # is a constraint intersection, not "CEO of X" (it used to plan the latter).
+    if not ctx.primary or "ceo of" not in ctx.ql:
         return None
     if not any(k in ctx.ql for k in _WORK_CUES):
         return None
@@ -241,6 +244,7 @@ def match_single_hop_primary(ctx: PlanContext) -> list[SubQuestion] | None:
 # match_relation_chain parses any fully nested frame chain (>= 2 hops) generically.
 OFFLINE_MATCHERS: tuple[Matcher, ...] = (
     match_relation_chain,
+    match_constraint_intersection,
     match_ceo_of_parent,
     match_ceo_previous_work,
     match_ceo_of_competitor_of_producer,
