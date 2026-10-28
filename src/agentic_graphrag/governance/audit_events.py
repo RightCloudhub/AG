@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -49,6 +50,14 @@ _DEFAULT_PATH = "data/processed/audit_events.jsonl"
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 _DEFAULT_MAX_BACKUPS = 5
 _MAX_MEMORY_EVENTS = 10_000
+
+
+def _default_path() -> Path:
+    from agentic_graphrag.config import RUNTIME_DIR_ENV, runtime_dir
+
+    if os.environ.get(RUNTIME_DIR_ENV, "").strip():
+        return runtime_dir() / Path(_DEFAULT_PATH).name
+    return resolve_path(_DEFAULT_PATH)
 
 
 @dataclass
@@ -96,7 +105,7 @@ class AuditEventStore:
         max_bytes: int = _DEFAULT_MAX_BYTES,
         max_backups: int = _DEFAULT_MAX_BACKUPS,
     ) -> None:
-        self.path: Path = Path(path) if path else resolve_path(_DEFAULT_PATH)
+        self.path: Path = Path(path) if path else _default_path()
         self.max_bytes = max_bytes
         self.max_backups = max_backups
         self._events: list[AuditEvent] = []

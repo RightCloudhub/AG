@@ -130,9 +130,11 @@ def create_doc_store(
 ) -> DocStore:
     if memory:
         return InMemoryDocStore()
-    cfg = cfg or get_config()
-    path = resolve_path(root or Path(cfg.paths.processed_dir) / "docs")
-    return FileDocStore(path)
+    if root is not None:
+        return FileDocStore(resolve_path(root))
+    from agentic_graphrag.config import runtime_dir
+
+    return FileDocStore(runtime_dir(cfg or get_config()) / "docs")
 
 
 def create_bundle(

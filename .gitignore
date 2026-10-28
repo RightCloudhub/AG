@@ -60,6 +60,7 @@ data/processed/extract_quarantine.jsonl
 
 # Enterprise runtime journals (audit / review / ingest task state; regenerable)
 data/processed/audit_chains.jsonl
+data/processed/audit_chains.jsonl.*
 data/processed/audit_events.jsonl
 data/processed/ingest_tasks.jsonl
 data/processed/review_queue.jsonl

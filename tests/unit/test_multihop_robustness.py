@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agentic_graphrag.agent.entity_linking import link_ambiguous_mention
 from agentic_graphrag.agent.input_policy import refusal_chain, screen_question
 from agentic_graphrag.agent.triage import Route, triage
@@ -161,3 +163,87 @@ def test_memory_graph_name_index_invalidates_on_mutation() -> None:
     assert len(store.neighbors("Acme", max_hops=1)) == 1
     store.clear()
     assert store.neighbors("Acme", max_hops=1) == []
+
+
+def test_shared_connections_composer() -> None:
+    from agentic_graphrag.generation.offline_compose import (
+        compose_shared_connections,
+        shared_pair,
+    )
+
+    q = "Find shared business connections between Acme and Beta."
+    assert shared_pair(q, ["Acme", "Beta"]) == ("Acme", "Beta")
+    edges = [
+        ("Acme", "COMPETES_WITH", "Beta"),
+        ("Sup1", "SUPPLIES", "Acme"),
+        ("Sup1", "SUPPLIES", "Beta"),
+        ("Sup2", "SUPPLIES", "Beta"),
+        ("Acme", "LOCATED_IN", "Austin"),
+    ]
+    assert compose_shared_connections(("Acme", "Beta"), edges) == (
+        "They compete; share suppliers Sup1"
+    )
+    assert shared_pair("Who is the CEO of Acme?", ["Acme"]) is None
+
+
+def test_strict_scoring_penalizes_answer_stuffing() -> None:
+    from agentic_graphrag.eval.scoring_strict import EntityMatcher, strict_summary
+
+    m = EntityMatcher(["Acme", "Beta", "Gamma", "Delta"])
+    rows = [
+        {"question": "Who owns Delta?", "gold": "Acme", "prediction": "Acme"},
+        {"question": "Who owns Delta?", "gold": "Acme", "prediction": "Acme and Beta and Gamma"},
+        {"question": "Is it?", "gold": "yes", "prediction": "yes"},
+        {
+            "question": "Parent of Delta?",
+            "gold": "Acme",
+            "prediction": "The parent of Delta is Acme",
+        },
+    ]
+    got = strict_summary(rows, m).to_dict()
+    assert got["total"] == 3 and got["set_recall"] == 3
+    assert got["exact_set"] == 2 and got["extra_entities"] == 2
+
+
+def test_qualifier_filters_edges_by_provenance_span() -> None:
+    from agentic_graphrag.agent.frame_resolution import resolve_frame_answers
+    from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+
+    def edge(head: str, span: str) -> Candidate:
+        return Candidate(
+            id=f"e-{head}",
+            source=CandidateSource.GRAPH_NEIGHBOR,
+            content=f"{head} -[SUPPLIES_FOR]-> Server X (Company)",
+            score=1.0,
+            structured={"relation": "SUPPLIES_FOR", "head": head, "tail": "Server X"},
+            citations=[Citation(chunk_id="c1", span=span)],
+        )
+
+    ev = [
+        edge("ChipCo", "ChipCo supplies advanced chips for Server X"),
+        edge("PowerCo", "PowerCo supplies power modules for Server X"),
+    ]
+    assert resolve_frame_answers("Which companies supply chip for Server X?", ev) == ["ChipCo"]
+    assert resolve_frame_answers("Which companies supply power modules for Server X?", ev) == [
+        "PowerCo"
+    ]
+    # No provenance mentions the qualifier → keep every supplier rather than nothing.
+    assert resolve_frame_answers("Which companies supply fans for Server X?", ev) == [
+        "ChipCo",
+        "PowerCo",
+    ]
+
+
+def test_audit_store_rotates_and_bounds_index(tmp_path: Path) -> None:
+    from agentic_graphrag.governance.audit_store import AuditStore
+
+    path = tmp_path / "audit_chains.jsonl"
+    store = AuditStore(path, max_bytes=400, max_backups=2, max_index=3)
+    for i in range(12):
+        store.save({"query_id": f"q{i}", "answer": "x" * 60})
+    assert store.list_ids() == ["q9", "q10", "q11"]
+    assert store.get("q0") is None and store.get("q11") is not None
+    assert path.with_name("audit_chains.jsonl.1").exists()
+    assert not path.with_name("audit_chains.jsonl.3").exists()
+    reloaded = AuditStore(path, max_index=3)
+    assert len(reloaded.list_ids()) <= 3

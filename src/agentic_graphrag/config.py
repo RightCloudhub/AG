@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -180,6 +181,19 @@ def resolve_path(relative: str | Path) -> Path:
     if p.is_absolute():
         return p
     return (ROOT_DIR / p).resolve()
+
+
+RUNTIME_DIR_ENV = "AGR_RUNTIME_DIR"
+
+
+def runtime_dir(cfg: AppConfig | None = None) -> Path:
+    """Directory for runtime state the service *writes* (audit log, review queue,
+    ingest tasks, uploaded docs). Defaults to ``paths.processed_dir``; tests point
+    ``AGR_RUNTIME_DIR`` at a temp dir so they never write into the working tree."""
+    override = os.environ.get(RUNTIME_DIR_ENV, "").strip()
+    if override:
+        return resolve_path(override)
+    return resolve_path((cfg or get_config()).paths.processed_dir)
 
 
 @lru_cache

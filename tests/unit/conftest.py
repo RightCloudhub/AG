@@ -16,9 +16,12 @@ _PROFILE_ENV = ("AGR_PROFILE", "AGR_USE_LIVE_STORES", "AGR_ALLOW_LLM")
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _isolate_profile_env() -> Iterator[None]:
+def _isolate_profile_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     # Session scope so module-scoped fixtures (e.g. API TestClients) see it too.
     with pytest.MonkeyPatch.context() as mp:
         for name in _PROFILE_ENV:
             mp.delenv(name, raising=False)
+        # Runtime sinks (audit log, review queue, ingest tasks, uploaded docs)
+        # go to a temp dir instead of data/processed in the working tree.
+        mp.setenv("AGR_RUNTIME_DIR", str(tmp_path_factory.mktemp("agr_runtime")))
         yield

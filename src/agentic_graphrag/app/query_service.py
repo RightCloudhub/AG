@@ -27,7 +27,14 @@ from agentic_graphrag.app.wiring import (
     build_llm_for_service,
 )
 from agentic_graphrag.bootstrap.profile import RuntimeProfile
-from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
+from agentic_graphrag.config import (
+    AppConfig,
+    Settings,
+    get_config,
+    get_settings,
+    resolve_path,
+    runtime_dir,
+)
 from agentic_graphrag.core.events import EventBus
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
@@ -186,16 +193,14 @@ class QueryService:
             bundle=bundle,
             allow_llm=allow_llm,
             known_entities=_entities_from_triples(triples) if triples else [],
-            audit_store=AuditStore(resolve_path(cfg.paths.processed_dir) / "audit_chains.jsonl"),
-            review_queue=ReviewQueue(resolve_path(cfg.paths.processed_dir) / "review_queue.jsonl"),
+            audit_store=AuditStore(runtime_dir(cfg) / "audit_chains.jsonl"),
+            review_queue=ReviewQueue(runtime_dir(cfg) / "review_queue.jsonl"),
             retrieval_cache=RetrievalCache(
                 cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
                 answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,
             ),
             multi_budget=MultiLevelBudget(tenant_overrides=tenant_overrides),
-            ingest_tasks=IngestTaskStore(
-                resolve_path(cfg.paths.processed_dir) / "ingest_tasks.jsonl"
-            ),
+            ingest_tasks=IngestTaskStore(runtime_dir(cfg) / "ingest_tasks.jsonl"),
         )
         from agentic_graphrag.app.write_path import attach_write_path
 

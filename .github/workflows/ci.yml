@@ -162,11 +162,12 @@ jobs:
           python scripts/check_eval_floor.py reports/ci_probe_neg_accuracy.json \
             --min-correct 19 --total 20 --label "probe-negative"
 
-      # Report-only: label defects (ambiguous gold, inverse labels) — never blocks.
-      - name: Gold audit (report only)
+      # Gold labels were regenerated with correct directions and full answer
+      # sets; keep them clean (inverse labels / ambiguous gold now block).
+      - name: Gold audit
         run: |
           python scripts/audit_gold.py "$G2_CASES" --triples "$G2_TRIPLES" \
-            --json reports/ci_gold_audit.json
+            --json reports/ci_gold_audit.json --max-flagged 0
 
       - name: Upload eval reports
         if: always()
