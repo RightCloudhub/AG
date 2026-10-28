@@ -17,6 +17,7 @@ from agentic_graphrag.agent.critic_offline_rel import (
     hit_relevance,
 )
 from agentic_graphrag.agent.options import CritiqueContext
+from agentic_graphrag.agent.relation_frames import resolve_frame_answers
 from agentic_graphrag.core.evidence import Candidate
 
 _EVIDENCE_ID_CAP = 8
@@ -38,6 +39,11 @@ def extract_entity_conclusion(
     graph_hits = [c for c in evidence if c.is_graph()]
     if not graph_hits:
         return None
+    # Direction-checked frame resolution first (anchor must sit on the frame's
+    # anchor side); fall back to the cue-ranked pickers below when no frame fits.
+    framed = resolve_frame_answers(sub_question, graph_hits)
+    if framed:
+        return " and ".join(framed)
     # Prefer higher relevance; break ties by earlier retrieval rank (stable, deterministic).
     ranked = sorted(
         enumerate(graph_hits),
