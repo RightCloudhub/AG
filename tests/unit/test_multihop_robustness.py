@@ -149,3 +149,15 @@ def test_memory_normalize_is_idempotent_for_dedup() -> None:
     mem = MemoryState()
     mem.mark_subquestion(raw)
     assert mem.is_duplicate_subquestion(raw)
+
+
+def test_memory_graph_name_index_invalidates_on_mutation() -> None:
+    store = _store([_t("Acme", "PARENT_OF", "Beta")])
+    assert len(store.neighbors("Acme", max_hops=1)) == 1
+    ents, rels = triples_to_records([_t("Acme", "COMPETES_WITH", "Gamma")])
+    store.upsert_relations(rels)
+    assert len(store.neighbors("Acme", max_hops=1)) == 2
+    assert store.delete_relation(rels[0].id)
+    assert len(store.neighbors("Acme", max_hops=1)) == 1
+    store.clear()
+    assert store.neighbors("Acme", max_hops=1) == []

@@ -18,10 +18,13 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
     def __init__(self) -> None:
         self._entities: dict[str, EntityRecord] = {}
         self._relations: dict[str, RelationRecord] = {}
+        # Lazy endpoint-name → relation keys index; None = stale (any mutation).
+        self._by_name: dict[str, list[str]] | None = None
 
     def clear(self) -> None:
         self._entities.clear()
         self._relations.clear()
+        self._by_name = None
 
     def upsert_entities(self, entities: list[EntityRecord]) -> int:
         for entity in entities:
@@ -31,12 +34,14 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
     def upsert_relations(self, relations: list[RelationRecord]) -> int:
         for relation in relations:
             self._relations[_key(relation.tenant_id, relation.id)] = relation
+        self._by_name = None
         return len(relations)
 
     def list_relations(self, limit: int = DEFAULT_RELATION_SCAN) -> list[RelationRecord]:
         return list(self._relations.values())[:limit]
 
     def rewire_entity(self, drop_id: str, keep_id: str, *, keep_name: str, tenant_id: str) -> None:
+        self._by_name = None
         for relation in self._relations.values():
             if relation.tenant_id != tenant_id:
                 continue
@@ -62,6 +67,7 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
         ]
         for key in keys:
             del self._relations[key]
+        self._by_name = None
         return bool(keys)
 
     def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
@@ -212,13 +218,24 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
         tenant_id: str | None,
     ) -> list[tuple[RelationRecord, EntityRecord]]:
         rows: list[tuple[RelationRecord, EntityRecord]] = []
-        for relation in self._relations.values():
+        for key in self._name_index().get(name, ()):
+            relation = self._relations[key]
             if not _tenant_matches(relation.tenant_id, tenant_id):
                 continue
             endpoint = self._endpoint(relation, name, relation_types)
             if endpoint is not None:
                 rows.append((relation, endpoint))
         return rows
+
+    def _name_index(self) -> dict[str, list[str]]:
+        """Endpoint name (lower) → relation keys; O(E) once instead of per lookup."""
+        if self._by_name is None:
+            index: dict[str, list[str]] = {}
+            for key, rel in self._relations.items():
+                for end in {rel.head_name.lower(), rel.tail_name.lower()}:
+                    index.setdefault(end, []).append(key)
+            self._by_name = index
+        return self._by_name
 
     def _endpoint(
         self,
