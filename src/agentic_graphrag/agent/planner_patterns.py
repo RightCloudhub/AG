@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from agentic_graphrag.agent.plan_dag import SubQuestion
+from agentic_graphrag.agent.planner_chain import match_relation_chain
 
 # Relation / multi-hop cue constants (no magic strings scattered in matchers)
 _CEO = "ceo"
@@ -237,7 +238,9 @@ def match_single_hop_primary(ctx: PlanContext) -> list[SubQuestion] | None:
 
 
 # Order matters: more specific multi-hop patterns before generic ones.
+# match_relation_chain parses any fully nested frame chain (>= 2 hops) generically.
 OFFLINE_MATCHERS: tuple[Matcher, ...] = (
+    match_relation_chain,
     match_ceo_of_parent,
     match_ceo_previous_work,
     match_ceo_of_competitor_of_producer,
