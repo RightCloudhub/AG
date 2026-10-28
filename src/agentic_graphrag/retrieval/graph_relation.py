@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from functools import lru_cache
 
 from agentic_graphrag.core.ports.stores import EntityRecord, RelationRecord
 from agentic_graphrag.knowledge.temporal import temporal_weight
@@ -61,6 +62,8 @@ _RELATION_CUES: dict[str, tuple[str, ...]] = {
     "SUPPLIES_FOR": ("suppl", "component", "parts for", "供应"),
     "PARTICIPATED_IN": ("participat", "event", "partnership", "deal", "summit", "参与", "合作"),
     "ACQUIRED": ("acquir", "bought", "merger", "m&a", "收购"),
+    "FOUNDED": ("found", "founder", "co-found", "创立", "创始人", "创办"),
+    "PARTNER_OF": ("partner", "alliance", "collaborat", "合作伙伴"),
     "LOCATED_IN": (
         "located",
         "based in",
@@ -100,10 +103,21 @@ def relation_relevance(relation_type: str, sub_question: str | None) -> float:
     if not cues:
         # Unknown relation: mild default so it is not totally pruned
         return 0.25
-    hits = sum(1 for c in cues if c in q)
+    hits = sum(1 for c in cues if _cue_in(c, q))
     if hits == 0:
         return 0.08
     return min(1.0, 0.45 + 0.2 * hits)
+
+
+@lru_cache(maxsize=512)
+def _cue_pattern(cue: str) -> re.Pattern[str]:
+    # Left word boundary only: cues are stems ("compet", "suppl"), but must not
+    # fire inside other words ("work" in "Lumen Networks", "own" in "known").
+    return re.compile(rf"(?<![a-z0-9]){re.escape(cue)}")
+
+
+def _cue_in(cue: str, text: str) -> bool:
+    return bool(_cue_pattern(cue).search(text))
 
 
 def infer_relation_types(

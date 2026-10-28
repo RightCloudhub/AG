@@ -173,6 +173,7 @@ _VERB_CUES: tuple[tuple[str, str], ...] = (
     (" compete with ", "competitor"),
     (" produces ", "producer"),
     (" founded ", "founder"),
+    (" owns ", "parent"),
     (" supply ", "supplier"),
     (" supplies ", "supplier"),
 )
