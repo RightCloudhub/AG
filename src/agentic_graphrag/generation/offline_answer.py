@@ -29,7 +29,7 @@ def offline_answer(
     extra = [c.content for c in evidence if c not in preferred and c.content]
     all_texts = texts + extra
     edges = parse_edges(all_texts)
-    hop_answer = _prefer_hop_conclusion(chain.question, conclusions)
+    hop_answer = _hop_answer(chain.question, conclusions)
     if hop_answer:
         return _apply_focused(chain, hop_answer, preferred)
     focused = focused_extract(chain.question, edges, all_texts)
@@ -40,6 +40,28 @@ def offline_answer(
         chain.metadata["offline_answerer"] = "honest_no_match"
         return chain
     return _apply_extractive(chain, preferred, conclusions)
+
+
+def _hop_answer(question: str, conclusions: str) -> str | None:
+    return _chain_hop_answer(question, conclusions) or _prefer_hop_conclusion(question, conclusions)
+
+
+def _chain_hop_answer(question: str, conclusions: str) -> str | None:
+    """Final-hop conclusion of a fully parsed relation chain (any answer type).
+
+    Each hop's conclusion was direction-checked by the critic, so when every hop
+    of the parsed chain produced one, the last is the answer to the question.
+    """
+    from agentic_graphrag.agent.entities import extract_entity_mentions
+    from agentic_graphrag.agent.planner_chain import parse_chain
+
+    parsed = parse_chain(question or "", extract_entity_mentions(question or ""))
+    if parsed is None:
+        return None
+    parts = [p.strip() for p in (conclusions or "").split(";") if p.strip()]
+    if len(parts) < len(parsed.frames):
+        return None
+    return parts[-1]
 
 
 def _prefer_hop_conclusion(question: str, conclusions: str) -> str | None:
