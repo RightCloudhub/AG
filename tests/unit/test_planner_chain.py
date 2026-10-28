@@ -38,7 +38,10 @@ def test_lead_verb_and_relative_clause_rewrites() -> None:
 
 
 def test_outer_verb_frames() -> None:
-    q = "Which companies did the CEO of the parent company of NovaTech Industries previously work at?"
+    q = (
+        "Which companies did the CEO of the parent company of NovaTech Industries "
+        "previously work at?"
+    )
     assert _texts(q)[-1] == "Which companies did {from:sq2} previously work at?"
     assert _texts("Where is the parent company of NovaTech Industries headquartered?") == [
         "What is the parent company of NovaTech Industries?",
