@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions, is_stopword_entity
+from agentic_graphrag.agent.entity_linking import link_ambiguous_mention
 from agentic_graphrag.agent.executor_dispatch import (
     cache_hit_result,
     dispatch,
@@ -165,7 +166,10 @@ class Executor:
 
     def resolve_entities(self, text: str, hint: list[str] | None = None) -> list[str]:
         base = list(hint or [])
-        mentions = extract_entity_mentions(text, self.known_entities or None)
+        mentions = [
+            link_ambiguous_mention(m, self.known_entities, self.graph.store)
+            for m in extract_entity_mentions(text, self.known_entities or None)
+        ]
         ordered: list[str] = []
         seen: set[str] = set()
         for name in base + mentions:
