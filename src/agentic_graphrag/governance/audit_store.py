@@ -1,37 +1,65 @@
-"""Persist reasoning chains for audit lookup by query_id (FR-AN-04 / P3-AN-01)."""
+"""Persist reasoning chains for audit lookup by query_id (FR-AN-04 / P3-AN-01).
+
+The JSONL file is size-rotated and the in-memory index is bounded: previously
+the file grew without limit and was parsed whole on every service start (an
+80 MB log after a few eval runs made start-up take seconds and held every chain
+in memory).
+"""
 
 from __future__ import annotations
 
 import json
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.core.reasoning import ReasoningChain
 
+DEFAULT_MAX_BYTES = 20 * 1024 * 1024
+DEFAULT_MAX_BACKUPS = 3
+DEFAULT_MAX_INDEX = 5_000
+
 
 class AuditStore:
-    """JSONL + in-memory index of reasoning chains."""
+    """JSONL + bounded in-memory index of reasoning chains."""
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+        max_backups: int = DEFAULT_MAX_BACKUPS,
+        max_index: int = DEFAULT_MAX_INDEX,
+    ) -> None:
         self.path = Path(path) if path else None
-        self._index: dict[str, dict[str, Any]] = {}
+        self.max_bytes = max_bytes
+        self.max_backups = max_backups
+        self.max_index = max_index
+        self._index: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._lock = threading.Lock()
         if self.path and self.path.exists():
             self._load()
 
     def _load(self) -> None:
         assert self.path is not None
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
+        with self.path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 qid = str(row.get("query_id") or "")
                 if qid:
-                    self._index[qid] = row
-            except json.JSONDecodeError:
-                continue
+                    self._remember(qid, row)
+
+    def _remember(self, qid: str, row: dict[str, Any]) -> None:
+        self._index[qid] = row
+        self._index.move_to_end(qid)
+        while len(self._index) > self.max_index:
+            self._index.popitem(last=False)
 
     def save(self, chain: ReasoningChain | dict[str, Any]) -> str:
         payload = (
@@ -41,12 +69,30 @@ class AuditStore:
         if not qid:
             raise ValueError("chain missing query_id")
         with self._lock:
-            self._index[qid] = payload
+            self._remember(qid, payload)
             if self.path:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                if self.path.stat().st_size > self.max_bytes:
+                    self._rotate()
         return qid
+
+    def _rotate(self) -> None:
+        """``audit.jsonl`` → ``audit.jsonl.1`` …, keeping ``max_backups`` copies."""
+        assert self.path is not None
+        for i in range(self.max_backups, 0, -1):
+            src = self.path.with_name(f"{self.path.name}.{i}")
+            if not src.exists():
+                continue
+            if i >= self.max_backups:
+                src.unlink()
+            else:
+                src.rename(self.path.with_name(f"{self.path.name}.{i + 1}"))
+        if self.max_backups > 0:
+            self.path.rename(self.path.with_name(f"{self.path.name}.1"))
+        else:
+            self.path.unlink()
 
     def get(self, query_id: str) -> dict[str, Any] | None:
         with self._lock:

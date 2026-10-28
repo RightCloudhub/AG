@@ -63,8 +63,15 @@ def _collect_names_from_line(line: str, names: set[str]) -> None:
 def lexicon_from_names(names: list[str] | tuple[str, ...] | None) -> list[str]:
     if not names:
         return list(default_lexicon_from_seed())
+    return list(_sorted_lexicon(tuple(names)))
+
+
+@lru_cache(maxsize=64)
+def _sorted_lexicon(names: tuple[str, ...]) -> tuple[str, ...]:
+    """Cleaned, longest-first lexicon; cached because the executor passes the same
+    known-entity list on every hop (re-sorting ~500 names per call was a hotspot)."""
     cleaned = [n.strip() for n in names if n and not is_stopword_entity(n)]
-    return sorted(set(cleaned), key=lambda s: (-len(s), s.lower()))
+    return tuple(sorted(set(cleaned), key=lambda s: (-len(s), s.lower())))
 
 
 def extract_entity_mentions(
