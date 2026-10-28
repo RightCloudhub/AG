@@ -16,6 +16,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
+from agentic_graphrag.agent.planner_chain import parse_chain
 from agentic_graphrag.core.enums import MessageRole
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
@@ -98,7 +99,7 @@ def triage(
         return _agentic("force_agentic", hops=_MULTI_HOP_EST, rule="force_agentic")
 
     entities = extract_entity_mentions(q, known_entities, max_entities=_MAX_ENTITY_HINTS)
-    for rule in (_rule_multi_hop, _rule_simple_fact, _rule_short_wh):
+    for rule in (_rule_relation_chain, _rule_multi_hop, _rule_simple_fact, _rule_short_wh):
         hit = rule(q, entities)
         if hit is not None:
             return hit
@@ -144,6 +145,22 @@ def _fast(
         estimated_hops=1,
         confidence=confidence,
         rule_hit=rule,
+    )
+
+
+def _rule_relation_chain(q: str, entities: list[str]) -> TriageResult | None:
+    """Structural multi-hop: a parsed relation chain of >= 2 frames is never Fast Path.
+
+    Keyword cues missed relative-clause / verb forms ("CEO of the company that
+    produces X", "Where is the parent company of X headquartered?").
+    """
+    chain = parse_chain(q, entities)
+    if chain is None:
+        return None
+    return _agentic(
+        f"relation chain of {len(chain.frames)} hops",
+        hops=min(_HOP_CLAMP_MAX, len(chain.frames)),
+        rule="relation_chain",
     )
 
 
