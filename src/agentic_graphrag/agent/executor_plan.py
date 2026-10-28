@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentic_graphrag.agent.entities import is_stopword_entity
+from agentic_graphrag.agent.entities import extract_entity_mentions, is_stopword_entity
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import (
@@ -60,6 +60,8 @@ DEFAULT_NEIGHBOR_HOPS = 2
 LONG_NEIGHBOR_HOPS = 3
 PATH_MAX_HOPS = 4
 MAX_NAMED_ENTITIES = 2
+# A materialized fan-out hop ("CEO of A and B and C") may name more entities.
+MAX_FANOUT_ENTITIES = 4
 ENTITY_ARG_KEYS = (ToolArgument.ENTITY, ToolArgument.NAME, ToolArgument.SOURCE, ToolArgument.TARGET)
 
 
@@ -94,6 +96,7 @@ def build_heuristic(
     q = sub_question.lower()
     specs: list[ToolCallSpec] = []
     names = executor.resolve_entities(sub_question, entities_hint)
+    names = names[: _entity_budget(executor, sub_question)]
     specs.extend(_path_specs(q, names))
     specs.extend(_relation_specs(q, names))
     if not specs and names:
@@ -102,6 +105,12 @@ def build_heuristic(
     has_graph = any(s.tool in GRAPH_TOOLS for s in specs)
     specs.extend(_lexical_backup_specs(sub_question, skip_vector=has_graph))
     return specs
+
+
+def _entity_budget(executor: Executor, sub_question: str) -> int:
+    """Expand every entity the sub-question names (fan-out), else the default cap."""
+    named = extract_entity_mentions(sub_question, executor.known_entities or None)
+    return min(MAX_FANOUT_ENTITIES, max(MAX_NAMED_ENTITIES, len(named)))
 
 
 def sanitize_spec(executor: Executor, spec: ToolCallSpec, sub_question: str) -> ToolCallSpec:
@@ -161,7 +170,7 @@ def _relation_specs(q: str, names: list[str]) -> list[ToolCallSpec]:
             args={ToolArgument.ENTITY: ent, ToolArgument.MAX_HOPS: hops},
             reason=f"relation expand around {ent}",
         )
-        for ent in names[:MAX_NAMED_ENTITIES]
+        for ent in names
     ]
 
 
@@ -174,7 +183,7 @@ def _default_neighbor_specs(names: list[str]) -> list[ToolCallSpec]:
             args={ToolArgument.ENTITY: ent, ToolArgument.MAX_HOPS: DEFAULT_NEIGHBOR_HOPS},
             reason="default graph expand",
         )
-        for ent in names[:MAX_NAMED_ENTITIES]
+        for ent in names
     ]
 
 
