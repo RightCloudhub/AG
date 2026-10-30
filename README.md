@@ -28,6 +28,22 @@ agr-api                                                          # http://127.0.
 AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
 
+只测试在线 LLM（内存图谱，无需 Docker）：
+
+```bash
+bash scripts/online_eval.sh                      # 提示输入 key（隐藏）和模型名
+bash scripts/online_eval.sh --preflight-only     # 只检查普通对话与 JSON 输出
+bash scripts/online_eval.sh --limit 0            # 运行全部 POC 题目及离线对照
+```
+
+也可在不入库的 `.env` 中只填写 `LLM_API_KEY` 和 `LLM_STRONG_MODEL`，脚本会将同一个模型
+用于 strong/light 两档。未配置 `LLM_BASE_URL` 时，测试脚本默认沿用现有网关
+`https://api.mmkg.cloud/v1`；其他服务商通过 `--base-url` 或 `.env` 覆盖。
+默认按类别轮转抽取 5 道题，运行真实对话请求并生成
+`reports/online_eval/<时间戳>/report.md`、`summary.json`、`preflight.json` 和逐题 JSONL。
+预检也可能计费。测试关闭向量调用；使用自定义题库时需通过 `--seed-triples` 提供匹配的图谱。
+退出码：0 表示调用检查通过（准确率单独报告），1 表示在线或运行检查失败，2 表示配置错误。
+
 在线模式（真实 LLM / Neo4j / Qdrant）：
 
 ```bash

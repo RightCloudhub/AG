@@ -1,0 +1,6 @@
+# Live chat smoke test defaults; credentials belong in .env or hidden input.
+base_url: https://api.mmkg.cloud/v1
+limit: 5
+cases: evals/datasets/poc_cases.jsonl
+seed_triples: data/processed/seed_triples.jsonl
+prompt: configs/prompts/online_llm_test.md
