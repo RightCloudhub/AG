@@ -1,120 +1,99 @@
-# Spec — 系统级规则（System-Level Rules）
+# Spec — 系统级规则
 
-**定位**：本文件定义 AgenticGraphRAG **运行系统必须满足的系统级规则与不变量**（invariants）——
-即无论代码如何演进，系统在架构、运行时、契约、安全四个层面都不得违反的约束。
+本文件定义 AgenticGraphRAG 的架构、运行时、接口与安全约束。
+工程流程、测试门禁和评审要求统一见 [工程规则](plan/engineering/rules.md)；
+模块说明见 [架构文档](docs/ARCHITECTURE.md)，有意延期或例外记入
+[债务台账](docs/reviews/IMPORTANT.md)。文档与实现不一致时须明确差异并同步修正。
 
-与其它规范文档的分工与优先级：
-
-| 文档 | 职责 | 冲突时 |
-|---|---|---|
-| [plan/engineering/rules.md](plan/engineering/rules.md) | 工程过程规则（代码指标 / lint / 测试 / 提交 / 评审），唯一规则汇总入口 | 工程规则以其为准 |
-| 本文件（Spec.md） | 系统级规则：架构不变量、运行时护栏、输出契约、安全不变量 | 系统行为以本文件为准 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 描述性架构文档（模块地图、生命周期） | 描述性，不具强制力 |
-| [docs/IMPORTANT.md](docs/IMPORTANT.md) | 债务 / 延期 / 不做事项台账 | 例外必须在此挂账 |
-
-**版本**：V1.1（2026-07-25）— S5.4 与实现对齐（免鉴权面全集 + ENT-04 RBAC 注记；按 §7"先修一致"条款，非新增规则）。前版 V1.0（2026-07-23）。规则数值若与 `configs/default.yaml` 不一致，以配置文件为准并回改本文件。
-
----
+**版本**：V1.2（2026-10-31）— 对齐当前组合根、运行 profile 与接口契约，清理重复信息。
+下文源码路径均相对 `src/agentic_graphrag/`；可调参数以 `config.py` 加载后的有效配置为准。
 
 ## S1. 架构不变量
 
-- **S1.1 单一组合根**：后端实现（Neo4j / Qdrant / 真实 LLM）的选择只发生在
-  `stores/factory.py`（`create_offline_bundle()` / `create_live_bundle()`）与 `api/service.py`。
-  应用代码只依赖 `stores/interfaces.py` 的 `GraphStore` / `VectorStore` / `FulltextStore` /
-  `DocStore` 协议，任何位置不得 import Neo4j / Qdrant 客户端类型。
-- **S1.2 在线依赖懒加载**：live 后端在 factory 内部惰性 import；离线路径在未安装在线依赖时必须可运行。
-- **S1.3 依赖方向单向**：`web/·api/·cli/ → agent/ → retrieval/·generation/ → stores/·llm/`，
-  不得出现反向 import。LangGraph 限定在 `agent/` 内且版本锁定（ADR-005）；
-  不引入 LangChain 检索/链抽象。
-- **S1.4 节点纯函数化**：agent 图节点实现为"状态入 → 状态出"，单测不依赖 LangGraph 运行时。
-- **S1.5 配置单入口**：新配置项进 `AppConfig`（`configs/default.yaml`）或 `Settings`（env），
-  经 `config.py` 读取，env 覆盖 YAML；不得散落 `os.environ` 直读（既有 `AGR_*` 开关除外）。
-  路径解析一律 `resolve_path()`，与 cwd 无关。
+- **S1.1 组合根与协议边界**：运行 profile 与后端能力在 `bootstrap/` 解析，
+  由 `build_stores()` 调用 `stores/factory.create_bundle()` 装配存储，应用服务在 `app/` 组装。
+  存储与 LLM 契约位于 `core/ports/`；应用和领域代码不得依赖 Neo4j / Qdrant 客户端类型。
+  旧路径 `api/service.py`、`stores/interfaces.py` 等仅为兼容别名，新代码使用当前模块路径。
+- **S1.2 在线依赖懒加载**：在线存储在 factory 中按需加载，客户端依赖限制在存储适配器内；
+  未安装在线依赖时，离线路径仍须可运行。
+- **S1.3 依赖方向**：驱动层（API / CLI / eval / worker）经 `app/` 调用领域逻辑；
+  领域层不得反向依赖驱动层，`core/` 不依赖项目内其他包。
+  LangGraph 限定在 `agent/` 且版本锁定，不引入 LangChain 检索或链抽象。
+- **S1.4 节点状态契约**：agent 图节点按“状态入 → 状态出”实现，节点单测可脱离 LangGraph 运行时。
+- **S1.5 配置单入口**：新配置项进入 `AppConfig`（YAML）或 `Settings`（环境变量），
+  经 `config.py` 加载；已有环境覆盖项优先于 YAML。
+  除既有 `AGR_*` 开关外，不散落读取 `os.environ`；仓库数据路径经 `resolve_path()` 解析。
 
-## S2. 离线 / 在线双轨（离线是默认）
+## S2. 离线默认与在线显式启用
 
-- **S2.1 离线默认可用**：任何新功能必须在 `--no-llm` + 内存后端（InMemoryGraphStore +
-  seed triples + MockLLMProvider）下可运行，或显式声明"仅在线"并在 IMPORTANT.md 挂账。
-  CI 与 20-case 评测路径不得引入在线依赖。
-- **S2.2 离线确定性**：离线路径（相同输入 + 相同 seed 数据）必须产生确定性结果；
-  离线评测可复现是 CI 的前提。
-- **S2.3 在线显式开启**：真实 LLM 需 `AGR_ALLOW_LLM=1` + `LLM_API_KEY`；
-  live 存储需 `AGR_USE_LIVE_STORES=1`（或 CLI `--neo4j`）。缺省一律回落离线。
-- **S2.4 启发式隔离**：`generation/offline_heuristics/` 只服务演示语料的确定性评测，
-  不是生产路径——不得为修复在线（live LLM）行为改它，也不得为通过离线评测往里加规则。
+- **S2.1 离线可用**：默认内存后端与无真实 LLM 的路径不需要 API Key、Docker 或网络服务。
+  新功能须支持该路径，或明确声明仅在线并在债务台账挂账；单测与离线 CI 不引入在线依赖。
+- **S2.2 离线可复现**：相同输入、配置与数据快照应得到相同的答案、状态与路由。
+  离线评测不得受本机遗留索引或缓存污染；`eval` profile 关闭答案 / 检索缓存及本地索引加载。
+- **S2.3 profile 显式选择**：`AGR_PROFILE=offline|live|hybrid|eval` 优先于旧开关
+  `AGR_USE_LIVE_STORES=1`（等价于 `live`），未设置时为 `offline`。
+  `live` 使用 Neo4j + Qdrant，Neo4j + 内存向量须声明为 `hybrid`；
+  profile 无效、所需存储凭据缺失或后端不可达时失败，不静默切换后端。
+  服务启用真实 LLM 还须 `AGR_ALLOW_LLM=1` 与有效 `LLM_API_KEY`，独立于存储 profile；
+  API 启动时校验显式启用的在线能力所需凭据。
+- **S2.4 启发式隔离**：`generation/offline_heuristics/` 仅服务演示语料的确定性评测。
+  不得靠添加语料特定规则掩盖生产 LLM 问题或制造评测提升。
 
-## S3. 运行时护栏（Guardrails）
+## S3. 运行时护栏
 
-所有 Agentic 查询全程受 `agent/guardrails.py` 约束；上限来自 `configs/default.yaml`
-`guardrails:` 节（下表为当前值，**以配置为准**）：
-
-| 护栏 | 当前值 | 说明 |
-|---|---|---|
-| max_hops | 4 | Agentic 推理最大跳数 |
-| max_llm_calls | 16 | 单查询 LLM 调用上限 |
-| max_tokens_per_query | 50000 | 单查询 token 预算（`llm/budget.py`） |
-| query_timeout_seconds | 45 | 单查询墙钟超时 |
-| recursion_limit | 15 | LangGraph 递归上限（≥ 2·max_hops+5） |
-
-- **S3.1 护栏不可绕过**：任何执行路径（Fast Path 升级、重试、SSE 流式）都不得绕过护栏计数。
-- **S3.2 预算原子性**：租户级预算（`llm/budget_policy.py`）预扣必须原子；超限请求快速失败，
-  不得先执行后扣。
-- **S3.3 优雅降级**：护栏触发（超时 / 超预算 / 递归超限）返回带已收集证据的部分结果 + 明确的
-  终止原因，不得向调用方抛裸异常（先例：GraphRecursionError 恢复而非上抛）。
+- **S3.1 统一执行与计量**：流式和非流式查询共用 `agent/pipeline.py`。
+  `agent/guardrails.py` 控制跳数、子问题广度、截止时间与递归上限，
+  `governance/budget.py` 统一计量 LLM 调用和 token；Fast Path 升级、重试不得绕过计量。
+  限制从 `AppConfig.guardrails` 加载，请求覆盖只作用于本次查询并受服务端上限约束，
+  不修改全局配置；递归下限由 `min_recursion_limit()` 随跳数计算。
+- **S3.2 预算预留与结算**：租户 / 用户预算经 `governance/budget_policy.py` 原子检查并预留；
+  准入超限时在执行前拒绝。成功后按实际用量结算，失败或流关闭时释放未结算的预留。
+- **S3.3 可解释终止**：运行中触发护栏时保留已收集证据，返回部分结果或无法回答状态及终止原因。
+  递归超限须恢复已有状态；准入拒绝和无法恢复的错误走结构化错误契约，不向客户端暴露裸异常。
 
 ## S4. 输出与接口契约
 
-- **S4.1 推理链契约**：查询输出统一为 `ReasoningChain`（`generation/trace.py`），
-  其 JSON Schema 为 `configs/schema/reasoning_chain_v1.json`；结构变更必须重新导出 schema
-  （`export-reasoning-schema`）并保持向后兼容或升版本号。
-- **S4.2 统一 envelope**：所有 `/v1/*` 响应遵守统一 `success/error` envelope；
-  客户端（含 `web/`）不得绕过 envelope 判定。
-- **S4.3 SSE 事件全集**：流式接口事件类型为
-  `cache_hit / triage / sub_question / hop_done / answer / error`；
-  新增事件类型须同步更新 web 消费端与本条；消费端对未知事件静默忽略。
-- **S4.4 审计可回查**：每次查询的 ReasoningChain 持久化到 AuditStore，
-  经 `GET /v1/audit/queries/{query_id}` 可回查（AC-3）；
-  `POST /v1/feedback` 必须能挂到既有 chain，不准确反馈入人工复核队列。
+- **S4.1 推理链契约**：领域查询结果为 `core/reasoning.py` 的 `ReasoningChain`，
+  JSON Schema 位于 `configs/schema/reasoning_chain_v1.json`（相对仓库根）。
+  结构变更须通过 `python -m agentic_graphrag export-reasoning-schema` 同步导出，
+  并保持向后兼容或升级版本；HTTP 查询视图另由 `app/contracts.py` 的 `QueryResultData` 定义。
+- **S4.2 JSON envelope**：`/v1/*` 普通 JSON 业务响应遵守 `api/envelope.py` 的
+  `success/data/error/meta` 契约，客户端必须检查 `success`；SSE 按事件契约消费。
+- **S4.3 SSE 契约**：公开事件为
+  `cache_hit / triage / thinking / sub_question / hop_done / answer / error`，
+  定义见 `app/stream_events.py`。`answer` 携带推理链，`error` 携带 `code/message`；
+  内部终止标记 `__final_chain__` 不对外发送。增改事件须同步消费端，未知事件静默忽略。
+- **S4.4 审计与反馈**：应用层完成的查询须经 `governance/audit_store.py` 记录推理链，
+  已保存记录可由 `GET /v1/audit/queries/{query_id}` 在所属租户内回查。
+  当前审计写入失败会记录错误日志但不阻断回答，成功响应不保证审计已持久化。
+  `POST /v1/feedback` 关联所属租户的已有记录，不准确反馈进入人工复核队列。
 
 ## S5. 安全不变量
 
-（提交前逐项清单见 rules.md §5；本节为系统运行时必须恒成立的性质。）
+- **S5.1 密钥隔离**：密钥只来自环境或密钥管理服务；本地 `.env` 不入库，`configs/` 仅存非敏感配置。
+- **S5.2 输入校验**：外部输入在边界按 schema 校验并快速拒绝非法值；Cypher / SQL 使用参数化查询。
+- **S5.3 错误不泄密**：JSON 与 SSE 错误不包含堆栈、内部路径或密钥；
+  未处理错误使用通用消息或异常类型名，不直接返回异常正文。
+- **S5.4 鉴权与限流**：开启 `AGR_REQUIRE_AUTH=1` 时，`/v1/*` 须经 API Key → tenant 鉴权，
+  并按路由执行 admin / operator / reader 权限检查；业务请求经租户 QPS / 并发限流。
+  当前免鉴权及限流路径为 `/healthz`、`/metrics-prom`、`/docs`、`/openapi.json`、`/redoc`
+  和 `/web` 前缀路径（`api/auth.py`）；新增公开路径须显式评审。
+- **S5.5 前端文本安全**：自有 `web/` 代码的动态文本经 mustache / `textContent` 输出，
+  禁止 `v-html` 与 `innerHTML`。
+- **S5.6 提示边界**：用户输入与系统指令隔离；检索内容按不可信数据处理，不作为指令执行。
+- **S5.7 租户隔离**：存储读写、缓存、审计和复核队列传递并校验租户上下文。
+  用户预算身份默认绑定 API Key，不信任客户端 `X-User-Id`；信任该头须显式启用。
 
-- **S5.1 无硬编码密钥**：密钥只来自环境变量 / secret manager；`configs/` 只放非敏感配置；
-  启动时校验所需密钥存在（在线模式）。
-- **S5.2 输入边界校验**：全部外部输入 schema 校验、fail fast（NFR-07）；
-  Cypher / SQL 一律参数化，不拼串。
-- **S5.3 错误不泄密**：错误响应不含堆栈、内部路径、密钥；envelope 兜底只返回异常类型名。
-- **S5.4 鉴权与限流**：开启 `AGR_REQUIRE_AUTH=1` 时所有 `/v1/*` 端点须经
-  API Key → tenant 鉴权与 QPS / 并发限流（`api/auth.py`；ENT-04 起附三角色
-  admin/operator/reader 路由守卫）；免鉴权面固定为
-  `/healthz`、`/metrics-prom`、`/docs`、`/openapi.json`、`/redoc`、`/web*`。
-- **S5.5 前端零注入**：`web/` 动态文本只经 mustache / `textContent`；
-  禁止 `v-html` 与任何 `innerHTML`。
-- **S5.6 提示注入防护**：用户输入与系统指令隔离；检索回来的内容一律按不可信数据处理，
-  不得作为指令执行。
+## S6. 评测与变更
 
-## S6. 评测与诚实性
+离线合成评测不得替代真实 LLM / held-out 产品验收证据。
+模板金标（`eval/gold_templates/`）须确定性生成，评测集与金标变更须可追溯。
+门禁、Prompt 回归及规则评审流程统一遵循
+[工程规则](plan/engineering/rules.md) §3、§7、§9，不在本文件重复维护阶段状态与阈值。
 
-- **S6.1 工程完成 ≠ 产品验收**：G1–G4 门禁（`plan/roadmap.md`）需要 live-LLM / held-out 证据；
-  离线合成结果不得作为 G2+ 门禁证据，README 状态表保持该区分。
-- **S6.2 金标确定性**：gold case 由模板（`eval/gold_templates/`）确定性生成；
-  评测集变更须可追溯（`evals/datasets/` + ANNOTATION_SPEC.md）。
-- **S6.3 Prompt 变更回归**：`configs/prompts/*.md` 变更合入前必须跑 dev 评测集回归。
+## 维护核验
 
-## S7. 变更流程
-
-本文件规则的增删改遵循 rules.md §9：经评审（重大者走 ADR），并在**同一变更集**内同步
-版本行、根 `CLAUDE.md`（如涉及）、受影响的门禁脚本 / CI 配置。
-系统行为与本文件不一致时：先修一致（改文档或改实现），再合入业务变更；
-有意的例外必须在 [docs/IMPORTANT.md](docs/IMPORTANT.md) 挂账。
-
-## 附：验证清单（本文件断言的人工核验点）
-
-本文件不随 CI 自动校验，下列断言依赖人工 / 脚本核验：
-
-- [ ] S3 表格数值与 `configs/default.yaml` `guardrails:` 节一致（改配置时同步）。
-- [ ] S4.3 事件全集与 `agent/loop_stream.py` 实际发出的事件一致。
-- [ ] S1.1 可用 `grep -rn "neo4j\|qdrant_client" src/agentic_graphrag --include="*.py"`
-      抽查协议边界（命中应仅在 `stores/` 内）。
-- [ ] S4.1 schema 文件与 `generation/trace.py` 模型同步（跑 `export-reasoning-schema` 比对）。
+- 架构或 profile 变更：核对 `test_core_kernel.py`、`test_bootstrap_profile.py` 与 `test_query_pipeline.py`。
+- 护栏和接口变更：核对 `test_guardrails_from_config.py`、`test_reasoning_chain_schema.py`、
+  `test_live_sse_stream.py` 及相关鉴权 / 租户隔离测试（均位于 `tests/unit/`）。
+- 规则变更：同步本文件版本、受影响的工程规则与 `CLAUDE.md`；检查文档链接和源码路径。

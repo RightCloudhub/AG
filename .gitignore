@@ -68,6 +68,10 @@ data/processed/review_queue.jsonl
 # Local non-Python runtimes (JDK / Neo4j tarball extracts, etc.)
 # See docs/EXTERNAL_RUNTIMES.md — prefer docker-compose, do not commit binaries.
 .tools/
+.agents/
+.claude/
+.taste-skill/
+skills-lock.json
 
 # Secrets
 *.pem

@@ -44,7 +44,7 @@ python scripts/audit_gold.py evals/datasets/g2_all.jsonl --triples data/processe
 # Experiment switches: AGR_RERANK=none|lexical|http, AGR_CRITIC_MODE=llm|tiered|offline (see docs/design/ARCH_OPTIMIZATION_V2.md)
 
 # Offline dev loop — deterministic, no LLM, no Docker (run-cases loads seed triples itself)
-agr-run-cases --no-llm                        # 20 cases → reports/poc_run.jsonl + accuracy
+agr-run-cases --no-llm                        # configured cases → reports/poc_run.jsonl + accuracy
 agr-query --no-llm "Who is the CEO of Apex Holdings?"
 python -m agentic_graphrag score
 
@@ -74,7 +74,7 @@ All subcommands are also reachable as `python -m agentic_graphrag <command>` (in
 
 ### The offline/live duality (read this first)
 
-Every layer has two implementations, and the offline one is the default everywhere. This is what keeps CI and the 20-case eval deterministic:
+Offline backends are the default. CI uses deterministic fixtures without live services:
 
 | Layer | Offline (default) | Live (opt-in) |
 |---|---|---|
@@ -82,7 +82,7 @@ Every layer has two implementations, and the offline one is the default everywhe
 | Vector | in-memory + persisted embeddings if present | Qdrant |
 | LLM | `MockLLMProvider` + offline answer heuristics | real provider (OpenAI-compatible) |
 
-BM25 fulltext and the doc store have **no** live backend — `create_live_bundle()` uses the same in-memory BM25 store as offline, and falls back to the memory vector store if Qdrant is unreachable (graph only falls back with `allow_memory_graph_fallback`).
+Fulltext uses process-local BM25 for `offline`/`eval` and shared-file BM25 for `live`/`hybrid`; the doc store is file-backed. `create_bundle()` and `create_live_bundle()` fail when a requested backend is unavailable. The legacy `allow_memory_graph_fallback=True` option is rejected; choose an explicit profile.
 
 **Runtime profiles** (`bootstrap/profile.py`): `AGR_PROFILE=offline|live|hybrid|eval` picks one row of `CAPABILITY_MATRIX` (graph/vector backends, caches, seed graph). Legacy `AGR_USE_LIVE_STORES=1` maps to `live`; default is `offline`. `AGR_ALLOW_LLM=1` (+ a non-placeholder `LLM_API_KEY`) enables the real LLM in any profile. `agr-api` builds `QueryService.create_for_profile()` via `build_default_service()`; an unreachable Neo4j/Qdrant or missing credentials fail startup — **there is no implicit fallback** (Neo4j + memory vectors must be declared as `hybrid`). CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`; `agr-run-cases` runs through `QueryApp` with the `eval` profile (`--direct` = legacy loop call).
 
@@ -122,7 +122,7 @@ All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps 
 - **admin.py** (all admin-only): `GET /v1/traces/{id}`, `GET /v1/budget/snapshot`, `GET /v1/audit-events`
 - **app.py**: `GET /healthz`, `GET /metrics-prom` (Prometheus text), `GET /web` (Vue workspace)
 
-`QueryService` is deliberately split across `service.py` / `service_helpers.py` / `service_query.py` / `service_stream.py` / `service_agent.py` / `service_telemetry.py` for the file-size gate.
+`QueryService` is split across `app/query_service.py`, `wiring.py`, `query_run.py`, `query_stream.py`, `query_agent.py`, and `telemetry.py`. The old `api/service*.py` paths are compatibility aliases.
 
 ### Config
 
@@ -140,7 +140,7 @@ Datasets live in `evals/datasets/*.jsonl` (poc, dev/heldout/guardrail splits via
 
 ## Conventions
 
-- **Binding rules are consolidated in `plan/engineering/rules.md`** with their enforcement mechanism (CI / gate script / review).
+- **Engineering rules are consolidated in [plan/engineering/rules.md](plan/engineering/rules.md)** with their enforcement mechanism (CI / gate script / review); [Spec.md](Spec.md) defines the system architecture, runtime, interface, and security constraints. Ordinary `/v1/*` JSON responses use the envelope; SSE uses event payloads. Query audit writes log failures without blocking answers, so response success alone does not prove audit persistence.
 - **Architecture boundaries (review-enforced, `rules.md` §6).** LangGraph is confined to `agent/` at a pinned version; do **not** introduce LangChain retrieval/chain abstractions — retrieval and LLM calls go through this repo's `retrieval/` and `llm/` interfaces (ADR-005). Graph nodes are "state in → state out" so unit tests never need the LangGraph runtime. New features must run under `--no-llm` + in-memory backends or explicitly declare themselves live-only; never pull an online dependency into the CI path.
 - **Changing a technology choice requires a new ADR in `plan/engineering/tech-stack.md` first**, then code.
 - **Hard code metrics are enforced by `scripts/check_code_metrics.py`** (same limits as the table above). This is why modules are deliberately split (`loop` / `loop_handlers` / `loop_runtime`, `executor` / `executor_plan` / `executor_dispatch`, `service` / `service_helpers` / `service_query`). New modules target ~200–400 lines; put constants in module-level named constants, not inline literals.

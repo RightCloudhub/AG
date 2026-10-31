@@ -1,7 +1,7 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.5（2026-10-31）— 同步 CI 评测下限（POC 30/31、G2 196/200、probe 52/54 与 19/20、金标审计 `--max-flagged 0` 阻断）、补 Web 模板编译门禁与「推理笔记本」v2 结构说明、标注响应式差异待评审。前版 V1.4（2026-10-24）：全源 Python/自有 JS 严格类型门禁，恢复前端测试；保留 g2 下限、金标审计与配对显著性要求。
+**版本**：V1.6（2026-10-31）— 对齐 Spec V1.2 的组合根、协议路径及显式 profile 规则；门禁要求不变。
 
 | 强制层级 | 机制 |
 |---|---|
@@ -63,7 +63,7 @@
 
 ## 6. 架构边界（评审约定）
 
-- **存储走协议**：应用代码只依赖 `stores/interfaces.py` 的 `GraphStore/VectorStore/FulltextStore/DocStore`，不得 import Neo4j/Qdrant 客户端类型；实现选择只发生在组合根 `stores/factory.py`（+`api/service.py`）。在线后端 import 保持**懒加载**。
+- **存储走协议**：应用代码依赖 `core/ports/stores.py` 的 `GraphStore/VectorStore/FulltextStore/DocStore`，不得 import Neo4j/Qdrant 客户端类型；运行 profile 在 `bootstrap/` 解析，经 `build_stores()` → `stores/factory.create_bundle()` 装配。在线后端 import 保持**懒加载**；显式在线存储不可用时失败，不隐式回退。完整系统约束见 [Spec.md](../../Spec.md)；`stores/interfaces.py`、`api/service.py` 为兼容别名，新代码使用当前模块路径。
 - **langgraph 限定在 `agent/`** 内且版本锁定；不引入 LangChain 检索/链抽象——检索与 LLM 调用一律走本仓库 `retrieval/`、`llm/` 接口（ADR-005）。
 - 节点实现为"状态入→状态出"，单测不依赖 LangGraph 运行时。
 - 新配置项进 `AppConfig`（`configs/default.yaml`）或 `Settings`（环境变量），经 `config.py` 读取；不散落 `os.environ` 直读（现存 `AGR_*` 开关除外）。
