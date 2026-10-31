@@ -112,7 +112,7 @@ flowchart LR
 - **QueryApp**（`app/query_service.py` + `query_run.py` / `query_stream.py`）：查答案缓存 → 预留预算 → `QueryPipeline` → 落审计 → 结算预算 → 指标。`run_query()` 返回 API 视图，`run_query_chain()` 走同一条生产路径但返回完整 `ReasoningChain`（供 eval / CLI 使用）。
 - **ReviewApp**：`POST /v1/review-queue/{id}/decision` 只做鉴权与参数校验，记录决策和执行决策都在 `ReviewApp.decide()` 中完成。
 - **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行，`IngestApp` 装配）完成分块索引并抽取三元组入图，冲突进入复核队列（见 §4.4）。
-- **web/**：Vue 3 ESM 零构建，`api.js` 调用上述接口。
+- **web/**：Vue 3 ESM 零构建工作台（「推理笔记本」壳：顶栏 + 笔记本栏 + 问题页 + 检查器；管理视图在 `js/admin/*`；文案集中 `i18n.js`），`api.js` 调用上述接口。
 
 ---
 

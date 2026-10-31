@@ -58,7 +58,7 @@ agentic-graphrag/
 │   ├── baseline/                 # 纯向量 RAG Baseline
 │   ├── judge.py                  # LLM 判卷器
 │   └── run.py                    # 一键评测入口（FR-OP-04）
-├── web/                          # 试用界面（阶段四，独立子项目）
+├── web/                          # Vue 3 零构建工作台（index.html + static/{js,css,vendor}；无 npm）
 ├── tests/                        # 镜像 src 结构；unit / integration / e2e
 ├── scripts/                      # 建图、索引重建、演练脚本
 └── docs/                         # 运维手册、API 文档、标注规范
@@ -69,4 +69,5 @@ agentic-graphrag/
 - **POC 阶段**：允许只实现 `knowledge/`、`retrieval/`、`agent/`、`evals/` 的最小子集并以脚本驱动，但目录骨架与 `contracts.py`/`interfaces.py` 等接口定义从一开始就按此布局，避免 MVP 期大迁移。
 - **配置与密钥**：`configs/` 只放非敏感配置；API Key 等一律环境变量注入并在启动时校验存在（安全规范）。
 - **Prompt 即代码**：`configs/prompts/` 纳入版本管理，变更走评测回归（P5-GOV-03 机制）。
+- **前端（`web/`）**：零构建 Vue 3 工作台：`static/js/`（`app.js` · `shell/` · `views/chat.js` · `chat/` · `admin/` · `store/` · `i18n.js`）、`static/css/*`（各 ≤300 行）、`static/vendor/`（Vue 3.5.13 + Lucide 子集）；视觉规范 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10，规则见 rules.md §8。
 - **框架边界（ADR-005）**：langgraph 依赖限定在 `agent/` 模块内，版本锁定；不引入 LangChain 检索/链抽象，检索与 LLM 调用一律走本仓库 `retrieval/`、`llm/` 的自研接口。

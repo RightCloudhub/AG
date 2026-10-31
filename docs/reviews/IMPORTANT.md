@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-10-24
+**最近汇总：** 2026-10-31
 
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
@@ -48,7 +48,11 @@
 | 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/reviews/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
 | 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
 | 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
-| 2026-08-08 | **P5-UI-02 前端重规划立项**（规划文档，未实施）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向，随 U-14/U-15 落地） |
+| 2026-10-31 | **Web 聊天界面三栏 + 分步向导改版（已实施）**：左侧会话历史 / 中间对话流 / 右侧「推理链 · 证据 · 子图」工作区；提问向导、澄清卡片、分步进度条、引用角标定位、追问与反馈原因、知识导入向导；文案集中 `web/static/js/i18n.js`。后端缺失的 5 个接口以 `FeatureFlag` 关闭并降级，契约见 [`plan/workstreams/api-and-ui.md`](../../plan/workstreams/api-and-ui.md) §2.8；差异与挂账见 §6「前端向导改版」 |
+| 2026-10-31 | **Web「推理笔记本」v2 重设计（已实施，同日）**：按 `Prompt.md` 放弃左导航 + 单栏聊天，改为 顶栏 + 笔记本栏 + 问题页（标题 → HopRail → 结论与引用 → 元信息）+ 检查器（证据 / 子图 / 日志）；靛夜 / 晨纸双主题与六跳色令牌；命令面板、`@` / `/` 菜单、快捷键；管理视图迁入 `js/admin/`。按 `design-taste-frontend` app-screen 流程实施并在 headless Chromium 中实测 0 FAIL；视觉规范 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md) §10 |
+| 2026-10-31 | **Web 图标与动效对齐参考 demo（已实施，同日）**：图标改用 Lucide 几何（vendored 子集 `web/static/vendor/lucide-icons.js`，由 `scripts/build_lucide_icons.mjs` 从 `lucide-static` 1.65.0 生成，ISC，名称表为唯一来源），品牌标记 `mark` 为唯一自绘字形；动效采用 demo 词表 `enter-note` / `enter-node`（跳节点 55ms 级联）/ `panel-in` / `breathe` / `spin`，`prefers-reduced-motion` 下只留透明度。22 个状态在 headless Chromium 实测 0 FAIL（对话/抽屉快照按 `--allow covered-text`）；规范同步 `docs/design/UI_DESIGN.md` §10 与 `docs/EXTERNAL_RUNTIMES.md` |
+| 2026-09-07 | **P5-UI-02 角色感知控制台交付**：壳 + hash 路由 + 五视图（问答 / 知识 / 审核 / 可观测 / 图谱浏览）；M0 前置两项（`GET /v1/me`、`GET /v1/ingest-tasks` 分页）随批落地（`api/routes/workspace.py`）；2026-10-31 v2 重设计后管理视图位于 `js/admin/` |
+| 2026-08-08 | **P5-UI-02 前端重规划立项**（已于 2026-09-07 交付）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向；2026-10-31 起由 v2「推理笔记本」取代，见 UI_DESIGN §10） |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -164,7 +168,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../../plan/phases/p5-ui-01-vue-refactor.md) |
-| **P5-UI-02** | **⚪ 规划完成（2026-08-08），未实施** — 前端重规划：角色感知控制台（问答 / 知识运维 / 审核 / 可观测 / 图谱浏览）；M0 API 前置：`GET /v1/me`、`GET /v1/ingest-tasks` 列表；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
+| **P5-UI-02** | **🟢 已交付（2026-09-07）** — 角色感知控制台（壳 + hash 路由 + 问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图）；M0 API 前置（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）已落地；2026-10-31 v2 重设计：管理视图迁入 `js/admin/`，视觉见 UI_DESIGN §10；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
@@ -236,6 +240,20 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | BL-12 DAG 并发执行 | `[~]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
 | BL-13 真 NLI 支撑判定 | `[~]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
 | BL-14 图谱无时间维度 | `[ ]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
+
+### 前端向导改版挂账（2026-10-31，`web/`）
+
+| 项 | 状态 | 说明 | 解挂需要 |
+|----|------|------|----------|
+| 计划预览 / 确认 `POST /v1/query/plan` | `[ ]` | 「先确认计划」模式降级为多跳执行并提示；向导第 4 步只提供客户端子问题草案编辑 | 后端实现 api-and-ui §2.8 契约 → 翻转 `FeatureFlag.PLAN_PREVIEW` |
+| 从某一跳重跑 `POST /v1/query/{query_id}/rerun` | `[ ]` | 按钮把该跳子问题填回输入框并提示；checkpointer 已有状态，接口未暴露 | 实现契约 → `RERUN_FROM_HOP` |
+| 抽取预览 `POST /v1/docs/preview` | `[ ]` | 导入向导第 2 步只显示文本片段并说明 worker 异步抽取；与 BL-01 共用抽取通路 | 实现契约 → `EXTRACTION_PREVIEW`（建议随 BL-01 立项） |
+| 邻域子图 `GET /v1/graph/entities/{id}/neighbors` | `[ ]` | 子图标签页仅解析答案证据目录中的 `nbr:` / `path:` 行（持久化目录不含 `structured`，与 BL-13 同源） | 实现契约 → `GRAPH_NEIGHBORS` |
+| 关系目录 `GET /v1/graph/relations` | `[ ]` | 向导关系链使用 `js/chat/wizard.js` 内镜像自 `configs/schema/domain_v0.yaml` 的静态目录，schema 变更需手工同步（漂移风险） | 实现契约 → `RELATION_CATALOG` |
+| 移动端 / 响应式 | `⚠ 差异` | rules §8 与 PRD 仍列「移动端适配 V1 不做」，本次应需求落地了 <1024px 工作区抽屉与 <768px 侧栏抽屉；未做触控专项与真机验证 | 修订 PRD / rules §8（评审），或回退响应式规则 |
+| 视觉令牌 | `[x]` | 2026-10-31 v2：按 `Prompt.md`（界面重设计规范 v2）重做为「推理笔记本」，令牌在 `web/static/css/tokens.css`（靛夜 / 晨纸双主题，六跳色）；`docs/design/UI_DESIGN.md` §10 已同步，§1–§8 的「制图室」方向保留为备案 | — |
+| 向导生成问题为英文 | 诚实项 | 演示语料与离线启发式均为英文，向导按关系模板生成英文问句（可在预览步修改）；界面文案为中文 | 真域中文语料接入后再做问句语言对齐 |
+| 浏览器端验证 | `[x]` | 2026-10-31 v2：`.taste-skill/drive.mjs` 在 headless Chromium 中走查全部交互状态并留存截图（`.taste-skill/v2-*`、`r2-*`）；`design-taste-frontend/inspect.mjs --app` 对实时首屏与状态快照 0 FAIL；仍未做真机触控验证 | 真机触控专项（随移动端 PRD 决议） |
 
 ### 规范 / 结构备注
 
@@ -334,6 +352,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | BL 修复变更集待验证清单 | [`docs/reviews/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/ops/EXTERNAL_RUNTIMES.md`](../ops/EXTERNAL_RUNTIMES.md) |
+| 前端视觉校验（headless Chromium） | [`docs/EXTERNAL_RUNTIMES.md`](../EXTERNAL_RUNTIMES.md) |
 
 ---
 

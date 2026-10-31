@@ -1,11 +1,11 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.4（2026-10-24，增加全源 Python/自有 JS 严格类型门禁，恢复前端测试；保留 g2 下限、金标审计与配对显著性要求）
+**版本**：V1.5（2026-10-31）— 同步 CI 评测下限（POC 30/31、G2 196/200、probe 52/54 与 19/20、金标审计 `--max-flagged 0` 阻断）、补 Web 模板编译门禁与「推理笔记本」v2 结构说明、标注响应式差异待评审。前版 V1.4（2026-10-24）：全源 Python/自有 JS 严格类型门禁，恢复前端测试；保留 g2 下限、金标审计与配对显著性要求。
 
 | 强制层级 | 机制 |
 |---|---|
-| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`，3 个并行 job：`lint`（ruff lint + format check + `check_code_metrics.py`）、`test`（单测 + 覆盖率 ≥80%）、`eval-offline`（`poc_cases` 离线评测，agentic 与 triage 两条路径均 ≥21/31；`g2_all` ≥167/200；金标审计报告，只出报告；`scripts/check_eval_floor.py`） |
+| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`，3 个并行 job：`lint`（ruff lint + format check + `check_code_metrics.py`）、`test`（mypy + `tsc`（`web/jsconfig.json`）+ 单测 + 覆盖率 ≥80%）、`eval-offline`（`scripts/check_eval_floor.py`：`poc_cases` agentic 与 triage 两条路径均 ≥30/31；`g2_all` ≥196/200；`probe_compositional` ≥52/54、`probe_negative` ≥19/20；金标审计 `--max-flagged 0` 阻断） |
 | 门禁脚本（提交前自查） | `scripts/check_code_metrics.py`、`scripts/check_eval_floor.py`、`scripts/eval_compare.py`、`scripts/audit_gold.py`、`scripts/g1_to_g2_gate.sh` |
 | 评审约定（人工核查） | 本文件 §4~§9 |
 
@@ -31,7 +31,7 @@
 - `mypy` 对全部 Python 源模块执行严格检查；前端自有 JS 使用 `web/jsconfig.json`
   执行严格 JSDoc/checkJs 检查。CI 使用临时钉版 TypeScript 检查器，浏览器仍直接
   加载原始 ESM，没有构建步骤或 npm 项目。第三方 Vue 的已用 API 单独声明边界类型；
-  Vue 模板仍由浏览器运行时编译，模板表达式不属于 checkJs 的静态检查范围。
+  Vue 模板仍由浏览器运行时编译，模板表达式不属于 checkJs 的静态检查范围；作为补充，全部 Vue string template 由 `node scripts/check_web_templates.mjs` 用钉版 Vue 编译器在 Node 下编译校验（由 `tests/unit/test_web_wizard_ui.py` 调用）。
 
 ## 3. 测试与覆盖率（CI 强制）
 
@@ -39,7 +39,7 @@
 - **确定性优先**：单测一律不打真实 LLM / 真实网络——离线路径（内存图 + seed + MockLLM）或 stub。真实后端只进集成/回归脚本（`scripts/neo4j_regression.sh` 等）。
 - 覆盖率 **omit 名单**（`pyproject.toml`）是显式记录的债务：不得为规避覆盖率悄悄扩充；新增 omit 必须写明理由并在 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6 挂账。
 - 单测不得依赖外部环境变量：`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` / `AGR_USE_LIVE_STORES` / `AGR_ALLOW_LLM`，需要时在用例内 `monkeypatch.setenv`。
-- 离线评测下限（CI 强制）：`agr-run-cases --no-llm --memory-graph`（± `--enable-triage`）在 `evals/datasets/poc_cases.jsonl` 上不得低于 21/31；准确率提升后同步上调 `ci.yml` 中的 `POC_MIN_CORRECT`。`g2_all`（`--seed-triples data/processed/pilot_triples.jsonl`）不得低于 167/200，提升后上调 `G2_MIN_CORRECT`。
+- 离线评测下限（CI 强制）：`agr-run-cases --no-llm --memory-graph`（± `--enable-triage`）在 `evals/datasets/poc_cases.jsonl` 上不得低于 30/31；`g2_all`（`--seed-triples data/processed/pilot_triples.jsonl`）不得低于 196/200；`probe_compositional` ≥52/54、`probe_negative` ≥19/20；金标审计（`scripts/audit_gold.py` `--max-flagged 0`）阻断。准确率提升后同步上调 `ci.yml` 中对应 `*_MIN_CORRECT` 与 probe 下限。
 - 架构 A/B（评审约定）：改动检索、规划、critic、生成等影响效果的模块时，必须在同一数据集、同一图、同一 LLM 缓存上跑基线和候选，用 `scripts/eval_compare.py` 报告配对 McNemar p 值、准确率、P95 延迟和 LLM 调用均值。只有 p < 0.05 才能声称“提升”；三项中任何一项明显退化都不合并。31 题的 poc 只能作为冒烟测试，不能作为效果结论的依据（95% CI 宽约 31pp）。
 - 每个 bugfix 附回归测试（先写失败测试复现，再修）。
 - Prompt（`configs/prompts/*.md`）变更不阻塞单测门禁，但**必须**跑 dev 评测集回归后合入。
@@ -82,13 +82,13 @@
 
 ## 8. 前端（`web/`）规则
 
-- **零构建运行时**：不引入 npm 清单、打包器或浏览器运行所需的 Node 工具链；改完刷新即生效。Node/TypeScript 仅用于 §2 的开发与 CI 验证。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)。
+- **零构建运行时**：不引入 npm 清单、打包器或浏览器运行所需的 Node 工具链；改完刷新即生效。Node/TypeScript 仅用于 §2 的开发与 CI 验证。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版（Vue 3.5.13 §3.1、Lucide 图标几何子集 §3.2）同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)；前端视觉校验（headless Chromium）环境见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
 - SSE 消费必须覆盖全部事件类型（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`），未知事件静默忽略。
 - 所有动态文本注入走 **mustache / `textContent`**；**禁止 `v-html` 与任何 `innerHTML`**（§5 XSS 项；boot 失败卡亦须 DOM API）。
-- DOM / 模块结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构与注入安全断言。
-- V1 明确不做（未改 PRD 不得实现）：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。
+- DOM / 模块结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构与注入安全断言；文案集中 `web/static/js/i18n.js`，纯模块与模板编译由 `tests/unit/test_web_wizard_ui.py` 在 Node 下校验。
+- V1 明确不做（未改 PRD 不得实现）：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。**⚠ 2026-10-31 差异**：响应式布局已应产品要求落地（<1024px / <768px 抽屉等），PRD 与本条待评审同步；挂账 [IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6「前端向导改版挂账」。
 
 ## 9. 规则变更流程
 

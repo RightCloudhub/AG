@@ -76,6 +76,8 @@
   - 升级流程：改版本必须同步三处——本 ADR、`app.js` 的 `VUE_VERSION` 与加载清单、vendor 文件；过 [p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7 验证清单后合入。
   - 仍明确不做（V1）：多轮上下文、图谱编辑、移动端适配、路径编辑器。
 
+> **2026-10-31 更新**：前端已按 `Prompt.md` v2 重做为「推理笔记本」（[UI_DESIGN](../../docs/design/UI_DESIGN.md) §10）：`js/app.js`（壳 + hash 路由 + 全局快捷键）· `js/shell/*` · `js/views/chat.js` + `js/chat/*` · `js/admin/*` · `js/store/*` · `js/i18n.js`；样式 `css/{tokens,base,shell,notebook,inspector,wizard,admin,responsive}.css`（各 ≤300 行）；图标几何为 vendored Lucide 子集（`web/static/vendor/lucide-icons.js`，生成器 `scripts/build_lucide_icons.mjs`，记录见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) §3.2）。仍为零构建、无 npm / 打包器、无新运行时框架，本 ADR 决策不变；响应式布局差异（原「V1 不做」项）挂账见 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）

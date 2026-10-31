@@ -98,7 +98,7 @@ jobs:
           if-no-files-found: ignore
 
   eval-offline:
-    name: Offline eval (POC 28/31, G2 196/200, probes)
+    name: Offline eval (POC 30/31, G2 196/200, probes)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

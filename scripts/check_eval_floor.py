@@ -1,11 +1,12 @@
 """CI gate: fail when an offline eval run drops below its accuracy floor.
 
 Reads the ``poc_accuracy.json`` written by ``agr-run-cases`` and compares the
-number of correct cases with a fixed floor. The floor is the refactor baseline
-(21/31 on ``evals/datasets/poc_cases.jsonl``); raise it when accuracy improves.
+number of correct cases with a fixed floor. Floors live in
+``.github/workflows/ci.yml`` (``POC_MIN_CORRECT`` / ``G2_MIN_CORRECT``, currently
+30/31 and 196/200); raise them when accuracy improves.
 
 Usage:
-    python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 21 --total 31
+    python scripts/check_eval_floor.py reports/poc_accuracy.json --min-correct 30 --total 31
 """
 
 from __future__ import annotations

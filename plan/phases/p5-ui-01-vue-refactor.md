@@ -1,5 +1,7 @@
 # P5-UI-01：试用 Web 前端框架化重构（Vue 3 零构建）— 执行计划
 
+> **状态（2026-10-31）**：本计划已交付；其模块布局（`chain-view.js` / `components/*` / `app.css` 等文件）已被后续 P5-UI-02 与「推理笔记本」v2 重构取代，现行结构见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10 与 [workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2.1。
+
 **任务 ID**：P5-UI-01 · **版本**：V1.0（2026-07-21）· **状态**：**[x] 完成**（代码 + ADR + 测试 + 文档同步）
 **关联**：[engineering/rules.md](../engineering/rules.md) §8 V1.1 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006 · [workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.3 · `tests/unit/test_web_claude_ui.py`
 

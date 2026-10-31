@@ -24,14 +24,14 @@
 - [x] `P5-ENT-08` 监控外送 — `/metrics-prom` + 可选 OTel OTLP + W3C context（collector 联调待部署验证）
 
 ### 2. 能力增强（PRD P2 需求）
-- [x] `P5-CAP-01` 图谱浏览 API 脚手架 — `GET /v1/graph/entities`（详情页 UI 待规模化立项）
+- [x] `P5-CAP-01` 图谱浏览 API 脚手架 — `GET /v1/graph/entities`（列表视图已随 P5-UI-02 交付；详情 / 邻域仍开放）
 - [x] `P5-CAP-02` 外部工具扩展框架 — `agent/tools/registry.py`（业务 handler 待注册）
 - [x] `P5-CAP-03` 答案置信度分级 — `generation/confidence.py` · metadata.confidence
 - [x] `P5-CAP-04` 学习型 Re-ranker 接口预留 — `retrieval/fusion.Reranker`（训练落地待数据）
 
 ### 2b. 前端框架化（rules.md §8 预留的阶段五事项）
 - [x] `P5-UI-01` 试用 Web 前端框架化 — Vue 3 零构建重构 + 交互增强；ADR-006 已入 tech-stack；执行计划：[p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md)
-- [ ] `P5-UI-02` 前端重规划：问答 → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图；M0 API 前置 `GET /v1/me` + `GET /v1/ingest-tasks` 列表；零构建边界不变，无需新 ADR）— 执行计划：[p5-ui-02-console-replan.md](./p5-ui-02-console-replan.md)
+- [x] `P5-UI-02` 角色感知控制台 — 已交付（壳 + hash 路由 + 五视图；M0 前置 `GET /v1/me`、`GET /v1/ingest-tasks` 已落地）；2026-10-31 v2 重设计：管理视图在 `js/admin/*`，视觉见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10。执行计划保留：[p5-ui-02-console-replan.md](./p5-ui-02-console-replan.md)
 
 ### 3. 长期治理机制
 - [ ] `P5-GOV-01` 图谱质量月度体检：抽取正确率、消歧准确率、覆盖度趋势报表

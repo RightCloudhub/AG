@@ -1,0 +1,89 @@
+/* ── 推理笔记本 · design tokens (Prompt.md §2–§3). Two themes: 靛夜 (dark, default) and 晨纸 (light).
+   The theme attribute is set by js/theme.js; before it runs, the system preference picks the theme. ── */
+
+:root, [data-theme="dark"] {
+  --bg: #0D1017;            /* page ground */
+  --surface: #141821;       /* panels, cards */
+  --surface-2: #1B202B;     /* hover, inputs, code */
+  --surface-3: #232937;     /* selected row, pressed */
+  --line: #252B38;          /* 1px separators */
+  --line-strong: #343C4D;   /* input strokes, hovered card strokes */
+  --text: #E6E9EF;          /* 15.7:1 on --bg */
+  --text-dim: #9AA3B2;      /* 7.5:1 */
+  --text-faint: #6B7383;    /* 4.0:1 — placeholders and disabled only */
+  --accent: #8B96FF;        /* 7.2:1 — primary action, focus, links, the current hop ring */
+  --accent-soft: rgba(139, 150, 255, .14);
+  --on-accent: #0D1017;
+  --ok: #3FC79A;  --warn: #F2B544;  --err: #FF7A7A;
+  --hop-1: #5AB8F0; --hop-2: #F2A93B; --hop-3: #4FD1C5;
+  --hop-4: #E68BC4; --hop-5: #B9A6FF; --hop-6: #E8D35A;
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, .35);
+  --scrim: rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #F7F8FA;  --surface: #FFFFFF;  --surface-2: #EEF0F4;  --surface-3: #E3E6EC;
+  --line: #E1E4EA;  --line-strong: #C9CED8;
+  --text: #161A22;  --text-dim: #525B6B;  --text-faint: #6E7787;
+  --accent: #4450D8;  --accent-soft: rgba(68, 80, 216, .10);  --on-accent: #FFFFFF;
+  --ok: #127650;  --warn: #8F5606;  --err: #C93838;
+  --hop-1: #1A6BAA; --hop-2: #9A5508; --hop-3: #0F7A70;
+  --hop-4: #B23E86; --hop-5: #6A4FD0; --hop-6: #776300;
+  --shadow-float: 0 4px 24px rgba(0, 0, 0, .10);
+  --scrim: rgba(22, 26, 34, .35);
+  color-scheme: light;
+}
+
+/* The system preference decides before js/theme.js runs (no flash of the wrong theme). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #F7F8FA;  --surface: #FFFFFF;  --surface-2: #EEF0F4;  --surface-3: #E3E6EC;
+    --line: #E1E4EA;  --line-strong: #C9CED8;
+    --text: #161A22;  --text-dim: #525B6B;  --text-faint: #6E7787;
+    --accent: #4450D8;  --accent-soft: rgba(68, 80, 216, .10);  --on-accent: #FFFFFF;
+    --ok: #127650;  --warn: #8F5606;  --err: #C93838;
+    --hop-1: #1A6BAA; --hop-2: #9A5508; --hop-3: #0F7A70;
+    --hop-4: #B23E86; --hop-5: #6A4FD0; --hop-6: #776300;
+    --shadow-float: 0 4px 24px rgba(0, 0, 0, .10);
+    --scrim: rgba(22, 26, 34, .35);
+    color-scheme: light;
+  }
+}
+
+:root {
+  /* type: three roles, each with one job (§3.1) */
+  --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", serif;
+  --font-sans: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Adwaita Mono", ui-monospace, monospace;
+  --fs-display: 24px; --lh-display: 1.35;   /* the question title */
+  --fs-title: 16px;   --lh-title: 1.4;      /* panel and block titles */
+  --fs-body: 15px;    --lh-body: 1.75;      /* the answer */
+  --fs-ui: 13px;      --lh-ui: 1.45;        /* buttons, labels, lists */
+  --fs-caption: 12px; --lh-caption: 1.4;    /* notes */
+  --fs-data: 12px;    --lh-data: 1.4;       /* ids, scores, durations, tokens (mono, tabular) */
+  --fs-tag: 11px;
+
+  /* spacing on a 4px base (§3.2) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+
+  /* shape, layers, motion (§3.3) */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-pill: 999px;
+  --z-content: 0; --z-composer: 10; --z-topbar: 20; --z-drawer: 30; --z-modal: 40; --z-toast: 50;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --t-expand: 160ms; --t-panel: 220ms; --t-node: 200ms; --t-stagger: 55ms;
+  --focus-ring: 2px solid var(--accent);
+
+  /* layout (§4) */
+  --top-h: 48px;
+  --nb-w: 240px;         /* notebook column */
+  --nb-rail: 56px;       /* notebook as an icon rail (768–1199) */
+  --page-max: 760px;     /* the question page */
+  --page-pad: 32px;
+  --insp-w: 380px;       /* inspector, 320–520 by drag */
+  --insp-min: 320px; --insp-max: 520px; --insp-strip: 32px;
+  --composer-min: 52px;
+  --control-h: 32px; --control-h-sm: 28px; --control-h-xs: 24px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}

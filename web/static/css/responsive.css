@@ -1,17 +1,105 @@
-/* ── Responsive ────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .sidebar {
-    position: fixed;
-    left: 0; top: 0;
-    transform: translateX(-100%);
+/* ── Responsive (§7): four bands. 1200–1439 inspector becomes an overlay drawer; 768–1199 the notebook folds to
+   a 56px rail; under 768 the notebook is a sheet from the menu button, the inspector a bottom sheet, the rail vertical. ── */
+
+/* 1200–1439: the inspector is an overlay drawer, opened from the question page */
+@media (max-width: 1439px) {
+  .app, .app--insp-collapsed, .app--nb-rail, .app--nb-rail.app--insp-collapsed { grid-template-columns: var(--nb-w) minmax(0, 1fr) 0; }
+  .inspector {
+    position: fixed; top: var(--top-h); right: 0; bottom: 0; z-index: var(--z-drawer);
+    width: min(var(--insp-w), 92vw); transform: translateX(100%); transition: transform var(--t-panel) var(--ease);
+    box-shadow: var(--shadow-float);
   }
-  .sidebar--open { transform: translateX(0); }
-  .view-body { padding: var(--space-4); }
-  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .inspector--open { transform: none; }
+  .inspector { animation: none; } /* the drawer slides in; a panel-in animation would fight its transform */
+  .inspector__resize, .inspector__strip, .app--insp-collapsed .inspector__strip { display: none; }
+  .app--insp-collapsed .inspector > :not(.inspector__strip) { display: flex; }
+  .inspector-backdrop { display: block; position: fixed; inset: var(--top-h) 0 0 0; z-index: calc(var(--z-drawer) - 1); background: var(--scrim); }
+  .view-head-btn { display: inline-flex; }
 }
 
-/* Respect keyboard navigation and user motion preferences. */
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* 768–1199: the notebook column is an icon rail */
+@media (max-width: 1199px) {
+  .app, .app--insp-collapsed, .app--nb-rail, .app--nb-rail.app--insp-collapsed { grid-template-columns: var(--nb-rail) minmax(0, 1fr) 0; }
+  .notebook__top { padding: 8px; }
+  .notebook__new { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  .notebook__new span, .notebook__new kbd, .notebook__list, .notebook__foot, .nb-link span, .notebook__admin .nb-group__title { display: none; }
+  .notebook__admin { padding: 8px; border-top: 0; }
+  .nb-link { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .topbar__search { width: 280px; }
+}
+
+/* under 768: one column; the notebook is a sheet from the menu button; the inspector a bottom sheet; the rail vertical */
+@media (max-width: 767px) {
+  .app, .app--insp-collapsed, .app--nb-rail, .app--nb-rail.app--insp-collapsed { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "ban" "page"; }
+  .view { grid-column: 1 / -1; }
+  .topbar { grid-template-columns: auto 1fr auto; padding: 0 var(--sp-4); }
+  .topbar__search, .topbar__scope, .topbar .mode-select, .topbar .health { display: none; }
+  .btn.menu-btn { display: inline-flex; }
+  .notebook {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: var(--z-drawer); width: min(320px, 88vw);
+    transform: translateX(-100%); transition: transform var(--t-panel) var(--ease); box-shadow: var(--shadow-float);
+    background: var(--surface);
+  }
+  .notebook--open { transform: none; }
+  .notebook__top { display: flex; gap: 8px; padding: var(--sp-3); }
+  .notebook__new { width: auto; height: var(--control-h); padding: 0 12px; justify-content: flex-start; flex: 1; }
+  .notebook__new span { display: inline; }
+  .notebook__list, .notebook__foot, .nb-link span { display: block; }
+  .nb-link { width: 100%; height: 44px; justify-content: flex-start; padding: 0 10px; }
+  .nb-link span { display: inline; }
+  .notebook__admin { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--line); }
+  .notebook__close { display: inline-flex; }
+  .notebook__mode { display: flex; flex-direction: column; gap: 6px; padding: 0 var(--sp-4) var(--sp-3); font-size: var(--fs-caption); color: var(--text-dim); }
+  .notebook__mode .select { width: 100%; }
+  .notebook-backdrop { display: block; position: fixed; inset: 0; z-index: calc(var(--z-drawer) - 1); background: var(--scrim); }
+  .inspector {
+    top: auto; left: 0; right: 0; bottom: 0; width: 100%; height: 70dvh; border-left: 0; border-top: 1px solid var(--line);
+    border-radius: var(--r-lg) var(--r-lg) 0 0; transform: translateY(100%);
+  }
+  .inspector--open { transform: none; }
+  .inspector-backdrop { inset: 0; }
+  .sheet-handle { display: block; width: 40px; height: 4px; margin: 8px auto 0; border-radius: 2px; background: var(--line-strong); }
+  .page__col { padding: var(--sp-5) var(--sp-4) var(--sp-4); }
+  .composer-dock { padding: var(--sp-2) var(--sp-4) calc(var(--sp-3) + var(--safe-bottom)); }
+  .composer__send { width: 44px; height: 44px; }
+  .composer__box { padding-right: 6px; }
+  .qpage__title, .welcome__title { font-size: 20px; }
+  .qpage__edit { opacity: 1; }
+  .welcome__grid { grid-template-columns: 1fr; }
+  .hint-card { min-height: 0; }
+  /* the rail as a vertical timeline */
+  .hoprail__track { flex-direction: column; overflow: visible; gap: 4px; padding: 4px 0; }
+  .hop { flex: none; width: 100%; min-width: 0; }
+  .hop__btn { flex-direction: row; align-items: center; gap: 12px; min-height: 44px; padding: 0 36px 0 0; }
+  .hop__label { white-space: normal; flex: 1; min-width: 0; }
+  .hop__meta { flex: none; }
+  .hop__link { top: 36px; bottom: -8px; left: 11px; right: auto; width: 2px; height: auto; }
+  .hop__link--pending { width: 0; height: auto; border-top: 0; border-left: 2px dashed var(--line-strong); }
+  .hop .popover { left: 36px; top: 100%; width: calc(100% - 36px); }
+  .hop__more { opacity: 1; top: 10px; right: 0; }
+  .hop .menu--down { top: 36px; right: 0; }
+  .qmeta__line { flex-basis: 100%; }
+  .view-header { padding: 0 var(--sp-4); min-height: var(--top-h); }
+  .view-header__title { font-size: 18px; }
+  .view-body { padding: var(--sp-4); }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .stat-card:nth-child(2n) { border-right: 0; }
+  .stat-card:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .dialog { max-height: calc(100dvh - 16px); }
+  .modal-backdrop { padding: 8px; align-items: flex-end; }
+  .wizard__steps { padding: 6px 16px 0; gap: 0 14px; }
+  .dialog__foot .wizard__actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (max-width: 479px) {
+  .topbar__brand span { display: none; }
+  .followups .chip { white-space: normal; height: auto; min-height: var(--control-h-sm); padding: 6px 12px; }
+}
+
+/* reduced motion: no travel, opacity only */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .qpage, .welcome, .dialog, .view, .answer, .inspector, .hoprail__note { animation-name: fade-in; }
+  .hop--new, .evcard--open .evcard__text { animation: fade-in .01ms both; }
+  .hop--active .hop__node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--hop) 40%, transparent); animation: none; } /* taste-skill-ignore: the live ring without its pulse */
 }

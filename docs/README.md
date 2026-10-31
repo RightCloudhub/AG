@@ -3,6 +3,7 @@
 | 目录 | 文档 | 内容 |
 |---|---|---|
 | `./` | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前实现的模块架构图与运行路径 |
+| | [EXTERNAL_RUNTIMES.md](./EXTERNAL_RUNTIMES.md) | 前端视觉校验的 headless Chromium 环境 |
 | `product/` | [PRD.md](./product/PRD.md) | 产品需求与验收标准 |
 | | [PROPOSAL.md](./product/PROPOSAL.md) | 项目立项建议书 |
 | | [PITCH.md](./product/PITCH.md) | 项目一句话定位与讲述要点 |

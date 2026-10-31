@@ -2,7 +2,7 @@
 
 **覆盖需求**：FR-API-01 ~ 05、FR-AN-03、NFR-06/07 · **相关阶段任务**：P2-ARCH-03、P3-PERF-06、P3-KG-04、P4-UI-*
 **负责人**：检索系统工程 / 前端支援（试点阶段）
-**版本**：V1.5（2026-08-08）— **P5-UI-02 前端重规划立项（规划态，未实施）**：§2 定位升级为角色感知控制台，新增 §2.7 概要；权威执行计划 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。前版 V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
+**版本**：V1.6（2026-10-31）— Web 工作台按 `Prompt.md` v2 重做「推理笔记本」（§2.2 / §2.6 / §2.8 / §2.9）；P5-UI-02 控制台状态修正为**已交付**（§2.7）。前版 V1.5（2026-08-08）：P5-UI-02 前端重规划立项（角色感知控制台，§2.7）；V1.4（2026-07-25）ENT 增补：RBAC 三角色收权、admin 排障端点、上传治理、`FORBIDDEN` 错误码、`tenant_id` 数据级隔离；V1.3（2026-07-21）P5-UI-01 Vue 3 零构建重构；ADR-006。
 
 实现入口：`src/agentic_graphrag/api/`（`app.py` 组装与异常处理、`routes/query.py`、`routes/knowledge.py`、`routes/admin.py`、`auth.py`、`rbac.py`、`envelope.py`、`sse.py`、`errors.py`、`service*.py`）；前端 `web/`。
 
@@ -70,11 +70,11 @@
 - 请求生成/携带 `query_id`，贯穿推理链与审计存储（NFR-08）[x]；`request_id` 入链 metadata 与 JSON 日志 contextvars（ENT-01/02）[x]。
 - 租户**数据级**隔离：代码侧已由 ENT-06 承接（`tenant_id` 贯穿 stores / 三路检索 / agent，跨租户零命中单测；租户作用域绕过检索缓存）[x]；运维侧物理分库与真实 Neo4j/Qdrant 回归仍在 P4-REL-01。
 
-## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 重规划规划态）
+## 2. Web 界面（FR-API-05 / P4-UI-01 · P5-UI-01 已交付；P5-UI-02 已交付 · v2 重设计）
 
 **定位**：内部试用工具，功能优先于视觉；Claude 风格浅色对话壳，Vue 3 零构建单页应用（ADR-006）。
 
-> **重规划（2026-08-08，P5-UI-02，未实施）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台。§2.1–§2.4 描述**已交付**的问答视图现状；控制台目标见 §2.7，任务分解与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
+> **重规划（2026-08-08 立项，2026-09-07 交付）**：定位从单一问答页升级为「问答 + 知识运维 + 审核 + 可观测（+ 图谱浏览）」的角色感知控制台——壳 + hash 路由 + 五视图与 M0 前置（`GET /v1/me`、`GET /v1/ingest-tasks`）均已交付；2026-10-31 v2 起管理视图位于 `js/admin/*`（结构见 §2.2，视觉见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10）。§2.1–§2.4 描述**已交付**现状；§2.7 保留立项概要；立项时的任务分解与验证清单见 [phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
 
 ### 2.1 技术形态（零构建 + 钉版 Vue 3）
 
@@ -82,22 +82,23 @@
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
 | 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
-| 模块 | `app.js`（boot）· `js/root.js` · `js/api.js` · `js/chain-view.js` · `js/components/{index,widgets,answer-turn}.js` |
-| 样式 | `app.css`（tokens/壳）· `chat.css`（线程/composer）· `panels.css`（反馈/树/路径）；各 ≤300 行 |
+| 模块 | `js/app.js`（壳 + hash 路由 + 全局快捷键）· `js/theme.js`（双主题）· `js/shell/{use_shell,use_palette,use_inspector,tpl_topbar,tpl_notebook,tpl_inspector}.js` · `js/api.js` / `js/stream.js` / `js/responses.js` / `js/contracts.js` · `js/i18n.js`（全部文案）· `js/views/chat.js`（问题页）· `js/chat/*`（HopRail 模型、分页、向导 / 澄清 / 进度 / 子图 / 追问纯函数、composer composable、模板片段）· `js/admin/{graph,knowledge,review,ops}.js`（管理视图）· `js/store/*`（localStorage 会话、偏好、壳层开关、图谱聚焦）· `js/knowledge/ingest_wizard.js` |
+| 样式 | `tokens.css`（双主题令牌）· `base.css` · `shell.css` · `notebook.css` · `inspector.css` · `wizard.css` · `admin.css` · `responsive.css`；各 ≤300 行；视觉规范见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10 |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
 | SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
-| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200） |
+| 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200）· `tests/unit/test_web_wizard_ui.py`（向导 / 澄清 / 进度 / 子图纯模块的 Node 运行时断言、FeatureFlag 默认关闭、文案集中） |
 
-### 2.2 页面结构与功能（实现）
+### 2.2 页面结构与功能（实现，2026-10-31「推理笔记本」v2）
 
-1. **侧栏**：品牌区 + `/healthz` 健康点 + 高级选项（`forceAgentic` / `maxHops` 1~10 / `useStream`，默认开）
-2. **空态**：示例问题 chips，点击即发问
-3. **对话流**：逐 turn 保留（多轮**仅展示**，每次请求独立、无上下文携带）
-4. **进度卡**（每 turn）：流中自动展开、完成自动收起；分诊 / hop / 缓存命中 / 错误
-5. **答案卡**（`answer-turn`）：正文 + 元信息行 + 论断高亮角标 + 反馈状态机
-6. **推理链**（FR-AN-03）：子问题树 · 图路径 chips（溢出显式 "+N 条未显示"）· 步骤与证据 · 可复制 JSON
-7. **中止 / 重试**：流中「停止」（AbortController）；错误/完成均可「强制 Agentic 重问」
-8. **输入区**：textarea 自适应高度，Enter 发送 / Shift+Enter 换行；busy 时停止按钮替换发送
+1. **推理笔记本布局**：48px 顶栏（品牌与知识库范围、⌘K 命令面板、模式、健康圆点、主题、设置）· 左栏「笔记本」（新问题、按天分组的历史、按角色显示的管理组）· 中栏「问题页」（最大 760px）· 右栏「检查器」（证据 / 子图 / 日志，320–520 可拖拽，E 收起）；每个问题一页：标题 → HopRail → 结论与引用 → 元信息 → 追问。API Key 在设置弹窗。断点与令牌见 UI_DESIGN §10。
+2. **欢迎页**：示例问题按「2 跳 / 3 跳 / 对比 / 交集」分组为卡片（取自 `evals/datasets/poc_cases.jsonl`），点击只填入输入框，不直接发送。
+3. **输入区**：工具栏 = 「引导提问」向导 · 模式切换（快速 / 多跳 / 先确认计划）· 跳数预算；输入 `@` 触发实体补全（`GET /v1/graph/entities?query=`）；Enter 发送 / Shift+Enter 换行。
+4. **提问向导**（4 步，Enter 下一步 / Esc 跳过，`role="dialog"`）：起始实体（自动补全）→ 关系链（目录镜像自 `configs/schema/domain_v0.yaml`）→ 约束（时间 / 数量 / 交集）→ 预览（子问题草案可删除、重排；生成的英文问题可直接修改）。
+5. **澄清卡片**：发送前对问题中的实体名查实体索引，同名多实体 → 单选卡；过短且无实体的问句 → 宽泛卡（用向导补全 / 直接发送 / 跳过）；答案 `status=partial|no_answer` 且 `missing_info` 非空 → 多选补充卡。
+6. **推理路径 HopRail**：由 SSE 事件实时填充——骨架节点 → 「规划子问题…」虚线节点与计划行 → 第 N 跳节点依次点亮（跳色外环脉冲，客户端计时）→ 作答 ◆；完成后用最终链补上每跳证据数（来自 `steps[].evidence_ids`），路径保持展开；执行中可停止（Esc）。点击节点在检查器中按该跳筛选证据；悬停显示完整子问题与结论；⋯ 菜单「从此跳重跑」按 FeatureFlag 降级。
+7. **结论区**：正文 + 句末引用角标 `[n]`（`claims[].evidence_ids` → 证据目录序号，下划线取所属跳色；悬停预览原文前 120 字；点击在检查器定位并高亮 1.2 s）· `metadata.confidence` 置信度标签（仅已知等级）· 非 `answered` 时列出 `missing_info`，`no_answer` 时显示「未能得出结论」与后端原因并提供「去补充知识」· 2–3 个追问 chips · 元信息行（跳数 · 耗时 · 调用 · tok）· 重新提问 / 复制（结论、query_id）/ 👍 👎（👎 选原因后提交 `reason`）。
+8. **知识导入向导**（knowledge 视图）：选择文档（前端预检 5 MiB / 20 个 / md·txt）→ 预览（文本片段；抽取预览接口缺失时显式说明）→ 确认入库（`POST /v1/docs`）→ 查看进度（轮询 `GET /v1/ingest-tasks/{id}`，≥2s，页面隐藏即停；`review` 状态可跳转审核）。
+9. **每次请求独立**：会话历史仅是展示与回看，不向后端携带上下文。
 
 ### 2.3 推理链可视化交付（P4-UI 增强 + P5 增强）[x]
 
@@ -118,26 +119,45 @@
 
 - 多轮对话上下文（每次提问独立）
 - 图谱编辑能力（治理走独立审核界面 P3-KG-03）
-- 移动端适配
+- 移动端适配 — **⚠ 差异（2026-10-31）**：应产品侧要求，本次改版已落地响应式布局（<1024px 工作区抽屉、<768px 侧栏抽屉 / 单列欢迎卡），PRD 与 rules §8 尚未同步修订，挂账 IMPORTANT §6
 - 图路径可视化**编辑器**
 
-> 2026-08-08 注：知识运维 / 审核 / 可观测界面**不属于**上列「不做」——已立项 P5-UI-02（§2.7）。上列四项维持不做（rules.md §8；改动须先改 PRD）。
+> 2026-08-08 注：知识运维 / 审核 / 可观测界面**不属于**上列「不做」——P5-UI-02（§2.7）已交付。上列四项中「移动端适配」已按产品要求以响应式落地（⚠ 差异见上条），其余维持不做（rules.md §8；改动须先改 PRD）。
 
 ### 2.6 验证清单
 
-工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7。
+工程冒烟（CI）：`tests/unit/test_web_claude_ui.py`、`tests/unit/test_web_wizard_ui.py`。浏览器与离线 vendor 等人工项见执行计划 [phases/p5-ui-01-vue-refactor.md](../phases/p5-ui-01-vue-refactor.md) §7；v2 真实浏览器走查与设计门禁见本节最后一项。
 
 - [x] `GET /web` 与 `/web/static/*` 挂载存在；文件全集与钉版断言
 - [x] 请求体字段与 `QueryRequest` schema 一致（question/force_agentic/max_hops）
 - [x] SSE 分支覆盖 §1.3 全部事件类型（含 `cache_hit`）— 未知事件静默忽略
 - [x] 反馈按 turn 携带 `query_id` 且处理 `success=false`
 - [x] 全前端 `v-html` / `.innerHTML` 零命中
+- [x] 全部 Vue string template 在 Node 下用钉版 Vue 编译器编译通过（`node scripts/check_web_templates.mjs`，由 `test_web_wizard_ui.py` 调用）；`T.*` 文案键全部存在于 `i18n.js`
+- [x] 真实浏览器走查（2026-10-31 v2）：`.taste-skill/drive.mjs` 在 headless Chromium 中走完欢迎 / 流式 / 回答 / 引用定位 / 跳筛选 / 子图 / 日志 / 未找到答案 / 澄清 / 向导 / 命令面板 / 设置 / 各断点 / 管理视图并留存截图；`design-taste-frontend` 的 `inspect.mjs --app` 对实时首屏与状态快照 0 FAIL（见 UI_DESIGN §10）
 
-### 2.7 P5-UI-02 前端重规划概要（2026-08-08，规划态未实施）
+### 2.7 P5-UI-02 前端重规划概要（2026-08-08 立项；2026-09-07 交付，管理视图现于 `js/admin/*`）
 
 试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表，低优先）。
 
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
-- **API 前置两项**（M0）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页（当前仅有单条查询）。
-- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)（现状 Claude 风格壳为已交付形态，U-14/U-15 时按该基准值级刷新）。
-- 权威计划（模块行数预算 / 里程碑 U-01…U-13 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
+- **API 前置两项**（M0，已交付）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页。
+- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)。**2026-10-31 更新**：v2 已按 `Prompt.md` 重做为「推理笔记本」（§10）；「制图室」方向不再执行，保留备案（见 IMPORTANT §6）。
+- 权威计划（模块行数预算 / 里程碑 U-01…U-15 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
+
+### 2.8 前端已声明、后端尚未实现的接口契约（2026-10-31）
+
+开关集中在 `web/static/js/contracts.js` 的 `FeatureFlag`（全部默认 `false`），路径常量在 `ProposedEndpoint`。关闭时前端按下表降级；`tests/unit/test_web_wizard_ui.py` 断言业务代码从不引用 `ProposedEndpoint` 或这些路径。端点落地后只需实现契约、翻转开关。
+
+| 能力 | 开关 | 契约（均走统一 envelope） | 关闭时的前端降级 |
+|---|---|---|---|
+| 计划预览 / 确认 | `PLAN_PREVIEW` | `POST /v1/query/plan` body `{question, max_hops?}` → `{plan_id, sub_questions:[{id, text, depends_on[]}], estimated_hops}`；执行时 `POST /v1/query/stream` 接受可选 `plan_id` 与编辑后的 `sub_questions` | 「先确认计划」模式按多跳（`force_agentic`）执行并在对话中提示；向导第 4 步提供客户端子问题草案的删除 / 重排 |
+| 从某一跳重跑 | `RERUN_FROM_HOP` | `POST /v1/query/{query_id}/rerun` body `{from_hop, sub_questions?}` → 与 `/v1/query/stream` 相同的 SSE 事件序列（复用 checkpointer 状态） | 按钮把该跳子问题填回输入框并提示需重新提问 |
+| 抽取预览 | `EXTRACTION_PREVIEW` | `POST /v1/docs/preview`（multipart `files`，不落库）→ `{entities:[{name, type, confidence}], relations:[{head, relation, tail, confidence}], rejected:[{reason, count}]}` | 向导第 2 步只显示文档文本片段，并说明 worker 异步抽取、结果进入审核队列 |
+| 邻域子图 | `GRAPH_NEIGHBORS` | `GET /v1/graph/entities/{id}/neighbors?hops=1&limit=` → `{nodes:[{id, name, type}], edges:[{head_id, relation, tail_id, evidence_ids[]}]}` | 子图标签页只解析答案证据目录中的图谱行（id 前缀 `nbr:` / `path:`） |
+| 关系目录 | `RELATION_CATALOG` | `GET /v1/graph/relations` → `[{type, head_types[], tail_types[], description}]` | 向导使用 `js/chat/wizard.js` 内镜像自 `configs/schema/domain_v0.yaml` 的静态目录 |
+
+### 2.9 图标与动效（2026-10-31 增补）
+
+- **图标集**：按 `Prompt.md` §3.3 使用 Lucide 线性图标（16px、1.5 描边、`currentColor`）。`web/` 零构建，不引入 npm 依赖：`lucide-static@1.65.0` 的 `icon-nodes.json` 经 `scripts/build_lucide_icons.mjs` 生成为 `web/static/vendor/lucide-icons.js`（`ICON_IDS` 名称表 + `LUCIDE` 几何，ISC，与 Vue 同样 vendored + 固定版本，ADR-006）。`web/static/js/icons.js` 只做名称到节点的解析与 `<ag-icon>` 渲染；品牌标记 `mark` 为唯一自绘字形。`tests/unit/test_web_claude_ui.py` 断言模板/模块引用的每个图标名都在 vendored 表内，并断言生成文件与上游版本一致（`--check`）。
+- **动效**：词表与参考 `demo/` 一致 —— `enter-note`（页面/浮层上浮 8px，220ms）、`enter-node`（跳节点右移 8px，200ms，按 `--t-stagger` 55ms 级联）、`panel-in`（检查器自右边缘进入；1200–1439 抽屉档关闭，避免与其 transform 冲突）、`breathe` / `spin` / `fade-in`；`prefers-reduced-motion` 下取消位移与延迟，只保留透明度。均 ≤220ms，符合 §6 可达性约定。

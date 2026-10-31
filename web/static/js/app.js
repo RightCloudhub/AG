@@ -1,196 +1,111 @@
 // @ts-check
 /**
- * Main application — Vue 3 SPA with hash router and role-aware navigation.
+ * The application: the 推理笔记本 shell (top bar · notebook column · the view · the inspector lives inside the
+ * chat view), a hash router gated by role capabilities, the global shortcuts (§8), theme and settings.
  */
-import { createApp, ref, computed, onMounted, shallowRef }
-  from '../vendor/vue.esm-browser.prod.js';
-import { View, Role, HealthStatus } from './contracts.js';
-import { fetchMe, fetchHealth, getApiKey, setApiKey } from './api.js';
+import { createApp, ref, onMounted, onUnmounted, shallowRef } from '../vendor/vue.esm-browser.prod.js';
+import { KeyboardKey, Role, Shortcut, UiPolicy, View } from './contracts.js';
+import { text as T, fmt } from './i18n.js';
+import { AgIcon } from './icons.js';
+import { initTheme, toggleTheme } from './theme.js';
+import { preferences } from './store/preferences.js';
+import { closeOverlays, paletteOpen } from './store/shell.js';
+import { NAV_ITEMS, useShell } from './shell/use_shell.js';
+import { usePalette } from './shell/use_palette.js';
+import { applyInspectorWidth, stepInspectorHop, toggleInspector } from './shell/use_inspector.js';
+import { BANNER_TEMPLATE, PALETTE_TEMPLATE, SETTINGS_TEMPLATE, TOPBAR_TEMPLATE } from './shell/tpl_topbar.js';
+import { NOTEBOOK_TEMPLATE } from './shell/tpl_notebook.js';
+
+/** @typedef {import('./contracts.js').ViewName} ViewName */
 
 /* ── Lazy view imports ─────────────────────────────────────────────── */
 const viewModules = {
-  [View.CHAT]:      () => import('./views/chat.js'),
-  [View.GRAPH]:     () => import('./views/graph.js'),
-  [View.KNOWLEDGE]: () => import('./views/knowledge.js'),
-  [View.REVIEW]:    () => import('./views/review.js'),
-  [View.OPS]:       () => import('./views/ops.js'),
+  [View.CHAT]: () => import('./views/chat.js'),
+  [View.GRAPH]: () => import('./admin/graph.js'),
+  [View.KNOWLEDGE]: () => import('./admin/knowledge.js'),
+  [View.REVIEW]: () => import('./admin/review.js'),
+  [View.OPS]: () => import('./admin/ops.js'),
 };
 
-/* ── Navigation config ─────────────────────────────────────────────── */
-const NAV_ITEMS = [
-  { id: View.CHAT,      icon: '💬', label: '对话',      capability: View.CHAT },
-  { id: View.GRAPH,     icon: '🕸', label: '知识图谱',     capability: View.GRAPH },
-  { id: View.KNOWLEDGE, icon: '📚', label: '知识库', capability: View.KNOWLEDGE },
-  { id: View.REVIEW,    icon: '🔍', label: '人工审核',    capability: View.REVIEW },
-  { id: View.OPS,       icon: '📡', label: '系统运维', capability: View.OPS },
-];
-
-/* ── App component ─────────────────────────────────────────────────── */
-function useAppState() {
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./contracts.js').ViewName>} */
-  const currentView = ref(View.CHAT);
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./responses.js').Identity | null>} */
-  const user = ref(null);
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<Partial<Record<import('./contracts.js').ViewName, boolean>>>} */
-  const capabilities = ref({});
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('./responses.js').Health | null>} */
-  const health = ref(null);
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('../vendor/vue.esm-browser.prod.js').Component | null>} */
-  const currentComponent = shallowRef(null);
-  const sidebarOpen = ref(false);
-  const apiKey = ref(getApiKey());
-  /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<string | null>} */
-  const loadError = ref(null);
-
-  const visibleNav = computed(() =>
-    NAV_ITEMS.filter(n => capabilities.value[n.capability])
-  );
-
-  async function loadUser() {
-    try {
-      const { data } = await fetchMe();
-      user.value = data;
-      capabilities.value = data.capabilities || {};
-    } catch {
-      // Unauthenticated — show all reader capabilities
-      capabilities.value = { [View.CHAT]: true, [View.GRAPH]: true };
-    }
-  }
-
-  async function loadHealth() {
-    try { health.value = await fetchHealth(); }
-    catch { health.value = null; }
-  }
-
-  function userInitial() {
-    const uid = user.value?.user_id || 'A';
-    return uid.charAt(0).toUpperCase();
-  }
-
-  return { currentView, user, capabilities, health, currentComponent, sidebarOpen, apiKey, loadError, visibleNav, loadUser, loadHealth, userInitial };
+/** @param {EventTarget | null} target */
+function isTyping(target) {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
+    || (target instanceof HTMLElement && target.isContentEditable);
 }
 
 const App = {
   setup() {
-    const { currentView, user, capabilities, health, currentComponent, sidebarOpen, apiKey, loadError, visibleNav, loadUser, loadHealth, userInitial } = useAppState();
+    /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<ViewName>} */
+    const currentView = ref(View.CHAT);
+    /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<import('../vendor/vue.esm-browser.prod.js').Component | null>} */
+    const currentComponent = shallowRef(null);
+    /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<string | null>} */
+    const loadError = ref(null);
 
-    /** @param {string} key */
-    async function updateApiKey(key) {
-      apiKey.value = key;
-      setApiKey(key);
-      await loadUser();
-      handleHashChange();
-    }
-
-    /** @param {import('./contracts.js').ViewName} viewId */
+    /** @param {ViewName} viewId */
     async function navigate(viewId) {
       if (!viewModules[viewId]) return;
       currentView.value = viewId;
       window.location.hash = viewId;
-      sidebarOpen.value = false;
+      closeOverlays();
       loadError.value = null;
-      try {
-        const mod = await viewModules[viewId]();
-        currentComponent.value = mod.default;
-      } catch (e) {
-        currentComponent.value = null;
-        loadError.value = String(e);
-      }
+      try { currentComponent.value = (await viewModules[viewId]()).default; }
+      catch (e) { currentComponent.value = null; loadError.value = String(e); }
     }
-
+    const shell = useShell({ navigate, currentView });
+    const palette = usePalette({
+      navigate, newQuestion: shell.newQuestion, selectChat: shell.selectChat, setMode: shell.setMode, toggleTheme, capabilities: shell.capabilities,
+    });
     function handleHashChange() {
       const target = NAV_ITEMS.find(n => n.id === (window.location.hash.slice(1) || View.CHAT));
-      if (target && capabilities.value[target.capability]) navigate(target.id);
+      if (target && shell.capabilities.value[target.id]) navigate(target.id);
+    }
+    /** Global shortcuts (§8): ⌘K · ⌘N · ⌘⇧L with a modifier; E · [ · ] outside inputs; Esc closes what floats. @param {KeyboardEvent} e */
+    function onKeydown(e) {
+      const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
+      if (mod && key === Shortcut.PALETTE) { e.preventDefault(); palette.openPaletteDialog(); return; }
+      if (mod && key === Shortcut.NEW_QUESTION) { e.preventDefault(); shell.newQuestion(); return; }
+      if (mod && e.shiftKey && key === Shortcut.THEME) { e.preventDefault(); toggleTheme(); return; }
+      if (e.key === KeyboardKey.ESCAPE) { closeOverlays(); if (shell.settingsOpen.value) shell.closeSettings(); return; }
+      if (mod || e.altKey || isTyping(e.target)) return;
+      if (key === Shortcut.INSPECTOR) { e.preventDefault(); toggleInspector(); }
+      else if (e.key === Shortcut.PREV_HOP) stepInspectorHop(-1);
+      else if (e.key === Shortcut.NEXT_HOP) stepInspectorHop(1);
     }
 
     onMounted(async () => {
-      await loadUser();
-      await loadHealth();
+      initTheme();
+      applyInspectorWidth(preferences.value.inspectorWidth);
+      shell.watchViewport();
+      window.addEventListener('keydown', onKeydown);
       window.addEventListener('hashchange', handleHashChange);
+      await shell.loadUser();
+      await shell.probe();
       const hash = window.location.hash.slice(1);
-      const target = NAV_ITEMS.find(n => n.id === hash && capabilities.value[n.capability])?.id || View.CHAT;
-      navigate(target);
+      navigate(NAV_ITEMS.find(n => n.id === hash && shell.capabilities.value[n.id])?.id || View.CHAT);
     });
+    onUnmounted(() => { window.removeEventListener('keydown', onKeydown); window.removeEventListener('hashchange', handleHashChange); });
 
     return {
-      currentView, user, capabilities, health, currentComponent,
-      visibleNav, navigate, sidebarOpen, userInitial, NAV_ITEMS,
-      apiKey, updateApiKey, loadError, Role, HealthStatus,
+      ...shell, ...palette, openPalette: palette.openPaletteDialog, closePalette: palette.closePaletteDialog, currentView, currentComponent,
+      loadError, navigate, handleHashChange, paletteOpen, T, fmt, Role, UiPolicy,
     };
   },
 
   template: `
-<div class="app-shell">
-  <!-- Mobile menu button -->
-  <button class="btn btn--icon btn--ghost"
-          style="position:fixed;top:12px;left:12px;z-index:30;display:none;"
-          :style="{ display: sidebarOpen ? 'none' : '' }"
-          @click="sidebarOpen = true"
-          id="mobile-menu-btn">☰</button>
-
-  <!-- Sidebar -->
-  <aside class="sidebar" :class="{ 'sidebar--open': sidebarOpen }">
-    <div class="sidebar__brand">
-      <div class="sidebar__logo">G</div>
-      <div>
-        <div class="sidebar__title">AgenticGraphRAG</div>
-        <div class="sidebar__subtitle">智能问答控制台</div>
-      </div>
-    </div>
-
-    <nav class="sidebar__nav">
-      <div v-for="nav in visibleNav" :key="nav.id"
-           class="nav-item" :class="{ 'nav-item--active': currentView === nav.id }"
-           @click="navigate(nav.id)">
-        <span class="nav-item__icon">{{ nav.icon }}</span>
-        <span>{{ nav.label }}</span>
-      </div>
-    </nav>
-
-    <div class="sidebar__footer">
-      <div v-if="(!user || !user.authenticated)" style="margin-bottom:var(--space-3);">
-        <input class="input" style="padding:var(--space-2); font-size:var(--text-xs);" 
-               type="password" placeholder="输入 API Key..." 
-               :value="apiKey" @input="updateApiKey($event.target.value)" />
-      </div>
-      <div class="sidebar__user" v-if="user && user.authenticated">
-        <div class="sidebar__avatar">{{ userInitial() }}</div>
-        <div>
-          <div style="color:var(--color-text-primary);font-weight:600;">{{ user.user_id || '匿名用户' }}</div>
-          <div style="color:var(--color-text-muted);font-size:11px;display:flex;align-items:center;gap:4px;">
-            <span class="badge badge--accent" style="font-size:9px;padding:1px 4px;">{{ user.role || Role.READER }}</span>
-            {{ user.tenant_id || 'default' }}
-          </div>
-        </div>
-      </div>
-      <div v-if="health" style="margin-top:var(--space-3);display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-3);">
-        <span style="width:6px;height:6px;border-radius:50%;display:inline-block;"
-              :style="{ background: health.status === HealthStatus.OK ? 'var(--color-success)' : 'var(--color-warning)' }"></span>
-        <span style="font-size:var(--text-xs);color:var(--color-text-muted);">{{ health.status }}</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Backdrop for mobile -->
-  <div v-if="sidebarOpen" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15;"
-       @click="sidebarOpen = false"></div>
-
-  <!-- Main content -->
-  <main class="main-content">
-    <component v-if="currentComponent" :is="currentComponent" :key="currentView"></component>
-    <div v-else-if="loadError" class="empty-state" style="flex:1;">
-      <div class="empty-state__icon">⚠</div>
-      <div class="empty-state__text" style="color:var(--color-danger);">视图加载失败: {{ currentView }}</div>
-      <pre style="margin-top:12px;font-size:11px;color:var(--color-text-muted);text-align:left;max-width:400px;white-space:pre-wrap;">{{ loadError }}</pre>
-    </div>
-    <div v-else class="empty-state" style="flex:1;">
-      <div class="spinner spinner--lg"></div>
-    </div>
-  </main>
-</div>
-`
+<div class="app" :class="{ 'app--insp-collapsed': preferences.inspectorCollapsed }">
+  ${TOPBAR_TEMPLATE}
+  ${BANNER_TEMPLATE}
+  ${NOTEBOOK_TEMPLATE}
+  <component v-if="currentComponent" :is="currentComponent" :key="currentView"></component>
+  <div v-else class="page"><p v-if="loadError" class="load-error" role="alert">{{ T.app.loadFailed }}: {{ currentView }}
+{{ loadError }}</p><div v-else class="empty"><span class="spinner"></span></div></div>
+  ${SETTINGS_TEMPLATE}
+  ${PALETTE_TEMPLATE}
+</div>`,
 };
 
 /* ── Mount ─────────────────────────────────────────────────────────── */
 const app = createApp(App);
+app.component('ag-icon', AgIcon);
 app.mount('#app');

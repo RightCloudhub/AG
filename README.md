@@ -82,7 +82,7 @@ src/agentic_graphrag/   核心代码（分层见 docs/ARCHITECTURE.md §0）
 configs/                配置、领域 Schema、Prompt
 data/                   样例语料与 seed 三元组（见 data/README.md）
 evals/                  评测数据集
-web/                    Vue 3 零构建工作台
+web/                    Vue 3 零构建工作台（推理笔记本）
 tests/ scripts/         单元测试、门禁与评测脚本
 docs/                   架构、设计、运维、评审文档
 plan/ reports/          阶段计划与门禁报告
@@ -94,6 +94,7 @@ plan/ reports/          阶段计划与门禁报告
 ruff check src tests scripts && ruff format --check src tests scripts
 mypy
 npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json
+node scripts/check_web_templates.mjs   # Vue 字符串模板编译校验（零构建）
 pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 ```
 

@@ -1,7 +1,9 @@
 # P5-UI-02：前端重规划——试用问答 → 角色感知控制台
 
 **任务 ID**：P5-UI-02 · **版本**：V1.0（2026-08-08）· **状态**：**[ ] 规划定稿，待评审后实施**
-**关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 V1.5 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) · 账本 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §0/§5
+**关联**：[workstreams/api-and-ui.md](../workstreams/api-and-ui.md) §2 · [engineering/rules.md](../engineering/rules.md) §8 · [engineering/tech-stack.md](../engineering/tech-stack.md) ADR-006（**不变，无需新 ADR**）· 前作 [p5-ui-01-vue-refactor.md](./p5-ui-01-vue-refactor.md) · 视觉基准 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) · 账本 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §0/§5
+
+> **状态（2026-10-31）**：**已交付**（2026-09-07：壳 + hash 路由 + 五视图 + console-widgets；M0 前置 `GET /v1/me`、`GET /v1/ingest-tasks` 分页亦落地）。2026-10-31 v2 重设计后管理视图位于 `js/admin/*`，视觉规范见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10（原「制图室」基准不再执行，保留备案）。下文为立项时的计划与模块预算（`root.js` / `chain-view.js` / `console.css` 等文件已被 v2 结构取代），里程碑勾选未逐项回填；完成事实以上述交付与 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) 为准。
 
 ---
 

@@ -98,6 +98,26 @@ curl -fsSL -o web/static/vendor/vue.esm-browser.prod.js \
 
 ---
 
+### 3.2 Lucide 图标几何（Web 工作台，vendored 子集）
+
+`Prompt.md` §3.3 规定界面图标用 Lucide 线性图标（16px、1.5 描边、`currentColor`）。`web/` 零构建，不引入 npm 依赖，也不在运行时取外链：用到的 33 个图标的几何数据从 `lucide-static` 的 `icon-nodes.json` 生成为 `web/static/vendor/lucide-icons.js`（`ICON_IDS` 名称表 + `LUCIDE` 节点表），与 §3.1 的 Vue 运行时同样 vendored 后入库。
+
+| 项 | 值 |
+|------|------|
+| 上游 | `lucide-static`（与参考 demo 的 `lucide-react` 同为 **1.65.0**） |
+| 许可证 | **ISC** |
+| 产物 | `web/static/vendor/lucide-icons.js`（生成文件，勿手改） |
+| 生成器 | `scripts/build_lucide_icons.mjs`（名称表为唯一来源，CI 可 `--check`） |
+| 说明文档 | [`web/static/vendor/README.md`](../../web/static/vendor/README.md) |
+
+```bash
+npm pack lucide-static@1.65.0 && tar xzf lucide-static-1.65.0.tgz                       # 取上游 icon-nodes.json
+node scripts/build_lucide_icons.mjs --source package/icon-nodes.json --version 1.65.0   # 重新生成
+node scripts/build_lucide_icons.mjs --check --source package/icon-nodes.json            # 校验是否漂移
+```
+
+品牌标记 `mark` 是界面唯一自绘字形，位于 `web/static/js/icons.js`，不在此清单内。
+
 ## 4. 与 Python 依赖的边界
 
 | 类别 | 管理方式 | 勿写入本清单 |
@@ -178,3 +198,4 @@ rm -f "$NEO4J_HOME/.password_set"
 | 2026-07-20 | 首次记录：`/tmp` Temurin 17.0.19 + Neo4j 5.26.0 tarball；对照 `docker-compose.yml` 的 neo4j/qdrant 镜像 |
 | 2026-07-20 | 补充：tarball Neo4j 已能 start，但初始密码/已有 data 导致认证失败；增加重置步骤 |
 | 2026-07-21 | P5-UI-01 / ADR-006：§3 增加 Vue 3.5.13 运行时（浏览器 ESM / vendor，**非 npm**）与 §3.1 vendor 小节 |
+| 2026-10-31 | Web 图标：§3.2 记录 Lucide 1.65.0（ISC）vendored 子集与生成器 `scripts/build_lucide_icons.mjs`，对齐 `Prompt.md` §3.3 |

@@ -1,222 +1,263 @@
 // @ts-check
 /**
- * Chat view — multi-hop QA with SSE streaming, evidence, reasoning chain, feedback.
+ * The notebook view (§4.4): question pages (title → HopRail → conclusion → meta → follow-ups), the docked
+ * composer with its wizard, and the inspector at the right. Streaming fills the rail hop by hop.
  */
-import { ref, computed, nextTick, onMounted } from '../../vendor/vue.esm-browser.prod.js';
-import { streamQuery, postFeedback } from '../api.js';
-import { record, text, number, parseAnswer } from '../responses.js';
-import { MessageRole, QueryRoute, StreamEvent, UiPolicy, KeyboardKey } from '../contracts.js';
+import { ref, computed, nextTick, onMounted, onUnmounted } from '../../vendor/vue.esm-browser.prod.js';
+import { streamQuery, postFeedback, fetchEntities } from '../api.js';
+import { record, text, parseAnswer } from '../responses.js';
+import {
+  ClarifyKind, FeatureFlag, FeedbackReason, KeyboardKey, MessageRole, QueryMode, QueryRoute, QueryStatus, SlashCommand,
+  StreamEvent, UiPolicy, View, WizardStep,
+} from '../contracts.js';
+import { text as T, fmt } from '../i18n.js';
+import { activeConversationId, appendMessage, createConversation, findConversation, updateMessage } from '../store/conversations.js';
+import { setPreferences } from '../store/preferences.js';
+import { useComposer } from '../chat/use_composer.js';
+import { useInspector, inspSyncTo } from '../shell/use_inspector.js';
+import * as progress from '../chat/progress.js';
+import { RELATION_CATALOG } from '../chat/wizard.js';
+import { detectBroadQuestion, detectEntityAmbiguity, missingInfoCard } from '../chat/clarify.js';
+import { useClarify } from '../chat/use_clarify.js';
+import { suggestFollowups } from '../chat/followups.js';
+import { buildPages } from '../chat/pages.js';
+import { hopClass, hopOfEvidence, linkPending, railFromAnswer, railFromProgress } from '../chat/hoprail.js';
+import {
+  citationsFor, citeSnippet, confidenceClass, confidenceTag, copyText, logFrame, metaLine, railAria, railLabel, railMeta, routeLabel,
+} from '../chat/presenters.js';
+import { COMPOSER_TEMPLATE, WIZARD_TEMPLATE } from '../chat/tpl_composer.js';
+import { PAGE_TEMPLATE, WELCOME_GROUPS, WELCOME_TEMPLATE } from '../chat/tpl_page.js';
+import { THREAD_ROWS_TEMPLATE } from '../chat/tpl_thread.js';
+import { INSPECTOR_TEMPLATE } from '../shell/tpl_inspector.js';
 
-const HINTS = [
-  'Apex Holdings 的 CEO 是谁？',
-  'TechVentures 投资了哪些公司？',
-  'NovaTech 被哪家子公司收购了？',
-];
+/** @template T @typedef {import('../../vendor/vue.esm-browser.prod.js').Ref<T>} Ref */
+/** @typedef {import('../chat/types.js').ChatMessage} ChatMessage */
+/** @typedef {import('../chat/types.js').ProgressModel} ProgressModel */
+/** @typedef {import('../chat/types.js').PageModel} PageModel */
+/** @typedef {import('../chat/types.js').LogFrame} LogFrame */
+/** @typedef {import('../chat/hoprail.js').RailItem} RailItem */
+/** @typedef {import('../responses.js').Answer} Answer */
+/** @typedef {PageModel & {rail: RailItem[]}} Page */
 
-/** @typedef {{role: import('../contracts.js').MessageRoleName, text?: string, data?: import('../responses.js').Answer, feedbackSent?: boolean, feedbackValue?: boolean, showSteps?: boolean}} ChatMessage */
-
-function useChatState() {
-  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<ChatMessage[]>} */
-  const messages = ref([]);
-  const question = ref('');
-  const streaming = ref(false);
-  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<{icon: string, text: string, type: import('../contracts.js').StreamEventName}[]>} */
-  const streamSteps = ref([]);
-  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<AbortController | null>} */
-  const abortCtrl = ref(null);
-  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<HTMLElement | null>} */
-  const chatEl = ref(null);
-  /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<HTMLTextAreaElement | null>} */
-  const inputEl = ref(null);
-
-  const canSend = computed(() => question.value.trim().length > 0 && !streaming.value);
-
-  function scrollBottom() {
-    nextTick(() => {
-      if (chatEl.value) chatEl.value.scrollTop = chatEl.value.scrollHeight;
-    });
-  }
-
-  /** @param {string} text */
-  function useHint(text) {
-    question.value = text;
-    if (inputEl.value) inputEl.value.focus();
-  }
-
-  onMounted(() => { if (inputEl.value) inputEl.value.focus(); });
-  return { messages, question, streaming, streamSteps, abortCtrl, chatEl, inputEl, canSend, scrollBottom, useHint };
-}
+const REASON = /原因[:：]\s*([^。]+)/;
 
 export default {
   name: 'ChatView',
   setup() {
-    const { messages, question, streaming, streamSteps, abortCtrl, chatEl, inputEl, canSend, scrollBottom, useHint } = useChatState();
+    const composer = useComposer();
+    const inspector = useInspector();
+    const streaming = ref(false);
+    const sending = ref(false);
+    /** @type {Ref<ProgressModel | null>} */
+    const live = ref(null);
+    /** @type {Ref<AbortController | null>} */
+    const abortCtrl = ref(null);
+    /** @type {Ref<string | null>} */
+    const streamConversationId = ref(null);
+    /** @type {Ref<HTMLElement | null>} */
+    const scrollEl = ref(null);
+    /** @type {Ref<HTMLTextAreaElement | null>} */
+    const editEl = ref(null);
+    const copiedId = ref(''), copyMenuId = ref(''), hopMenuId = ref(''), editingKey = ref(''), editText = ref('');
+    /** @type {Ref<{key: string, question: string, lines: string[]} | null>} */
+    const pendingPlan = ref(null);
+    /** @type {LogFrame[]} */
+    let logFrames = [];
+    let logStart = 0;
+    /** @type {Map<string, Map<string, number>>} */
+    const hopMaps = new Map();
 
-    function sendQuestion() {
-      const q = question.value.trim();
-      if (!q || streaming.value) return;
-      messages.value.push({ role: MessageRole.USER, text: q });
-      question.value = '';
-      streaming.value = true;
-      streamSteps.value = [];
+    const conversation = computed(() => findConversation(activeConversationId.value));
+    const messages = computed(() => conversation.value?.messages ?? []);
+    const streamingHere = computed(() => streaming.value && streamConversationId.value === activeConversationId.value);
+    const pages = computed(() => buildPages(messages.value, streamingHere.value).map(p => ({ ...p, rail: railFor(p) })));
+    const planLines = computed(() => (live.value ? progress.planLines(live.value) : []));
+    const canSend = computed(() => composer.question.value.trim().length > 0 && !streaming.value && !sending.value);
+    const feedbackReasons = Object.values(FeedbackReason).map(id => ({ id, label: T.feedback.reasons[id] }));
+
+    /** @param {PageModel} p @returns {RailItem[]} */
+    function railFor(p) {
+      if (p.live && live.value) return railFromProgress(live.value);
+      const answer = p.answer?.msg.data;
+      return answer ? railFromAnswer(answer, p.answer?.msg.progress ?? null) : [];
+    }
+    function scrollBottom() { nextTick(() => { if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight; }); }
+    /** @param {ChatMessage} msg @param {string | null} [conversationId] */
+    function push(msg, conversationId = null) {
+      const target = findConversation(conversationId) ?? conversation.value ?? createConversation(msg.text ?? '');
+      const index = appendMessage(target.id, msg);
       scrollBottom();
-
-      const ctrl = streamQuery({ question: q, max_hops: UiPolicy.DEFAULT_MAX_HOPS }, {
-        [StreamEvent.TRIAGE](p)       { streamSteps.value.push({ icon: '🧭', text: `路由: ${text(record(p).route) || text(record(p).path) || 'analyzing'}`, type: StreamEvent.TRIAGE }); scrollBottom(); },
-        [StreamEvent.THINKING](p)     { streamSteps.value.push({ icon: '💭', text: text(record(p).thought) || text(record(p).text) || '思考中…', type: StreamEvent.THINKING }); scrollBottom(); },
-        [StreamEvent.SUB_QUESTION](p) { streamSteps.value.push({ icon: '🔍', text: text(record(p).sub_question) || text(record(p).question) || text(record(p).text) || '', type: StreamEvent.SUB_QUESTION }); scrollBottom(); },
-        [StreamEvent.HOP_DONE](p)     { streamSteps.value.push({ icon: '✓', text: `第 ${number(record(p).hop)} 跳完成`, type: StreamEvent.HOP_DONE }); scrollBottom(); },
-        [StreamEvent.CACHE_HIT](p)    { streamSteps.value.push({ icon: '⚡', text: '缓存命中', type: StreamEvent.CACHE_HIT }); scrollBottom(); },
-        [StreamEvent.ANSWER](p)       { messages.value.push({ role: MessageRole.ASSISTANT, data: parseAnswer(p) }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
-        [StreamEvent.ERROR](p)        { messages.value.push({ role: MessageRole.ERROR, text: text(record(p).message, '未知错误') }); streaming.value = false; streamSteps.value = []; scrollBottom(); },
-        done()          { if (streaming.value) { streaming.value = false; streamSteps.value = []; } },
+      return { target: target.id, key: `${msg.ts}-${index}` };
+    }
+    /** @param {number} index @param {Partial<ChatMessage>} patch */
+    function patch(index, patch) { if (conversation.value) updateMessage(conversation.value.id, index, patch); }
+    /** @param {string} q */
+    async function clarifyFor(q) {
+      const broad = detectBroadQuestion(q);
+      if (broad) return broad;
+      try { return await detectEntityAmbiguity(q, async query => (await fetchEntities({ query, limit: UiPolicy.AUTOCOMPLETE_LIMIT })).data); }
+      catch { return null; }
+    }
+    /** Open a page for the question; in 先确认计划 mode wait for 执行 (§6). @param {string} q @param {boolean} [skipClarification] */
+    async function sendQuestion(skipClarification = false, q = composer.question.value.trim()) {
+      if (!q || streaming.value || sending.value) return;
+      sending.value = true;
+      const card = skipClarification ? null : await clarifyFor(q).finally(() => { sending.value = false; });
+      sending.value = false;
+      composer.question.value = '';
+      nextTick(composer.autosize);
+      const page = push({ role: MessageRole.USER, text: q, ts: Date.now() });
+      if (card) { push({ role: MessageRole.CLARIFY, clarify: card, ts: Date.now() }, page.target); return; }
+      if (composer.mode.value === QueryMode.PLAN_CONFIRM) {
+        const draft = composer.wizardQuestion.value === q ? composer.wizardDraftLabels.value : [];
+        pendingPlan.value = { key: page.key, question: q, lines: draft.length ? draft : [q] };
+        return;
+      }
+      runStream(q, page.target);
+    }
+    function confirmPlan() { const plan = pendingPlan.value; pendingPlan.value = null; if (plan) runStream(plan.question, activeConversationId.value); }
+    function cancelPlan() { pendingPlan.value = null; push({ role: MessageRole.NOTICE, text: T.plan.cancelled, ts: Date.now() }); }
+    /** @param {(model: ProgressModel) => ProgressModel} fn */
+    function update(fn) { if (live.value) { live.value = fn(live.value); scrollBottom(); } }
+    function settle() { streaming.value = false; live.value = null; abortCtrl.value = null; }
+    /** @param {string} name @param {unknown} payload */
+    function log(name, payload) { logFrames = [...logFrames, logFrame(name, payload, logStart)]; }
+    /** @param {string} q @param {string | null} target */
+    function runStream(q, target) {
+      streamConversationId.value = target;
+      streaming.value = true;
+      logStart = Date.now();
+      logFrames = [];
+      live.value = progress.emptyProgress(logStart);
+      if (composer.planUnavailable.value) push({ role: MessageRole.NOTICE, text: T.composer.planUnavailable, ts: Date.now() }, target);
+      abortCtrl.value = streamQuery(composer.requestFor(q), {
+        [StreamEvent.TRIAGE](p) { log(StreamEvent.TRIAGE, p); update(m => progress.applyTriage(m, p)); },
+        [StreamEvent.THINKING](p) { log(StreamEvent.THINKING, p); update(m => progress.applyThinking(m, p)); },
+        [StreamEvent.SUB_QUESTION](p) { log(StreamEvent.SUB_QUESTION, p); update(m => progress.applySubQuestion(m, p, Date.now())); },
+        [StreamEvent.HOP_DONE](p) { log(StreamEvent.HOP_DONE, p); update(m => progress.applyHopDone(m, p, Date.now())); },
+        [StreamEvent.CACHE_HIT](p) { log(StreamEvent.CACHE_HIT, p); update(progress.applyCacheHit); },
+        [StreamEvent.ANSWER](p) { log(StreamEvent.ANSWER, p); finish(parseAnswer(p), q, target); },
+        [StreamEvent.ERROR](p) { log(StreamEvent.ERROR, p); fail(text(record(p).message, T.common.unknownError), target); },
+        done() { if (streaming.value) settle(); },
       });
-      abortCtrl.value = ctrl;
     }
-
+    /** @param {Answer} answer @param {string} q @param {string | null} target */
+    function finish(answer, q, target) {
+      const done = live.value ? progress.finishProgress(live.value, answer) : null;
+      push({ role: MessageRole.ASSISTANT, data: answer, progress: done, log: logFrames, followups: suggestFollowups(answer, q), ts: Date.now() }, target);
+      const missing = missingInfoCard(answer, q);
+      if (missing) push({ role: MessageRole.CLARIFY, clarify: missing, ts: Date.now() }, target);
+      settle();
+      if (target === activeConversationId.value) inspector.inspShow(answer, q, logFrames);
+    }
+    /** @param {string} message @param {string | null} target */
+    function fail(message, target) { push({ role: MessageRole.ERROR, text: message, ts: Date.now() }, target); settle(); }
     function cancelStream() {
-      if (abortCtrl.value) { abortCtrl.value.abort(); streaming.value = false; streamSteps.value = []; }
+      if (!abortCtrl.value) return;
+      abortCtrl.value.abort();
+      const stopped = live.value ? progress.stopProgress(live.value) : null;
+      push({ role: MessageRole.NOTICE, text: fmt(T.states.stoppedAt, { n: stopped?.hops.length ?? 0 }), progress: stopped, ts: Date.now() }, streamConversationId.value);
+      settle();
     }
-
+    /** @param {import('../contracts.js').SlashCommandName} cmd */
+    function runSlash(cmd) {
+      if (cmd === SlashCommand.WIZARD) composer.openWizard();
+      else if (cmd === SlashCommand.PLAN) setPreferences({ mode: QueryMode.PLAN_CONFIRM });
+      else if (cmd === SlashCommand.IMPORT) window.location.hash = View.KNOWLEDGE;
+    }
+    /** @param {{id: import('../contracts.js').SlashCommandName, label: string, icon: string}} item */
+    function onSlash(item) { runSlash(composer.pickSlash(item)); }
     /** @param {KeyboardEvent} e */
     function handleKeydown(e) {
+      const handled = composer.menuKeydown(e);
+      if (handled === true) { e.preventDefault(); return; }
+      if (typeof handled === 'string') { e.preventDefault(); runSlash(handled); return; }
       if (e.key === KeyboardKey.ENTER && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
     }
-
-    /** @param {ChatMessage} msg @param {boolean} accurate */
-    async function submitFeedback(msg, accurate) {
+    /** Esc stops a run (§8). @param {KeyboardEvent} e */
+    function onWindowKeydown(e) { if (e.key === KeyboardKey.ESCAPE && streaming.value) cancelStream(); }
+    /** @param {ChatMessage} msg @param {number} index @param {boolean} accurate @param {string} [reason] */
+    async function submitFeedback(msg, index, accurate, reason = '') {
       if (!msg.data?.query_id || msg.feedbackSent) return;
-      try {
-        await postFeedback({ query_id: msg.data.query_id, accurate });
-        msg.feedbackSent = true;
-        msg.feedbackValue = accurate;
-      } catch { /* toast handled globally */ }
+      try { await postFeedback({ query_id: msg.data.query_id, accurate, reason }); patch(index, { feedbackSent: true, feedbackValue: accurate, feedbackReason: reason }); }
+      catch { patch(index, { feedbackValue: undefined }); }
     }
-
-    /** @param {ChatMessage} msg */
-    function toggleSteps(msg) {
-      msg.showSteps = !msg.showSteps;
+    /** @param {ChatMessage} msg @param {number} index */
+    function startNegative(msg, index) { if (!msg.feedbackSent) patch(index, { feedbackValue: false }); }
+    /** @param {string} q */
+    function useHint(q) { composer.setQuestion(q); }
+    /** @param {Page} p */
+    function ensureInspected(p) {
+      const answer = p.answer?.msg.data;
+      if (answer && inspector.inspAnswer.value?.query_id !== answer.query_id) inspector.inspShow(answer, p.question, p.answer?.msg.log ?? []);
     }
+    /** @param {Page} p @param {RailItem} it */
+    function selectHop(p, it) { if (it.kind !== 'hop' || !p.answer) return; ensureInspected(p); inspector.inspSelectHop(it.hop); closeHopMenu(); }
+    /** @param {Page} p @param {RailItem} it */
+    function isSelected(p, it) {
+      return it.kind === 'hop' && !!p.answer && inspector.inspAnswer.value?.query_id === p.answer.msg.data?.query_id && inspector.inspHop.value === it.hop;
+    }
+    /** @param {Page} p @param {string} id */
+    function openEvidence(p, id) { ensureInspected(p); inspector.inspFocusEvidence(id); }
+    /** @param {Answer} answer @param {string} id */
+    function hopOf(answer, id) {
+      let map = hopMaps.get(answer.query_id);
+      if (!map) { map = hopOfEvidence(answer); hopMaps.set(answer.query_id, map); }
+      return map.get(id) ?? 0;
+    }
+    /** Degraded re-run: the real endpoint (FeatureFlag.RERUN_FROM_HOP) is wired here once it ships. @param {Page} p @param {RailItem} it */
+    function rerunFromHop(p, it) {
+      closeHopMenu();
+      if (FeatureFlag.RERUN_FROM_HOP) return;
+      push({ role: MessageRole.NOTICE, text: T.composer.rerunUnavailable, ts: Date.now() });
+      composer.setQuestion(it.subQuestion);
+    }
+    /** @param {Page} p */
+    function askAgain(p) { sendQuestion(true, p.question); }
+    /** @param {Page} p */
+    function startEdit(p) { editingKey.value = p.key; editText.value = p.question; nextTick(() => editEl.value?.focus()); }
+    /** @param {Page} p */
+    function saveEdit(p) { const q = editText.value.trim(); editingKey.value = ''; if (q && q !== p.question) sendQuestion(false, q); }
+    function cancelEdit() { editingKey.value = ''; }
+    /** @param {Page} p */
+    function supplyKnowledge(p) { window.location.hash = View.KNOWLEDGE; }
+    /** The reason inside the honest-fallback answer, or the plain sentence. @param {Answer} answer */
+    function noAnswerReason(answer) { return REASON.exec(answer.answer)?.[1] ?? T.states.notFoundReason; }
+    /** @param {string} id */
+    function toggleCopyMenu(id) { copyMenuId.value = copyMenuId.value === id ? '' : id; }
+    function closeCopyMenu() { copyMenuId.value = ''; }
+    /** @param {string} id */
+    function toggleHopMenu(id) { hopMenuId.value = hopMenuId.value === id ? '' : id; }
+    function closeHopMenu() { hopMenuId.value = ''; }
+    /** @param {string} value @param {string} key */
+    async function copyValue(value, key) {
+      closeCopyMenu();
+      copiedId.value = (await copyText(value)) ? key : '';
+      setTimeout(() => { copiedId.value = ''; }, UiPolicy.COPY_FLASH_MS);
+    }
+    function applyWizardAndSend() { composer.applyWizard(); sendQuestion(true); }
+    const clarify = useClarify({ patch, startStream: q => { const page = push({ role: MessageRole.USER, text: q, ts: Date.now() }); runStream(q, page.target); }, setQuestion: composer.setQuestion, openWizard: composer.openWizard });
 
-
+    onMounted(() => { inspSyncTo(conversation.value); composer.focusInput(); window.addEventListener('keydown', onWindowKeydown); });
+    onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown));
     return {
-      messages, question, streaming, streamSteps, canSend, chatEl, inputEl,
-      HINTS, useHint, sendQuestion, cancelStream, handleKeydown,
-      submitFeedback, toggleSteps, MessageRole, QueryRoute, UiPolicy,
+      ...composer, ...inspector, ...clarify, streaming, live, scrollEl, editEl, copiedId, copyMenuId, hopMenuId, editingKey, editText, pendingPlan,
+      pages, planLines, canSend, feedbackReasons, sendQuestion, confirmPlan, cancelPlan, cancelStream, handleKeydown, onSlash, submitFeedback,
+      startNegative, useHint, selectHop, isSelected, openEvidence, hopOf, rerunFromHop, askAgain, startEdit, saveEdit, cancelEdit, supplyKnowledge,
+      noAnswerReason, toggleCopyMenu, closeCopyMenu, toggleHopMenu, closeHopMenu, copyValue, applyWizardAndSend, linkPending, hopClass,
+      citationsFor, citeSnippet, confidenceClass, confidenceTag, metaLine, railAria, railLabel, railMeta, routeLabel,
+      T, fmt, UiPolicy, MessageRole, ClarifyKind, QueryStatus, QueryRoute, WizardStep, RELATION_CATALOG, WELCOME_GROUPS,
     };
   },
 
   template: `
-<div class="chat-container">
-  <div class="chat-messages" ref="chatEl">
-    <!-- Welcome -->
-    <div v-if="messages.length === 0 && !streaming" class="chat-welcome">
-      <div class="chat-welcome__icon">🧠</div>
-      <div class="chat-welcome__title">AgenticGraphRAG</div>
-      <div class="chat-welcome__desc">图谱增强多跳推理问答系统 — 提出一个多跳问题，观察 Agent 的推理过程</div>
-      <div class="chat-welcome__hints">
-        <button v-for="h in HINTS" :key="h" class="chat-hint" @click="useHint(h)">{{ h }}</button>
-      </div>
-    </div>
-
-    <!-- Messages -->
-    <template v-for="(msg, i) in messages" :key="i">
-      <!-- User message -->
-      <div v-if="msg.role === MessageRole.USER" class="msg msg--user">
-        <div class="msg__bubble">{{ msg.text }}</div>
-      </div>
-
-      <!-- Error message -->
-      <div v-else-if="msg.role === MessageRole.ERROR" class="msg msg--assistant">
-        <div class="msg__bubble" style="border-color: var(--color-danger);">
-          <span class="badge badge--danger" style="margin-right:8px;">错误</span>
-          {{ msg.text }}
-        </div>
-      </div>
-
-      <!-- Assistant answer -->
-      <div v-else class="answer-section">
-        <div class="answer-card">
-          <div class="answer-card__header">
-            <div class="answer-card__route">
-              <span class="badge" :class="msg.data.route === QueryRoute.FAST_PATH ? 'badge--success' : 'badge--accent'">
-                {{ msg.data.route || QueryRoute.AGENTIC }}
-              </span>
-              <span v-if="msg.data.status" class="badge badge--muted">{{ msg.data.status }}</span>
-            </div>
-            <span style="font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);">
-              {{ msg.data.query_id?.slice(0, UiPolicy.SHORT_ID_PREVIEW) }}
-            </span>
-          </div>
-          <div class="answer-card__body">{{ msg.data.answer }}</div>
-
-          <!-- Evidence -->
-          <div v-if="msg.data.evidence.length" class="evidence-list" style="padding:0 var(--space-5) var(--space-4);">
-            <div v-for="ev in msg.data.evidence" :key="ev.id" class="evidence-item">
-              <span class="evidence-item__id">[{{ ev.id }}]</span>
-              <span class="evidence-item__score">{{ ev.score.toFixed(UiPolicy.SCORE_PRECISION) }}</span>
-              {{ ev.content }}
-            </div>
-          </div>
-
-          <!-- Steps toggle -->
-          <div v-if="msg.data.steps?.length" class="steps-section" style="padding:0 var(--space-5) var(--space-4);">
-            <div class="steps-toggle" @click="toggleSteps(msg)">
-              {{ msg.showSteps ? '▼' : '▶' }} {{ msg.data.steps.length }} 步推理过程
-            </div>
-            <template v-if="msg.showSteps">
-              <div v-for="s in msg.data.steps" :key="s.hop" class="step-item">
-                <div class="step-item__hop">第 {{ s.hop }} 跳</div>
-                <div class="step-item__question">{{ s.sub_question }}</div>
-                <div v-if="s.conclusion" class="step-item__conclusion">{{ s.conclusion }}</div>
-              </div>
-            </template>
-          </div>
-
-          <!-- Meta -->
-          <div class="answer-card__meta">
-            <span class="answer-card__meta-item">⏱ {{ msg.data.cost?.latency_ms || 0 }}ms</span>
-            <span class="answer-card__meta-item">🔗 {{ msg.data.steps?.length || 0 }} 跳</span>
-            <span class="answer-card__meta-item">📊 {{ msg.data.cost?.tokens || 0 }} tokens</span>
-            <span class="answer-card__meta-item">📞 {{ msg.data.cost?.llm_calls || 0 }} 次大模型调用</span>
-          </div>
-
-          <!-- Feedback -->
-          <div class="feedback-bar">
-            <span class="feedback-bar__label">这个回答有帮助吗？</span>
-            <button class="btn btn--sm" :class="msg.feedbackValue === true ? 'btn--success' : 'btn--ghost'"
-                    :disabled="msg.feedbackSent" @click="submitFeedback(msg, true)">👍</button>
-            <button class="btn btn--sm" :class="msg.feedbackValue === false ? 'btn--danger' : 'btn--ghost'"
-                    :disabled="msg.feedbackSent" @click="submitFeedback(msg, false)">👎</button>
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- Streaming progress -->
-    <div v-if="streaming" class="stream-progress">
-      <div v-for="(s, i) in streamSteps" :key="i" class="stream-step"
-           :class="{ 'stream-step--active': i === streamSteps.length - 1 }">
-        <span class="stream-step__icon">{{ s.icon }}</span>
-        <span>{{ s.text }}</span>
-      </div>
-      <div v-if="streamSteps.length === 0" class="stream-step stream-step--active">
-        <span class="stream-step__icon"><span class="spinner"></span></span>
-        <span>连接中…</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Input -->
-  <div class="chat-input-area">
-    <div class="chat-input-wrap">
-      <textarea ref="inputEl" class="chat-input" rows="1" placeholder="输入一个复杂的问题…"
-                v-model="question" @keydown="handleKeydown"
-                :disabled="streaming"></textarea>
-      <button v-if="streaming" class="chat-send-btn" style="background:var(--color-danger);" @click="cancelStream">■</button>
-      <button v-else class="chat-send-btn" :disabled="!canSend" @click="sendQuestion">↑</button>
-    </div>
-  </div>
+<div class="page">
+  <div class="page__scroll" ref="scrollEl"><div class="page__col" :class="{ 'page__col--center': !pages.length }">
+    ${WELCOME_TEMPLATE}
+    ${PAGE_TEMPLATE.replace('${THREAD_ROWS}', THREAD_ROWS_TEMPLATE)}
+  </div></div>
+  ${COMPOSER_TEMPLATE}
 </div>
-`
+${INSPECTOR_TEMPLATE}
+${WIZARD_TEMPLATE}`,
 };

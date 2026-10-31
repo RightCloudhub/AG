@@ -1,0 +1,62 @@
+/* ── Inspector contents (§4.5, §5.3): evidence cards by hop, the subgraph, the event log ── */
+.insp-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.insp-toolbar .select { width: auto; height: var(--control-h-xs); padding: 0 24px 0 8px; font-size: var(--fs-caption); margin-left: auto; background-color: transparent; border-color: transparent; }
+.insp-toolbar .select:hover { background-color: var(--surface-2); }
+.chip--sm { height: var(--control-h-xs); padding: 0 8px; font-size: var(--fs-caption); }
+.chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hop); flex: none; }
+.insp-count { font-size: var(--fs-caption); color: var(--text-dim); margin-bottom: 8px; }
+
+.evlist { display: flex; flex-direction: column; gap: 8px; }
+.evcard {
+  position: relative; padding: 12px 12px 12px 14px; outline: none;
+  background: var(--surface-2); border-left: 3px solid var(--hop); border-radius: var(--r-md);
+  transition: background-color var(--t-expand) var(--ease);
+}
+.evcard--hot { background: var(--accent-soft); }
+.evcard:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.evcard__head { display: flex; align-items: center; gap: 8px; }
+.evcard__n { font-family: var(--font-mono); font-size: var(--fs-data); color: var(--text); font-variant-numeric: tabular-nums; }
+.evcard__score { font-family: var(--font-mono); font-size: var(--fs-data); color: var(--text); font-variant-numeric: tabular-nums; }
+.evcard__score--low { color: var(--text-dim); }
+.evcard__hop { margin-left: auto; }
+.evcard__text {
+  margin-top: 6px; font-size: var(--fs-ui); line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.evcard--open .evcard__text { display: block; -webkit-line-clamp: unset; animation: fade-in var(--t-expand) var(--ease); }
+.evcard__text--graph { font-variant-numeric: tabular-nums; }
+.evcard__foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--fs-caption); color: var(--text-dim); }
+.evcard__source { font-family: var(--font-mono); font-size: var(--fs-data); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evcard__foot .link-btn { margin-left: auto; font-size: var(--fs-caption); color: var(--text-dim); display: inline-flex; align-items: center; gap: 2px; }
+.evcard__foot .link-btn:hover { color: var(--text); text-decoration: none; }
+
+/* subgraph: nodes as outlined chips in their hop colour, edges as triples */
+.sg-title { font-size: var(--fs-caption); color: var(--text-dim); margin: 4px 0 8px; }
+.sg-nodes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.sg-node { border-color: var(--hop); }
+.sg-node--hot { background: var(--accent-soft); }
+.sg-node__type { color: var(--text-dim); font-size: var(--fs-caption); }
+.sg-edges { display: flex; flex-direction: column; }
+.sg-edge { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: var(--fs-ui); }
+.sg-edge:first-child { border-top: 0; }
+.sg-edge__n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sg-edge__n:last-child { text-align: right; }
+.sg-edge__r { font-family: var(--font-mono); font-size: var(--fs-data); color: var(--text-dim); white-space: nowrap; }
+.sg-edge--hot .sg-edge__r { color: var(--accent); }
+.sg-more { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sg-more .view-header { display: none; }
+.sg-more .view-body { padding: 12px 0 0; }
+.sg-more .entity-grid { grid-template-columns: 1fr; }
+
+/* the event log: route, ids, then the SSE frames as they arrived */
+.log__kv { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 10px; font-size: var(--fs-caption); }
+.log__kv dt { color: var(--text-dim); }
+.log__kv dd { font-family: var(--font-mono); font-size: var(--fs-data); overflow-wrap: anywhere; color: var(--text); }
+.log__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 6px; font-size: var(--fs-caption); color: var(--text-dim); }
+.log__pre {
+  padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-md); max-height: 56vh; overflow: auto;
+  font-family: var(--font-mono); font-size: var(--fs-data); line-height: 1.6; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.log__pre b { color: var(--text); font-weight: 500; }
+.log__line { display: block; }
+.log__line + .log__line { margin-top: 2px; }

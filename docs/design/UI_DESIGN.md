@@ -1,6 +1,8 @@
 # Web 工作台视觉规范
 
-本文定义 `/web` 知识推理工作台的视觉语言、交互反馈与可达性约定。实现样式位于 `web/static/`；设计令牌以 `tokens.css` 为准。
+本文定义 `/web` 知识推理工作台的视觉语言、交互反馈与可达性约定。实现样式位于 `web/static/`。
+
+> **说明（2026-10-31）**：§1–§8 为早期「制图室」视觉方向备案，未落地。当前实现以 `Prompt.md`（界面重设计规范 v2，「推理笔记本」）为准，令牌在 `web/static/css/tokens.css`（靛夜 / 晨纸双主题），见 §10；§9 为已落地的交互规范。
 
 ## 1. 设计语言
 
@@ -71,4 +73,34 @@
 
 ## 8. 样式文件
 
-`tokens.css` 保存颜色、字体、圆角与动效令牌；`layout.css`、`controls.css`、`mobile.css` 管理工作台壳层；`conversation.css` 与 `chat.css` 管理问答界面；`console.css` 与 `ops.css` 管理知识、审核、图谱和运维视图；`panels.css` 管理答案和推理链组件。结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本安全、资源与尺寸约束；API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。
+`tokens.css` 保存双主题颜色、字体、间距、圆角、层级与动效令牌；`base.css` 为重置、字体角色与通用控件（按钮、标签、输入、浮层）；`shell.css` 为顶栏、三栏 Grid、笔记本栏与检查器框架；`notebook.css` 为问题页（标题、HopRail、结论与引用、元信息、追问、输入框）；`inspector.css` 为证据卡、子图与日志；`wizard.css` 为提问向导与知识导入向导；`admin.css` 为管理视图的表格、统计与分页；`responsive.css` 为四档断点与减少动效。结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本安全、资源与尺寸约束；API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。
+
+## 9. 分步向导式交互（已实现，2026-10-31）
+
+原则：每种引导都可跳过，默认不打断熟练用户；所有引导只使用后端真实返回的字段，缺失的接口以 `FeatureFlag` 关闭并降级（契约见 api-and-ui.md §2.8）。
+
+| 交互 | 触发 | 行为 | 键盘 / 无障碍 |
+|---|---|---|---|
+| 提问向导 | 输入区「引导提问」 | 起始实体（`/v1/graph/entities` 补全）→ 关系链（最多 4 步）→ 约束（时间 / 数量 / 交集）→ 预览（子问题草案可删 / 重排，问题可改）；「填入输入框」或「填入并发送」 | `role="dialog" aria-modal`，打开聚焦首个输入，关闭回焦；Enter 下一步，Esc 跳过当前步（首尾步关闭） |
+| 澄清卡片 | 发送前 / 答案不完整 | 同名多实体 → 单选；过短无实体的问句 → 宽泛卡；`missing_info` → 多选补充后重问 | 选项为按钮，多选用 `aria-pressed`；可跳过 |
+| 计划确认 | 模式「先确认计划」 | 后端无计划预览接口时按多跳执行并提示；向导第 4 步承担客户端草案编辑 | 提示为 `role="status"` |
+| 步骤进度 | 流式回答中 | 规划 → 第 N 跳 → 评估 → 作答 横向步骤条；每跳子问题 / 工具 / 计时 / 命中数；可停止；完成后折叠为「N 跳 · 查看推理」 | 容器 `role="status" aria-live="polite"` |
+| 证据与子图 | 点击引用角标 | 右侧工作区「证据」定位原文、「子图」高亮路径、「推理链」展开各跳；节点可在图谱视图中查看 | 标签页 `role="tablist/tab/tabpanel"`，← → 切换；证据项可聚焦 |
+| 追问与反馈 | 答案之下 | 2–3 个追问按钮；👍 直接提交，👎 选原因后提交 `reason` | 按钮带 `aria-label` / `aria-pressed` |
+| 知识导入向导 | knowledge 视图 | 选择 → 预览 → 确认入库 → 进度（≥2s 轮询，隐藏即停） | Enter 下一步 / Esc 跳过预览 |
+
+布局（2026-10-31 v2 起）：顶栏 + 左栏「笔记本」（会话历史存 localStorage，仅展示，不向后端携带上下文）+ 中栏「问题页」+ 右栏「检查器」，断点见 §10。全部文案集中在 `web/static/js/i18n.js`。
+
+## 10. 视觉方向：推理笔记本（已落地，2026-10-31，v2）
+
+依据 `Prompt.md`（界面重设计规范 v2）重做：放弃「左导航 + 单栏聊天」，聊天窗口成为「推理笔记本」——每个问题一页，自上而下为 问题 → 推理路径 → 结论与证据。本轮按 `design-taste-frontend` 的 app-screen 流程实施，并用其检查器在真实浏览器中实测。
+
+- **令牌**（`web/static/css/tokens.css`）：两套主题——靛夜（暗，默认）与晨纸（亮），默认跟随 `prefers-color-scheme`，手动选择后存入 `localStorage.agr_theme`（`js/theme.js`，⌘⇧L）。中性冷灰蓝基底；靛蓝主色（`#8B96FF` / `#4450D8`）只用于主操作、焦点、链接与当前跳的外环；六种跳色取自 Okabe-Ito（暗 / 亮各一组，正文级对比度），只出现在跳节点、证据卡色条、引用下划线与子图节点描边，大面积底色一律 12%。字体三角色：衬线（问题标题 24/1.35/600，Noto Serif SC）、无衬线（正文 15/1.75）、等宽（ID、分数、耗时、token，`tabular-nums`）。
+- **壳层**（`shell.css`，`js/app.js` + `js/shell/*`）：48px 顶栏（品牌与知识库范围、⌘K 命令面板、模式选择、健康圆点、主题、设置）；三栏 Grid `240px · minmax(0,1fr) · var(--insp-w)`：左栏「笔记本」（新问题 ⌘N、按今天 / 本周 / 更早分组的历史并显示跳数、按角色显示的「管理」组）、中栏「问题页」内容最大 760px、右栏「检查器」380px（320–520 可拖拽，E 收起为 32px 竖条）。管理视图（`js/admin/*`）占据中右两栏。
+- **问题页**（`notebook.css`，`js/chat/tpl_page.js`，`js/views/chat.js`）：标题（第一页 h1，其后 h2；悬停 ✎ 原地改写并生成新页，原页保留）→ HopRail（24px 跳色编号节点、2px 连线、未开始段虚线；标签为该跳的结论，流式时为去掉疑问词的子问题，上限 12 字 / 24 拉丁字符；第二行证据数与流式时的客户端计时；悬停浮层显示完整子问题与结论；⋯ 菜单「从此跳重跑」按 `FeatureFlag.RERUN_FROM_HOP` 降级）→ 结论（句末引用角标 `[n]`，下划线取所属跳色，悬停预览原文前 120 字与分数，点击定位证据卡；未找到答案时左侧 3px `--err` 竖条 + 「未能得出结论」+ 后端原因 + 「去补充知识」；部分回答加 `--warn` 标签）→ 元信息行（`{跳数} 跳 · 耗时 · 调用 · tok`，置信度标签仅在后端给出已知等级时显示，重新提问 / 复制 / 反馈）→ 追问 chips（≤3）。流式时：骨架节点呼吸 → 虚线「规划子问题…」节点与计划行 → 节点依次点亮（跳色外环脉冲）→ 结论区三行骨架；Esc 停止。
+- **检查器**（`inspector.css`，`js/shell/tpl_inspector.js`，状态在 `js/shell/use_inspector.js` 模块级共享）：证据（按跳筛选 chips、按分数 / 跳排序；卡片 3px 跳色条、`[n]` 与分数、跳标签、三行截断可展开；来源由 id 推导：`{doc}:{chunk}` → 「文档 · 第 n 段」，`nbr:` / `path:` → 「图谱 · 关系」）、子图（无图谱行时整个标签隐藏）、日志（路由、query_id、SSE 事件流水，可复制）。点击跳节点按该跳筛选；`[` `]` 切换上一跳 / 下一跳；切换笔记本时显示该本最后一条回答。
+- **响应式**（`responsive.css`）：≥1440 三栏常驻；1200–1439 检查器为覆盖抽屉；768–1199 笔记本折为 56px 图标栏；<768 笔记本为左侧抽屉（顶栏菜单按钮），检查器为 70dvh 底部面板，HopRail 改为竖向时间线，触控目标 ≥44px，输入框处理 `safe-area-inset-bottom`。
+- **数据对齐**（规范 §10）：只显示后端真有的字段。证据所属跳由 `steps[].evidence_ids` 推导；每跳耗时只在流式时由客户端测量；`answer_spans` 与降级标识缺失，故无逐句波浪线与「规则模式」标签；计划预览 / 从某跳重跑仍按 `FeatureFlag` 降级（§9 契约不变）。
+- **与规范的差异（均记录于 `.taste-skill/notes.md`）**：焦点环用 `outline` 实现（同观感，不触发阴影规则）；亮色主题浮层阴影减至 `0 4px 24px rgba(0,0,0,.10)`；HopRail 溢出不用渐隐遮罩（渐变为禁用样式）；知识库切换为只读范围标签（后端只回显租户）；文案沿用 `i18n.js` 而非 `copy.js`；评分低于 0.5 用 `--text-dim` 而非 `--text-faint`（规范 §8 规定 faint 只用于占位与禁用）；👍 / 👎 为描边图标。
+- **图标与动效**（2026-10-31 增补）：图标改为 Lucide 几何（vendored 子集 `web/static/vendor/lucide-icons.js`，由 `scripts/build_lucide_icons.mjs` 从 `lucide-static` 生成，v1.65.0 / ISC），16px、1.5 描边、`currentColor`，仅品牌标记 `mark` 自绘；动效沿用参考 demo 的词表 `enter-note`（页面上浮 8px，220ms）、`enter-node`（跳节点右移 8px，200ms，按 55ms 级联）、`panel-in`（检查器自右边缘进入，220ms）与 `breathe` / `spin`，`prefers-reduced-motion` 下取消位移、只留透明度。
+- **校验**：`node .claude/skills/design-taste-frontend/scripts/lint.mjs --app web/` 0 FAIL；`inspect.mjs --app` 在 1440 / 768 / 390 下对实时首屏与各状态快照（暗 / 亮）均 0 FAIL（WARN 逐条辩护见 notes）；`.taste-skill/drive.mjs` 在 headless Chromium 中走完 欢迎 / 流式 / 回答 / 引用定位 / 跳筛选 / 悬停 / 子图 / 日志 / 反馈 / 改写 / 未找到答案 / 澄清 / 斜杠命令 / 向导 / 命令面板 / 设置 / 收起 / 1200 抽屉 / 768 图标栏 / 390 抽屉 / 知识导入 / 图谱 / 审核 / 运维 并留存截图与静态快照；`tsc` 严格检查、`scripts/check_web_templates.mjs`、`tests/unit/test_web_claude_ui.py`、`tests/unit/test_web_wizard_ui.py` 全绿。
