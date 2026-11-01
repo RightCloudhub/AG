@@ -94,7 +94,9 @@ def drop_caches(svc: QueryService, event: DomainEvent, exc: BaseException) -> No
     """Fail-safe for a failed invalidation: clear caches and count the failure."""
     from agentic_graphrag.observability.metrics import get_metrics
 
-    get_metrics().record_event_failure(f"{event.name}:invalidate:{type(exc).__name__}")
+    get_metrics().record_event_failure(
+        f"{event.name}:invalidate:{type(exc).__name__}", tenant_id=event.tenant_id
+    )
     cache = svc.retrieval_cache
     if cache is None:
         return

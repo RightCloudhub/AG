@@ -116,9 +116,11 @@ class IngestWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def process_doc(self, doc_id: str, *, batch_id: str = "") -> IngestResult:
+    def process_doc(
+        self, doc_id: str, *, batch_id: str = "", tenant_id: str | None = None
+    ) -> IngestResult:
         """Process a single document: chunk → embed → upsert → graph (when wired)."""
-        doc = self.doc_store.get(doc_id)
+        doc = self.doc_store.get(doc_id, tenant_id=tenant_id)
         if doc is None:
             return IngestResult(doc_id=doc_id, error="not_found")
         chunks = chunk_document(
@@ -241,7 +243,9 @@ class IngestWorker:
         """Index every document, refreshing the lease between documents."""
         results: list[IngestResult] = []
         for row in task.docs:
-            results.append(self.process_doc(row["doc_id"], batch_id=task.id))
+            results.append(
+                self.process_doc(row["doc_id"], batch_id=task.id, tenant_id=task.tenant_id)
+            )
             self._queue.touch(task.id, owner=self.worker_id)
         return results
 

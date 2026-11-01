@@ -49,12 +49,14 @@ def rotate_token(session: Session, record: AuthSession) -> SessionGrant:
 def refresh_session(db: Database, token: str) -> SessionGrant:
     grant = None
     with db.transaction(write=True) as session:
-        credential = session.get(RefreshToken, token_digest(token), with_for_update=True)
+        credential = session.get(RefreshToken, token_digest(token))
         if credential is None or credential.expires_at <= time.time():
             raise unauthorized()
         record = session.get(AuthSession, credential.session_id, with_for_update=True)
         if record is None or record.revoked_at is not None:
             raise unauthorized()
+        # Match switch/logout lock order: session before refresh credentials.
+        session.refresh(credential, with_for_update=True)
         if credential.used_at is not None:
             record.revoked_at = time.time()
         else:

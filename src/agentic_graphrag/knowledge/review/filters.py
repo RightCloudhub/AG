@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentic_graphrag.core.tenancy import tenant_matches
+
 if TYPE_CHECKING:
     from agentic_graphrag.knowledge.review.queue import ReviewItem
 
 
 def tenant_allows(item: ReviewItem, tenant_id: str | None) -> bool:
     """True when ``tenant_id`` may act on ``item`` (empty item tenant = legacy row)."""
-    if tenant_id is None or not item.tenant_id:
-        return True
-    return item.tenant_id == tenant_id
+    return tenant_matches(item.tenant_id, tenant_id)
 
 
 def filter_items(
@@ -33,7 +33,7 @@ def filter_items(
                 not type or item.type == type,
                 min_confidence is None or item.confidence >= min_confidence,
                 max_confidence is None or item.confidence <= max_confidence,
-                tenant_id is None or item.tenant_id == tenant_id,
+                tenant_allows(item, tenant_id),
             )
         )
 

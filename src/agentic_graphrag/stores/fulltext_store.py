@@ -7,6 +7,7 @@ import re
 from collections import Counter
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
 
 _TOKEN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
@@ -60,9 +61,9 @@ class BM25FulltextStore:
         self._bm25: _SimpleBM25 | None = None
 
     def index(self, chunks: list[ChunkRecord]) -> int:
-        by_id = {c.chunk_id: c for c in self._chunks}
+        by_id = {scoped_id(c.tenant_id, c.chunk_id): c for c in self._chunks}
         for ch in chunks:
-            by_id[ch.chunk_id] = ch
+            by_id[scoped_id(ch.tenant_id, ch.chunk_id)] = ch
         self._chunks = list(by_id.values())
         self._corpus_tokens = [tokenize(c.text) for c in self._chunks]
         self._bm25 = _SimpleBM25(self._corpus_tokens) if self._corpus_tokens else None
@@ -76,14 +77,11 @@ class BM25FulltextStore:
         tokens = tokenize(query)
         if not tokens:
             return []
-        scores = self._bm25.get_scores(tokens)
-        candidates = [
-            (i, self._chunks[i], score)
-            for i, score in enumerate(scores)
-            if tenant_id is None or self._chunks[i].tenant_id in {"", tenant_id}
-        ]
-        ranked = sorted(candidates, key=lambda x: x[2], reverse=True)[:top_k]
-        return [(chunk, float(score)) for _, chunk, score in ranked if score > 0]
+        chunks = [ch for ch in self._chunks if tenant_matches(ch.tenant_id, tenant_id)]
+        bm25 = self._bm25 if tenant_id is None else _SimpleBM25([tokenize(c.text) for c in chunks])
+        scored = list(zip(chunks, bm25.get_scores(tokens), strict=True))
+        ranked = sorted(scored, key=lambda row: row[1], reverse=True)[:top_k]
+        return [(chunk, float(score)) for chunk, score in ranked if score > 0]
 
     def clear(self) -> None:
         self._chunks.clear()
@@ -120,8 +118,10 @@ class BM25FulltextStore:
                 text=item["text"],
                 index=item.get("index", 0),
                 metadata=item.get("metadata") or {},
-                # Pre-V2 snapshots had no tenant_id; "" keeps their old (global) visibility.
-                tenant_id=str(item.get("tenant_id") or ""),
+                # Pre-V2 records belong to the default tenant, never every tenant.
+                tenant_id=str(
+                    item.get("tenant_id") or (item.get("metadata") or {}).get("tenant_id") or ""
+                ),
             )
             for item in data
         ]

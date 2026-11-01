@@ -27,7 +27,7 @@ from agentic_graphrag.stores.neo4j_codec import (
     sources_from_neo4j,
 )
 from agentic_graphrag.stores.neo4j_mutation import Neo4jEntityMutation
-from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record
+from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record, tenant_predicate
 
 # Back-compat aliases used by unit tests.
 _attrs_for_neo4j = attrs_for_neo4j
@@ -81,7 +81,7 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
     def _upsert_one_entity(self, session: Any, ent: EntityRecord) -> bool:
         label = _validate_identifier(ent.type, "label")
         query = (
-            f"MERGE (e:`{label}` {{id: $id}}) "
+            f"MERGE (e:`{label}` {{id: $id, tenant_id: $tenant_id}}) "
             "SET e.name = $name, e.tenant_id = $tenant_id, "
             "e.attributes = $attributes, e.aliases = $aliases "
             "RETURN e.id AS id"
@@ -110,13 +110,13 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
     def _upsert_one_relation(self, session: Any, rel: RelationRecord) -> bool:
         rel_type = _validate_identifier(rel.type, "rel")
         query = (
-            "MERGE (h {id: $head_id}) "
+            "MERGE (h {id: $head_id, tenant_id: $tenant_id}) "
             "ON CREATE SET h.name = $head_name "
             "SET h.name = coalesce(h.name, $head_name) "
-            "MERGE (t {id: $tail_id}) "
+            "MERGE (t {id: $tail_id, tenant_id: $tenant_id}) "
             "ON CREATE SET t.name = $tail_name "
             "SET t.name = coalesce(t.name, $tail_name) "
-            f"MERGE (h)-[r:`{rel_type}` {{id: $id}}]->(t) "
+            f"MERGE (h)-[r:`{rel_type}` {{id: $id, tenant_id: $tenant_id}}]->(t) "
             "SET r.confidence = $confidence, "
             "    r.tenant_id = $tenant_id, "
             "    r.attributes = $attributes, "
@@ -141,16 +141,17 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
         )
         return result.single() is not None
 
-    def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
+    def get_entity_by_name(
+        self, name: str, entity_type: str | None = None, *, tenant_id: str | None = None
+    ) -> EntityRecord | None:
         with self._driver.session() as session:
             if entity_type:
                 label = _validate_identifier(entity_type, "label")
-                query = (
-                    f"MATCH (e:`{label}`) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1"
-                )
+                query = f"MATCH (e:`{label}`) WHERE toLower(e.name) = toLower($name) "
             else:
-                query = "MATCH (e) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1"
-            result = session.run(query, name=name)
+                query = "MATCH (e) WHERE toLower(e.name) = toLower($name) "
+            query += f"AND {tenant_predicate('e')} RETURN e LIMIT 1"
+            result = session.run(query, name=name, tenant_id=tenant_id)
             record = result.single()
             if not record:
                 return None
@@ -214,8 +215,8 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
           AND src <> dst
         MATCH path = (src)-[*1..{max_hops}]-(dst)
         WHERE ALL(n IN nodes(path) WHERE size([m IN nodes(path) WHERE id(m) = id(n)]) = 1)
-          AND ($tenant_id IS NULL OR ALL(r IN relationships(path)
-              WHERE coalesce(r.tenant_id, '') IN [$tenant_id, '']))
+          AND ALL(r IN relationships(path) WHERE {tenant_predicate("r")})
+          AND ALL(node IN nodes(path) WHERE {tenant_predicate("node")})
         RETURN path
         ORDER BY length(path) ASC
         LIMIT $limit
@@ -255,8 +256,7 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
     ) -> list[EntityRecord]:
         """Page through entities; same tenant semantics as the in-memory store.
 
-        ``tenant_id=None`` lists everything; untagged (seed) entities are shared;
-        ``default`` sees only ``default``-tagged entities plus shared ones.
+        ``tenant_id=None`` lists everything; untagged entities belong to default.
         """
         lim = max(0, min(int(limit), 100_000))
         off = max(0, int(offset))
@@ -264,7 +264,7 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
             return []
         query = (
             "MATCH (e) WHERE e.name IS NOT NULL "
-            "AND ($tenant_id IS NULL OR coalesce(e.tenant_id, '') IN [$tenant_id, '']) "
+            f"AND {tenant_predicate('e')} "
             "RETURN e ORDER BY head(labels(e)), toLower(e.name) SKIP $offset LIMIT $limit"
         )
         with self._driver.session() as session:

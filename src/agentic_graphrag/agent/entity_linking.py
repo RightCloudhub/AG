@@ -16,7 +16,9 @@ _DOMINANCE = 2
 _DEGREE_PROBE_LIMIT = 100
 
 
-def link_ambiguous_mention(name: str, known: list[str], store: GraphStore) -> str:
+def link_ambiguous_mention(
+    name: str, known: list[str], store: GraphStore, *, tenant_id: str | None = None
+) -> str:
     """Expand ``name`` to the dominant known entity it prefixes, else keep it."""
     key = name.strip().lower()
     if not key or any(k.lower() == key for k in known):
@@ -24,15 +26,20 @@ def link_ambiguous_mention(name: str, known: list[str], store: GraphStore) -> st
     candidates = [k for k in known if k.lower().startswith(key + " ")]
     if len(candidates) < 2:
         return name
-    ranked = sorted(((_degree(store, c), c) for c in candidates), key=lambda t: (-t[0], t[1]))
+    ranked = sorted(
+        ((_degree(store, c, tenant_id=tenant_id), c) for c in candidates),
+        key=lambda t: (-t[0], t[1]),
+    )
     best, runner_up = ranked[0], ranked[1]
     if best[0] > 0 and best[0] >= _DOMINANCE * max(1, runner_up[0]):
         return best[1]
     return name
 
 
-def _degree(store: GraphStore, name: str) -> int:
+def _degree(store: GraphStore, name: str, *, tenant_id: str | None = None) -> int:
     try:
-        return len(store.neighbors(name, max_hops=1, limit=_DEGREE_PROBE_LIMIT))
+        return len(
+            store.neighbors(name, max_hops=1, limit=_DEGREE_PROBE_LIMIT, tenant_id=tenant_id)
+        )
     except Exception:  # noqa: BLE001 — a missing node simply has no prior
         return 0

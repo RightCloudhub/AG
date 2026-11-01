@@ -17,9 +17,11 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.tenancy import tenant_matches
 
 router = APIRouter(prefix="/v1", tags=["admin"])
 
@@ -45,12 +47,12 @@ def _service(request: Request) -> QueryService:
 
 
 @router.get("/traces/{query_id}", dependencies=[Depends(require_role(Role.ADMIN))])
-def get_trace(query_id: str) -> JsonObject:
+def get_trace(query_id: str, request: Request) -> JsonObject:
     """Return trace spans for a given query_id (admin only)."""
     from agentic_graphrag.observability.trace import get_tracer
 
     ctx = get_tracer().get(query_id)
-    if ctx is None:
+    if ctx is None or not tenant_matches(ctx.tenant_id, request_tenant(request)):
         raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
     return ok(ctx.to_dict())
 
@@ -61,7 +63,7 @@ def budget_snapshot(request: Request) -> JsonObject:
     svc = _service(request)
     if svc.multi_budget is None:
         return ok({})
-    return ok(svc.multi_budget.snapshot())
+    return ok(svc.multi_budget.snapshot(tenant_id=request_tenant(request)))
 
 
 @dataclass
@@ -79,21 +81,26 @@ def _audit_event_query(
     until: float | None = Query(None),
     tenant_id: str | None = Query(None),
     action: str | None = Query(None),
-    limit: int = Query(200, le=1000),
+    limit: int = Query(200, ge=1, le=1000),
 ) -> AuditEventQuery:
     return AuditEventQuery(since, until, tenant_id, action, limit)
 
 
 @router.get("/audit-events", dependencies=[Depends(require_role(Role.ADMIN))])
-def list_audit_events(q: Annotated[AuditEventQuery, Depends(_audit_event_query)]) -> JsonObject:
+def list_audit_events(
+    request: Request, q: Annotated[AuditEventQuery, Depends(_audit_event_query)]
+) -> JsonObject:
     """List security/management audit events (admin only)."""
     from agentic_graphrag.governance.audit_events import get_audit_event_store
 
     store = get_audit_event_store()
+    tenant_id = request_tenant(request)
+    if q.tenant_id is not None and q.tenant_id != tenant_id:
+        raise ApiError(INVALID_INPUT, "Tenant not found", status_code=404)
     events = store.list_events(
         since=q.since,
         until=q.until,
-        tenant_id=q.tenant_id,
+        tenant_id=tenant_id,
         action=q.action,
         limit=q.limit,
     )
@@ -116,11 +123,11 @@ def _prom_line(name: str, value: Any, labels: dict[str, str] | None = None) -> s
     return f"{name} {value}"
 
 
-def prometheus_metrics_text() -> str:
+def prometheus_metrics_text(*, tenant_id: str | None = None) -> str:
     """Convert MetricsRegistry summary to Prometheus exposition format."""
     from agentic_graphrag.observability.metrics import get_metrics
 
-    s = get_metrics().summary()
+    s = get_metrics().summary(tenant_id=tenant_id)
     lines: list[str] = []
 
     lines.append("# HELP agr_queries_total Total queries processed")

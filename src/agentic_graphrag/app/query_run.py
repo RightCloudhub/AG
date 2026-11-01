@@ -18,6 +18,7 @@ from agentic_graphrag.app.errors import BUDGET_EXCEEDED, ApiError
 from agentic_graphrag.app.query_agent import QUESTION_SPAN_PREVIEW, run_agent_with_timeout
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
 from agentic_graphrag.app.telemetry import save_chain_audit
+from agentic_graphrag.app.tenant_context import tenant_entities
 from agentic_graphrag.app.wiring import (
     _chain_to_data,
     build_executor_for_service,
@@ -124,10 +125,12 @@ def stream_query_events(
     yield from _live(svc, req, tenant_id=tenant_id, user_id=user_id)
 
 
-def _budget_api_error(exc: BudgetExceeded) -> ApiError:
-    get_metrics().record_budget_trip()
+def _budget_api_error(exc: BudgetExceeded, *, tenant_id: str = "", user_id: str = "") -> ApiError:
+    get_metrics().record_budget_trip(tenant_id=tenant_id)
     try:
-        audit_events.emit_audit_event(audit_events.BUDGET_EXCEEDED, outcome="denied")
+        audit_events.emit_audit_event(
+            audit_events.BUDGET_EXCEEDED, outcome="denied", tenant_id=tenant_id, user_id=user_id
+        )
     except Exception:  # noqa: BLE001
         pass
     return ApiError(
@@ -150,7 +153,7 @@ def _reserve_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
             estimated_cost=RESERVE_COST,
         )
     except BudgetExceeded as exc:
-        raise _budget_api_error(exc) from exc
+        raise _budget_api_error(exc, tenant_id=tenant_id, user_id=user_id) from exc
 
 
 def _release_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
@@ -187,7 +190,8 @@ def _invoke_agent(
         cfg=svc.cfg,
         settings=svc.settings,
         allow_llm=svc.allow_llm,
-        known_entities=svc.known_entities,
+        known_entities=tenant_entities(svc, tenant_id),
+        tenant_id=tenant_id or None,
         retrieval_cache=svc.retrieval_cache,
         enable_cache=svc.enable_cache,
     )
@@ -202,7 +206,9 @@ def _invoke_agent(
         guard_cfg=guard_cfg,
         budget=budget,
         trace_ctx=trace_ctx,
-        budget_error_factory=_budget_api_error,
+        budget_error_factory=lambda exc: _budget_api_error(
+            exc, tenant_id=tenant_id, user_id=user_id
+        ),
         tenant_id=tenant_id,
     )
     get_tracer().rekey(trace_ctx.query_id, chain.query_id)

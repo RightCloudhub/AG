@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
 from agentic_graphrag.core.ports.capabilities import EntityLister
 from agentic_graphrag.core.ports.stores import EntityRecord
+from agentic_graphrag.core.tenancy import tenant_matches
 
 MAX_ENTITY_PAGE = 500
 DEFAULT_ENTITY_PAGE = DEFAULT_PAGE_SIZE
@@ -65,6 +66,4 @@ def _matches_type(row: EntityRecord, selected_type: str) -> bool:
 
 
 def filter_tenant(items: list[EntityRecord], tenant_id: str | None) -> list[EntityRecord]:
-    if tenant_id is None:
-        return items
-    return [item for item in items if not item.tenant_id or item.tenant_id == tenant_id]
+    return [item for item in items if tenant_matches(item.tenant_id, tenant_id)]

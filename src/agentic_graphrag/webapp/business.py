@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 
+from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.query_service import QueryService
 
 
@@ -18,6 +20,13 @@ def install_business(
 
     for router in (query.router, knowledge.router, workspace.router, admin.router):
         app.include_router(router)
+
+    @app.get("/metrics-prom", dependencies=[Depends(require_role(Role.ADMIN))])
+    def metrics(request: Request) -> Response:
+        return Response(
+            admin.prometheus_metrics_text(tenant_id=request_tenant(request)),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @asynccontextmanager
     async def lifecycle() -> AsyncIterator[None]:

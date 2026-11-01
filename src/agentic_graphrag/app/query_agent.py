@@ -98,7 +98,7 @@ def run_agent(
                 allow_llm=svc.allow_llm,
                 force_agentic=req.force_agentic,
                 enable_triage=svc.enable_triage and not req.force_agentic,
-                known_entities=svc.known_entities,
+                known_entities=executor.known_entities,
                 tenant_id=tenant_id,
             )
     except BudgetExceeded as exc:

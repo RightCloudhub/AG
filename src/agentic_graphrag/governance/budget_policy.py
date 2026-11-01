@@ -6,6 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 from agentic_graphrag.core.constants import SECONDS_PER_DAY
 from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
@@ -27,6 +28,7 @@ class LevelCheck:
     calls: int
     tokens: int
     cost: float
+    tenant_id: str = ""
 
 
 @dataclass
@@ -66,7 +68,7 @@ class MultiLevelBudget:
         self.window_seconds = window_seconds
         self.tenant_overrides = tenant_overrides or {}
         self._tenant: dict[str, WindowUsage] = {}
-        self._user: dict[str, WindowUsage] = {}
+        self._user: dict[tuple[str, str], WindowUsage] = {}
         self._lock = threading.Lock()
         self.trips: list[dict[str, Any]] = []
 
@@ -102,6 +104,7 @@ class MultiLevelBudget:
                     estimated_calls,
                     estimated_tokens,
                     estimated_cost,
+                    tenant_id=tenant_id,
                 )
             )
             self._assert_level(
@@ -113,6 +116,7 @@ class MultiLevelBudget:
                     estimated_calls,
                     estimated_tokens,
                     estimated_cost,
+                    tenant_id=tenant_id,
                 )
             )
             self._apply(
@@ -166,7 +170,7 @@ class MultiLevelBudget:
 
     def _usages(self, tenant_id: str, user_id: str) -> tuple[WindowUsage, WindowUsage]:
         t_usage = self._tenant.setdefault(tenant_id, WindowUsage())
-        u_usage = self._user.setdefault(f"{tenant_id}:{user_id}", WindowUsage())
+        u_usage = self._user.setdefault((tenant_id, user_id), WindowUsage())
         t_usage.reset_if_needed(self.window_seconds)
         u_usage.reset_if_needed(self.window_seconds)
         return t_usage, u_usage
@@ -190,7 +194,7 @@ class MultiLevelBudget:
             self._raise_exceeded(check, "max_cost_units")
 
     def _raise_exceeded(self, check: LevelCheck, reason: str) -> None:
-        self._trip(check.level, check.key, reason)
+        self._trip(check.level, check.key, reason, tenant_id=check.tenant_id)
         raise BudgetExceeded(
             f"{check.level} budget exceeded: {reason} ({check.key})",
             BudgetTracker(
@@ -199,13 +203,40 @@ class MultiLevelBudget:
             ),
         )
 
-    def _trip(self, level: str, key: str, reason: str) -> None:
-        self.trips.append({"level": level, "key": key, "reason": reason, "ts": time.time()})
+    def _trip(self, level: str, key: str, reason: str, *, tenant_id: str = "") -> None:
+        self.trips.append(
+            {
+                "level": level,
+                "key": key,
+                "reason": reason,
+                "tenant_id": tenant_id,
+                "ts": time.time(),
+            }
+        )
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             return {
-                "tenants": {k: vars(v) for k, v in self._tenant.items()},
-                "users": {k: vars(v) for k, v in self._user.items()},
-                "trips": list(self.trips[-50:]),
+                "tenants": {
+                    key: dict(vars(value))
+                    for key, value in self._tenant.items()
+                    if tenant_id is None or key == tenant_id
+                },
+                "users": self._user_snapshot(tenant_id),
+                "trips": [
+                    trip.copy()
+                    for trip in self.trips
+                    if tenant_id is None or trip["tenant_id"] == tenant_id
+                ][-50:],
             }
+
+    def _user_snapshot(self, tenant_id: str | None) -> dict[str, Any]:
+        return {
+            (
+                user
+                if tenant_id is not None
+                else f"{quote(tenant, safe='')}:{quote(user, safe='')}"
+            ): dict(vars(value))
+            for (tenant, user), value in self._user.items()
+            if tenant_id is None or tenant == tenant_id
+        }

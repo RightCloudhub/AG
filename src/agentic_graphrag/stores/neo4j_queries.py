@@ -6,13 +6,21 @@ from agentic_graphrag.core.ports.stores import PathRecord
 from agentic_graphrag.stores.neo4j_codec import node_to_entity, rel_to_record
 
 
+def tenant_predicate(alias: str) -> str:
+    """Only internal Cypher aliases are interpolated; the tenant is a parameter."""
+    return (
+        f"($tenant_id IS NULL OR coalesce({alias}.tenant_id, '') = $tenant_id "
+        f"OR ($tenant_id IN ['default', ''] AND coalesce({alias}.tenant_id, '') = ''))"
+    )
+
+
 def neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
     if max_hops == 1:
         return one_hop_query(relation_types)
     last_rel_pred = "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
-    tenant_pred = """
-      AND ($tenant_id IS NULL OR ALL(edge IN relationships(path)
-          WHERE coalesce(edge.tenant_id, '') IN [$tenant_id, '']))
+    tenant_pred = f"""
+      AND ALL(edge IN relationships(path) WHERE {tenant_predicate("edge")})
+      AND ALL(node IN nodes(path) WHERE {tenant_predicate("node")})
     """
     return f"""
     MATCH (src)
@@ -31,21 +39,14 @@ def neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
 
 
 def one_hop_query(relation_types: list[str] | None) -> str:
-    if relation_types:
-        return """
-        MATCH (src)-[r]-(dst)
-        WHERE toLower(src.name) = toLower($name)
-          AND type(r) IN $rel_types
-          AND ($tenant_id IS NULL OR coalesce(r.tenant_id, '') IN [$tenant_id, ''])
-          AND src <> dst
-        RETURN dst, r, 1 AS hops
-        ORDER BY coalesce(r.id, ''), dst.name
-        LIMIT $limit
-        """
-    return """
+    relation_pred = "AND type(r) IN $rel_types" if relation_types else ""
+    return f"""
     MATCH (src)-[r]-(dst)
     WHERE toLower(src.name) = toLower($name) AND src <> dst
-      AND ($tenant_id IS NULL OR coalesce(r.tenant_id, '') IN [$tenant_id, ''])
+      {relation_pred}
+      AND {tenant_predicate("r")}
+      AND {tenant_predicate("src")}
+      AND {tenant_predicate("dst")}
     RETURN dst, r, 1 AS hops
     ORDER BY coalesce(r.id, ''), dst.name
     LIMIT $limit

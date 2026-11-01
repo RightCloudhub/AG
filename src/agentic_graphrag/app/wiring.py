@@ -77,6 +77,7 @@ def build_executor_for_service(
     known_entities: list[str],
     retrieval_cache: RetrievalCache | None,
     enable_cache: bool,
+    tenant_id: str | None = None,
 ) -> Executor:
     ret = cfg.retrieval
     reranker = build_reranker(ret.rerank)
@@ -90,6 +91,7 @@ def build_executor_for_service(
         fulltext=fulltext_ret,
         llm=llm_for_embed if allow_llm else None,
         known_entities=known_entities,
+        tenant_id=tenant_id,
     )
     config = ExecutorConfig(
         parallel=bool(ret.parallel),

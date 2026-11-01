@@ -12,6 +12,7 @@ from agentic_graphrag.core.ports.capabilities import (
     RelationLister,
 )
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
+from agentic_graphrag.core.tenancy import tenant_matches as _tenant_matches
 
 
 class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityMutation):
@@ -70,10 +71,12 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
         self._by_name = None
         return bool(keys)
 
-    def get_entity_by_name(self, name: str, entity_type: str | None = None) -> EntityRecord | None:
+    def get_entity_by_name(
+        self, name: str, entity_type: str | None = None, *, tenant_id: str | None = None
+    ) -> EntityRecord | None:
         target = name.lower()
         for entity in self._entities.values():
-            if entity.name.lower() != target:
+            if entity.name.lower() != target or not _tenant_matches(entity.tenant_id, tenant_id):
                 continue
             if entity_type is None or entity.type == entity_type:
                 return entity
@@ -279,14 +282,3 @@ def _path(nodes: list[EntityRecord], relations: list[RelationRecord]) -> PathRec
 
 def _key(tenant_id: str, value: str) -> str:
     return f"{tenant_id}\0{value}"
-
-
-def _tenant_matches(owner: str, requested: str | None) -> bool:
-    """Allow legacy seed records as shared; isolate explicitly tagged records."""
-    if requested is None:
-        return True
-    if owner == "":
-        return True
-    if requested == "default":
-        return owner == "default"
-    return owner == requested

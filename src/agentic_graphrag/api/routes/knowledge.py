@@ -13,11 +13,13 @@ from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
+from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.app.review_app import ReviewApp
 from agentic_graphrag.core.enums import ReviewStatus
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.tenancy import tenant_matches
 from agentic_graphrag.knowledge.review.queue import (
     ReviewAlreadyDecided,
     ReviewDecision,
@@ -101,7 +103,7 @@ def get_ingest_task(task_id: str, request: Request) -> JsonObject:
     task = persisted.to_dict() if persisted is not None else get_cached_task(task_id)
     if task is None:
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
-    if task.get("tenant_id") not in {None, tenant_id}:
+    if not tenant_matches(task.get("tenant_id"), tenant_id):
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
     return ok(task)
 
@@ -251,7 +253,7 @@ def post_feedback(body: FeedbackBody, request: Request) -> JsonObject:
 
 
 @router.get("/metrics", dependencies=[Depends(require_role(Role.ADMIN))])
-def get_metrics_summary() -> JsonObject:
+def get_metrics_summary(request: Request) -> JsonObject:
     from agentic_graphrag.observability.metrics import get_metrics
 
-    return ok(get_metrics().summary())
+    return ok(get_metrics().summary(tenant_id=request_tenant(request)))

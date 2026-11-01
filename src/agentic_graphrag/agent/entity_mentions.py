@@ -61,7 +61,7 @@ def _collect_names_from_line(line: str, names: set[str]) -> None:
 
 
 def lexicon_from_names(names: list[str] | tuple[str, ...] | None) -> list[str]:
-    if not names:
+    if names is None:
         return list(default_lexicon_from_seed())
     return list(_sorted_lexicon(tuple(names)))
 

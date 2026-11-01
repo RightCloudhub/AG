@@ -123,7 +123,7 @@ class RetrievalCache:
         cache and makes isolation structural (BL-04).
         """
         v = self.index_version.current()
-        scope = f"{tenant_id or _DEFAULT_TENANT}|{normalize_query_key(query)}|{tools}"
+        scope = json.dumps([tenant_id, normalize_query_key(query), tools])
         return f"ret:v{v}:{content_hash(scope)}"
 
     def answer_key(
@@ -138,9 +138,8 @@ class RetrievalCache:
     ) -> str:
         """Tenant/user/params scoped key — never share answers across tenants."""
         v = self.index_version.current()
-        scope = (
-            f"{tenant_id}|{user_id}|h={max_hops}|fa={int(force_agentic)}|t={timeout_ms}|"
-            f"{normalize_query_key(question)}"
+        scope = json.dumps(
+            [tenant_id, user_id, max_hops, force_agentic, timeout_ms, normalize_query_key(question)]
         )
         return f"ans:v{v}:{content_hash(scope)}"
 

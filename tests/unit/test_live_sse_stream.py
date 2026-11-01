@@ -23,7 +23,7 @@ def test_stream_emits_hops_before_answer_multihop() -> None:
         question="Who is the CEO of the parent company of BrightLink Logistics?",
         force_agentic=True,
     )
-    events = list(svc.stream_query_events(req, tenant_id="t", user_id="u"))
+    events = list(svc.stream_query_events(req, tenant_id="default", user_id="u"))
     types = [e for e, _ in events]
     assert types[0] == "triage"  # synthetic force_agentic triage for contract stability
     assert events[0][1].get("force_agentic") is True or events[0][1].get("rule_hit") == (
@@ -48,7 +48,7 @@ def test_stream_emits_hops_before_answer_multihop() -> None:
 def test_stream_triage_then_progress() -> None:
     svc = QueryService.create_offline()
     req = QueryRequest(question="Who is the CEO of Apex Holdings?")
-    events = list(svc.stream_query_events(req, tenant_id="t", user_id="u"))
+    events = list(svc.stream_query_events(req, tenant_id="default", user_id="u"))
     types = [e for e, _ in events]
     assert types[0] == "triage"
     assert "answer" in types

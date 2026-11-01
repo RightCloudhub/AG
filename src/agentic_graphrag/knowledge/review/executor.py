@@ -114,8 +114,12 @@ class ReviewExecutor:
     def _merge_entities(self, item: ReviewItem) -> dict[str, Any]:
         from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
 
-        keep = self.graph.get_entity_by_name(str(item.payload.get("keep") or ""))
-        drop = self.graph.get_entity_by_name(str(item.payload.get("drop") or ""))
+        keep = self.graph.get_entity_by_name(
+            str(item.payload.get("keep") or ""), tenant_id=item.tenant_id
+        )
+        drop = self.graph.get_entity_by_name(
+            str(item.payload.get("drop") or ""), tenant_id=item.tenant_id
+        )
         if keep is None or drop is None or keep.id == drop.id:
             return {"applied": False, "effect": "entities_not_found"}
         canonical = str(item.payload.get("canonical") or keep.name)
@@ -143,13 +147,14 @@ class ReviewExecutor:
         """REVIEW → DONE once no conflict of the item's ingest batch is pending."""
         if self.task_store is None or self.review_queue is None or not item.batch_id:
             return
-        task = self.task_store.get(item.batch_id)
+        task = self.task_store.get(item.batch_id, tenant_id=item.tenant_id or "default")
         if task is None or task.status != "review":
             return
         pending = self.review_queue.count(
             status=ReviewStatus.PENDING.value,
             type=ReviewType.CONFLICT.value,
             batch_id=item.batch_id,
+            tenant_id=item.tenant_id,
         )
         if pending:
             return

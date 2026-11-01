@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 from agentic_graphrag.core.enums import QueryRoute
+from agentic_graphrag.core.tenancy import tenant_matches
 
 
 class MetricsSummary(TypedDict):
@@ -71,6 +72,7 @@ class MetricsRegistry:
         self._error_counts: dict[str, int] = defaultdict(int)
         self._budget_trips = 0
         self._event_failures: dict[str, int] = defaultdict(int)
+        self._tenants: dict[str, _TenantMetrics] = {}
 
     def record(self, m: QueryMetrics) -> None:
         with self._lock:
@@ -84,15 +86,21 @@ class MetricsRegistry:
                 self._error_counts[m.error_code] += 1
             if m.error_code in {"BUDGET_EXCEEDED"}:
                 self._budget_trips += 1
+            self._tenant(m.tenant_id).record(m)
 
-    def record_event_failure(self, key: str) -> None:
+    def _tenant(self, tenant_id: str) -> _TenantMetrics:
+        return self._tenants.setdefault(tenant_id or "default", _TenantMetrics())
+
+    def record_event_failure(self, key: str, *, tenant_id: str = "") -> None:
         """A critical event handler failed after retries (O-4: alert on > 0)."""
         with self._lock:
             self._event_failures[key] += 1
+            self._tenant(tenant_id).failures[key] += 1
 
-    def record_budget_trip(self) -> None:
+    def record_budget_trip(self, *, tenant_id: str = "") -> None:
         with self._lock:
             self._budget_trips += 1
+            self._tenant(tenant_id).budget_trips += 1
 
     def percentile(self, p: float, values: list[int] | None = None) -> float:
         data = sorted(values if values is not None else self._latency)
@@ -105,8 +113,10 @@ class MetricsRegistry:
         idx = int(round((p / 100.0) * (len(data) - 1)))
         return float(data[idx])
 
-    def summary(self) -> MetricsSummary:
+    def summary(self, *, tenant_id: str | None = None) -> MetricsSummary:
         with self._lock:
+            if tenant_id is not None:
+                return self._tenant_summary(tenant_id)
             lat = list(self._latency)
             hops = list(self._hops)
             return {
@@ -121,9 +131,43 @@ class MetricsRegistry:
                 "event_handler_failures": dict(self._event_failures),
             }
 
-    def recent(self, n: int = 50) -> list[dict[str, Any]]:
+    def _tenant_summary(self, tenant_id: str) -> MetricsSummary:
+        events = [event for event in self._events if tenant_matches(event["tenant_id"], tenant_id)]
+        totals = self._tenants.get(tenant_id or "default", _TenantMetrics())
+        lat = [event["latency_ms"] for event in events]
+        hops = [event["hops"] for event in events]
+        return {
+            "count": totals.count,
+            "latency_p50_ms": self.percentile(50, lat),
+            "latency_p95_ms": self.percentile(95, lat),
+            "latency_p99_ms": self.percentile(99, lat),
+            "hops_avg": sum(hops) / len(hops) if hops else 0.0,
+            "route_counts": dict(totals.routes),
+            "error_counts": dict(totals.errors),
+            "budget_trips": totals.budget_trips,
+            "event_handler_failures": dict(totals.failures),
+        }
+
+    def recent(self, n: int = 50, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            return list(self._events[-n:])
+            return [e for e in self._events if tenant_matches(e["tenant_id"], tenant_id)][-n:]
+
+
+@dataclass
+class _TenantMetrics:
+    count: int = 0
+    routes: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    errors: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    failures: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    budget_trips: int = 0
+
+    def record(self, value: QueryMetrics) -> None:
+        self.count += 1
+        self.routes[value.route] += 1
+        if value.error_code:
+            self.errors[value.error_code] += 1
+        if value.error_code == "BUDGET_EXCEEDED":
+            self.budget_trips += 1
 
 
 _GLOBAL = MetricsRegistry()

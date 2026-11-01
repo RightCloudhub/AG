@@ -109,7 +109,7 @@ def build_heuristic(
 
 def _entity_budget(executor: Executor, sub_question: str) -> int:
     """Expand every entity the sub-question names (fan-out), else the default cap."""
-    named = extract_entity_mentions(sub_question, executor.known_entities or None)
+    named = extract_entity_mentions(sub_question, executor.known_entities)
     return min(MAX_FANOUT_ENTITIES, max(MAX_NAMED_ENTITIES, len(named)))
 
 

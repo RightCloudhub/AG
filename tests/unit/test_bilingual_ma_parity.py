@@ -59,10 +59,10 @@ def test_offline_service_bilingual_parity():
     svc = QueryService.create_offline()
     try:
         en = svc.run_query(
-            QueryRequest(question=EN_Q, force_agentic=True), tenant_id="t", user_id="u"
+            QueryRequest(question=EN_Q, force_agentic=True), tenant_id="default", user_id="u"
         )
         cn = svc.run_query(
-            QueryRequest(question=CN_Q, force_agentic=True), tenant_id="t", user_id="u"
+            QueryRequest(question=CN_Q, force_agentic=True), tenant_id="default", user_id="u"
         )
     finally:
         svc.close()

@@ -136,7 +136,7 @@ def retrieve_for_node(ctx: ExecutorNodeCtx) -> tuple[Retrieved, dict[str, Any], 
 
 
 def hints_for(ctx: ExecutorNodeCtx, text: str) -> list[str]:
-    known = ctx.executor.known_entities or None
+    known = ctx.executor.known_entities
     # Entities named by the current (materialized) sub-question come first: they
     # are this hop's targets. The original question's anchor only backs them up,
     # otherwise hop N keeps re-expanding the hop-1 anchor (wasted graph slot).

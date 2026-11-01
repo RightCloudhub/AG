@@ -79,7 +79,7 @@ def test_stream_recursion_yields_answer_not_error(monkeypatch) -> None:
 
     monkeypatch.setattr(ss, "_guard_and_budget", tight_guard)
 
-    events = list(stream_query_events(svc, req, tenant_id="t", user_id="u"))
+    events = list(stream_query_events(svc, req, tenant_id="default", user_id="u"))
     types = [e for e, _ in events]
     assert "answer" in types
     assert types[-1] == "answer"

@@ -68,6 +68,7 @@ class ExecutorDeps:
     fulltext: FulltextRetriever | None = None
     llm: LLMClient | None = None
     known_entities: list[str] | None = None
+    tenant_id: str | None = None
 
 
 @dataclass
@@ -167,8 +168,10 @@ class Executor:
     def resolve_entities(self, text: str, hint: list[str] | None = None) -> list[str]:
         base = list(hint or [])
         mentions = [
-            link_ambiguous_mention(m, self.known_entities, self.graph.store)
-            for m in extract_entity_mentions(text, self.known_entities or None)
+            link_ambiguous_mention(
+                m, self.known_entities, self.graph.store, tenant_id=self.deps.tenant_id
+            )
+            for m in extract_entity_mentions(text, self.known_entities)
         ]
         ordered: list[str] = []
         seen: set[str] = set()

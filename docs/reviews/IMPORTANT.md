@@ -201,6 +201,8 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | Qdrant 检索 | 当前 query_points 接口与租户过滤 mock 回归 | 实际 collection、索引和租户过滤 |
 | SQLite 检查点 | 真实 sqlite3 连接传入 saver，构造失败关闭连接 | 安装可选 saver 后持久化、重启恢复与连接生命周期 |
 | 可选 OTel | 无 SDK 离线路径可用，类型声明边界明确 | 实际 SDK/collector 联调 |
+| 独立多租户 Web 身份库（2026-11-01） | SQLite 迁移、Cookie、邀请、Key、最后 admin 并发保护；业务端到端跨租户回归 | PostgreSQL 真实并发与连接生命周期；SMTP 部署送达 |
+| 多租户索引升级（2026-11-01） | 文档 v2 原子写、BM25 分区统计、Qdrant 复合 point ID 与 Neo4j 复合 MERGE 离线契约 | 在线索引备份与按租户重建，检查旧单 ID 唯一约束；步骤见 [WEBAPP.md](../ops/WEBAPP.md) |
 
 ### 产品面部分完成
 

@@ -15,6 +15,9 @@ from agentic_graphrag.webapp.mail import MailSender, create_mail_sender
 from agentic_graphrag.webapp.middleware import WebAuthMiddleware
 from agentic_graphrag.webapp.routes_account import router as account_router
 from agentic_graphrag.webapp.routes_auth import router as auth_router
+from agentic_graphrag.webapp.routes_invites import router as invite_router
+from agentic_graphrag.webapp.routes_keys import router as key_router
+from agentic_graphrag.webapp.routes_tenants import router as tenant_router
 from agentic_graphrag.webapp.runtime import WebRuntime
 from agentic_graphrag.webapp.settings import WebSettings
 
@@ -58,6 +61,9 @@ def create_app(
     for prefix in ("/v1", ""):
         app.include_router(auth_router, prefix=prefix)
         app.include_router(account_router, prefix=prefix)
+        app.include_router(tenant_router, prefix=prefix)
+        app.include_router(invite_router, prefix=prefix)
+        app.include_router(key_router, prefix=prefix)
     business: AbstractAsyncContextManager[None] = nullcontext()
     if include_business:
         from agentic_graphrag.webapp.business import install_business

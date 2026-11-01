@@ -281,7 +281,9 @@ def run_case_row_via_app(
     try:
         chain = app.run_query_chain(
             QueryRequest(question=q, force_agentic=force_agentic),
-            tenant_id="eval",
+            # Evaluation owns an isolated store bundle and explicitly uses the
+            # unscoped offline path; "eval" is not a shared production tenant.
+            tenant_id="",
             user_id="eval",
         )
         return _success_row(case, q, chain)

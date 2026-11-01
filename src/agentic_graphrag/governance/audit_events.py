@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.config import resolve_path
+from agentic_graphrag.core.tenancy import tenant_matches
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ def _filter_events(
     if until is not None:
         preds.append(lambda e, u=until: e.ts <= u)
     if tenant_id is not None:
-        preds.append(lambda e, t=tenant_id: e.tenant_id == t)
+        preds.append(lambda e, t=tenant_id: tenant_matches(e.tenant_id, t))
     if action is not None:
         preds.append(lambda e, a=action: e.action == a)
     if not preds:

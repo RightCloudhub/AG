@@ -30,13 +30,14 @@ def test_snapshot_keeps_tenant_isolation(tmp_path: Path) -> None:
     assert [c.chunk_id for c, _ in hits] == ["b"]  # pre-V2: "a" leaked to t2
 
 
-def test_legacy_snapshot_without_tenant_stays_global(tmp_path: Path) -> None:
+def test_legacy_snapshot_without_tenant_belongs_to_default(tmp_path: Path) -> None:
     path = tmp_path / "bm25.json"
     legacy = [{"chunk_id": "x", "doc_id": "d", "text": "apex", "index": 0}]
     path.write_text(json.dumps(legacy), encoding="utf-8")
     store = BM25FulltextStore()
     store.load(str(path))
-    assert store.search("apex", tenant_id="any")[0][0].tenant_id == ""
+    assert store.search("apex", tenant_id="any") == []
+    assert store.search("apex", tenant_id="default")[0][0].tenant_id == ""
 
 
 def _bump(path: Path) -> None:

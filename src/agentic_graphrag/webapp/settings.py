@@ -25,6 +25,7 @@ class WebSettings(BaseSettings):
     auto_migrate: bool = Field(True, alias="AGR_WEB_AUTO_MIGRATE")
     access_seconds: int = Field(900, ge=30, le=3600, alias="AGR_WEB_ACCESS_SECONDS")
     refresh_seconds: int = Field(604800, ge=300, alias="AGR_WEB_REFRESH_SECONDS")
+    invite_seconds: int = Field(604800, ge=300, alias="AGR_WEB_INVITE_SECONDS")
     auth_attempts: int = Field(10, ge=1, alias="AGR_WEB_AUTH_ATTEMPTS")
     auth_window_seconds: int = Field(300, ge=1, alias="AGR_WEB_AUTH_WINDOW_SECONDS")
     mail_backend: str = Field("log", alias="AGR_WEB_MAIL_BACKEND")

@@ -6,6 +6,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
 
 
 class QdrantVectorStore:
@@ -42,7 +43,7 @@ class QdrantVectorStore:
                 raise ValueError(f"Chunk {ch.chunk_id} missing embedding")
             if self._dim is None:
                 self.ensure_collection(len(ch.embedding))
-            point_id = str(uuid5(NAMESPACE_URL, ch.chunk_id))
+            point_id = str(uuid5(NAMESPACE_URL, scoped_id(ch.tenant_id, ch.chunk_id)))
             points.append(
                 qm.PointStruct(
                     id=point_id,
@@ -74,6 +75,13 @@ class QdrantVectorStore:
             query_filter = qm.Filter(
                 must=[qm.FieldCondition(key="tenant_id", match=qm.MatchValue(value=tenant_id))]
             )
+            if tenant_id in {"", "default"}:
+                query_filter = qm.Filter(
+                    should=[
+                        qm.FieldCondition(key="tenant_id", match=qm.MatchAny(any=["default", ""])),
+                        qm.IsEmptyCondition(is_empty=qm.PayloadField(key="tenant_id")),
+                    ]
+                )
         hits = self._client.query_points(
             collection_name=self._collection,
             query=query_vector,
@@ -122,7 +130,8 @@ class InMemoryVectorStore:
         for ch in chunks:
             if not ch.embedding:
                 raise ValueError(f"Chunk {ch.chunk_id} missing embedding")
-            self._items = [x for x in self._items if x.chunk_id != ch.chunk_id]
+            key = scoped_id(ch.tenant_id, ch.chunk_id)
+            self._items = [x for x in self._items if scoped_id(x.tenant_id, x.chunk_id) != key]
             self._items.append(ch)
         return len(chunks)
 
@@ -135,7 +144,7 @@ class InMemoryVectorStore:
     ) -> list[tuple[ChunkRecord, float]]:
         scored: list[tuple[ChunkRecord, float]] = []
         for ch in self._items:
-            if tenant_id is not None and ch.tenant_id not in {"", tenant_id}:
+            if not tenant_matches(ch.tenant_id, tenant_id):
                 continue
             if not ch.embedding:
                 continue

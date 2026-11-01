@@ -27,6 +27,7 @@ from agentic_graphrag.app.query_run import (
 )
 from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_ERROR
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
+from agentic_graphrag.app.tenant_context import tenant_entities
 from agentic_graphrag.app.wiring import (
     build_executor_for_service,
     build_llm_for_service,
@@ -78,7 +79,7 @@ def _stream_live(
     except ApiError as exc:
         yield EVENT_ERROR, {"code": exc.code, "message": exc.message}
     except BudgetExceeded as exc:
-        err = _budget_api_error(exc)
+        err = _budget_api_error(exc, tenant_id=tenant_id, user_id=user_id)
         yield EVENT_ERROR, {"code": err.code, "message": err.message}
     except AgentStreamEmptyError as exc:
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
@@ -142,7 +143,8 @@ def _build_stream_deps(
         cfg=svc.cfg,
         settings=svc.settings,
         allow_llm=svc.allow_llm,
-        known_entities=svc.known_entities,
+        known_entities=tenant_entities(svc, tenant_id),
+        tenant_id=tenant_id or None,
         retrieval_cache=svc.retrieval_cache,
         enable_cache=svc.enable_cache,
     )
@@ -155,7 +157,7 @@ def _build_stream_deps(
         allow_llm=svc.allow_llm,
         force_agentic=req.force_agentic,
         enable_triage=svc.enable_triage and not req.force_agentic,
-        known_entities=svc.known_entities,
+        known_entities=executor.known_entities,
         tenant_id=tenant_id,
     )
     return executor, llm, opts
