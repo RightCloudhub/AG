@@ -62,6 +62,8 @@ class WebAuthMiddleware:
 
     def _prepare(self, request: Request) -> None:
         request.state.enforce_auth = True
+        if request.method in {"GET", "HEAD"} and request.url.path.startswith("/web/static/"):
+            return
         keyed = has_api_key(request)
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not keyed:
             check_csrf(self.ctx, request)

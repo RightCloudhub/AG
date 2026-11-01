@@ -3,27 +3,22 @@
 import {
   ApiEndpoint, ErrorCode, ErrorMessage, ErrorName, FormField, HttpHeader,
   HttpMethod, MediaType, PaginationKey, QueryKey, StorageKey, StreamEvent,
-  UiPolicy, isRecord,
+  UiPolicy,
 } from './contracts.js';
 import { consumeStream } from './stream.js';
 import {
-  parseMeta, parseIdentity, parseHealth, parseEntity, parseTask, parseReview,
+  parseIdentity, parseHealth, parseEntity, parseTask, parseReview,
   parseAuditEvent, parseMetrics, rows, record,
 } from './responses.js';
+import { ApiError, parseResponse } from './http.js';
+import { request, sendRequest } from './transport.js';
+import { assertCurrentRequest, requestGeneration, scopedRequest } from './request_scope.js';
+export { ApiError } from './http.js';
 
 /** @typedef {import('./contracts.js').ApiResult} ApiResult */
 /** @typedef {import('./contracts.js').ListParams} ListParams */
 /** @typedef {import('./contracts.js').QueryRequest} QueryRequest */
 /** @typedef {import('./contracts.js').StreamHandlers} StreamHandlers */
-
-export class ApiError extends Error {
-  /** @param {string} message @param {string} code @param {unknown} [details] */
-  constructor(message, code, details) {
-    super(message);
-    this.code = code;
-    this.details = details;
-  }
-}
 
 export function getApiKey() {
   return localStorage.getItem(StorageKey.API_KEY) || '';
@@ -34,42 +29,6 @@ export function setApiKey(key) {
   const value = key.trim();
   if (value) localStorage.setItem(StorageKey.API_KEY, value);
   else localStorage.removeItem(StorageKey.API_KEY);
-}
-
-/** @param {HeadersInit} [initial] @param {boolean} [multipart] */
-function requestHeaders(initial, multipart = false) {
-  const headers = new Headers(initial);
-  if (!multipart) headers.set(HttpHeader.CONTENT_TYPE, MediaType.JSON);
-  const key = getApiKey();
-  if (key) headers.set(HttpHeader.AUTHORIZATION, `Bearer ${key}`);
-  return headers;
-}
-
-/** @param {Response} response @returns {Promise<ApiResult>} */
-async function parseResponse(response) {
-  if (!response.ok && !response.headers.get(HttpHeader.CONTENT_TYPE)?.includes(MediaType.JSON)) {
-    throw new ApiError(`HTTP ${response.status}`, ErrorCode.HTTP);
-  }
-  /** @type {unknown} */
-  const envelope = await response.json();
-  if (!isRecord(envelope) || typeof envelope.success !== 'boolean') {
-    throw new ApiError(ErrorMessage.INVALID_RESPONSE, ErrorCode.INVALID_RESPONSE);
-  }
-  if (!response.ok || !envelope.success) {
-    const error = isRecord(envelope.error) ? envelope.error : {};
-    throw new ApiError(
-      typeof error.message === 'string' ? error.message : ErrorMessage.UNKNOWN,
-      typeof error.code === 'string' ? error.code : ErrorCode.HTTP,
-      error.details,
-    );
-  }
-  return { data: envelope.data, meta: parseMeta(envelope.meta) };
-}
-
-/** @param {string} path @param {RequestInit} [options] */
-async function request(path, options = {}) {
-  const headers = requestHeaders(options.headers, options.body instanceof FormData);
-  return parseResponse(await fetch(path, { ...options, headers }));
 }
 
 /** @template T @param {Promise<ApiResult>} response @param {(value: unknown) => T} parser */
@@ -97,16 +56,22 @@ async function validateStream(response) {
 /** @param {QueryRequest} body @param {StreamHandlers} [handlers] */
 export function streamQuery(body, handlers = {}) {
   const controller = new AbortController();
-  const run = async () => {
-    const response = await fetch(ApiEndpoint.STREAM, {
+  const generation = requestGeneration();
+  /** @type {StreamHandlers} */
+  const guarded = Object.fromEntries(Object.entries(handlers).map(([event, handler]) => [event,
+    /** @param {unknown} payload @param {import('./contracts.js').StreamEventName} name */
+    (payload, name) => { assertCurrentRequest(generation, controller.signal); handler?.(payload, name); },
+  ]));
+  const run = () => scopedRequest({ signal: controller.signal }, async scoped => {
+    const response = await sendRequest(ApiEndpoint.STREAM, {
       method: HttpMethod.POST,
-      headers: requestHeaders(),
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: scoped.signal,
     });
-    await consumeStream(await validateStream(response), handlers);
+    await consumeStream(await validateStream(response), guarded);
+    assertCurrentRequest(generation, scoped.signal);
     handlers.done?.();
-  };
+  });
   run().catch(error => {
     if (error instanceof Error && error.name === ErrorName.ABORT) return;
     handlers[StreamEvent.ERROR]?.({
@@ -119,9 +84,11 @@ export function streamQuery(body, handlers = {}) {
 }
 
 export async function fetchHealth() {
-  const response = await fetch(ApiEndpoint.HEALTH);
-  if (!response.ok) throw new ApiError(`HTTP ${response.status}`, ErrorCode.HTTP);
-  return parseHealth(await response.json());
+  return scopedRequest({}, async options => {
+    const response = await sendRequest(ApiEndpoint.HEALTH, options);
+    if (!response.ok) throw new ApiError(`HTTP ${response.status}`, ErrorCode.HTTP);
+    return parseHealth(await response.json());
+  });
 }
 
 /** @param {ListParams} params */

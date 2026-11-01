@@ -118,6 +118,13 @@ node scripts/build_lucide_icons.mjs --check --source package/icon-nodes.json    
 
 品牌标记 `mark` 是界面唯一自绘字形，位于 `web/static/js/icons.js`，不在此清单内。
 
+### 3.3 Vue Router 4.5.1（MIT）
+
+ADR-007 的独立 Web 应用使用本地 `web/static/vendor/vue-router.esm-browser.prod.js`。
+上游为官方 npm 包 `vue-router@4.5.1` 的 ESM browser production 构建；唯一改动是
+将 Vue 的 bare import 改为同目录钉版 Vue 3.5.13。许可证同目录保存，来源与包装方式见
+[`web/static/vendor/README.md`](../../web/static/vendor/README.md)。无需 npm 构建或运行时 CDN。
+
 ## 4. 与 Python 依赖的边界
 
 | 类别 | 管理方式 | 勿写入本清单 |

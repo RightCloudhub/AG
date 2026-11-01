@@ -161,6 +161,7 @@ export const zh = Object.freeze({
 
 /** Active locale table (single locale today). */
 export const text = zh;
+export { productCopy as productText } from './i18n_product.js';
 
 /** @param {string} template @param {Record<string, string | number>} vars */
 export function fmt(template, vars) {

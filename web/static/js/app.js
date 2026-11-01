@@ -15,6 +15,7 @@ import { usePalette } from './shell/use_palette.js';
 import { applyInspectorWidth, stepInspectorHop, toggleInspector } from './shell/use_inspector.js';
 import { BANNER_TEMPLATE, PALETTE_TEMPLATE, SETTINGS_TEMPLATE, TOPBAR_TEMPLATE } from './shell/tpl_topbar.js';
 import { NOTEBOOK_TEMPLATE } from './shell/tpl_notebook.js';
+import { initializeLegacyHistory } from './store/conversations.js';
 
 /** @typedef {import('./contracts.js').ViewName} ViewName */
 
@@ -107,5 +108,6 @@ const App = {
 
 /* ── Mount ─────────────────────────────────────────────────────────── */
 const app = createApp(App);
+initializeLegacyHistory();
 app.component('ag-icon', AgIcon);
 app.mount('#app');

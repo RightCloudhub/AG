@@ -10,10 +10,13 @@ import { HistoryGroup, MessageRole, StorageKey, UiPolicy, isRecord } from '../co
 /** @typedef {import('../chat/types.js').ChatMessage} ChatMessage */
 /** @typedef {import('../contracts.js').HistoryGroupName} HistoryGroupName */
 
+/** @type {string | null} */
+let storageKey = null;
+const OWNED_PREFIX = 'agr_notebook_v2:';
 /** @returns {Conversation[]} */
 function load() {
   try {
-    const raw = localStorage.getItem(StorageKey.CONVERSATIONS);
+    const raw = storageKey ? localStorage.getItem(storageKey) : null;
     if (!raw) return [];
     /** @type {unknown} */
     const parsed = JSON.parse(raw);
@@ -28,14 +31,35 @@ function isConversation(value) {
 
 /** @param {Conversation[]} list */
 function persist(list) {
-  try { localStorage.setItem(StorageKey.CONVERSATIONS, JSON.stringify(list)); }
+  try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(list)); }
   catch { /* quota exceeded or storage disabled: history simply stays in memory */ }
 }
 
 /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<Conversation[]>} */
-export const conversations = ref(load());
+export const conversations = ref([]);
 /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<string | null>} */
 export const activeConversationId = ref(null);
+
+/** Legacy data is loaded only by the core entry, never by the Cookie application. */
+export function initializeLegacyHistory() {
+  storageKey = StorageKey.CONVERSATIONS;
+  conversations.value = load();
+}
+/** @param {string | null} userId @param {string} [tenantId] */
+export function selectHistoryOwner(userId, tenantId = '') {
+  storageKey = userId ? `${OWNED_PREFIX}${encodeURIComponent(userId)}:${encodeURIComponent(tenantId)}` : null;
+  conversations.value = load();
+  activeConversationId.value = null;
+}
+/** Remove all business history for this account, preserving other accounts and preferences. @param {string} userId */
+export function clearAccountHistory(userId) {
+  const prefix = `${OWNED_PREFIX}${encodeURIComponent(userId)}:`;
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    for (const key of keys) if (key?.startsWith(prefix)) localStorage.removeItem(key);
+  } catch { /* Storage can be disabled. The in-memory scope is still cleared. */ }
+  if (storageKey?.startsWith(prefix)) selectHistoryOwner(null);
+}
 
 /** @param {Conversation[]} list */
 function commit(list) {

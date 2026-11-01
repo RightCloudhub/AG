@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from agentic_graphrag.webapp.database import Database
 from agentic_graphrag.webapp.errors import register_error_handlers
+from agentic_graphrag.webapp.frontend import install_frontend
 from agentic_graphrag.webapp.logging import protect_access_logs
 from agentic_graphrag.webapp.mail import MailSender, create_mail_sender
 from agentic_graphrag.webapp.middleware import WebAuthMiddleware
@@ -74,6 +75,7 @@ def create_app(
     def health() -> dict[str, object]:
         return {"status": "ok", "checks": {"identity": "ok"}}
 
+    install_frontend(app)
     return app
 
 

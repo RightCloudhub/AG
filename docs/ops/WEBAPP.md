@@ -19,6 +19,11 @@ agr-webapp
 `GET /v1/auth/csrf`，再以 `X-CSRF-Token` 和同源 `Origin` 提交。
 认证接口同时提供 `/v1` 与无前缀路径；业务接口保留 `/v1` 原契约。
 
+Web 入口 `/` 提供登录和注册，`/app/chat` 是受保护的笔记本；`/web` 重定向到它。
+深链接由独立 Web 工厂回退到 `web/application.html`，API 和静态资源的 404 不受影响。
+核心 `agr-api` 仍使用原 `web/index.html`，两者共享本地 Vue 和业务组件。
+浏览器不需要 npm 构建；Vue Router 来源与许可证见 `web/static/vendor/README.md`。
+
 ## 数据库与部署配置
 
 WebSettings 从 `.env` 或进程环境读取；字段见 `.env.example`。

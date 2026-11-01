@@ -1,0 +1,93 @@
+// @ts-check
+/** Identity owns view lifetime. No authentication material is stored in browser storage. */
+import { ref } from '../../vendor/vue.esm-browser.prod.js';
+import { ApiError } from '../http.js';
+import { request, installTransport } from '../transport.js';
+import { cancelRequests } from '../request_scope.js';
+import { clearAccountHistory, selectHistoryOwner } from '../store/conversations.js';
+import { closeOverlays } from '../store/shell.js';
+import { setGraphFocus } from '../store/graph_focus.js';
+import { inspSyncTo } from '../shell/use_inspector.js';
+import { cookieTransport, acceptCsrf, forgetCsrf, onCookieIdentity } from './cookie_transport.js';
+import { parseUser } from './contracts.js';
+
+/** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('./contracts.js').User | null>} */
+export const user = ref(null);
+export const sessionReady = ref(false);
+export const sessionRevision = ref(0);
+export const changingIdentity = ref(false);
+/** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<unknown>} */
+export const sessionError = ref(null);
+/** @type {Promise<void> | null} */
+let flight = null;
+
+function clearViews() {
+  cancelRequests();
+  selectHistoryOwner(null);
+  closeOverlays();
+  inspSyncTo(null);
+  setGraphFocus('');
+  sessionRevision.value += 1;
+}
+/** @param {import('./contracts.js').User | null} next */
+export function applyUser(next) {
+  const previous = user.value;
+  const changed = previous?.user_id !== next?.user_id || previous?.tenant_id !== next?.tenant_id || previous?.role !== next?.role;
+  if (changed && previous) clearViews();
+  user.value = next;
+  if (changed) selectHistoryOwner(next?.user_id ?? null, next?.tenant_id);
+  sessionReady.value = true;
+  sessionError.value = null;
+}
+/** @param {boolean} [clearHistory] */
+export function clearSession(clearHistory = true) {
+  if (clearHistory && user.value) clearAccountHistory(user.value.user_id);
+  clearViews();
+  user.value = null;
+  sessionReady.value = true;
+  forgetCsrf();
+}
+
+export function initializeSession() {
+  installTransport(cookieTransport);
+  onCookieIdentity({ identity: value => applyUser(parseUser(value)), expired: () => clearSession() });
+}
+export function reloadSession() {
+  if (!flight) flight = (async () => {
+    try { applyUser(parseUser((await request('/v1/me')).data)); }
+    catch (error) {
+      if (error instanceof ApiError && error.status === 401) clearSession();
+      else if (!(error instanceof Error && error.name === 'AbortError')) sessionError.value = error;
+      sessionReady.value = true;
+    }
+  })().finally(() => { flight = null; });
+  return flight;
+}
+export async function ensureSession() { if (!sessionReady.value) await reloadSession(); }
+
+/** @param {'login' | 'register'} action @param {Record<string, string>} body */
+export async function authenticate(action, body) {
+  const result = await request(`/v1/auth/${action}`, { method: 'POST', body: JSON.stringify(body) });
+  acceptCsrf(result.data);
+  applyUser(parseUser(result.data));
+}
+export async function logout() {
+  await request('/v1/auth/logout', { method: 'POST' });
+  clearSession();
+}
+/** @param {string} id */
+export async function switchTenant(id) {
+  if (changingIdentity.value) return;
+  changingIdentity.value = true;
+  clearViews();
+  try {
+    const result = await request(`/v1/tenants/${encodeURIComponent(id)}/switch`, { method: 'POST' });
+    acceptCsrf(result.data);
+    applyUser(parseUser(result.data));
+    await reloadSession();
+  } catch (error) {
+    await reloadSession();
+    selectHistoryOwner(user.value?.user_id ?? null, user.value?.tenant_id);
+    throw error;
+  } finally { changingIdentity.value = false; }
+}

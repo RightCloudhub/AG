@@ -9,7 +9,16 @@ edited by hand.
 The full ESM browser build, in-browser template compilation included, loaded by `app.js` through a dynamic
 `import()`. `vue.esm-browser.prod.d.ts` is the matching type surface for `tsc`; the runtime exposes only
 `ref` / `shallowRef` / `computed` / `nextTick` / `onMounted` / `onUnmounted` / `createApp`. Upgrading the
-version means updating this file, the ADR, and `VUE_VERSION` in `app.js` together.
+version means updating this file, the ADR, and the runtime version assertion together.
+
+## Vue Router 4.5.1, `vue-router.esm-browser.prod.js` (MIT)
+
+Used only by the independent Cookie application (ADR-007). Source:
+`https://registry.npmjs.org/vue-router/-/vue-router-4.5.1.tgz`,
+`package/dist/vue-router.esm-browser.prod.js`; license copied from `package/LICENSE`.
+The only packaging change replaces `from"vue"` with `from"./vue.esm-browser.prod.js"`
+so the router and existing owned modules share the exact same local Vue instance.
+`vue-router.esm-browser.prod.d.ts` declares the used API boundary for strict JSDoc checks.
 
 ## Lucide icon subset, `lucide-icons.js` (ISC, v1.65.0)
 
