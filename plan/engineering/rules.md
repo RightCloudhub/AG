@@ -1,7 +1,7 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.6（2026-10-31）— 对齐 Spec V1.2 的组合根、协议路径及显式 profile 规则；门禁要求不变。
+**版本**：V1.7（2026-11-01）— ADR-007 批准独立 Web 应用、可选身份数据库与本地 Vue Router；门禁要求不变。
 
 | 强制层级 | 机制 |
 |---|---|
@@ -81,6 +81,10 @@
 - 不运行项目的变更：把需要人工验证的点写成文档中的**验证清单**（先例：api-and-ui.md §2.6）。
 
 ## 8. 前端（`web/`）规则
+
+- **ADR-007 范围扩展（用户已确认）**：独立 Web 应用可提供公开注册、本地 Vue Router 4 ESM
+  和 history 路由；继续复用 Vue 3.5.13，保持零构建。身份依赖属于 `.[webapp]`，
+  核心模块不得反向导入；CI 类型与全量单测安装 `.[dev,webapp]`，离线评测仅安装核心包。
 
 - **零构建运行时**：不引入 npm 清单、打包器或浏览器运行所需的 Node 工具链；改完刷新即生效。Node/TypeScript 仅用于 §2 的开发与 CI 验证。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版（Vue 3.5.13 §3.1、Lucide 图标几何子集 §3.2）同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)；前端视觉校验（headless Chromium）环境见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。

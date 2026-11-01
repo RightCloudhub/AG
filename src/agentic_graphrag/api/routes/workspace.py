@@ -20,6 +20,7 @@ from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["workspace"])
+identity_router = APIRouter(prefix="/v1", tags=["workspace"])
 
 
 @dataclass
@@ -64,7 +65,7 @@ def list_ingest_tasks(
     )
 
 
-@router.get("/me")
+@identity_router.get("/me")
 def get_current_user(request: Request) -> JsonObject:
     """Return the authenticated identity and capabilities without role probing."""
     principal = getattr(request.state, "principal", None)

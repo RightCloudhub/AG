@@ -20,6 +20,9 @@ venv/
 # Data & runtime (keep sample corpus + seed triples tracked)
 data/cache/
 data/indexes/
+data/identity/
+*.db-wal
+*.db-shm
 data/processed/docs/
 data/processed/chunks.jsonl
 data/processed/triples.jsonl

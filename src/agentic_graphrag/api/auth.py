@@ -36,6 +36,7 @@ class Principal:
     api_key: str
     user_id: str = "default"
     role: Role = field(default=Role.READER)
+    session_id: str = ""
 
 
 def parse_api_keys(raw: str | None = None) -> dict[str, str]:

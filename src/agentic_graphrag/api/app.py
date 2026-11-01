@@ -164,6 +164,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(query_routes.router)
     app.include_router(knowledge_routes.router)
     app.include_router(workspace_routes.router)
+    app.include_router(workspace_routes.identity_router)
     app.include_router(admin_routes.router)
 
 

@@ -78,6 +78,24 @@
 
 > **2026-10-31 更新**：前端已按 `Prompt.md` v2 重做为「推理笔记本」（[UI_DESIGN](../../docs/design/UI_DESIGN.md) §10）：`js/app.js`（壳 + hash 路由 + 全局快捷键）· `js/shell/*` · `js/views/chat.js` + `js/chat/*` · `js/admin/*` · `js/store/*` · `js/i18n.js`；样式 `css/{tokens,base,shell,notebook,inspector,wizard,admin,responsive}.css`（各 ≤300 行）；图标几何为 vendored Lucide 子集（`web/static/vendor/lucide-icons.js`，生成器 `scripts/build_lucide_icons.mjs`，记录见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) §3.2）。仍为零构建、无 npm / 打包器、无新运行时框架，本 ADR 决策不变；响应式布局差异（原「V1 不做」项）挂账见 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6。
 
+### ADR-007：独立多租户 Web 应用（已采纳，2026-11-01）
+
+- **背景**：2026-10-31 会话已确认账号、Cookie 会话、租户成员及设置页方案，
+  并明确要求与 GraphRAG 核心独立；用户已批准在 `feat/multitenant-webapp` 分支实施。
+- **决策**：新增 `agentic_graphrag.webapp` 和独立 `agr-webapp` 工厂；身份数据库采用
+  SQLAlchemy 2 / Alembic，开发默认 SQLite，可配置 PostgreSQL。Argon2id、PyJWT、
+  SQLAlchemy、Alembic 与 PostgreSQL 驱动均归入 `webapp` 可选依赖组。
+  核心 API、CLI 和离线评测不导入此模块、不初始化身份数据库。
+- **会话**：JWT access / 随机 refresh 凭证使用 HttpOnly、SameSite Cookie；刷新轮换、
+  数据库撤销、CSRF、来源检查和持久化登录限流。角色始终从当前成员关系读取。
+  数据库 API Key 只存摘要，继续支持核心 API 的 `AGR_API_KEYS` 服务身份。
+- **前端**：在现有本地 Vue 3.5.13 上增加本地钉版 Vue Router 4 ESM，使用 history
+  路由，无构建工具；认证、设置及应用壳独立于业务组件。视觉沿用当前 UI_DESIGN / Prompt。
+- **影响**：公开注册与 Vue Router 是本轮用户明确批准的产品范围扩展，替代旧 V1
+  对这两项的排除。数据隔离仍在核心存储执行，仅传递字符串 tenant_id / user_id；
+  不引入身份表外键或 Web 依赖。实现与验证记录见
+  [多租户实施记录](../workstreams/multitenant-webapp.md)。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）

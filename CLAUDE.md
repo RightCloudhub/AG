@@ -72,6 +72,16 @@ All subcommands are also reachable as `python -m agentic_graphrag <command>` (in
 
 ## Architecture
 
+### Optional Web product (ADR-007)
+
+`webapp/` owns an independent SQLAlchemy/Alembic identity database, Cookie sessions,
+CSRF, users and tenants. Install `.[webapp]` and run `agr-webapp`; core `agr-api`, CLI
+and offline eval do not import or initialize it. Only the Web business adapter imports
+core API routers; it passes the existing string `tenant_id`/`user_id` context.
+Strict typing and the full unit suite use `.[dev,webapp]`. The offline eval CI job
+installs only the core package. See `docs/ops/WEBAPP.md` and
+`plan/workstreams/multitenant-webapp.md` for configuration and staged delivery.
+
 ### The offline/live duality (read this first)
 
 Offline backends are the default. CI uses deterministic fixtures without live services:

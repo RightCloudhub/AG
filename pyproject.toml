@@ -25,6 +25,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+webapp = [
+    "SQLAlchemy>=2.0.36,<3",
+    "alembic>=1.14,<2",
+    "argon2-cffi>=23.1.0",
+    "PyJWT>=2.10.1,<3",
+    "psycopg[binary]>=3.2,<4",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -55,6 +62,8 @@ agr-pilot-triples = "agentic_graphrag.cli:pilot_triples_main"
 agr-badcase = "agentic_graphrag.cli:badcase_main"
 agr-query = "agentic_graphrag.cli:query_main"
 agr-api = "agentic_graphrag.api.app:run_server"
+agr-webapp = "agentic_graphrag.webapp.app:run_server"
+agr-webapp-seed = "agentic_graphrag.webapp.seed:main"
 
 [build-system]
 requires = ["hatchling"]

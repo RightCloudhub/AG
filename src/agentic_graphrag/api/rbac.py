@@ -142,7 +142,7 @@ def require_role(*allowed_roles: Role) -> Callable[[Request], None]:
 
     def _checker(request: Request) -> None:
         # When auth is not required (dev/test), skip RBAC — matches "default open".
-        if not _is_auth_required():
+        if not _is_auth_required() and not getattr(request.state, "enforce_auth", False):
             return
         principal = getattr(request.state, "principal", None)
         role = _extract_role(principal)
