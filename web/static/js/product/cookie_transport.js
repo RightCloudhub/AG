@@ -12,13 +12,19 @@ let refreshFlight = null;
 let observeIdentity = () => {};
 /** @type {() => void} */
 let expireIdentity = () => {};
-const PUBLIC_AUTH = /^\/v1\/auth\/(?:login|register|forgot|reset|logout|csrf)$/;
-const IDENTITY_WRITE = /^\/v1\/(?:auth\/(?:login|register|reset|logout|password\/change)|tenants\/[^/]+\/switch)$/;
+/** @type {() => void} */
+let changedIdentity = () => {};
+/** @type {() => {user_id: string, tenant_id: string} | null} */
+let expectedIdentity = () => null;
+const PUBLIC_AUTH = /^\/v1\/auth\/(?:login|register|forgot|reset|csrf)$/;
+const IDENTITY_WRITE = /^\/v1\/(?:auth\/(?:login|register|reset|logout|password\/change|sessions\/[^/]+)|tenants\/[^/]+\/switch)$/;
 
-/** @param {{identity: (value: unknown) => void, expired: () => void}} callbacks */
+/** @param {{identity: (value: unknown) => void, expired: () => void, changed?: () => void, expected?: () => {user_id: string, tenant_id: string} | null}} callbacks */
 export function onCookieIdentity(callbacks) {
   observeIdentity = callbacks.identity;
   expireIdentity = callbacks.expired;
+  changedIdentity = callbacks.changed || (() => {});
+  expectedIdentity = callbacks.expected || (() => null);
 }
 /** @template T @param {() => Promise<T>} work */
 export async function identityLock(work) {
@@ -33,6 +39,7 @@ export function forgetCsrf() { csrf = ''; }
 async function raw(path, options = {}) {
   const headers = new Headers(options.headers);
   headers.delete('Authorization');
+  headers.delete('X-API-Key');
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (!['GET', 'HEAD'].includes(options.method || 'GET')) headers.set('X-CSRF-Token', csrf);
   options.signal?.throwIfAborted();
@@ -78,6 +85,18 @@ async function isCsrfError(response) {
   return false;
 }
 
+/** @param {Response} response */
+async function checkIdentity(response) {
+  if (response.status !== 409) return response;
+  try { await parseResponse(response.clone()); }
+  catch (error) {
+    if (!(error instanceof ApiError) || error.code !== 'IDENTITY_CHANGED') return response;
+    changedIdentity();
+    throw new DOMException('Identity changed', 'AbortError');
+  }
+  return response;
+}
+
 /** @param {string} path @param {RequestInit} options @param {boolean} locked */
 async function exchange(path, options, locked) {
   if (!csrf && !['GET', 'HEAD'].includes(options.method || 'GET')) await bootstrapCsrf();
@@ -86,7 +105,7 @@ async function exchange(path, options, locked) {
     await bootstrapCsrf();
     response = await raw(path, options);
   }
-  if (response.status !== 401 || PUBLIC_AUTH.test(path)) return response;
+  if (response.status !== 401 || PUBLIC_AUTH.test(path)) return checkIdentity(response);
   try { await refreshAccess(locked); }
   catch (error) {
     if (error instanceof ApiError && error.status === 401) expireIdentity();
@@ -94,11 +113,18 @@ async function exchange(path, options, locked) {
   }
   response = await raw(path, options);
   if (response.status === 401) expireIdentity();
-  return response;
+  return checkIdentity(response);
 }
 
 /** @param {string} path @param {RequestInit} options */
 export function cookieTransport(path, options) {
+  const expected = expectedIdentity();
+  if (expected && path.startsWith('/v1/') && !PUBLIC_AUTH.test(path) && !(path === '/v1/me' && (!options.method || options.method === 'GET'))) {
+    const headers = new Headers(options.headers);
+    headers.set('X-AGR-User', expected.user_id);
+    headers.set('X-AGR-Tenant', expected.tenant_id);
+    options = { ...options, headers };
+  }
   return IDENTITY_WRITE.test(path) && options.method !== 'GET'
     ? identityLock(() => exchange(path, options, true)) : exchange(path, options, false);
 }

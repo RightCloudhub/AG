@@ -29,6 +29,8 @@ import { COMPOSER_TEMPLATE, WIZARD_TEMPLATE } from '../chat/tpl_composer.js';
 import { PAGE_TEMPLATE, WELCOME_GROUPS, WELCOME_TEMPLATE } from '../chat/tpl_page.js';
 import { THREAD_ROWS_TEMPLATE } from '../chat/tpl_thread.js';
 import { INSPECTOR_TEMPLATE } from '../shell/tpl_inspector.js';
+import { useViewLifetime } from '../view_lifetime.js';
+import { navigateView } from '../navigation.js';
 
 /** @template T @typedef {import('../../vendor/vue.esm-browser.prod.js').Ref<T>} Ref */
 /** @typedef {import('../chat/types.js').ChatMessage} ChatMessage */
@@ -44,6 +46,7 @@ const REASON = /原因[:：]\s*([^。]+)/;
 export default {
   name: 'ChatView',
   setup() {
+    const alive = useViewLifetime();
     const composer = useComposer();
     const inspector = useInspector();
     const streaming = ref(false);
@@ -84,6 +87,7 @@ export default {
     function scrollBottom() { nextTick(() => { if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight; }); }
     /** @param {ChatMessage} msg @param {string | null} [conversationId] */
     function push(msg, conversationId = null) {
+      if (conversationId && !findConversation(conversationId)) return { target: conversationId, key: '' };
       const target = findConversation(conversationId) ?? conversation.value ?? createConversation(msg.text ?? '');
       const index = appendMessage(target.id, msg);
       scrollBottom();
@@ -102,8 +106,10 @@ export default {
     async function sendQuestion(skipClarification = false, q = composer.question.value.trim()) {
       if (!q || streaming.value || sending.value) return;
       sending.value = true;
+      const startingConversation = activeConversationId.value;
       const card = skipClarification ? null : await clarifyFor(q).finally(() => { sending.value = false; });
       sending.value = false;
+      if (!alive() || startingConversation !== activeConversationId.value) return;
       composer.question.value = '';
       nextTick(composer.autosize);
       const page = push({ role: MessageRole.USER, text: q, ts: Date.now() });
@@ -163,7 +169,7 @@ export default {
     function runSlash(cmd) {
       if (cmd === SlashCommand.WIZARD) composer.openWizard();
       else if (cmd === SlashCommand.PLAN) setPreferences({ mode: QueryMode.PLAN_CONFIRM });
-      else if (cmd === SlashCommand.IMPORT) window.location.hash = View.KNOWLEDGE;
+      else if (cmd === SlashCommand.IMPORT) navigateView(View.KNOWLEDGE);
     }
     /** @param {{id: import('../contracts.js').SlashCommandName, label: string, icon: string}} item */
     function onSlash(item) { runSlash(composer.pickSlash(item)); }
@@ -179,8 +185,11 @@ export default {
     /** @param {ChatMessage} msg @param {number} index @param {boolean} accurate @param {string} [reason] */
     async function submitFeedback(msg, index, accurate, reason = '') {
       if (!msg.data?.query_id || msg.feedbackSent) return;
-      try { await postFeedback({ query_id: msg.data.query_id, accurate, reason }); patch(index, { feedbackSent: true, feedbackValue: accurate, feedbackReason: reason }); }
-      catch { patch(index, { feedbackValue: undefined }); }
+      const target = conversation.value?.id;
+      try {
+        await postFeedback({ query_id: msg.data.query_id, accurate, reason });
+        if (alive() && target) updateMessage(target, index, { feedbackSent: true, feedbackValue: accurate, feedbackReason: reason });
+      } catch { if (alive() && target) updateMessage(target, index, { feedbackValue: undefined }); }
     }
     /** @param {ChatMessage} msg @param {number} index */
     function startNegative(msg, index) { if (!msg.feedbackSent) patch(index, { feedbackValue: false }); }
@@ -220,7 +229,7 @@ export default {
     function saveEdit(p) { const q = editText.value.trim(); editingKey.value = ''; if (q && q !== p.question) sendQuestion(false, q); }
     function cancelEdit() { editingKey.value = ''; }
     /** @param {Page} p */
-    function supplyKnowledge(p) { window.location.hash = View.KNOWLEDGE; }
+    function supplyKnowledge(p) { navigateView(View.KNOWLEDGE); }
     /** The reason inside the honest-fallback answer, or the plain sentence. @param {Answer} answer */
     function noAnswerReason(answer) { return REASON.exec(answer.answer)?.[1] ?? T.states.notFoundReason; }
     /** @param {string} id */
@@ -239,7 +248,7 @@ export default {
     const clarify = useClarify({ patch, startStream: q => { const page = push({ role: MessageRole.USER, text: q, ts: Date.now() }); runStream(q, page.target); }, setQuestion: composer.setQuestion, openWizard: composer.openWizard });
 
     onMounted(() => { inspSyncTo(conversation.value); composer.focusInput(); window.addEventListener('keydown', onWindowKeydown); });
-    onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown));
+    onUnmounted(() => { abortCtrl.value?.abort(); window.removeEventListener('keydown', onWindowKeydown); });
     return {
       ...composer, ...inspector, ...clarify, streaming, live, scrollEl, editEl, copiedId, copyMenuId, hopMenuId, editingKey, editText, pendingPlan,
       pages, planLines, canSend, feedbackReasons, sendQuestion, confirmPlan, cancelPlan, cancelStream, handleKeydown, onSlash, submitFeedback,

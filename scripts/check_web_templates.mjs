@@ -9,7 +9,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = new URL(`file://${ROOT}/web/static/`);
 /** Components with a `default.template`. */
 const VIEWS = ['views/chat', 'admin/graph', 'admin/knowledge', 'admin/review', 'admin/ops',
-  'product/home', 'product/auth_view', 'product/invite', 'product/error_view', 'product/workspace', 'product/confirm',
+  'product/home', 'product/auth_view', 'product/invite', 'product/error_view', 'product/workspace', 'product/confirm', 'product/create_tenant',
   'product/settings/layout', 'product/settings/profile', 'product/settings/security', 'product/settings/members',
   'product/settings/keys', 'product/settings/tenant'];
 /** Modules whose string exports are template fragments (compiled inside a wrapper). */

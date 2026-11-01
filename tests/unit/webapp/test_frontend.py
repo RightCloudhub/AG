@@ -56,7 +56,12 @@ def test_static_module_loading_does_not_exhaust_business_rate_limit(browser, reg
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node is required for JS validation")
 def test_product_runtime():
     result = subprocess.run(
-        ["node", "--test", "tests/unit/webapp/frontend_runtime.mjs"],
+        [
+            "node",
+            "--test",
+            "tests/unit/webapp/frontend_runtime.mjs",
+            "tests/unit/webapp/frontend_transport.mjs",
+        ],
         cwd=ROOT_DIR,
         capture_output=True,
         text=True,

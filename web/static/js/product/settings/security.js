@@ -7,6 +7,7 @@ import { P } from '../copy.js';
 import { useForm, passwordStrength } from '../forms.js';
 import { clearSession } from '../session.js';
 import { useConfirmation } from '../confirm.js';
+import { publishIdentity } from '../identity_events.js';
 import { parseSession, dateTime } from './data.js';
 
 export default {
@@ -28,6 +29,7 @@ export default {
         const { current_password, password } = passwords.value;
         await request('/v1/auth/password/change', { method: 'POST', body: JSON.stringify({ current_password, password }) });
         clearSession(true, '/login?updated=password');
+        publishIdentity('logout');
         await router.replace('/login?updated=password');
       });
     }
@@ -35,7 +37,7 @@ export default {
     function revoke(row) {
       confirm.ask({ title: P.revokeSession, subject: `${row.current ? P.currentSession : P.otherSession} · ${dateTime(row.created_at)}`, body: P.revokeSessionBody, action: async () => {
         await request(`/v1/auth/sessions/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
-        if (row.current) { clearSession(); await router.replace('/login'); } else await load();
+        if (row.current) { clearSession(); publishIdentity('logout'); await router.replace('/login'); } else await load();
       } });
     }
     onMounted(() => form.run(load).finally(() => { loading.value = false; }));

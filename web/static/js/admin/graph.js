@@ -2,7 +2,7 @@
 /**
  * Graph view — entity browser with search, type filter, pagination.
  */
-import { ref, onMounted } from '../../vendor/vue.esm-browser.prod.js';
+import { ref, onMounted, onUnmounted } from '../../vendor/vue.esm-browser.prod.js';
 import { fetchEntities } from '../api.js';
 import { UiPolicy } from '../contracts.js';
 import { text as T, fmt } from '../i18n.js';
@@ -58,6 +58,7 @@ export default {
     function onTypeChange() { page.value = 1; load(); }
 
     onMounted(load);
+    onUnmounted(() => clearTimeout(debounceTimer));
 
     return { entities, total, loading, search, typeFilter, page, limit, totalPages, prevPage, nextPage,
              onSearchInput, onTypeChange, load, openNotebook, T, fmt, UiPolicy };

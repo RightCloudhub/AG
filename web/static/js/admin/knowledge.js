@@ -10,6 +10,8 @@ import { FeatureFlag, IngestStatus, IngestStep, KeyboardKey, UiPolicy, UploadPol
 import { text as T, fmt } from '../i18n.js';
 import { openNotebook } from '../store/shell.js';
 import { formatBytes, isActiveStatus, stageFiles, statusBadge, statusHint } from '../knowledge/ingest_wizard.js';
+import { useViewLifetime } from '../view_lifetime.js';
+import { navigateView } from '../navigation.js';
 
 /** @template T @typedef {import('../../vendor/vue.esm-browser.prod.js').Ref<T>} Ref */
 /** @typedef {import('../knowledge/ingest_wizard.js').StagedFile} StagedFile */
@@ -18,6 +20,7 @@ import { formatBytes, isActiveStatus, stageFiles, statusBadge, statusHint } from
 export default {
   name: 'KnowledgeView',
   setup() {
+    const alive = useViewLifetime();
     /** @type {Ref<number>} */
     const step = ref(IngestStep.SELECT);
     /** @type {Ref<StagedFile[]>} */
@@ -44,7 +47,8 @@ export default {
     /** @param {FileList | File[] | null | undefined} list */
     async function addFiles(list) {
       if (!list?.length) return;
-      staged.value = await stageFiles(Array.from(list), staged.value);
+      const files = await stageFiles(Array.from(list), staged.value);
+      if (alive()) staged.value = files;
     }
     /** @param {DragEvent} e */
     function onDrop(e) { e.preventDefault(); dragActive.value = false; addFiles(e.dataTransfer?.files); }
@@ -71,10 +75,12 @@ export default {
     }
     function reset() { stopPolling(); staged.value = []; task.value = null; uploadError.value = ''; step.value = IngestStep.SELECT; }
     async function confirmUpload() {
+      if (!alive() || uploading.value) return;
       uploading.value = true;
       uploadError.value = '';
       try {
         const { data } = await uploadDocs(validFiles.value.map(f => f.file));
+        if (!alive()) return;
         task.value = parseTask(data);
         step.value = IngestStep.PROGRESS;
         startPolling();
@@ -83,16 +89,17 @@ export default {
         uploadError.value = fmt(T.knowledge.uploadFailed, { msg: e instanceof Error ? e.message : String(e) });
       } finally { uploading.value = false; }
     }
-    function startPolling() { stopPolling(); pollTimer = setInterval(refreshTask, UiPolicy.POLL_INTERVAL_MS); }
+    function startPolling() { stopPolling(); if (alive()) pollTimer = setInterval(refreshTask, UiPolicy.POLL_INTERVAL_MS); }
     function stopPolling() { clearInterval(pollTimer); pollTimer = undefined; }
     async function refreshTask() {
+      if (!alive()) { stopPolling(); return; }
       const current = task.value;
       if (!current || document.visibilityState !== 'visible') return;
       if (!isActiveStatus(current.status)) { stopPolling(); return; }
       try { task.value = parseTask((await fetchIngestTask(current.id || current.task_id)).data); }
       catch { /* keep the last known state; next tick retries */ }
     }
-    function gotoReview() { window.location.hash = View.REVIEW; }
+    function gotoReview() { navigateView(View.REVIEW); }
     async function loadTasks() {
       loading.value = true;
       try {

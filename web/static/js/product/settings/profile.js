@@ -2,26 +2,35 @@
 import { ref } from '../../../vendor/vue.esm-browser.prod.js';
 import { request } from '../../transport.js';
 import { theme, setTheme } from '../../theme.js';
-import { P } from '../copy.js';
+import { P, T } from '../copy.js';
+import { preferences, setPreferences } from '../../store/preferences.js';
+import { UiPolicy } from '../../contracts.js';
 import { user, applyUser } from '../session.js';
 import { parseUser } from '../contracts.js';
 import { useForm } from '../forms.js';
 import { initial } from './data.js';
+import { publishIdentity } from '../identity_events.js';
 
 export default {
   setup() {
     const form = useForm();
     const name = ref(user.value?.display_name || '');
+    /** @param {string} value */
+    function setHops(value) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) setPreferences({ maxHops: Math.min(UiPolicy.MAX_MAX_HOPS, Math.max(UiPolicy.MIN_MAX_HOPS, Math.round(parsed))) });
+    }
     async function save() {
       if (!name.value.trim() || name.value.trim().length > 120) { form.errors.value = { display_name: P.fields.invalid_name }; form.focusError(); return; }
       await form.run(async () => {
         const result = await request('/v1/me', { method: 'PATCH', body: JSON.stringify({ display_name: name.value.trim() }) });
         applyUser(parseUser(result.data));
+        publishIdentity('profile');
         name.value = user.value?.display_name || '';
         form.notice.value = P.saved;
       });
     }
-    return { P, user, name, ...form, save, theme, setTheme, initial };
+    return { P, T, user, name, ...form, save, theme, setTheme, initial, preferences, UiPolicy, setHops };
   },
   template: `<div><header class="settings-title"><h2>{{ P.settingsNav.profile }}</h2><p>{{ P.profileIntro }}</p></header>
     <p v-if="message" class="form-message form-message--error" role="alert">{{ message }}</p><p v-if="notice" class="form-message" role="status">{{ notice }}</p>
@@ -33,5 +42,7 @@ export default {
       </form></section>
     <section class="settings-block"><div><h3>{{ P.appearance }}</h3><p>{{ P.appearanceIntro }}</p></div>
       <fieldset class="theme-options"><legend class="sr-only">{{ P.appearance }}</legend><label v-for="value in ['dark', 'light']" :key="value" :data-choice="value" :class="{'theme-choice--active': theme === value}" class="theme-choice">
-        <input type="radio" name="theme" :checked="theme === value" @change="setTheme(value)"><span>{{ P[value] }}</span><span class="theme-swatch" aria-hidden="true"></span></label></fieldset></section></div>`,
+        <input type="radio" name="theme" :checked="theme === value" @change="setTheme(value)"><span>{{ P[value] }}</span><span class="theme-swatch" aria-hidden="true"></span></label></fieldset></section>
+    <section class="settings-block"><div><h3>{{ P.queryPreferences }}</h3></div><div class="form-field"><label for="profile-hops">{{ T.settings.hops }}</label>
+      <input id="profile-hops" type="number" :min="UiPolicy.MIN_MAX_HOPS" :max="UiPolicy.MAX_MAX_HOPS" :value="preferences.maxHops" @change="setHops($event.target.value)" aria-describedby="profile-hops-hint"><p id="profile-hops-hint" class="hint">{{ T.settings.hopsHint }}</p></div></section></div>`,
 };

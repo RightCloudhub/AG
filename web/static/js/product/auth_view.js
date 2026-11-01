@@ -9,6 +9,7 @@ import { safeNext } from './contracts.js';
 import { passwordStrength, useForm, validateAuth } from './forms.js';
 import { AUTH_TEMPLATE } from './auth_template.js';
 import { publicFrame } from './public_frame.js';
+import { publishIdentity } from './identity_events.js';
 
 export default {
   props: { mode: { type: String, default: 'login' } },
@@ -38,6 +39,7 @@ export default {
         } else {
           await request('/v1/auth/reset', { method: 'POST', body: JSON.stringify({ token: token.value, password }) });
           clearSession();
+          publishIdentity('logout');
           await router.replace('/login?updated=password');
         }
         fields.value.password = ''; fields.value.confirmation = '';

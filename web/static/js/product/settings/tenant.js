@@ -6,6 +6,7 @@ import { P } from '../copy.js';
 import { reloadSession, switchTenant } from '../session.js';
 import { useForm } from '../forms.js';
 import { parseTenant, tenantPath, dateTime } from './data.js';
+import { publishIdentity } from '../identity_events.js';
 
 export default {
   setup() {
@@ -25,6 +26,7 @@ export default {
         if (creating) { created.value = parseTenant(result.data); newName.value = ''; form.notice.value = P.tenantCreated; }
         else { tenant.value = parseTenant(result.data); name.value = tenant.value.name; form.notice.value = P.saved; }
         await reloadSession();
+        publishIdentity('profile');
       });
     }
     async function enter() { if (created.value) await form.run(async () => { await switchTenant(created.value?.id || ''); await router.replace('/app/chat'); }); }

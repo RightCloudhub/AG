@@ -70,6 +70,7 @@ export async function consumeStream(body, handlers) {
     parser.feed(decoder.decode());
     parser.finish();
   } finally {
+    try { await reader.cancel(); } catch { /* An aborted fetch can already have errored. */ }
     reader.releaseLock();
   }
 }

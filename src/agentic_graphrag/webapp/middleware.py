@@ -8,7 +8,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from agentic_graphrag.api.auth import RateLimiter, _bind_request_context, _clear_request_context
+from agentic_graphrag.api.auth import (
+    Principal,
+    RateLimiter,
+    _bind_request_context,
+    _clear_request_context,
+)
 from agentic_graphrag.api.envelope import fail
 from agentic_graphrag.app.errors import ApiError
 from agentic_graphrag.webapp.authentication import authenticate, has_api_key
@@ -27,6 +32,15 @@ def _public(request: Request) -> bool:
     if path in {"/", "/login", "/register", "/forgot", "/reset", "/healthz", "/web", "/web/"}:
         return True
     return path.startswith(("/app/", "/invite/", "/invites/", "/web/static/")) or path == "/app"
+
+
+def _check_browser_scope(request: Request, current: Principal) -> None:
+    expected_user = request.headers.get("X-AGR-User", current.user_id)
+    expected_tenant = request.headers.get("X-AGR-Tenant", current.tenant_id)
+    if current.session_id and (
+        expected_user != current.user_id or expected_tenant != current.tenant_id
+    ):
+        raise ApiError("IDENTITY_CHANGED", "Browser identity changed", status_code=409)
 
 
 class WebAuthMiddleware:
@@ -70,9 +84,10 @@ class WebAuthMiddleware:
         try:
             current = authenticate(self.ctx, request)
         except ApiError:
-            if keyed or not _public(request):
+            if keyed or not _public(request) or request.headers.get("X-AGR-User"):
                 raise
             return
+        _check_browser_scope(request, current)
         error = self.limiter.acquire(current.tenant_id)
         if error:
             raise ApiError("RATE_LIMITED", error, status_code=429)

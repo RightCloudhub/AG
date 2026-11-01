@@ -115,3 +115,95 @@ test('settings data preserves missing dates and computes key expiration without 
   assert.equal(dateTime(key.last_used_at), '—');
   assert.equal(parseTenant({ member_count: 0 }).member_count, 0);
 });
+
+test('late clarification cannot create a notebook in the newly selected tenant', async () => {
+  let release;
+  installTransport(() => new Promise(resolve => { release = resolve; }));
+  const Chat = (await import(`${root}views/chat.js`)).default;
+  history.selectHistoryOwner('chat-user', 'before');
+  const view = Chat.setup();
+  const pending = view.sendQuestion(false, 'Who leads Cedar Lab?');
+  scope.cancelRequests();
+  history.selectHistoryOwner('chat-user', 'after');
+  release(json([]));
+  await pending;
+  assert.equal(history.conversations.value.length, 0);
+});
+
+test('late feedback never patches the active notebook of another tenant', async () => {
+  let release;
+  installTransport(() => new Promise(resolve => { release = resolve; }));
+  const Chat = (await import(`${root}views/chat.js`)).default;
+  history.selectHistoryOwner('chat-user', 'before');
+  const old = history.createConversation('Old');
+  const message = { role: 'assistant', data: { query_id: 'old-query', steps: [] }, ts: 1 };
+  history.appendMessage(old.id, message);
+  const pending = Chat.setup().submitFeedback(message, 0, true);
+  scope.cancelRequests(); history.selectHistoryOwner('chat-user', 'after');
+  const current = history.createConversation('Current');
+  history.appendMessage(current.id, { ...message, feedbackValue: true });
+  release(json({ accepted: true }));
+  await pending;
+  assert.equal(history.findConversation(current.id).messages[0].feedbackValue, true);
+});
+
+test('a clarification started on another notebook never appends to the newly selected page', async () => {
+  let release;
+  installTransport(() => new Promise(resolve => { release = resolve; }));
+  const Chat = (await import(`${root}views/chat.js`)).default;
+  history.selectHistoryOwner('chat-user', 'navigation');
+  history.createConversation('First');
+  const pending = Chat.setup().sendQuestion(false, 'Who leads Cedar Lab?');
+  const current = history.createConversation('Second');
+  release(json([]));
+  await pending;
+  assert.equal(history.findConversation(current.id).messages.length, 0);
+  scope.cancelRequests();
+});
+
+test('deleting a streaming notebook never moves its answer to the active notebook', async () => {
+  let controller;
+  const body = new ReadableStream({ start(value) { controller = value; } });
+  installTransport(async () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+  const Chat = (await import(`${root}views/chat.js`)).default;
+  history.selectHistoryOwner('chat-user', 'deletion');
+  const view = Chat.setup();
+  await view.sendQuestion(true, 'Who leads Cedar Lab?');
+  const removed = history.activeConversationId.value;
+  history.removeConversation(removed);
+  const current = history.createConversation('Second');
+  controller.enqueue(new TextEncoder().encode('event: answer\ndata: {"query_id":"deleted","answer":"Cedar answer","steps":[],"evidence":[]}\n\n'));
+  controller.close();
+  for (let i = 0; i < 20 && view.streaming.value; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(view.streaming.value, false);
+  assert.equal(history.findConversation(current.id).messages.length, 0);
+  assert.equal(history.findConversation(removed), null);
+});
+
+test('chat routing accepts an empty optional ID while rejecting unowned history and denied views', async () => {
+  const { applyUser, clearSession } = await import(`${root}product/session.js`);
+  const { guardRoute } = await import(`${root}product/router.js`);
+  applyUser(parseUser(me));
+  const route = { path: '/app/chat', fullPath: '/app/chat', name: 'chat', params: { id: '' }, query: {}, meta: { auth: true, capability: 'chat' } };
+  assert.equal(await guardRoute(route), undefined);
+  const note = history.createConversation('Owned page');
+  assert.equal(await guardRoute({ ...route, params: { id: note.id } }), undefined);
+  assert.equal(await guardRoute({ ...route, params: { id: 'unowned' } }), '/app/not-found');
+  assert.equal(await guardRoute({ ...route, meta: { auth: true, capability: 'ops' } }), '/app/forbidden');
+  clearSession();
+  assert.deepEqual(await guardRoute(route), { path: '/login', query: { next: '/app/chat' } });
+});
+
+test('failed identity reconciliation hides history until a verified retry restores its owner', async () => {
+  const session = await import(`${root}product/session.js`);
+  session.applyUser(parseUser(me));
+  const note = history.createConversation('Private page');
+  installTransport(async () => { throw new TypeError('offline'); });
+  await session.synchronizeSession();
+  assert.ok(session.sessionError.value);
+  assert.equal(history.conversations.value.length, 0);
+  installTransport(async () => json(me));
+  await session.reloadSession();
+  assert.equal(session.sessionError.value, null);
+  assert.equal(history.findConversation(note.id).title, 'Private page');
+});
