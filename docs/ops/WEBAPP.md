@@ -24,6 +24,10 @@ Web 入口 `/` 提供登录和注册，`/app/chat` 是受保护的笔记本；`/
 核心 `agr-api` 仍使用原 `web/index.html`，两者共享本地 Vue 和业务组件。
 浏览器不需要 npm 构建；Vue Router 来源与许可证见 `web/static/vendor/README.md`。
 
+`/app/settings/` 下提供 profile、security、members、api-keys、tenant 五个页面。
+菜单与路由都按 `/v1/me.capabilities` 控制；成员、邀请、密钥和空间管理仅向管理员开放。
+改密码会结束登录并返回成功提示；服务密钥创建后仅显示一次，离开页面即清除明文。
+
 ## 数据库与部署配置
 
 WebSettings 从 `.env` 或进程环境读取；字段见 `.env.example`。

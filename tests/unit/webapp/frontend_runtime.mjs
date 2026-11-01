@@ -5,6 +5,7 @@ globalThis.localStorage = {
   get length() { return stored.size; }, key: i => [...stored.keys()][i] ?? null,
   getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key),
 };
+globalThis.window = { matchMedia: () => ({ matches: false }), innerWidth: 1440 };
 const root = '../../../web/static/js/';
 const { safeNext, parseUser } = await import(`${root}product/contracts.js`);
 const { passwordStrength, validateAuth } = await import(`${root}product/forms.js`);
@@ -92,4 +93,25 @@ test('stream errors after the first event never replay the query', async () => {
   };
   await new Promise(resolve => { streamQuery({ question: 'query' }, { thinking: () => answers++, error: () => { errors++; resolve(); } }); });
   assert.equal(requests, 1); assert.equal(answers, 1); assert.equal(errors, 1);
+});
+
+test('password-change success keeps its explicit destination during automatic sign-out handling', async () => {
+  const { applyUser, clearSession, loginDestination } = await import(`${root}product/session.js`);
+  applyUser(parseUser(me));
+  clearSession(true, '/login?updated=password');
+  assert.equal(loginDestination('/app/settings/security'), '/login?updated=password');
+  applyUser(parseUser(me));
+  clearSession();
+  assert.equal(loginDestination('/app/chat/private-note'), '/login?next=%2Fapp%2Fchat%2Fprivate-note');
+});
+
+test('settings data preserves missing dates and computes key expiration without exposing a key', async () => {
+  const { parseKey, keyStatus, dateTime, parseTenant } = await import(`${root}product/settings/data.js`);
+  const key = parseKey({ id: 'k', key: 'must-not-be-in-a-list', expires_at: 200, revoked_at: null, last_used_at: null });
+  assert.equal(Object.hasOwn(key, 'key'), false);
+  assert.equal(keyStatus(key, 100), 'active');
+  assert.equal(keyStatus(key, 200), 'expired');
+  assert.equal(keyStatus({ ...key, revoked_at: 100 }, 150), 'revoked');
+  assert.equal(dateTime(key.last_used_at), '—');
+  assert.equal(parseTenant({ member_count: 0 }).member_count, 0);
 });

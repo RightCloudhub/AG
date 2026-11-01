@@ -9,7 +9,7 @@ import { closeOverlays } from '../store/shell.js';
 import { setGraphFocus } from '../store/graph_focus.js';
 import { inspSyncTo } from '../shell/use_inspector.js';
 import { cookieTransport, acceptCsrf, forgetCsrf, onCookieIdentity } from './cookie_transport.js';
-import { parseUser } from './contracts.js';
+import { parseUser, safeNext } from './contracts.js';
 
 /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('./contracts.js').User | null>} */
 export const user = ref(null);
@@ -20,6 +20,10 @@ export const changingIdentity = ref(false);
 export const sessionError = ref(null);
 /** @type {Promise<void> | null} */
 let flight = null;
+let signedOutDestination = '';
+
+/** An explicit account action wins over the automatic session-expired redirect. @param {string} fullPath */
+export function loginDestination(fullPath) { return signedOutDestination || `/login?next=${encodeURIComponent(safeNext(fullPath))}`; }
 
 function clearViews() {
   cancelRequests();
@@ -35,12 +39,14 @@ export function applyUser(next) {
   const changed = previous?.user_id !== next?.user_id || previous?.tenant_id !== next?.tenant_id || previous?.role !== next?.role;
   if (changed && previous) clearViews();
   user.value = next;
+  if (next) signedOutDestination = '';
   if (changed) selectHistoryOwner(next?.user_id ?? null, next?.tenant_id);
   sessionReady.value = true;
   sessionError.value = null;
 }
-/** @param {boolean} [clearHistory] */
-export function clearSession(clearHistory = true) {
+/** @param {boolean} [clearHistory] @param {string} [destination] */
+export function clearSession(clearHistory = true, destination = '') {
+  signedOutDestination = destination;
   if (clearHistory && user.value) clearAccountHistory(user.value.user_id);
   clearViews();
   user.value = null;
@@ -73,7 +79,7 @@ export async function authenticate(action, body) {
 }
 export async function logout() {
   await request('/v1/auth/logout', { method: 'POST' });
-  clearSession();
+  clearSession(true, '/login');
 }
 /** @param {string} id */
 export async function switchTenant(id) {

@@ -23,3 +23,7 @@
 第三步截图：[桌面登录](../assets/webapp/login-desktop.jpg)、
 [手机注册](../assets/webapp/register-mobile.jpg)。浏览器检查 0 FAIL；
 功能标题 24px、品牌标题 32px，字体角色按上面的已批准品牌说明保留。
+
+第四步截图：[成员设置](../assets/webapp/members-desktop.jpg)、
+[手机资料设置](../assets/webapp/profile-mobile.jpg)。原生对话框支持焦点约束与取消；
+手机设置导航完整换行，成员与密钥表格按行显示字段标签。
