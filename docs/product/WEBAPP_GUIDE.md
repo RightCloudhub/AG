@@ -141,6 +141,8 @@ Who is the CEO of the parent company of NovaTech Industries?
 
 离线抽取和回答依赖确定性规则，适合该类演示；任意业务文档的理解与生成需要配置真实模型，
 并确认领域 schema 适用。模型配置与存储选择见 [连接真实模型](../ops/WEBAPP.md#连接真实模型)。
+更长的关系组合测试见 [十跳推理题](TEN_HOP_QUESTIONS.md)：三题分别要求 10 / 10 / 11 跳的
+完整证据链，附参考答案、逐跳原文和文件行号。
 
 ## 使用笔记本和账号设置
 

@@ -6,6 +6,7 @@
 | | [EXTERNAL_RUNTIMES.md](./EXTERNAL_RUNTIMES.md) | 前端视觉校验的 headless Chromium 环境 |
 | `product/` | [PRD.md](./product/PRD.md) | 产品需求与验收标准 |
 | | [WEBAPP_GUIDE.md](./product/WEBAPP_GUIDE.md) | 多租户应用使用指南：启动、注册、邀请、知识导入、问答与常见问题 |
+| | [TEN_HOP_QUESTIONS.md](./product/TEN_HOP_QUESTIONS.md) | 已导入语料的三道十跳题目：完整证据链、原文出处与验收方式 |
 | | [PROPOSAL.md](./product/PROPOSAL.md) | 项目立项建议书 |
 | | [PITCH.md](./product/PITCH.md) | 项目一句话定位与讲述要点 |
 | `design/` | [ARCHITECTURE_DESIGN.md](./design/ARCHITECTURE_DESIGN.md) | 目标架构设计 |
