@@ -169,14 +169,26 @@ curl -s -H 'Authorization: Bearer <admin-key>' \
 
 上传（`POST /v1/docs`）只落任务记录（`data/processed/ingest_tasks.jsonl`，状态机
 `queued → extracting → (review) → done / failed`，另有 `empty` 终态）；
-**API 进程不自动起 worker**，需单独运行：
+默认不启动处理器。本地离线体验可在启动 API 时显式开启同进程 worker：
+
+```bash
+AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-api
+```
+
+独立多租户应用使用相同开关启动 `agr-webapp`，完整命令见
+[Web 使用指南](../product/WEBAPP_GUIDE.md#启动应用)。同进程处理器复用 API 的图谱、
+向量和全文索引，完成分块、索引、事实抽取与冲突审核；轮询默认 2 秒，
+可用 `AGR_INGEST_POLL_SECONDS` 调整。
+
+使用共享持久化后端的部署也可单独运行 worker：
 
 ```bash
 PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # 单轮
 PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker          # 常驻轮询（5s）
 ```
 
-worker 消费任务：chunk → embed → 索引；也可在自定义部署里以 `IngestWorker` 后台线程内嵌。
+独立 worker 完成 chunk → embed → 索引；离线模式下它的内存索引对 API 不可见。
+完整图谱抽取流程使用上面的同进程处理器；独立部署的可见性限制见 §3.5。
 
 ## 数据保留与清理（ENT-06）
 

@@ -2,18 +2,23 @@
 
 身份模块位于 `src/agentic_graphrag/webapp/`；核心 `agr-api`、CLI 与离线评测仍可单独运行。
 Web 应用默认使用相同的离线业务后端；在线服务仍由既有 Profile 显式启用。
+首次使用请从 [Web 使用指南](../product/WEBAPP_GUIDE.md)开始；下文记录启动与运维细节。
 
 ## 开发启动
 
 ```bash
 uv pip install -e ".[dev,webapp]"
-agr-webapp
+AGR_WEB_ORIGIN=http://localhost:8000 \
+AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
 ```
 
 默认地址 `http://localhost:8000`，数据库 `data/identity/webapp.db`。
 首次启动通过 Alembic 升级身份库，开发签名密钥以 0600 权限保存在
 `data/identity/signing.key`。整个 identity 目录已忽略，不提交数据库或密钥。
 只测试身份层可调用 `webapp.app.create_app(include_business=False)`，无需推理引擎。
+在仓库根目录运行，并先激活 `.venv`。`AGR_INGEST_INLINE=1` 启动与 API 共用存储的
+上传处理器；没有启用处理器时，上传只入队。`AGR_PROFILE`、`AGR_ALLOW_LLM`、
+`AGR_INGEST_INLINE` 从进程环境读取，按命令前缀设置或 `export`，不能仅写入 `.env`。
 
 `AGR_WEB_ORIGIN` 必须与浏览器地址的协议、主机、端口一致。所有 Cookie 写请求先
 `GET /v1/auth/csrf`，再以 `X-CSRF-Token` 和同源 `Origin` 提交。
@@ -33,6 +38,89 @@ Web 入口 `/` 提供登录和注册，`/app/chat` 是受保护的笔记本；`/
 `agr_notebook_v2:<encoded user_id>:<encoded tenant_id>`；不导入旧无归属历史。
 退出清除该账号在所有空间的本地笔记，保留其它账号的数据与外观 / 推理偏好。
 `/app/chat/:id` 只打开当前分区已有笔记；不属于当前分区的链接显示 404。
+
+## 更换监听地址和端口
+
+`agr-webapp` 固定监听 `127.0.0.1:8000`，不接收 `--port` 参数。
+需要另一个端口时直接调用 Uvicorn，并同步设置浏览器来源：
+
+```bash
+AGR_WEB_ORIGIN=http://127.0.0.1:8001 AGR_WEB_SECURE_COOKIES=false \
+AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 \
+uvicorn agentic_graphrag.webapp.app:create_app \
+  --factory --host 127.0.0.1 --port 8001
+```
+
+浏览器打开 `http://127.0.0.1:8001`。对外部署时，`--host` 是监听地址，
+`AGR_WEB_ORIGIN` 是用户实际访问的公开来源；不要把 `0.0.0.0` 当作浏览器来源。
+
+## 查看开发邮件
+
+默认 `AGR_WEB_MAIL_BACKEND=log`，邀请和密码重置邮件只写入
+`agr.webapp.mail` 的 INFO 日志，不会发送真实邮件。
+普通 `agr-webapp` 启动未配置应用 INFO 日志；仅设置 Uvicorn 的 `--log-level info`
+也不能保证显示邮件。先停止已有服务，再用下面的命令启用开发邮件日志：
+
+```bash
+AGR_WEB_ORIGIN=http://localhost:8000 AGR_WEB_SECURE_COOKIES=false \
+AGR_WEB_MAIL_BACKEND=log \
+AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 python - <<'PY'
+import logging
+from agentic_graphrag.webapp.app import run_server
+
+logging.basicConfig(level=logging.INFO)
+run_server()
+PY
+```
+
+在网页发送 / 重发邀请，或提交“忘记密码”后，终端的 `Development email`
+消息会显示收件人和完整链接。邀请链接以 `/invite/` 开头，重置链接以 `/reset?token=`
+开头。访问日志会隐藏凭证；查找完整链接应看开发邮件日志。
+重启前未输出的邮件不会补发，需要重新操作。
+
+需要发送真实邮件时，在本地 `.env` 中填写自己的 SMTP 配置并重启服务：
+
+```dotenv
+AGR_WEB_MAIL_BACKEND=smtp
+AGR_WEB_MAIL_FROM=graphrag@example.com
+AGR_WEB_SMTP_HOST=smtp.example.com
+AGR_WEB_SMTP_PORT=587
+AGR_WEB_SMTP_USER=your-smtp-user
+AGR_WEB_SMTP_PASSWORD=your-smtp-password
+```
+
+以上值是占位示例；实际服务必须支持 STARTTLS。当前实现不使用 465 端口的隐式 TLS。
+切换 SMTP 时使用普通启动命令，移除命令前缀中的 `AGR_WEB_MAIL_BACKEND=log`，
+否则进程环境仍会覆盖 `.env`。开发邮件含一次性凭证，不应公开日志。
+
+## 连接真实模型
+
+离线模式使用演示语料规则。接入自己的文档时，先在仓库根目录的本地 `.env` 中配置：
+
+| 配置项 | 填写内容 |
+| --- | --- |
+| `LLM_API_KEY` | 模型服务商的 API Key |
+| `LLM_BASE_URL` | 服务商的兼容 API 基地址 |
+| `LLM_STRONG_MODEL` | 用于规划、复杂推理的可用模型名称 |
+| `LLM_LIGHT_MODEL` | 用于轻量任务的可用模型名称 |
+| `LLM_EMBEDDING_MODEL` | 服务商支持的 embedding 模型名称 |
+| `LLM_EMBEDDING_BASE_URL` / `LLM_EMBEDDING_API_KEY` | embedding 使用独立服务时填写，否则沿用主服务 |
+
+服务商模型密钥与“设置 → 服务密钥”中创建的本应用密钥用途不同，不能互换。
+模型名称需与服务商提供的名称一致；参考 `.env.example`，保留已有 `.env` 中的配置。
+
+```bash
+AGR_WEB_ORIGIN=http://localhost:8000 \
+AGR_PROFILE=offline AGR_ALLOW_LLM=1 AGR_INGEST_INLINE=1 agr-webapp
+```
+
+这里的 `offline` 选择内存业务存储；`AGR_ALLOW_LLM=1` 独立启用真实模型，可能产生调用费用。
+该组合不需要 Docker，但仍需模型网络连接。通用语料接入还需核对领域 schema，见
+[真实领域接入手册](REAL_DOMAIN_PLAYBOOK.md)。
+
+身份库默认持久化，离线图谱和向量 / 全文索引在进程内存中；重启后，已完成的上传任务
+不会自动重放到内存存储。长期运行需按 [运维手册](RUNBOOK.md)选择 `live` 等持久化配置，
+并确保 API 与处理器共享相应存储。启用真实模型本身不会启用 Neo4j 或 Qdrant。
 
 ## 数据库与部署配置
 
@@ -114,4 +202,6 @@ admin 服务 key 可以管理身份库中对应的租户，但不能执行用户
 ## 验证记录
 
 分步提交和实测结果记录在 [多租户实施记录](../../plan/workstreams/multitenant-webapp.md)。
+使用指南的离线流程已用临时 SQLite 和运行目录验证：注册、空间切换、导入两份样例、
+开发邮件链接和服务密钥均通过；样例写入 14 条图谱事实，快速与多跳问答均返回 Elena Varga。
 SQLite 单测不代表 PostgreSQL 或真实图／向量后端已完成部署验证。

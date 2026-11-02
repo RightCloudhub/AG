@@ -15,6 +15,7 @@
 - **需求登记表（可选）**：种子检索、证据约束的状态更新、实体锚定、依赖调度与独立充分性校验；详见 [启用与评估](docs/design/REQUIREMENT_REGISTER.md)。`--no-llm` 保持原流程。
 - **可审计**：每次回答产出 `ReasoningChain`，claim 须通过引用、关系一致与蕴含校验，可按 query ID 回查
 - **企业能力**：多租户、RBAC、限流、JSON 日志、Prometheus、可选 OTel、PII 脱敏
+- **独立多租户应用**：邮箱注册 / 登录、工作空间切换、成员邀请、服务密钥、账号安全与分区笔记历史；[使用指南](docs/product/WEBAPP_GUIDE.md)
 
 ## 快速开始
 
@@ -27,6 +28,23 @@ agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测�
 agr-api                                                          # http://127.0.0.1:8000/web
 AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
+
+运行带账号与工作空间管理的 Web 应用，在上述虚拟环境中执行：
+
+```bash
+uv pip install -e ".[dev,webapp]"
+AGR_WEB_ORIGIN=http://localhost:8000 \
+AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
+```
+
+打开 **http://localhost:8000** → 创建账号 → 进入个人工作空间。顶栏可创建 / 切换团队空间，
+“设置 → 成员与邀请”添加成员，“知识库”上传 UTF-8 Markdown / 文本。
+新空间初始没有业务知识；上面的命令会自动处理上传任务，离线体验不需要模型 API Key 或 Docker。
+`agr-webapp` 与 `agr-api` 默认都使用 8000 端口，启动前结束另一个占用该端口的进程。
+完整步骤、离线演示与常见问题见 [Web 使用指南](docs/product/WEBAPP_GUIDE.md)，
+开发邮件、改端口和部署配置见 [Web 运维说明](docs/ops/WEBAPP.md)。
+批量导入仓库原始语料可运行 `python scripts/import_webapp_corpus.py --email you@example.com`，
+密码通过隐藏提示输入；参数与报告说明见 [脚本导入](docs/product/WEBAPP_GUIDE.md#使用脚本批量导入)。
 
 只测试在线 LLM（内存图谱，无需 Docker）：
 
@@ -76,6 +94,7 @@ src/agentic_graphrag/   核心代码（分层见 docs/ARCHITECTURE.md §0）
   bootstrap/            组合根：Profile + 能力矩阵
   app/                  应用层：QueryApp · IngestApp · ReviewApp
   api/ cli/             驱动层：HTTP / 命令行
+  webapp/               可选的独立身份库、Cookie 会话与租户应用
   agent/ retrieval/ generation/ knowledge/   领域层
   stores/ llm/          适配器
   governance/ observability/ prompts/        横切：策略 · 遥测 · Prompt 版本
@@ -104,6 +123,8 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 |---|---|
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块架构图与运行路径 |
 | [docs/product/PRD.md](./docs/product/PRD.md) | 产品需求与验收标准 |
+| [docs/product/WEBAPP_GUIDE.md](./docs/product/WEBAPP_GUIDE.md) | 多租户 Web 应用：启动、注册、邀请、导入知识与问答 |
+| [docs/ops/WEBAPP.md](./docs/ops/WEBAPP.md) | Web 配置、开发邮件、数据库与部署 |
 | [docs/ops/RUNBOOK.md](./docs/ops/RUNBOOK.md) | 部署、环境变量、运维 |
 | [docs/design/REFACTOR_PLAN.md](./docs/design/REFACTOR_PLAN.md) | 架构重构进度 |
 | [docs/design/ARCH_OPTIMIZATION_V2.md](./docs/design/ARCH_OPTIMIZATION_V2.md) | 架构优化评估的逐条核对、精细化设计与验证记录 |

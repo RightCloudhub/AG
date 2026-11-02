@@ -5,6 +5,7 @@
 | `./` | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前实现的模块架构图与运行路径 |
 | | [EXTERNAL_RUNTIMES.md](./EXTERNAL_RUNTIMES.md) | 前端视觉校验的 headless Chromium 环境 |
 | `product/` | [PRD.md](./product/PRD.md) | 产品需求与验收标准 |
+| | [WEBAPP_GUIDE.md](./product/WEBAPP_GUIDE.md) | 多租户应用使用指南：启动、注册、邀请、知识导入、问答与常见问题 |
 | | [PROPOSAL.md](./product/PROPOSAL.md) | 项目立项建议书 |
 | | [PITCH.md](./product/PITCH.md) | 项目一句话定位与讲述要点 |
 | `design/` | [ARCHITECTURE_DESIGN.md](./design/ARCHITECTURE_DESIGN.md) | 目标架构设计 |
@@ -14,6 +15,7 @@
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
 | | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 外部架构优化评估的逐条核对、修订优先级、第一批设计与 A/B 验证记录 |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
+| | [WEBAPP.md](./ops/WEBAPP.md) | 独立 Web 应用配置、开发邮件、数据库、会话与租户隔离 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |
 | `reviews/` | [IMPORTANT.md](./reviews/IMPORTANT.md) | 延期工作总账 |

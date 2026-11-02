@@ -57,7 +57,8 @@ agr-index --no-embed
 agr-api                                       # http://localhost:8000/web ; POST /v1/query ; POST /v1/query/stream (SSE); /healthz
 
 # Enterprise ops (ENT-01…08; offline-friendly)
-PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # consume queued upload tasks (API does NOT auto-start the worker)
+AGR_INGEST_INLINE=1 agr-webapp             # process uploads with the API's stores, including graph extraction
+PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # standalone indexing worker; requires shared stores
 PYTHONPATH=src python scripts/prune_data_files.py --dry-run                # retention pruning per configs/default.yaml retention:
 
 # Infra (optional; only live paths need it)
@@ -142,7 +143,7 @@ All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps 
 
 ### Enterprise layer
 
-Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. Uploads accept UTF-8 Markdown / text (5 MiB per file, 20 files per batch) and create durable ingest tasks. The separate worker chunks and indexes documents; it does not extract graph facts. Under default offline settings its vector and BM25 stores are process-local, so a standalone worker's indexes are not visible to the API process. Operations procedures: `docs/ops-runbook.md`.
+Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. Uploads accept UTF-8 Markdown / text (5 MiB per file, 20 files per batch) and create durable ingest tasks. `AGR_INGEST_INLINE=1` starts a worker that shares the API's stores and performs indexing, graph extraction and conflict review; it is the local offline workflow. The separate worker only chunks and indexes documents. Its process-local offline indexes are not visible to the API process. Operations procedures: `docs/ops/RUNBOOK.md`; Web usage: `docs/product/WEBAPP_GUIDE.md`.
 
 ### Evaluation
 
