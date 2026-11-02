@@ -12,7 +12,6 @@ from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.parallel_branches import (
     PARALLEL_GROUPS_KEY,
     PREFETCH_KEY,
-    hints_for,
     retrieve_for_node,
 )
 from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
@@ -51,10 +50,6 @@ class CriticApplyCtx:
     memory: MemoryState
     guards: Guardrails
     guard_cfg: GuardrailConfig
-
-
-def collect_entity_hints(ctx: ExecutorNodeCtx) -> list[str]:
-    return hints_for(ctx, ctx.sq.text)
 
 
 def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:

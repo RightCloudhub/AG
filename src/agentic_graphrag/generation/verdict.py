@@ -18,13 +18,6 @@ from agentic_graphrag.generation.entailment import NOT_ENTAILED
 
 EVIDENCE_GAP_KEY = "evidence_gap"
 
-PHRASING_REASONS = frozenset(
-    {
-        "no claims",
-        "claim missing evidence_ids",
-        "claim evidence_ids not in retrieved set",
-    }
-)
 EVIDENCE_REASONS = frozenset(
     {
         "claim text not supported by cited evidence content",

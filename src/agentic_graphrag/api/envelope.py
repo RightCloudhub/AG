@@ -39,9 +39,7 @@ def fail(
     *,
     details: dict[str, Any] | None = None,
     meta: MetaBody | None = None,
-    status_hint: int | None = None,
 ) -> dict[str, Any]:
-    del status_hint  # reserved for route layer mapping
     env = Envelope(
         success=False,
         data=None,

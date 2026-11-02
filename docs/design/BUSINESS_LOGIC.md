@@ -242,7 +242,7 @@ stateDiagram-v2
 
 | 缺口 | 状态 | 落地内容 |
 |---|---|---|
-| BL-01 上传→图谱无通路 | `[x]` | 新增 `knowledge/graph_ingest.py`（抽取 → 门禁 → 名称对齐 → 增量入图）与离线规则抽取器 `knowledge/extract_rules.py`（中英文句式，含日期）；`IngestWorker` 增加图谱阶段与 `task_outcome`；API 内联 worker `api/service_ingest.py`（`AGR_INGEST_INLINE=1`），独立 worker 移至 `knowledge/ingest_worker_cli.py` 并接入图谱；写入后 `on_graph_commit` 使缓存失效并刷新实体词表 |
+| BL-01 上传→图谱无通路 | `[x]` | 新增 `knowledge/graph_ingest.py`（抽取 → 门禁 → 名称对齐 → 增量入图）与离线规则抽取器 `knowledge/extract_rules.py`（中英文句式，含日期）；`IngestWorker` 增加图谱阶段与 `task_outcome`；API 内联 worker `api/service_ingest.py`（`AGR_INGEST_INLINE=1`），独立 worker 移至 `knowledge/ingest_worker_cli.py` 并接入图谱；写入后发布 `GraphCommitted` 事件使缓存失效并刷新实体词表 |
 | BL-02 中文 claim 必然失败 | `[x]` | CJK 二元组切词 + 按失败原因定向修复提示（既有） |
 | BL-03 复核决策无执行器 | `[x]` | 新增 `knowledge/review/executor.py`：五类条目的批准/驳回语义、按租户删除、幂等重放、结果写回 `item.execution`、批次结清后任务 `review → done`；`IncrementalUpdater` 的待复核冲突直接进入 `ReviewQueue`；决策路由调用执行器 |
 | BL-04 SSE 未传租户 | `[x]` | 既有修复；写路径同样按租户打标（`graph_builder.stamp_tenant`） |

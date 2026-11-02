@@ -9,14 +9,13 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.deps import principal, service
 from agentic_graphrag.api.routes.knowledge_graph_browse import (
     DEFAULT_ENTITY_PAGE,
     MAX_ENTITY_PAGE,
     entity_page,
 )
 from agentic_graphrag.api.routes.workspace_tasks import list_cached_tasks
-from agentic_graphrag.app.errors import ApiError
-from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["workspace"])
@@ -46,12 +45,12 @@ def list_ingest_tasks(
     page: Annotated[TaskListQuery, Depends(_task_list_query)],
 ) -> JsonObject:
     """List recent ingest tasks for the current tenant."""
-    tenant_id, _user_id = _principal(request)
-    service = _service(request)
-    if service.ingest_tasks is None:
+    tenant_id, _user_id = principal(request)
+    svc = service(request)
+    if svc.ingest_tasks is None:
         rows, total = list_cached_tasks(tenant_id=tenant_id, limit=page.limit, offset=page.offset)
     else:
-        tasks, total = service.ingest_tasks.list(
+        tasks, total = svc.ingest_tasks.list(
             tenant_id=tenant_id, limit=page.limit, offset=page.offset
         )
         rows = [task.to_dict() for task in tasks]
@@ -115,10 +114,10 @@ def list_graph_entities(
     page: Annotated[GraphEntityQuery, Depends(_graph_entity_query)],
 ) -> JsonObject:
     """Return a tenant-scoped, searchable page of graph entities."""
-    service = _service(request)
-    tenant_id, _user_id = _principal(request)
+    svc = service(request)
+    tenant_id, _user_id = principal(request)
     result = entity_page(
-        service.bundle.graph,
+        svc.bundle.graph,
         limit=page.limit,
         offset=page.offset,
         tenant_id=tenant_id,
@@ -141,17 +140,3 @@ def list_graph_entities(
         extra={"total_is_floor": True} if result.total_is_floor else {},
     )
     return ok(rows, meta=meta)
-
-
-def _service(request: Request) -> QueryService:
-    service = getattr(request.app.state, "query_service", None)
-    if not isinstance(service, QueryService):
-        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
-    return service
-
-
-def _principal(request: Request) -> tuple[str, str]:
-    principal = getattr(request.state, "principal", None)
-    if principal is None:
-        return "default", "anonymous"
-    return principal.tenant_id, principal.user_id

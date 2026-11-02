@@ -8,7 +8,6 @@ and optional guardrail cases (AC-6, not in the 200).
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TypedDict, Unpack
 
 from agentic_graphrag.eval.cases import CaseCategory, EvalCase, StratificationSpec
 from agentic_graphrag.eval.gold_index import index_triples
@@ -20,15 +19,9 @@ from agentic_graphrag.eval.gold_templates import (
     emit_no_answer_cases,
     emit_open_cases,
 )
+from agentic_graphrag.eval.gold_templates.guardrail import DEFAULT_MAX_GUARDRAIL
+from agentic_graphrag.eval.gold_templates.open_cases import DEFAULT_MAX_OPEN
 from agentic_graphrag.knowledge.schema_check import Triple
-
-
-class GoldGenerationOptions(TypedDict, total=False):
-    max_2hop: int
-    max_3hop: int
-    max_open: int
-    max_no_answer: int
-    include_no_answer: bool
 
 
 def generate_gold_cases(
@@ -36,7 +29,7 @@ def generate_gold_cases(
     *,
     max_2hop: int = 90,
     max_3hop: int = 60,
-    max_open: int = 30,
+    max_open: int = DEFAULT_MAX_OPEN,
     max_no_answer: int = 20,
     include_no_answer: bool = True,
 ) -> list[EvalCase]:
@@ -134,7 +127,7 @@ def _remap_g2_ids(selected: list[EvalCase]) -> list[EvalCase]:
     return out
 
 
-def generate_guardrail_set(*, max_n: int = 25) -> list[EvalCase]:
+def generate_guardrail_set(*, max_n: int = DEFAULT_MAX_GUARDRAIL) -> list[EvalCase]:
     cases: list[EvalCase] = []
     seen: set[str] = set()
 
@@ -147,16 +140,4 @@ def generate_guardrail_set(*, max_n: int = 25) -> list[EvalCase]:
         return True
 
     emit_guardrail_cases(EmitContext([], {}, {}, add, max_n=max_n))
-    return cases
-
-
-def generate_and_write(
-    triples: list[Triple],
-    out_path: str,
-    **kwargs: Unpack[GoldGenerationOptions],
-) -> list[EvalCase]:
-    from agentic_graphrag.eval.cases import dump_cases
-
-    cases = generate_gold_cases(triples, **kwargs)
-    dump_cases(cases, out_path)
     return cases

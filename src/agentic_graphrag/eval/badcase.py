@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.eval.metrics_evidence import claim_parts
 from agentic_graphrag.eval.scoring import score_pair
 from agentic_graphrag.eval.scoring_types import PairScore
 
@@ -29,7 +30,7 @@ def _blob(row: dict[str, Any]) -> str:
     chain = row.get("chain") or {}
     if isinstance(chain, dict):
         parts.extend(_step_blob(chain))
-        parts.extend(_claim_blob(chain))
+        parts.extend(claim_parts(chain))
         parts.extend(str(x) for x in (chain.get("explored_paths") or []))
     return " ".join(parts).lower()
 
@@ -48,16 +49,6 @@ def _one_step(step: dict[str, Any]) -> list[str]:
         if isinstance(tc, dict):
             parts.extend(str(x) for x in (tc.get("hits") or []))
             parts.append(str(tc.get("tool") or ""))
-    return parts
-
-
-def _claim_blob(chain: dict[str, Any]) -> list[str]:
-    parts: list[str] = []
-    for claim in chain.get("claims") or []:
-        if not isinstance(claim, dict):
-            continue
-        parts.append(str(claim.get("text") or ""))
-        parts.extend(str(x) for x in (claim.get("evidence_ids") or []))
     return parts
 
 

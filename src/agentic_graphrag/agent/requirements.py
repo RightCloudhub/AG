@@ -7,7 +7,6 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from agentic_graphrag.core.enums import RequirementStatus
 from agentic_graphrag.core.json_types import JsonObject
 
-Status = RequirementStatus
 OPEN_STATUSES = frozenset({RequirementStatus.PENDING, RequirementStatus.ACTIVE})
 
 

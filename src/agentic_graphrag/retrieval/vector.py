@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.evidence import Candidate, CandidateSource
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import VectorStore
+from agentic_graphrag.retrieval.chunk_hits import candidates_from_chunk_hits
 
 
 class VectorRetriever:
@@ -19,21 +20,4 @@ class VectorRetriever:
         k = top_k or self.top_k
         vector = self.llm.embed(query)
         hits = self.store.search(vector, top_k=k, tenant_id=tenant_id)
-        candidates: list[Candidate] = []
-        for rank, (chunk, score) in enumerate(hits):
-            candidates.append(
-                Candidate(
-                    id=chunk.chunk_id,
-                    source=CandidateSource.VECTOR_CHUNK,
-                    content=chunk.text,
-                    score=float(score),
-                    structured={"doc_id": chunk.doc_id, "index": chunk.index},
-                    citations=[
-                        Citation(
-                            doc_id=chunk.doc_id, chunk_id=chunk.chunk_id, span=chunk.text[:200]
-                        )
-                    ],
-                    metadata={"rank": rank},
-                )
-            )
-        return candidates
+        return candidates_from_chunk_hits(hits, source=CandidateSource.VECTOR_CHUNK)

@@ -182,11 +182,6 @@ class Guardrails:
             self.state.tripped = True
             self.state.reason = str(exc.reason)
 
-    def assert_ok(self) -> None:
-        self._check()
-        if self.state.tripped:
-            raise BudgetExceeded(self.state.reason or "guardrail tripped", self.budget)
-
     def _hop_limit_reason(self) -> str:
         """One hop = one executed sub-question, so the cap can be a breadth stop.
 

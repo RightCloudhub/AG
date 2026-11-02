@@ -10,37 +10,22 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from agentic_graphrag.api.envelope import MetaBody, ok
+from agentic_graphrag.api.routes.deps import principal, service
 from agentic_graphrag.api.sse import format_sse
 from agentic_graphrag.app.contracts import QueryRequest
 from agentic_graphrag.app.errors import ApiError
-from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["query"])
-
-
-def _service(request: Request) -> QueryService:
-    svc = getattr(request.app.state, "query_service", None)
-    if not isinstance(svc, QueryService):
-        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
-    return svc
-
-
-def _principal(request: Request) -> tuple[str, str]:
-    p = getattr(request.state, "principal", None)
-    if p is None:
-        # Never trust client-supplied X-User-Id for budget identity.
-        return "default", "anonymous"
-    return p.tenant_id, p.user_id
 
 
 @router.post("/query")
 def post_query(body: QueryRequest, request: Request) -> JsonObject:
     request_id = request.headers.get("x-request-id") or str(uuid4())
     meta = MetaBody(request_id=request_id)
-    tenant_id, user_id = _principal(request)
+    tenant_id, user_id = principal(request)
     try:
-        result = _service(request).run_query(body, tenant_id=tenant_id, user_id=user_id)
+        result = service(request).run_query(body, tenant_id=tenant_id, user_id=user_id)
         return ok(result.model_dump(mode="json"), meta=meta)
     except ApiError as exc:
         exc.details = {**(exc.details or {}), "request_id": request_id}
@@ -50,8 +35,8 @@ def post_query(body: QueryRequest, request: Request) -> JsonObject:
 @router.post("/query/stream")
 async def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse:
     """SSE stream: triage → thinking → sub_question → hop_done → answer."""
-    tenant_id, user_id = _principal(request)
-    svc = _service(request)
+    tenant_id, user_id = principal(request)
+    svc = service(request)
 
     async def gen() -> AsyncIterator[str]:
         # Async generator + sleep(0) lets ASGI flush each frame before the next

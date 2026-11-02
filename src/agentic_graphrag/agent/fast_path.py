@@ -99,7 +99,3 @@ def _apply_budget(chain: ReasoningChain, budget: BudgetTracker | None) -> None:
     chain.cost.tokens = snap["total_tokens"]
     chain.cost.prompt_tokens = snap["prompt_tokens"]
     chain.cost.completion_tokens = snap["completion_tokens"]
-
-
-def evidence_from_chain_candidates(candidates: list[Candidate]) -> list[Candidate]:
-    return list(candidates)

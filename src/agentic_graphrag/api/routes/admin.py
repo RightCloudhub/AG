@@ -17,9 +17,9 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.deps import service
 from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
-from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.tenancy import tenant_matches
 
@@ -27,18 +27,6 @@ router = APIRouter(prefix="/v1", tags=["admin"])
 
 # Prometheus content type per OpenMetrics spec
 _PROM_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
-
-
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
-
-def _service(request: Request) -> QueryService:
-    svc = getattr(request.app.state, "query_service", None)
-    if not isinstance(svc, QueryService):
-        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
-    return svc
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +48,7 @@ def get_trace(query_id: str, request: Request) -> JsonObject:
 @router.get("/budget/snapshot", dependencies=[Depends(require_role(Role.ADMIN))])
 def budget_snapshot(request: Request) -> JsonObject:
     """Multi-level budget usage snapshot (admin only)."""
-    svc = _service(request)
+    svc = service(request)
     if svc.multi_budget is None:
         return ok({})
     return ok(svc.multi_budget.snapshot(tenant_id=request_tenant(request)))

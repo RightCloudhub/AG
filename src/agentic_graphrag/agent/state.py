@@ -70,13 +70,3 @@ def initial_state(
         tenant_id=tenant_id,
         answer_retries=0,
     )
-
-
-def check_state_version(state: dict[str, Any]) -> int:
-    """Return the state's schema version; raise on a newer, unknown shape."""
-    version = int(state.get("state_version") or 0)
-    if version > STATE_SCHEMA_VERSION:
-        raise ValueError(
-            f"agent state version {version} is newer than supported {STATE_SCHEMA_VERSION}"
-        )
-    return version

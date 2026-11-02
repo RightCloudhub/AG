@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from agentic_graphrag.eval.cases import EvalCase, dump_cases, load_cases
+from agentic_graphrag.eval.cases import EvalCase, dump_cases
 
 
 def _stable_bucket(case_id: str, *, heldout_ratio: float = 0.25) -> str:
@@ -74,10 +74,6 @@ def write_split_datasets(
     paths["heldout_alias"] = dump_cases(splits["heldout"], out / "heldout.jsonl")
     paths["guardrail_alias"] = dump_cases(splits["guardrail"], out / "guardrail.jsonl")
     return paths
-
-
-def load_split(path: str | Path) -> list[EvalCase]:
-    return load_cases(path)
 
 
 def split_summary(splits: dict[str, list[EvalCase]]) -> dict[str, object]:

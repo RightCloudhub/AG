@@ -20,7 +20,6 @@ from typing import Any
 ENV_ENABLED = "AGR_REDACTION_ENABLED"
 ENV_PATTERNS = "AGR_REDACTION_PATTERNS"
 
-DEFAULT_ENABLED = False
 DEFAULT_PATTERNS_SELECTOR = "all"
 
 PLACEHOLDER_EMAIL = "[REDACTED_EMAIL]"
@@ -78,16 +77,6 @@ _BUILTIN_PATTERNS: list[RedactionPattern] = [
 ]
 
 _BUILTIN_BY_NAME: dict[str, RedactionPattern] = {p.name: p for p in _BUILTIN_PATTERNS}
-
-
-def builtin_patterns() -> list[RedactionPattern]:
-    """Return a copy of all built-in patterns."""
-    return list(_BUILTIN_PATTERNS)
-
-
-def builtin_pattern_names() -> list[str]:
-    """Return names of all built-in patterns."""
-    return list(_BUILTIN_BY_NAME.keys())
 
 
 # ---------------------------------------------------------------------------

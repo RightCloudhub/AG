@@ -39,11 +39,6 @@ def inline_worker_enabled() -> bool:
     return os.environ.get(INLINE_ENV, "").lower() in {"1", "true", "yes"}
 
 
-def on_graph_commit(svc: QueryService) -> None:
-    """Legacy entry point: publish ``GraphCommitted`` on the service's event bus."""
-    events_for(svc).publish(GraphCommitted(source="direct"))
-
-
 def events_for(svc: QueryService) -> EventBus:
     """The service's event bus, created and subscribed on first use."""
     bus = svc.events

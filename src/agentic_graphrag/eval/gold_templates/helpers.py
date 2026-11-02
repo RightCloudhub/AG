@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from agentic_graphrag.eval.cases import CaseCategory, EvalCase
 from agentic_graphrag.eval.gold_index import Edge
+from agentic_graphrag.eval.gold_templates.context import EmitContext
 
 # Relation name constants (no bare magic strings in templates).
 REL_SUBSIDIARY_OF = "SUBSIDIARY_OF"
@@ -15,7 +17,6 @@ REL_SUPPLIES_FOR = "SUPPLIES_FOR"
 REL_SUPPLIES = "SUPPLIES"
 REL_PARTICIPATED_IN = "PARTICIPATED_IN"
 
-PARENT_RELATIONS = frozenset({REL_SUBSIDIARY_OF, REL_PARENT_OF})
 OPEN_COMPANY_HEAD_RELS = frozenset({REL_COMPETES_WITH, REL_PARENT_OF})
 OPEN_COMPANY_TAIL_RELS = frozenset({REL_COMPETES_WITH, REL_SUBSIDIARY_OF})
 
@@ -122,3 +123,28 @@ def event_participants(edges: list[Edge]) -> dict[str, list[str]]:
 
 def known_entities(edges: list[Edge]) -> set[str]:
     return {e.head for e in edges} | {e.tail for e in edges}
+
+
+def make_case(
+    ctx: EmitContext,
+    *,
+    hops: int,
+    category: CaseCategory,
+    prefix: str,
+    question: str,
+    gold: str,
+    path: list[str],
+    evidence: list[str],
+    template: str,
+) -> EvalCase:
+    """Build a template-emitted gold case (shared by the 3-hop emitters)."""
+    return EvalCase(
+        id=ctx.case_id(prefix),
+        question=question,
+        gold_answer=gold,
+        hops=hops,
+        category=category,
+        gold_path=path,
+        gold_evidence=evidence,
+        metadata={"template": template},
+    )

@@ -11,11 +11,11 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
+from agentic_graphrag.api.routes.deps import principal, service
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
 from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
-from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.app.review_app import ReviewApp
 from agentic_graphrag.core.enums import ReviewStatus
 from agentic_graphrag.core.json_types import JsonObject
@@ -51,21 +51,14 @@ class FeedbackBody(BaseModel):
     reason: str = ""
 
 
-def _service(request: Request) -> QueryService:
-    svc = getattr(request.app.state, "query_service", None)
-    if not isinstance(svc, QueryService):
-        raise ApiError("SERVICE_UNAVAILABLE", "Query service not initialized", status_code=503)
-    return svc
-
-
 @router.post("/docs", dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))])
 async def upload_docs(
     request: Request,
     files: list[UploadFile] | None = None,
 ) -> JsonObject:
     """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
-    svc = _service(request)
-    tenant_id, _user_id = _principal(request)
+    svc = service(request)
+    tenant_id, _user_id = principal(request)
     task_id = str(uuid.uuid4())
     saved = await save_uploads(svc, files or [], tenant_id=tenant_id, task_id=task_id)
     row = task_row(task_id, tenant_id, saved)
@@ -97,8 +90,8 @@ async def upload_docs(
     dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
 )
 def get_ingest_task(task_id: str, request: Request) -> JsonObject:
-    tenant_id, _user_id = _principal(request)
-    svc = _service(request)
+    tenant_id, _user_id = principal(request)
+    svc = service(request)
     persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
     task = persisted.to_dict() if persisted is not None else get_cached_task(task_id)
     if task is None:
@@ -134,10 +127,10 @@ def list_review_queue(
     request: Request,
     q: Annotated[ReviewQueueQuery, Depends(_review_query)],
 ) -> JsonObject:
-    svc = _service(request)
+    svc = service(request)
     if svc.review_queue is None:
         return ok([], meta=MetaBody(total=0, limit=q.limit, page=1))
-    tenant_id, _user_id = _principal(request)
+    tenant_id, _user_id = principal(request)
     pending_count = svc.review_queue.count(status=ReviewStatus.PENDING, tenant_id=tenant_id)
     items, total = svc.review_queue.list_page(
         status=q.status,
@@ -162,10 +155,10 @@ def list_review_queue(
     dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
 )
 def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> JsonObject:
-    svc = _service(request)
+    svc = service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
-    tenant_id, _user_id = _principal(request)
+    tenant_id, _user_id = principal(request)
     try:
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
@@ -201,21 +194,13 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
     return ok(item.to_dict())
 
 
-def _principal(request: Request) -> tuple[str, str]:
-    p = getattr(request.state, "principal", None)
-    if p is None:
-        # Never trust client-supplied X-User-Id for budget identity.
-        return "default", "anonymous"
-    return p.tenant_id, p.user_id
-
-
 @router.get("/audit/queries/{query_id}")
 def get_audit_query(query_id: str, request: Request) -> JsonObject:
     """Reasoning chain audit lookup (FR-AN-04 / P3-AN-01) — tenant-scoped."""
-    svc = _service(request)
+    svc = service(request)
     if svc.audit_store is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
-    tenant_id, _user_id = _principal(request)
+    tenant_id, _user_id = principal(request)
     row = svc.audit_store.get_for_tenant(query_id, tenant_id)
     if row is None:
         # 404 for both missing and cross-tenant (no existence leak).
@@ -226,8 +211,8 @@ def get_audit_query(query_id: str, request: Request) -> JsonObject:
 @router.post("/feedback")
 def post_feedback(body: FeedbackBody, request: Request) -> JsonObject:
     """User accurate/inaccurate feedback (FR-OP-03 / P4-OPS-02)."""
-    svc = _service(request)
-    tenant_id, user_id = _principal(request)
+    svc = service(request)
+    tenant_id, user_id = principal(request)
     audit = svc.audit_store
     if audit is not None and audit.get_for_tenant(body.query_id, tenant_id) is None:
         # 404 whether the id belongs to another tenant or does not exist at all.

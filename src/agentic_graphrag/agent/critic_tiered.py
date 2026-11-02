@@ -25,7 +25,6 @@ from agentic_graphrag.agent.critic_offline import extract_entity_conclusion, off
 from agentic_graphrag.agent.options import CritiqueContext
 from agentic_graphrag.core.enums import CriticMode
 
-CRITIC_MODES = tuple(CriticMode)
 TIER_DETERMINISTIC = "deterministic"
 TIER_LLM = "llm"
 

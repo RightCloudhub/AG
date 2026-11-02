@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.eval.cases import CaseCategory, EvalCase
+from functools import partial
+
+from agentic_graphrag.eval.cases import CaseCategory
 from agentic_graphrag.eval.gold_templates.context import EmitContext
 from agentic_graphrag.eval.gold_templates.helpers import (
     REL_CEO_OF,
@@ -14,6 +16,7 @@ from agentic_graphrag.eval.gold_templates.helpers import (
     ceos_of,
     competitors_of,
     grandparents_of,
+    make_case,
     producers_of_product,
 )
 
@@ -23,26 +26,7 @@ _ID_CEO_PROD_FROM_SUP = "gen-3hop-ceo-prod-from-sup"
 _ID_CEO_COMPET_PRIOR = "gen-3hop-ceo-compet-prior"
 
 
-def _case(
-    ctx: EmitContext,
-    *,
-    prefix: str,
-    question: str,
-    gold: str,
-    path: list[str],
-    evidence: list[str],
-    template: str,
-) -> EvalCase:
-    return EvalCase(
-        id=ctx.case_id(prefix),
-        question=question,
-        gold_answer=gold,
-        hops=HOPS_3,
-        category=CaseCategory.HOP3,
-        gold_path=path,
-        gold_evidence=evidence,
-        metadata={"template": template},
-    )
+_case = partial(make_case, hops=HOPS_3, category=CaseCategory.HOP3)
 
 
 def emit_ceo_grandparent(ctx: EmitContext) -> None:

@@ -46,7 +46,7 @@ def predicted_evidence_blob(row: dict[str, Any]) -> str:
 
 def _chain_evidence_parts(chain: dict[str, Any]) -> list[str]:
     parts: list[str] = []
-    parts.extend(_claim_parts(chain))
+    parts.extend(claim_parts(chain))
     parts.extend(_step_parts(chain))
     parts.extend(str(x) for x in (chain.get("explored_paths") or []))
     parts.extend(_catalog_parts(chain))
@@ -66,7 +66,7 @@ def _catalog_parts(chain: dict[str, Any]) -> list[str]:
     return parts
 
 
-def _claim_parts(chain: dict[str, Any]) -> list[str]:
+def claim_parts(chain: dict[str, Any]) -> list[str]:
     parts: list[str] = []
     for claim in chain.get("claims") or []:
         if not isinstance(claim, dict):

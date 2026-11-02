@@ -79,14 +79,6 @@ def bind_claims_to_evidence(
     return [Claim(text=text, evidence_ids=[c.id for c in evidence[:5]])]
 
 
-class CitationInterceptError(ValueError):
-    """Raised when an answered payload has uncited or unbound claims."""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
-
 def validate_answered_claims(
     claims: list[Claim],
     evidence: list[Candidate],

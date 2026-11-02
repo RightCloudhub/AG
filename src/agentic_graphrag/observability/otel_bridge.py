@@ -79,22 +79,6 @@ def otel_span(
         yield None
 
 
-def extract_trace_context(headers: dict[str, str]) -> dict[str, str] | None:
-    """Parse W3C traceparent/tracestate from request headers."""
-    if not _ENABLED:
-        return None
-    try:
-        from opentelemetry import propagate
-
-        carrier = {k.lower(): v for k, v in headers.items()}
-        ctx = propagate.extract(carrier)
-        if ctx:
-            return {"traceparent": carrier.get("traceparent", "")}
-    except Exception:  # noqa: BLE001
-        pass
-    return None
-
-
 @contextlib.contextmanager
 def extract_otel_context(headers: dict[str, str]) -> Generator[Any, None, None]:
     """Attach inbound W3C trace context for the duration of a request."""

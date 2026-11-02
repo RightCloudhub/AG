@@ -18,7 +18,6 @@ from agentic_graphrag.agent.executor_dispatch import (
 from agentic_graphrag.agent.executor_plan import (
     build_heuristic,
     choose_tools,
-    sanitize_spec,
     split_prompt,
 )
 from agentic_graphrag.core.constants import DEFAULT_RRF_K
@@ -193,9 +192,6 @@ class Executor:
         allow_llm: bool,
     ) -> list[ToolCallSpec]:
         return choose_tools(self, sub_question, entities_hint, allow_llm=allow_llm)
-
-    def _sanitize_spec(self, spec: ToolCallSpec, sub_question: str) -> ToolCallSpec:
-        return sanitize_spec(self, spec, sub_question)
 
     def _heuristic(self, sub_question: str, entities_hint: list[str]) -> list[ToolCallSpec]:
         return build_heuristic(self, sub_question, entities_hint)

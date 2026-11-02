@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.evidence import Candidate, CandidateSource
 from agentic_graphrag.core.ports.stores import FulltextStore
+from agentic_graphrag.retrieval.chunk_hits import candidates_from_chunk_hits
 
 
 class FulltextRetriever:
@@ -16,21 +17,4 @@ class FulltextRetriever:
     ) -> list[Candidate]:
         k = top_k or self.top_k
         hits = self.store.search(query, top_k=k, tenant_id=tenant_id)
-        out: list[Candidate] = []
-        for rank, (chunk, score) in enumerate(hits):
-            out.append(
-                Candidate(
-                    id=chunk.chunk_id,
-                    source=CandidateSource.FULLTEXT_CHUNK,
-                    content=chunk.text,
-                    score=float(score),
-                    structured={"doc_id": chunk.doc_id, "index": chunk.index},
-                    citations=[
-                        Citation(
-                            doc_id=chunk.doc_id, chunk_id=chunk.chunk_id, span=chunk.text[:200]
-                        )
-                    ],
-                    metadata={"rank": rank},
-                )
-            )
-        return out
+        return candidates_from_chunk_hits(hits, source=CandidateSource.FULLTEXT_CHUNK)

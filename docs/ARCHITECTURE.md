@@ -156,7 +156,7 @@ stateDiagram-v2
 | critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
 | answer | `generation/answer.py` `generation/verdict.py` | 引用绑定生成答案。校验失败按 Verdict 分类：**表述类**（无 claim、引用 id 缺失或越界）在生成层内定向重生成一次；**缺证类**（claim 不被证据支持、不蕴含）在仍有 hop 时输出 `evidence_gap`，经 answer → executor 回边补充检索（每次运行最多 1 次），否则重生成后走保守回答 |
 
-`AgentState` 只在 `agent/state.py` 定义一次并带 `state_version`，初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；`check_state_version()` 拒绝读取比当前更新的 checkpoint。
+`AgentState` 只在 `agent/state.py` 定义一次并带 `state_version`，初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；`state_version` 记录状态 schema 版本。
 
 ### 2.3 运行时支撑
 
@@ -266,7 +266,7 @@ flowchart LR
     DEC --> EXE["review/executor.py<br/>写入 · 退役 · 合并 · 回滚"]
     EXE --> GS
     EXE --> DONE["批次结清 → 任务 review → done"]
-    UPD --> CM["on_graph_commit<br/>缓存失效 + 实体词表刷新"]
+    UPD --> CM["GraphCommitted 事件<br/>缓存失效 + 实体词表刷新"]
     EXE --> CM
 ```
 
