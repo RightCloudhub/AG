@@ -17,7 +17,11 @@ from agentic_graphrag.core.enums import (
 )
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
+from agentic_graphrag.observability.degradation import (
+    REASON_LLM_UNAVAILABLE,
+    ChannelStatus,
+    record_degradation,
+)
 
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor, ToolCallSpec
@@ -240,6 +244,12 @@ def _try_llm_plan(
             return list(plan.tool_calls)
     except Exception as exc:
         # The heuristic plan takes over; tool choice is worse, not absent (O-9).
-        record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, exc)
+        record_degradation(
+            RetrievalChannel.LLM,
+            REASON_LLM_UNAVAILABLE,
+            exc,
+            health=executor.health,
+            severity=ChannelStatus.DEGRADED,
+        )
         return None
     return None

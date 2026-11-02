@@ -6,6 +6,7 @@ import math
 import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.app.answer_cache import (  # noqa: F401 — re-exported
@@ -30,12 +31,13 @@ from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance import audit_events
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability.context import query_context
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
     ChannelStatus,
     record_degradation,
 )
-from agentic_graphrag.observability.logging_setup import request_id_var
+from agentic_graphrag.observability.logging_setup import query_id_var, request_id_var
 from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
 
@@ -90,6 +92,17 @@ def execute_query_chain(
     Returns the full :class:`ReasoningChain` for drivers that need step-level
     detail (eval, CLI). The HTTP path is :func:`execute_run_query`.
     """
+    with query_context(query_id=str(uuid4()), tenant_id=tenant_id, user_id=user_id):
+        return _execute_query_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
+
+
+def _execute_query_chain(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> ReasoningChain:
     t0 = time.perf_counter()
     _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
     settled = False
@@ -192,7 +205,9 @@ def _invoke_agent(
         svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
     )
     budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
-    trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
+    trace_ctx = get_tracer().start(
+        query_id=query_id_var.get() or None, tenant_id=tenant_id, user_id=user_id
+    )
     # Build deps without a process-global lock so concurrent queries can proceed.
     executor = build_executor_for_service(
         bundle=svc.bundle,

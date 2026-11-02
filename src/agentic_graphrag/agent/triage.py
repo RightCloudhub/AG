@@ -20,7 +20,12 @@ from agentic_graphrag.agent.planner_chain import parse_chain
 from agentic_graphrag.core.enums import MessageRole, RetrievalChannel
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
-from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
+from agentic_graphrag.observability.degradation import (
+    REASON_LLM_UNAVAILABLE,
+    ChannelHealth,
+    ChannelStatus,
+    record_degradation,
+)
 
 # Multi-hop / complex cues → force Agentic
 _MULTI_HOP_PATTERNS = (
@@ -91,6 +96,7 @@ def triage(
     allow_llm: bool = True,
     force_agentic: bool = False,
     known_entities: list[str] | None = None,
+    health: ChannelHealth | None = None,
 ) -> TriageResult:
     """Classify question complexity and choose Fast Path or Agentic."""
     q = (question or "").strip()
@@ -106,7 +112,7 @@ def triage(
             return hit
 
     if allow_llm and llm is not None:
-        llm_hit = _llm_triage(q, llm)
+        llm_hit = _llm_triage(q, llm, health=health)
         if llm_hit is not None:
             return llm_hit
 
@@ -211,7 +217,9 @@ def _looks_nested(q: str) -> bool:
     return any(k in ql for k in ("competitor", "producer of", "parent of the"))
 
 
-def _llm_triage(q: str, llm: LLMClient) -> TriageResult | None:
+def _llm_triage(
+    q: str, llm: LLMClient, *, health: ChannelHealth | None = None
+) -> TriageResult | None:
     try:
         raw = complete_structured(
             llm,
@@ -243,7 +251,13 @@ def _llm_triage(q: str, llm: LLMClient) -> TriageResult | None:
         )
     except Exception as exc:
         # Borderline cases fall back to the rule route (O-9).
-        record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, exc)
+        record_degradation(
+            RetrievalChannel.LLM,
+            REASON_LLM_UNAVAILABLE,
+            exc,
+            health=health,
+            severity=ChannelStatus.DEGRADED,
+        )
         return None
 
 

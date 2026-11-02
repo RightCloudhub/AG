@@ -22,6 +22,7 @@ from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner import SubQuestion
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.observability.context import submit_with_context
 
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor
@@ -79,7 +80,9 @@ def retrieve_group(
         sq_id, text = jobs[0]
         return {sq_id: _run_one(executor, text, run)}
     with ThreadPoolExecutor(max_workers=len(jobs), thread_name_prefix="agr-branch") as pool:
-        futures = {sq_id: pool.submit(_run_one, executor, text, run) for sq_id, text in jobs}
+        futures = {
+            sq_id: submit_with_context(pool, _run_one, executor, text, run) for sq_id, text in jobs
+        }
         return {sq_id: fut.result() for sq_id, fut in futures.items()}
 
 

@@ -40,13 +40,14 @@ from agentic_graphrag.app.wiring import (
 )
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability.context import iterate_with_context, query_context
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
     ChannelStatus,
     record_degradation,
 )
 from agentic_graphrag.observability.logging_setup import request_id_var
-from agentic_graphrag.observability.trace import get_tracer, span
+from agentic_graphrag.observability.trace import TraceContext, get_tracer, span
 
 if TYPE_CHECKING:
     from agentic_graphrag.agent.executor import Executor
@@ -66,7 +67,7 @@ def stream_query_events(
     if cache_events is not None:
         yield from cache_events
         return
-    yield from _stream_live(svc, req, tenant_id=tenant_id, user_id=user_id)
+    yield from iterate_with_context(_stream_live(svc, req, tenant_id=tenant_id, user_id=user_id))
 
 
 def _stream_live(
@@ -76,12 +77,29 @@ def _stream_live(
     tenant_id: str,
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
+    trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
+    with query_context(query_id=trace_ctx.query_id, tenant_id=tenant_id, user_id=user_id):
+        yield from _stream_with_budget(
+            svc, req, tenant_id=tenant_id, user_id=user_id, trace_ctx=trace_ctx
+        )
+
+
+def _stream_with_budget(
+    svc: QueryService,
+    req: QueryRequest,
+    *,
+    tenant_id: str,
+    user_id: str,
+    trace_ctx: TraceContext,
+) -> Iterator[tuple[str, dict[str, Any]]]:
     t0 = time.perf_counter()
     reserved = False
     try:
         _reserve_budget(svc, tenant_id=tenant_id, user_id=user_id)
         reserved = True
-        for etype, payload in _stream_agent(svc, req, tenant_id=tenant_id, user_id=user_id, t0=t0):
+        for etype, payload in _stream_agent(
+            svc, req, tenant_id=tenant_id, user_id=user_id, t0=t0, trace_ctx=trace_ctx
+        ):
             if etype == EVENT_ANSWER:
                 # _finish_answer settled the reservation via commit.
                 reserved = False
@@ -109,6 +127,7 @@ def _stream_agent(
     tenant_id: str,
     user_id: str,
     t0: float,
+    trace_ctx: TraceContext,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Build deps and stream agent progress without holding a process-global lock.
 
@@ -116,8 +135,9 @@ def _stream_agent(
     slow client drained events slowly. Build is cheap and stores are shared.
     """
     guard_cfg, budget = _guard_and_budget(svc, req)
-    trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
-    executor, llm, opts = _build_stream_deps(svc, req, (guard_cfg, budget), tenant_id=tenant_id)
+    executor, llm, opts = _build_stream_deps(
+        svc, req, (guard_cfg, budget), tenant_id=tenant_id, query_id=trace_ctx.query_id
+    )
     with span(trace_ctx, "stream_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
         yield from _consume_progress(
             svc,
@@ -148,6 +168,7 @@ def _build_stream_deps(
     guard_budget: tuple[GuardrailConfig, Any],
     *,
     tenant_id: str,
+    query_id: str,
 ) -> tuple[Executor, LLMClient | None, QueryOptions]:
     guard_cfg, budget = guard_budget
     executor = build_executor_for_service(
@@ -164,6 +185,7 @@ def _build_stream_deps(
         allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
     )
     opts = QueryOptions(
+        query_id=query_id,
         guard_cfg=guard_cfg,
         budget=budget,
         allow_llm=svc.allow_llm,

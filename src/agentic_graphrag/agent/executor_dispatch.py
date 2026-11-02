@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from agentic_graphrag.core.enums import RetrievalChannel, RetrievalTool, ToolName
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.observability.context import submit_with_context
 from agentic_graphrag.observability.degradation import (
     REASON_TOOL_FAILED,
     ChannelStatus,
@@ -102,7 +103,9 @@ def fuse_and_cache(
         limit=executor.fusion_limit,
         reranker=executor.reranker,
     )
-    if executor.cache is not None:
+    # Check after reranking, which can also degrade. Health is shared across the
+    # run: never cache partial/fallback evidence as healthy for the next query.
+    if executor.cache is not None and not executor.health.is_degraded():
         executor.cache.set_retrieval(sub_question, fused, tools_key, tenant_id=tenant_id)
     return fused
 
@@ -164,7 +167,8 @@ def _run_parallel(
     workers = min(MAX_PARALLEL_WORKERS, len(specs))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(
+            submit_with_context(
+                pool,
                 dispatch,
                 executor,
                 spec.tool,

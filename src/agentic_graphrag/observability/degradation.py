@@ -174,6 +174,11 @@ class ChannelHealth:
         with self._lock:
             return {name for name, status in self._status.items() if status == ChannelStatus.FAILED}
 
+    def is_degraded(self) -> bool:
+        """Whether any channel has been non-OK so far in this run."""
+        with self._lock:
+            return any(status != ChannelStatus.OK for status in self._status.values())
+
     def degraded_channels(self) -> list[dict[str, str]]:
         """Every channel that is not fully healthy, sorted by channel name."""
         with self._lock:

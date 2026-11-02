@@ -81,6 +81,8 @@ def iter_query_progress(
     reset_prompt_versions()
     for etype, payload in _route(question, executor, llm, options=options):
         if etype == EVENT_FINAL_CHAIN and isinstance(payload, ReasoningChain):
+            if options is not None and options.query_id:
+                payload.query_id = options.query_id
             used = prompt_versions()
             if used:
                 payload.metadata = {**(payload.metadata or {}), "prompt_versions": used}
@@ -213,6 +215,7 @@ def _stream_with_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
         allow_llm=ctx.opts.allow_llm and ctx.llm is not None,
         force_agentic=False,
         known_entities=known,
+        health=ctx.executor.health,
     )
     triage_meta = decision.model_dump(mode="json")
     yield EVENT_TRIAGE, triage_meta
@@ -253,6 +256,7 @@ def _iter_fast_or_escalate(
         budget=ctx.run_opts.budget,
         triage_meta=triage_meta,
         tenant_id=ctx.run_opts.tenant_id or None,
+        query_id=ctx.opts.query_id,
     )
     if not should_escalate_chain(chain):
         yield from _emit_steps_then_chain(chain)

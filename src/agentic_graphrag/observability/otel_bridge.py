@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from collections.abc import Generator
 from typing import Any
 
@@ -70,28 +71,24 @@ def otel_span(
 ) -> Generator[Any, None, None]:
     """Context manager: creates an OTel span when enabled, no-op otherwise.
 
-    Only *starting* the span is guarded. An exception raised by the wrapped
-    application code must propagate untouched — the previous version caught it
-    and yielded again, which turned a real error into a confusing
-    ``RuntimeError: generator didn't stop after throw()``.
+    Span creation, entry and exit may fail independently. Application exceptions
+    propagate unchanged, even if a span processor also raises during cleanup.
     """
     if not _ENABLED or _TRACER is None:
         yield None
         return
-    span_cm = _start_span(name, attributes)
-    if span_cm is None:
-        yield None
-        return
-    with span_cm as span:
-        yield span
-
-
-def _start_span(name: str, attributes: dict[str, Any] | None) -> Any:
-    """Span context manager, or None when the exporter is broken (tracing is optional)."""
+    stack = contextlib.ExitStack()
     try:
-        return _TRACER.start_as_current_span(name, attributes=attributes or {})
-    except Exception:  # noqa: BLE001 — never break application on OTel failure
-        return None
+        span = stack.enter_context(_TRACER.start_as_current_span(name, attributes=attributes or {}))
+    except Exception:  # noqa: BLE001 — optional tracing must not prevent application work
+        span = None
+    try:
+        yield span
+    finally:
+        # Ignore the CM's suppression result and protect the original exception
+        # from span.end()/exporter errors; the application yield is not guarded.
+        with contextlib.suppress(Exception):
+            stack.__exit__(*sys.exc_info())
 
 
 def otel_span_event(name: str, *, attributes: dict[str, Any] | None = None) -> None:

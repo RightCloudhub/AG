@@ -46,6 +46,7 @@ class QueryOptions(AgentRunOptions):
     force_agentic: bool = False
     enable_triage: bool = True
     known_entities: list[str] | None = None
+    query_id: str | None = None
 
 
 @dataclass

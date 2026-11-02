@@ -8,6 +8,7 @@ from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.degradation_policy import promote_degradation_fields
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 from agentic_graphrag.observability.degradation import (
+    DEGRADED_CHANNELS_KEY,
     LOW_CONFIDENCE_KEY,
     REASON_CACHE_WRITE_FAILED,
     record_degradation,
@@ -52,9 +53,9 @@ def _is_cacheable_answer(chain: ReasoningChain) -> bool:
     if not (chain.answer or "").strip():
         return False
     meta = chain.metadata or {}
-    # A low-confidence answer was produced while retrieval was down: replaying it
-    # after recovery would serve the degraded text with no sign of why (O-9).
-    if meta.get("llm_degraded") or meta.get(LOW_CONFIDENCE_KEY):
+    # Even a single degraded channel can leave incomplete evidence or fallback
+    # text that must be recomputed after recovery, regardless of low_confidence.
+    if meta.get("llm_degraded") or meta.get(LOW_CONFIDENCE_KEY) or meta.get(DEGRADED_CHANNELS_KEY):
         return False
     return True
 
