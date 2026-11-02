@@ -249,7 +249,7 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 
 ### 7.3 未验证项（如实记录）
 
-- **CI 远端运行**：本地只验证了等价命令（`uv sync --locked --extra dev --extra webapp`）与 YAML 解析；GitHub Actions 实际执行未在本地验证。挂账见 `docs/reviews/IMPORTANT.md` §6。
+- ~~**CI 远端运行**~~ **已关闭**：2026-11-02 推送后 run [41475678852](https://github.com/RightCloudhub/AG/actions/runs/41475678852) 三个 job 全绿（lint / 单测+覆盖率 / 离线评测），`uv sync --locked` 与 `uv run --locked` 在 GitHub 托管 runner 上均正常。此前本地只验证过等价命令与 YAML 解析。
 - **在线后端探活**：`AGR_PROFILE=offline` 下 `LIVE-01` 走跳过分支；Neo4j / Qdrant 的失败分支未在本机验证（本机无 Docker 服务）。
 - **`otel` / `sqlite-checkpoint` 组**：未安装，体检按 design 输出 info，未验证安装后的导入。
 

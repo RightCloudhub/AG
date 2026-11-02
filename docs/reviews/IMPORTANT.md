@@ -183,7 +183,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | `dev` 依赖组迁 `[dependency-groups]` | `[ ]` | 保留 `.[dev]` 可选依赖组以兼容既有文档与 `pip install -e ".[dev]"` 用法；迁移需一次性同步 README / AGENTS / CLAUDE / CI | 单独变更集，改完全部安装语句与 CI |
 | 删除 `scripts/bootstrap_poc.sh` | `[ ]` | 已由 `setup.sh --with-demo-data` 调用并修复为使用 `.venv` 解释器与控制台入口，不再是死代码；职责可被 `setup.sh --with-demo-data` 完全覆盖 | 确认无人单独调用后删除 |
 | devcontainer / 容器化开发环境 | `[-]` | 与「离线默认、宿主机零额外依赖」的基调冲突（见设计文档 §4） | 出现明确的「宿主机无 Python/uv」需求时重议 |
-| CI 改用 uv 的远端验证 | `[ ]` | 本地已用等价命令验证（`uv sync --locked --extra dev --extra webapp`）；GitHub Actions 实际运行未在本地验证 | 推送后确认三个 job 全绿 |
+| CI 改用 uv 的远端验证 | `[x]` | 2026-11-02 推送后 GitHub Actions run [41475678852](https://github.com/RightCloudhub/AG/actions/runs/41475678852) 三个 job（lint / 单测+覆盖率 / 离线评测）全绿；本地此前已用等价命令验证（`uv sync --locked --extra dev --extra webapp`）| — |
 
 ### 覆盖率 omit（`pyproject.toml` — 扩测后再移除）
 
