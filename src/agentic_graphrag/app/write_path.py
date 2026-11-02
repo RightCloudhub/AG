@@ -148,8 +148,9 @@ def build_inline_worker(svc: QueryService) -> IngestWorker:
         task_store=svc.ingest_tasks,
         config=IngestWorkerConfig(
             poll_interval_seconds=float(os.environ.get("AGR_INGEST_POLL_SECONDS", "2")),
-            chunk_size_chars=svc.cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=svc.cfg.knowledge.chunk_overlap_chars,
+            chunk_size_tokens=svc.cfg.knowledge.chunk_size_tokens,
+            chunk_overlap_tokens=svc.cfg.knowledge.chunk_overlap_tokens,
+            tokenizer=svc.cfg.knowledge.tokenizer,
         ),
         graph_ingestor=build_graph_ingestor(svc),
     )

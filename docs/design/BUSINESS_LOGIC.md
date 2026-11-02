@@ -137,9 +137,10 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    A1["POST /v1/docs"] --> A2["DocStore.save"] --> A3["IngestTaskStore: queued<br/>+ SPOTCHECK 复核项（含 doc_ids）"]
+    A1["POST /v1/docs"] --> P1["DocumentParser: 扩展名 + 文件签名<br/>编码检测 / HTML / 可选 MinerU → Markdown"]
+    P1 --> A2["DocStore.save<br/>解析器版本 + 源 MIME"] --> A3["IngestTaskStore: queued<br/>+ SPOTCHECK 复核项（含 doc_ids）"]
     A3 --> A4["IngestWorker 认领: extracting（租约 + 心跳）"]
-    A4 --> A5["chunk → embed → Vector / BM25"]
+    A4 --> A5["标题层级 + token 分块（含 breadcrumb）<br/>→ embed → Vector / BM25"]
     A4 --> A6["GraphIngestor.ingest_chunks"]
     A6 --> A7{"有 LLM?"}
     A7 -->|"是"| A8["extract_from_chunk（失败回退规则）"]
@@ -250,7 +251,8 @@ stateDiagram-v2
 | BL-04 SSE 未传租户 | `[x]` | 既有修复；写路径同样按租户打标（`graph_builder.stamp_tenant`） |
 | BL-05 / BL-06 | `[x]` | 既有修复；CLI worker 另接入图谱阶段 |
 | BL-07 schema 门禁 | `[x]` | 既有修复；运行期写路径与复核执行器均经门禁 |
-| BL-08 / BL-09 / BL-10 | `[x]` | 既有修复；复核执行与图谱阶段失败均显式上报，不静默 |
+| BL-08 | `[x]` | 2026-11-03：API/CLI 共用文档解析端口、文件签名校验、编码检测、结构化 Markdown 与 token 分块；详见下方 BL-08 更新 |
+| BL-09 / BL-10 | `[x]` | 既有修复；复核执行与图谱阶段失败均显式上报，不静默 |
 | BL-11 空分支 / 计数 | `[x]` | `IngestStatus.REVIEW` 现有生产者（`task_outcome`）与消费者（`_settle_task`）；新增 `conflicts_temporal` 计数保持守恒 |
 | BL-12 广度/深度混同 | `[x]` | `agent/parallel_branches.py`：就绪且互不依赖的节点线程池并发检索，结果预取入状态，取用时不增 hop（`Guardrails.check_branch`）；`guardrails.parallel_branches` / `max_parallel_branches` 可配；并发组记入 `metadata.parallel_branches` |
 | BL-13 门禁只到词面 | `[x]` | `generation/relation_consistency.py`：中英文关系线索 vs 边关系类型（含兼容/蕴含映射），运行期门禁与评测 `fabrication_rate` 同口径；`generation/entailment.py`：在线路径 LIGHT 档批量蕴含判定（`llm.entailment_check`），非 entailed 触发定向重生成，判定器异常则弃权并记录 |
@@ -261,6 +263,7 @@ stateDiagram-v2
 | 项 | 说明 |
 |---|---|
 | 内联 worker 默认关闭 | 需 `AGR_INGEST_INLINE=1`；离线模式下独立 worker 与 API 不共享内存图谱，故离线请用内联方式，在线（Neo4j/Qdrant）两者皆可 |
+| MinerU 默认关闭 | PDF、Office、图片需显式配置 `knowledge.parsing.mineru.enabled/endpoint/timeout_seconds`；未配置返回 415。OCR 模型由服务部署管理，离线测试只 mock Markdown |
 | 规则抽取器 | 精确优先，只覆盖常见公司关系句式；在线模式优先用 LLM 抽取，失败逐块回退规则 |
 | 蕴含判定成本 | 每次作答额外 1 次 LIGHT 调用；`MockLLMProvider` 与离线路径不调用 |
 | 时间裁决前提 | 仅当冲突双方都带日期时按时间裁决，否则沿用置信度规则 |
@@ -357,6 +360,38 @@ stateDiagram-v2
 | 证据 | `knowledge_upload.py:23` `if ext and ext not in ALLOWED_EXTENSIONS:` —— **无扩展名文件 `ext` 为空 → 短路跳过白名单**。 |
 | 证据 | `:48` 大小校验发生在 `await file.read()`（`:47`）**之后** → 5MB 限制无法阻止超大文件先进内存。 |
 | 证据 | `ALLOWED_EXTENSIONS` 含 `pdf`（`:16`），但 `:54` 一律 `content.decode("utf-8", errors="replace")`，**无 PDF 文本抽取** → PDF 被存为乱码并进入分块与索引。 |
+
+**2026-11-03 更新（已落地，以上保留为历史证据）：**
+
+- `core/ports/parsing.py` 定义 `DocumentParser` / `ParsedDocument`；API 与 CLI 共用
+  `knowledge/parsers` 路由。扩展名白名单与 magic bytes 双重校验，OOXML 检查 ZIP
+  包内主文档类型，不解压文件；伪装成 PDF 的可执行文件在调用解析器前拒绝。
+- `TextParser` 支持 MD/TXT；charset-normalizer 检测非 UTF-8 编码，支持 GBK/GB18030，
+  去 BOM、统一换行后以 Unicode Markdown 保存。严格 UTF-8 优先；检测阈值为
+  `encoding_min_confidence`（`1 - chaos`，不是统计概率），短文本编码同分时按
+  `encoding_preference`（默认 GB18030）选择。类型/签名不符或 MinerU 未配置为 **415**，
+  无可靠解码或无有效正文为 **422**，文件/批量超限仍为 **413**。
+- `HtmlParser` 用 trafilatura 提取正文，BeautifulSoup 去除 nav/footer/script 等噪声并
+  解实体；提取失败或丢失标题/表格时用结构化 Markdown 渲染兜底。`MinerUParser`
+  显式调用可配置的 HTTP `/file_parse`，支持路由 PDF、DOCX、PPTX、XLSX 及图片扫描件；
+  使用 `parse_method=auto`，由服务执行 OCR。服务故障/超时返回 **503**。
+  返回 Markdown 中的 HTML 表格也转为 Markdown 表格，代码围栏里的示例保持原样。
+- `knowledge/chunking.py` 按 Markdown 标题层级划分 section，段落 → 中英文句子 → token
+  递归拆分；默认 **512 tokens / 最多 64 tokens overlap**，预算包含
+  `Doc title > H1 > H2` 前缀。重叠不跨 section、不截断表格或代码；大表格只在整行间
+  拆分，每片重复表头。围栏/缩进代码、单个列表项和引用块保持完整；单个原子结构或
+  表头加一行仍超预算时，worker 明确报 failed 并提示增大预算，不生成超限块。
+- `chunk_text` 保留为薄兼容入口，`chunk_size` / `overlap` 现以 token 计量；配置迁移为
+  `chunk_size_tokens` / `chunk_overlap_tokens`，旧 `*_chars` 键明确报错。
+  默认 cl100k_base 词表随包分发、校验 SHA-256，无首次下载；`tokenizer` 可指定本地
+  编码器定义，格式见 [tokenizers/README](../../src/agentic_graphrag/knowledge/tokenizers/README.md)。
+- 文档元数据保存 `parser_name`、`parser_version`（适配器协议版本）、`source_mime_type`；
+  文本另记 `source_encoding`，服务报告版本时另记 `mineru_version`。块保存 `breadcrumb`、
+  `heading_path`、`token_count`、`tokenizer`，继承源元数据。doc_id 规则、`doc_id:index`
+  格式、索引及 embedding 实现保持原契约。
+- 离线回归覆盖：GBK/BOM、正文去噪与实体、双语 token 上限、层级 breadcrumb、整行表格、
+  围栏保护、文件伪装、MinerU 响应及错误边界。运行配置与 HTTP 合约见
+  [RUNBOOK §6.1](../ops/RUNBOOK.md#61-文档解析与分块bl-08)。
 
 #### 🟡 BL-09：跨租户越权与存在性泄漏（API 层）
 

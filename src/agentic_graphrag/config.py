@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+from agentic_graphrag.config_knowledge import KnowledgeConfig
 from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
@@ -80,17 +81,6 @@ class RetrievalConfig(BaseModel):
 class TriageConfig(BaseModel):
     enabled: bool = True
     escalate_fast_path: bool = True
-
-
-class KnowledgeConfig(BaseModel):
-    chunk_size_chars: int = 1200
-    chunk_overlap_chars: int = 150
-    extract_confidence_threshold: float = 0.5
-    schema_path: str = "configs/schema/domain_v0.yaml"
-    extract_max_attempts: int = 3
-    extract_retry_base_delay_seconds: float = 0.5
-    extract_journal_path: str = "data/processed/extract_journal.jsonl"
-    extract_quarantine_path: str = "data/processed/extract_quarantine.jsonl"
 
 
 class LLMConfig(BaseModel):

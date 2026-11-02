@@ -124,6 +124,13 @@ The output contract is `ReasoningChain` (`core/reasoning.py`); its JSON Schema i
 
 `incremental.py` handles new docs against an existing graph: extract → conflict detect → high-confidence auto-merge, low-confidence into the review queue (`knowledge/review/queue.py`). `pilot_triples.py` supplies deterministic triples for the synthetic pilot corpus so graph build and gold-case generation need no live LLM — it mirrors `scripts/generate_pilot_corpus.py` and both must be changed together. `ingest_tasks.py` is the durable upload task state machine consumed by `ingest_worker.py`.
 
+API/CLI ingestion shares the `core/ports/parsing.py` document parser port. Text encoding detection
+and HTML extraction are offline; PDF/Office/scans require explicit MinerU HTTP configuration
+(`knowledge.parsing.mineru`, disabled by default). `knowledge/chunking.py` emits heading-aware
+Markdown chunks with breadcrumbs and metadata, using token budgets that include the prefix.
+`knowledge.chunk_size_tokens` / `chunk_overlap_tokens` replace the old character settings;
+the default cl100k_base vocabulary is bundled for offline use. See BL-08 and RUNBOOK §6.1.
+
 ### API surface
 
 All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps everything; role checks are per-route via `Depends(require_role(...))` from `api/rbac.py`; responses go through the shared success/error envelope (`api/envelope.py`, `api/errors.py`).
@@ -144,7 +151,7 @@ All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps 
 
 ### Enterprise layer
 
-Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. Uploads accept UTF-8 Markdown / text (5 MiB per file, 20 files per batch) and create durable ingest tasks. `AGR_INGEST_INLINE=1` starts a worker that shares the API's stores and performs indexing, graph extraction and conflict review; it is the local offline workflow. The standalone worker (`knowledge/ingest_worker_cli.py`) wires a `GraphIngestor`, so it also runs extraction into the graph; under the offline profile its graph and indexes are process-local and not visible to the API process. Operations procedures: `docs/ops/RUNBOOK.md`; Web usage: `docs/product/WEBAPP_GUIDE.md`.
+Observability lives in `observability/`: `logging_setup.py` (JSON logs + request/query/tenant/user contextvars), `audit_events.py` (append-only security event JSONL), `metrics.py` (query-level metric collection; Prometheus text is rendered by `prometheus_metrics_text()` in `api/routes/admin.py`), `redaction.py` (PII scrub, default off), `otel_bridge.py` (optional OTel via `.[otel]` extra; coverage-omitted). `tenant_id` threads from `Principal` through all store protocols, retrievers, and the agent loop. API uploads accept Markdown/text/HTML with encoding detection and optional MinerU formats (5 MiB per file, 20 files per batch), persist normalized Markdown, and create durable ingest tasks. `AGR_INGEST_INLINE=1` starts a worker that shares the API's stores and performs indexing, graph extraction and conflict review; it is the local offline workflow. The standalone worker (`knowledge/ingest_worker_cli.py`) wires a `GraphIngestor`, so it also runs extraction into the graph; under the offline profile its graph and indexes are process-local and not visible to the API process. Operations procedures: `docs/ops/RUNBOOK.md`; Web usage: `docs/product/WEBAPP_GUIDE.md`.
 
 ### Evaluation
 

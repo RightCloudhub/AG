@@ -9,6 +9,7 @@ from agentic_graphrag.cli._common import _ensure_dirs
 from agentic_graphrag.config import get_config, resolve_path
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
+from agentic_graphrag.knowledge.parsers import create_parser
 from agentic_graphrag.stores.doc_store import FileDocStore
 
 
@@ -22,7 +23,7 @@ def ingest_main(argv: list[str] | None = None) -> None:
     input_dir = resolve_path(args.input or cfg.paths.raw_docs_dir)
     out_path = resolve_path(args.out or f"{cfg.paths.processed_dir}/chunks.jsonl")
 
-    docs = load_documents_from_dir(input_dir)
+    docs = load_documents_from_dir(input_dir, parser=create_parser(cfg.knowledge.parsing))
     doc_store = FileDocStore(resolve_path(cfg.paths.processed_dir) / "docs")
     chunks: list[ChunkRecord] = []
     for doc in docs:
@@ -30,8 +31,9 @@ def ingest_main(argv: list[str] | None = None) -> None:
         chunks.extend(
             chunk_document(
                 doc,
-                chunk_size=cfg.knowledge.chunk_size_chars,
-                overlap=cfg.knowledge.chunk_overlap_chars,
+                chunk_size=cfg.knowledge.chunk_size_tokens,
+                overlap=cfg.knowledge.chunk_overlap_tokens,
+                tokenizer=cfg.knowledge.tokenizer,
             )
         )
 
