@@ -92,6 +92,8 @@ def legacy_register_payload() -> dict[str, object]:
         register_cache={"fulltext:key": ["c1"]},
         register_seen=["c1"],
         register_attempts={"sq1": 2},
+        register_rejections={"sq1": 1},
+        register_budget_nudged=True,
         register_fresh=["c1"],
         register_stop="round_budget",
         register_progress="approved progress",
@@ -118,6 +120,7 @@ def test_legacy_snapshots_hydrate_all_typed_substates_once(version: int) -> None
     assert isinstance(runtime, RegisterRuntimeState)
     assert runtime.cache == {"fulltext:key": ["c1"]}
     assert runtime.attempts == {"sq1": 2} and runtime.seen == runtime.fresh == ["c1"]
+    assert runtime.rejections == {"sq1": 1} and runtime.budget_nudged is True
     assert runtime.stop == "round_budget" and runtime.answer_policy == "abstain"
     assert runtime.progress == "approved progress" and runtime.context[0]["content"]
     event = runtime.events[0]

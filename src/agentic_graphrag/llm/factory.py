@@ -29,9 +29,13 @@ def build_llm_provider(
 ) -> LLMProvider:
     """Construct ``LLMProvider`` with chat vs embedding endpoint split."""
     from agentic_graphrag.llm.provider import LLMProvider
+    from agentic_graphrag.llm.verifier import warn_same_model
 
     s = settings or get_settings()
     c = cfg or get_config()
+    register = c.guardrails.requirement_register
+    if register.enabled and register.verifier_enabled:
+        warn_same_model(c.llm.strong_model, register.verifier.model or c.llm.light_model)
     return LLMProvider(
         api_key=s.llm_api_key,
         base_url=resolve_chat_base_url(s),

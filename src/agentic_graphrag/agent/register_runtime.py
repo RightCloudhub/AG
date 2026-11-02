@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 
 from agentic_graphrag.agent.guardrails import Guardrails
@@ -24,7 +23,9 @@ from agentic_graphrag.agent.register_llm import (
 )
 from agentic_graphrag.agent.register_progress import (
     context_size,
+    nudge_budget,
     progress_state,
+    update_failure_report,
     verify_resolutions,
 )
 from agentic_graphrag.agent.register_search import search, seed_search
@@ -42,11 +43,8 @@ from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.observability.degradation import (
-    REASON_LLM_UNAVAILABLE,
-    REASON_UNEXPECTED,
-    record_degradation,
-)
+from agentic_graphrag.llm.verifier import build_verifier
+from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 
 class RegisterRuntime:
@@ -56,12 +54,18 @@ class RegisterRuntime:
         self.guards = guards
         self.config = deps.guard_cfg.requirement_register
         self.round_limit = min(self.config.max_rounds, deps.guard_cfg.max_hops)
+        self.verifier: LLMClient | None = None
 
     def _llm(self, state: AgentState) -> LLMClient | None:
         return self.llm if state.get("allow_llm", True) else None
 
     def enabled(self, state: AgentState) -> bool:
-        return self.config.enabled and self._llm(state) is not None
+        llm = self._llm(state)
+        if not self.config.enabled or llm is None:
+            return False
+        if self.config.verifier_enabled and self.verifier is None:
+            self.verifier = build_verifier(llm, self.config.verifier)
+        return True
 
     def node_planner(self, state: AgentState) -> AgentState:
         cache: dict[str, list[str]] = {}
@@ -205,14 +209,12 @@ class RegisterRuntime:
         old = active_register(state)
         new = old.model_copy(deep=True)
         evidence = state.get("evidence", {})
+        state = nudge_budget(state, ratio=self.config.convergence_ratio, limit=self.round_limit)
         runtime = state["register_runtime"]
+        runtime = replace(runtime, rejections=dict(runtime.rejections))
+        state = {**state, "register_runtime": runtime}
         fresh = [evidence[rid] for rid in runtime.fresh]
-        context = list(runtime.context)
-        if state["hop"] == math.ceil(self.config.convergence_ratio * self.round_limit):
-            context.append(
-                {"role": MessageRole.USER, "content": load_prompt(PromptName.REGISTER_BUDGET)}
-            )
-        state = {**state, "register_runtime": replace(runtime, context=context)}
+        context = runtime.context
         if (
             context_size(context, update_prompt(old.question, fresh))
             > self.config.context_limit_tokens
@@ -223,8 +225,7 @@ class RegisterRuntime:
         except BudgetExceeded:
             return stopped_state(state, "llm_budget")
         except Exception as exc:
-            record_degradation("requirement_register", REASON_UNEXPECTED, exc, step="update")
-            reports = [{"error": type(exc).__name__, "entailed": False}]
+            reports = update_failure_report(state, old, exc)
         schedule(new, attempts=runtime.attempts)
         result = progress_state(
             state, old, new, verifier=reports, delta_enabled=self.config.delta_enabled
@@ -255,9 +256,16 @@ class RegisterRuntime:
             proposals=proposals,
         )
         reports: list[VerificationEvent] = []
-        if self.config.verifier_enabled:
+        if self.verifier is not None:
             reports = verify_resolutions(
-                new, old, llm, evidence=evidence, context_limit=self.config.context_limit_tokens
+                new,
+                old,
+                self.verifier,
+                evidence=evidence,
+                context_limit=self.config.context_limit_tokens,
+                config=self.config.verifier,
+                rejections=state["register_runtime"].rejections,
+                budget=self.guards.budget,
             )
         for proposal in proposals:
             item = new.items.get(proposal["req_id"])

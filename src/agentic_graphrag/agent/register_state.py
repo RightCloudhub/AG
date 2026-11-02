@@ -14,13 +14,15 @@ class InitializationAudit(TypedDict, total=False):
 
 
 class VerificationEvent(TypedDict, total=False):
-    type: Literal["resolution_proposal"]
+    type: Literal["resolution_proposal", "verification"]
     req_id: str
     passages: list[str]
     entailed: bool
     reason: str
     error: str
     accepted: bool
+    rejections: int
+    retire_reason: str
 
 
 class InitializationEvent(TypedDict):
@@ -53,6 +55,8 @@ class RegisterRuntimeState:
     cache: dict[str, list[str]] = field(default_factory=dict)
     seen: list[str] = field(default_factory=list)
     attempts: dict[str, int] = field(default_factory=dict)
+    rejections: dict[str, int] = field(default_factory=dict)
+    budget_nudged: bool = False
     fresh: list[str] = field(default_factory=list)
     stop: str = ""
     progress: str = ""

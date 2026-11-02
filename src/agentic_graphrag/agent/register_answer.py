@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from agentic_graphrag.agent.register_llm import json_text
 from agentic_graphrag.agent.register_progress import context_size
+from agentic_graphrag.agent.requirements import VERIFIER_RETIRE_REASON, Register
 from agentic_graphrag.agent.state import AgentState, active_register
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.core.enums import PromptName
+from agentic_graphrag.core.enums import PromptName, RequirementStatus
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
@@ -20,7 +21,8 @@ def answer_from_register(
     runtime = state["register_runtime"]
     chain = state["chain"].model_copy(deep=True)
     evidence = list(state.get("evidence", {}).values())
-    if register.open_items() and runtime.answer_policy == "abstain":
+    missing = _missing_requirements(register, runtime.rejections)
+    if missing and runtime.answer_policy == "abstain":
         chain.honest_fallback("unresolved information needs")
         return annotate_register(chain, state)
     conclusions = (
@@ -50,7 +52,7 @@ def answer_from_register(
 def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChain:
     register = active_register(state)
     runtime = state["register_runtime"]
-    missing = [r.text for r in register.open_items()]
+    missing = _missing_requirements(register, runtime.rejections)
     if missing:
         if runtime.answer_policy == "abstain":
             chain.honest_fallback("unresolved information needs")
@@ -62,6 +64,7 @@ def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChai
         **chain.metadata,
         "requirement_register": register,
         "register_events": runtime.events,
+        "register_rejections": dict(runtime.rejections),
         "register_stop": runtime.stop or "clear",
         "register_rounds": state.get("hop", 0),
         "register_retrieved_ids": list(state.get("evidence", {})),
@@ -69,3 +72,16 @@ def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChai
         "register_context_byte_bound": context_size(runtime.context),
     }
     return chain
+
+
+def _missing_requirements(register: Register, rejections: dict[str, int]) -> list[str]:
+    # Rejection history survives later evidence-based retirement; check the cause.
+    return [
+        r.text
+        for r in register.items.values()
+        if r.status != RequirementStatus.RESOLVED
+        and (
+            r.status != RequirementStatus.RETIRED
+            or r.retire_reason == VERIFIER_RETIRE_REASON.format(count=rejections.get(r.req_id, 0))
+        )
+    ]

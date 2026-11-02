@@ -151,3 +151,25 @@ def test_config_and_state_are_validated():
         RequirementRegisterConfig(unknown=True)
     with pytest.raises(ValidationError):
         item(status="done")
+
+
+@pytest.mark.parametrize("old_status", ["pending", "active", "resolved", "retired"])
+@pytest.mark.parametrize("proposal", ["omitted", "untouched", "updated", "resolved"])
+@pytest.mark.parametrize("pool", [(), ("c2",), ("c1", "c2")])
+def test_old_passages_are_always_a_subset_after_evidence_pool_changes(old_status, proposal, pool):
+    old = Register(
+        question="q",
+        items={"r": item(status=old_status, passages={"c1"}, retire_reason="contradicted")},
+    )
+    new = Register(question="q")
+    if proposal != "omitted":
+        new.items["r"] = item(
+            status="resolved" if proposal == "resolved" else "pending",
+            passages={"c2", "fake"},
+            touched_passages={"c2"} if proposal != "untouched" else set(),
+        )
+    before = old.snapshot(), new.snapshot()
+    result = apply_invariants(new, old, evidence=evidence(*pool), fresh_ids={"c2"})
+    assert old.items["r"].passages <= result.items["r"].passages
+    assert "fake" not in result.items["r"].passages
+    assert (old.snapshot(), new.snapshot()) == before

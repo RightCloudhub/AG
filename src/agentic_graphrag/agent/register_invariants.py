@@ -38,7 +38,8 @@ def apply_invariants(
             )
     for rid, item in result.items.items():
         item.req_id = rid
-        item.passages &= evidence.keys()
+        if rid not in old.items:
+            item.passages &= evidence.keys()
         _check_closure(item)
         _ground_anchors(item, evidence)
     validate_dependencies(result)
@@ -53,6 +54,8 @@ def _merge_item(
     evidence: dict[str, Candidate],
     fresh_ids: set[str] | None,
 ) -> Requirement:
+    if previous.status == RequirementStatus.RETIRED:
+        return previous.model_copy(deep=True)
     touched = proposed.touched_passages & set(evidence)
     if fresh_ids is not None and not touched & fresh_ids:
         return previous.model_copy(deep=True)

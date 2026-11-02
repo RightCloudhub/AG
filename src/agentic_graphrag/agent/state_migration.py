@@ -23,6 +23,8 @@ _LEGACY_RUNTIME_KEYS = (
     "register_cache",
     "register_seen",
     "register_attempts",
+    "register_rejections",
+    "register_budget_nudged",
     "register_fresh",
     "register_stop",
     "register_progress",

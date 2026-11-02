@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import copy
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from agentic_graphrag.llm.circuit import (
     CircuitBreakerSet,
 )
 from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
+from agentic_graphrag.llm.verifier import warn_same_model
 
 
 class LLMProvider:
@@ -62,6 +64,16 @@ class LLMProvider:
 
     def model_for(self, tier: Tier) -> str:
         return self.strong_model if tier == Tier.STRONG else self.light_model
+
+    def for_verifier(self, *, model: str | None = None) -> LLMProvider:
+        """Select a judge without mutating the proposer or dropping its budget/stub."""
+        selected = model or self.light_model
+        warn_same_model(self.strong_model, selected)
+        verifier = copy(self)
+        verifier.strong_model = verifier.light_model = selected
+        verifier.fallback_to_light = False
+        verifier.circuits = CircuitBreakerSet(self.circuits.template)
+        return verifier
 
     @property
     def circuit(self) -> CircuitBreaker:
