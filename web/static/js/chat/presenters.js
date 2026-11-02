@@ -68,6 +68,20 @@ export function confidenceClass(answer) {
   return level === 'high' ? 'tag--ok' : level === 'low' ? 'tag--warn' : 'tag';
 }
 
+/** "检索降级：向量、图谱" (O-9); empty when every channel answered. @param {Answer} answer */
+export function degradedTag(answer) {
+  if (answer.low_confidence) return T.answer.lowConfidence;
+  if (!answer.degraded.length) return '';
+  const names = /** @type {Record<string, string>} */ (T.answer.degradedChannels);
+  const labels = answer.degraded.map(c => names[c.channel] ?? c.channel).filter(Boolean);
+  return labels.length ? fmt(T.answer.degraded, { channels: labels.join('、') }) : '';
+}
+
+/** @param {Answer} answer */
+export function degradedClass(answer) {
+  return answer.low_confidence ? 'tag--err' : 'tag--warn';
+}
+
 /** The label under a rail node (§5.1): what the hop found, else what it asked, at most 12 字. @param {RailItem} item */
 export function railLabel(item) {
   if (item.kind === 'hop') return hopTitle({ sub_question: item.subQuestion, conclusion: item.state === StepState.DONE ? item.conclusion : '' }) || fmt(T.hoprail.hop, { n: item.hop });

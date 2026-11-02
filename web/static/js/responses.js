@@ -160,6 +160,17 @@ function parseClaim(value) {
   return { text: text(claim.text), evidence_ids: strings(claim.evidence_ids) };
 }
 
+/** Retrieval channels that failed or degraded during the run (O-9).
+ * Missing/garbled input degrades to "no information", never to a parse error.
+ * @param {unknown} value */
+export function parseDegradedChannels(value) {
+  if (!Array.isArray(value)) return [];
+  return rows(value, item => {
+    const row = record(item);
+    return { channel: text(row.channel), reason: text(row.reason), status: text(row.status) };
+  });
+}
+
 /** Answer confidence persisted by the composer in metadata.confidence. @param {unknown} value */
 export function parseConfidence(value) {
   if (!isRecord(value)) return null;
@@ -194,6 +205,10 @@ export function parseAnswer(value) {
     missing_info: strings(data.missing_info), explored_paths: strings(data.explored_paths),
     cost: { latency_ms: number(cost.latency_ms), tokens: number(cost.tokens), llm_calls: number(cost.llm_calls) },
     confidence: parseConfidence(metadata.confidence), triage: parseTriage(metadata.triage),
+    // Streamed answers carry these in metadata; /v1/query and cached answers
+    // promote them to the top level (app/wiring.py).
+    degraded: parseDegradedChannels(data.degraded_channels ?? metadata.degraded_channels),
+    low_confidence: data.low_confidence === true || metadata.low_confidence === true,
   };
 }
 

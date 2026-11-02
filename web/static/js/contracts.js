@@ -36,6 +36,8 @@ export const ErrorMessage = Object.freeze({
 export const StreamEvent = Object.freeze({
   CACHE_HIT: 'cache_hit', TRIAGE: 'triage', THINKING: 'thinking',
   SUB_QUESTION: 'sub_question', HOP_DONE: 'hop_done', ANSWER: 'answer', ERROR: 'error',
+  // O-9: a channel failed during the run; the frame carries {channels, low_confidence}.
+  DEGRADED: 'degraded',
 });
 /** `thinking` payload stages emitted by agent/loop_stream_events.py. */
 export const ThinkingStage = Object.freeze({ PLAN: 'plan', RETRIEVE: 'retrieve', PROGRESS: 'progress' });

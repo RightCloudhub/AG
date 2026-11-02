@@ -32,6 +32,8 @@
  * @property {string} note
  * @property {string} route
  * @property {boolean} cacheHit
+ * @property {{channel: string, reason: string, status: string}[]} degraded
+ * @property {boolean} lowConfidence
  * @property {HopProgress[]} hops
  */
 
