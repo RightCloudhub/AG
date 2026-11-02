@@ -11,10 +11,12 @@ from agentic_graphrag.core.enums import StreamEvent
 EVENT_ANSWER = StreamEvent.ANSWER
 EVENT_ERROR = StreamEvent.ERROR
 EVENT_CACHE_HIT = StreamEvent.CACHE_HIT
+EVENT_DEGRADED = StreamEvent.DEGRADED
 
 __all__ = [
     "EVENT_ANSWER",
     "EVENT_CACHE_HIT",
+    "EVENT_DEGRADED",
     "EVENT_ERROR",
     "EVENT_HOP_DONE",
     "EVENT_SUB_QUESTION",

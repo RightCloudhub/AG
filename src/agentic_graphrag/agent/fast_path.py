@@ -49,10 +49,11 @@ def run_fast_path_with_evidence(
     budget: BudgetTracker | None = None,
     triage_meta: dict[str, Any] | None = None,
     tenant_id: str | None = None,
+    query_id: str | None = None,
 ) -> tuple[ReasoningChain, list[Candidate]]:
     """Fast path that also returns its evidence (inherited on escalation)."""
     t0 = time.perf_counter()
-    chain = _new_chain(question, triage_meta)
+    chain = _new_chain(question, triage_meta, query_id=query_id)
     candidates, traces = executor.run(question, allow_llm=False, tenant_id=tenant_id)
     chain.steps.append(_fast_step(question, candidates, traces))
     chain = generate_answer(
@@ -71,8 +72,12 @@ def run_fast_path_with_evidence(
     return chain, candidates
 
 
-def _new_chain(question: str, triage_meta: dict[str, Any] | None) -> ReasoningChain:
-    chain = ReasoningChain(question=question, route=QueryRoute.FAST_PATH, query_id=str(uuid4()))
+def _new_chain(
+    question: str, triage_meta: dict[str, Any] | None, *, query_id: str | None = None
+) -> ReasoningChain:
+    chain = ReasoningChain(
+        question=question, route=QueryRoute.FAST_PATH, query_id=query_id or str(uuid4())
+    )
     if triage_meta:
         chain.metadata = {**(chain.metadata or {}), "triage": triage_meta}
     return chain

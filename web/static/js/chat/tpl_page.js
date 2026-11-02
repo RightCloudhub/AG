@@ -98,7 +98,7 @@ export const PAGE_TEMPLATE = `
   <div v-if="p.answer" class="qmeta">
     <span class="qmeta__line">{{ metaLine(p.answer.msg.data) }}</span>
     <span v-if="confidenceTag(p.answer.msg.data)" class="tag qmeta__status" :class="confidenceClass(p.answer.msg.data)">{{ confidenceTag(p.answer.msg.data) }}</span>
-    <span v-if="p.answer.msg.data.route !== QueryRoute.AGENTIC" class="tag qmeta__status">{{ routeLabel(p.answer.msg.data.route) }}</span>
+    <span v-if="degradedTag(p.answer.msg.data)" class="tag qmeta__status" :class="degradedClass(p.answer.msg.data)">{{ degradedTag(p.answer.msg.data) }}</span>
     <div class="qmeta__actions">
       <button type="button" class="btn btn--icon btn--sm btn--ghost" @click="askAgain(p)" :aria-label="T.answer.askAgain" :title="T.answer.askAgain"><ag-icon name="refresh" :size="14"></ag-icon></button>
       <span class="menu-anchor">

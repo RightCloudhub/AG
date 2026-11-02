@@ -9,7 +9,7 @@ Includes:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -155,6 +155,7 @@ def prometheus_metrics_text(*, tenant_id: str | None = None) -> str:
         counts=s.get("event_handler_failures"),
         label="handler",
     )
+    _degradation_family(lines, s.get("degradations"))
 
     lines.append("# HELP agr_budget_trips_total Budget trip events")
     lines.append("# TYPE agr_budget_trips_total counter")
@@ -162,6 +163,23 @@ def prometheus_metrics_text(*, tenant_id: str | None = None) -> str:
     lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def _degradation_family(lines: list[str], rows: Sequence[Mapping[str, Any]] | None) -> None:
+    """``agr_degradation_total{component,reason}`` — the two-label degradation counter (O-9)."""
+    if not rows:
+        return
+    lines.append("# HELP agr_degradation_total Degraded dependency events by component and reason")
+    lines.append("# TYPE agr_degradation_total counter")
+    for row in rows:
+        lines.append(
+            _prom_line(
+                "agr_degradation_total",
+                row.get("count", 0),
+                {"component": row.get("component", ""), "reason": row.get("reason", "")},
+            )
+        )
+    lines.append("")
 
 
 def _labelled(

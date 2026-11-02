@@ -5,6 +5,7 @@
  */
 import { ref } from '../../vendor/vue.esm-browser.prod.js';
 import { HistoryGroup, MessageRole, StorageKey, UiPolicy, isRecord } from '../contracts.js';
+import { parseDegradedChannels } from '../responses.js';
 
 /** @typedef {import('../chat/types.js').Conversation} Conversation */
 /** @typedef {import('../chat/types.js').ChatMessage} ChatMessage */
@@ -20,8 +21,21 @@ function load() {
     if (!raw) return [];
     /** @type {unknown} */
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isConversation) : [];
+    return Array.isArray(parsed) ? parsed.filter(isConversation).map(migrateConversation) : [];
   } catch { return []; }
+}
+
+/** Add new fields to saved, already parsed answers without losing their evidence.
+ * @param {Conversation} conversation @returns {Conversation} */
+function migrateConversation(conversation) {
+  return { ...conversation, messages: conversation.messages.map(message => {
+    if (message.role !== MessageRole.ASSISTANT || !isRecord(message.data)) return message;
+    const data = message.data;
+    const channels = Array.isArray(data.degraded) ? data.degraded.filter(isRecord) : [];
+    return { ...message, data: {
+      ...data, degraded: parseDegradedChannels(channels), low_confidence: data.low_confidence === true,
+    } };
+  }) };
 }
 
 /** @param {unknown} value @returns {value is Conversation} */

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 from collections.abc import Generator
 from typing import Any
 
@@ -68,15 +69,40 @@ def otel_span(
     *,
     attributes: dict[str, Any] | None = None,
 ) -> Generator[Any, None, None]:
-    """Context manager: creates an OTel span when enabled, no-op otherwise."""
+    """Context manager: creates an OTel span when enabled, no-op otherwise.
+
+    Span creation, entry and exit may fail independently. Application exceptions
+    propagate unchanged, even if a span processor also raises during cleanup.
+    """
     if not _ENABLED or _TRACER is None:
         yield None
         return
+    stack = contextlib.ExitStack()
     try:
-        with _TRACER.start_as_current_span(name, attributes=attributes or {}) as span:
-            yield span
+        span = stack.enter_context(_TRACER.start_as_current_span(name, attributes=attributes or {}))
+    except Exception:  # noqa: BLE001 — optional tracing must not prevent application work
+        span = None
+    try:
+        yield span
+    finally:
+        # Ignore the CM's suppression result and protect the original exception
+        # from span.end()/exporter errors; the application yield is not guarded.
+        with contextlib.suppress(Exception):
+            stack.__exit__(*sys.exc_info())
+
+
+def otel_span_event(name: str, *, attributes: dict[str, Any] | None = None) -> None:
+    """Attach an event to the active span so degradations show up in traces."""
+    if not _ENABLED:
+        return
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span is not None and span.is_recording():
+            span.add_event(name, attributes=dict(attributes or {}))
     except Exception:  # noqa: BLE001 — never break application on OTel failure
-        yield None
+        return
 
 
 @contextlib.contextmanager

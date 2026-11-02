@@ -26,6 +26,10 @@ from agentic_graphrag.knowledge.extract_types import (
     RetryPolicy,
 )
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
+from agentic_graphrag.observability.degradation import (
+    REASON_STORE_WRITE_FAILED,
+    record_degradation,
+)
 
 __all__ = [
     "ChunkExtractResult",
@@ -213,7 +217,9 @@ def persist_doc_provenance(
     for doc_id, outcomes in by_doc.items():
         try:
             _merge_one_doc(doc_store, doc_id, outcomes, batch_id=batch_id)
-        except Exception:
+        except Exception as exc:
+            # Provenance is metadata: the extraction itself already succeeded.
+            record_degradation("doc_provenance", REASON_STORE_WRITE_FAILED, exc, doc_id=doc_id)
             continue
 
 

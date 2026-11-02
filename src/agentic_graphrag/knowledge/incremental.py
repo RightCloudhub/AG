@@ -47,6 +47,12 @@ from agentic_graphrag.knowledge.schema_check import (
     gate_triples,
 )
 from agentic_graphrag.knowledge.temporal import VALID_FROM, closed
+from agentic_graphrag.observability.degradation import (
+    REASON_INDEX_WRITE_FAILED,
+    REASON_STORE_WRITE_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +142,9 @@ class IncrementalUpdater:
         if isinstance(self.store, RelationLister):
             try:
                 return self.store.list_relations(limit=DEFAULT_RELATION_SCAN)
-            except Exception:
-                logger.warning("list_relations failed; conflict index starts empty", exc_info=True)
+            except Exception as exc:
+                # The conflict index starts empty: duplicate edges can slip through.
+                record_degradation("conflict_index", REASON_INDEX_WRITE_FAILED, exc)
                 return []
         return []
 
@@ -257,10 +264,16 @@ class IncrementalUpdater:
     def _call_deleter(self, deleter: RelationDeleter, old: RelationRecord) -> None:
         try:
             deleter(old.id, tenant_id=old.tenant_id)
-        except Exception:
+        except Exception as exc:
             # Swallowing this left the old edge in the graph while the new one
             # was written — two contradictory facts, silently (BL-10).
-            logger.warning("delete_relation(%s) failed; dual fact may remain", old.id)
+            record_degradation(
+                "graph",
+                REASON_STORE_WRITE_FAILED,
+                exc,
+                severity=ChannelStatus.FAILED,
+                relation_id=old.id,
+            )
 
     def _refresh_index(self, to_write: list[Triple]) -> None:
         _ents, rels = triples_to_records(to_write)

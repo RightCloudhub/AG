@@ -40,6 +40,17 @@ export const zh = Object.freeze({
     noConfidence: '未评估', meta: '{hops} 跳 · {time} · {calls} 次调用 · {tokens} tok', askAgain: '重新提问',
     confidenceTag: '置信度 {level} {pct}%',
     confidence: '置信度', confidenceLevels: { high: '高', medium: '中', low: '低' },
+    // O-9: shown as a badge when a retrieval channel failed during the run.
+    degraded: '检索降级：{channels}', lowConfidence: '检索通道均失效，结论不可靠',
+    degradedChannels: {
+      vector: '向量', fulltext: '全文', graph: '图谱', rerank: '重排', embedding: '向量化', llm: '大模型',
+      audit_store: '审计', audit_events: '审计', answer_cache: '答案缓存', doc_store: '文档库',
+      mail: '邮件', ingest: '入库', graph_ingest: '入图', knowledge_extract: '抽取', eval: '评测',
+      query_stream: '查询流', event_bus: '事件总线', critic: '评审', agent_recovery: '恢复',
+      requirement_register: '需求清单', entity_lexicon: '实体词表', conflict_index: '冲突索引',
+      fulltext_index: '全文索引', doc_provenance: '溯源', auth_config: '认证配置', request_context: '请求上下文',
+      review_queue: '复核队列',
+    },
     status: { answered: '已回答', partial: '部分回答', no_answer: '未找到答案' },
     routes: { agentic: '多跳', fast_path: '快速', baseline: '基线', chitchat: '闲聊' },
     critics: { sufficient: '充分', next_hop: '继续下一跳', rewrite: '改写子问题', give_up: '放弃' },

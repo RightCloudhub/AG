@@ -11,6 +11,7 @@ from agentic_graphrag.agent.entity_stopwords import (
     is_stopword_entity,
     normalize_entity_key,
 )
+from agentic_graphrag.observability.degradation import REASON_UNEXPECTED, record_degradation
 
 
 @dataclass
@@ -31,7 +32,9 @@ def default_lexicon_from_seed() -> tuple[str, ...]:
     """Load entity surface forms from seed triples (project root)."""
     try:
         return _load_seed_lexicon()
-    except Exception:
+    except Exception as exc:
+        # Without the seed lexicon only capitalised/quoted mentions still match.
+        record_degradation("entity_lexicon", REASON_UNEXPECTED, exc)
         return ()
 
 

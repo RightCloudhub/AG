@@ -11,9 +11,10 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentic_graphrag.config_degradation import DegradationConfig
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
 from agentic_graphrag.config_llm import LLMResilienceConfig
-from agentic_graphrag.config_paths import find_root
+from agentic_graphrag.config_paths import PathsConfig, find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
 from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, DEFAULT_RRF_K
 from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, RerankKind
@@ -106,15 +107,6 @@ class LLMConfig(BaseModel):
     resilience: LLMResilienceConfig = Field(default_factory=LLMResilienceConfig)  # O-8
 
 
-class PathsConfig(BaseModel):
-    data_dir: str = "data"
-    raw_docs_dir: str = "data/raw"
-    processed_dir: str = "data/processed"
-    cache_dir: str = "data/cache"
-    indexes_dir: str = "data/indexes"
-    prompts_dir: str = "configs/prompts"
-
-
 class EvalConfig(BaseModel):
     cases_path: str = "evals/datasets/poc_cases.jsonl"
     report_dir: str = "reports"
@@ -126,6 +118,7 @@ class AppConfig(BaseModel):
     guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
+    degradation: DegradationConfig = Field(default_factory=DegradationConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)

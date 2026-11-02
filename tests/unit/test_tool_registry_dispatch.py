@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from agentic_graphrag.agent.executor_dispatch import TOOL_HANDLERS, dispatch
+from agentic_graphrag.agent.executor_dispatch import dispatch
+from agentic_graphrag.agent.executor_tools import TOOL_HANDLERS
 from agentic_graphrag.agent.tools import ToolSpec, default_retrieval_tools
 
 

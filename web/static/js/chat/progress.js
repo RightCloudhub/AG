@@ -5,7 +5,7 @@
  * the ref. Hit counts come from the final chain's steps because hop_done frames
  * do not carry them; elapsed time is measured client-side.
  */
-import { StepPhase, StepState, ThinkingStage } from '../contracts.js';
+import { StepPhase, StepState, ThinkingStage, isRecord } from '../contracts.js';
 import { record, text, number, strings } from '../responses.js';
 
 /** @typedef {import('./types.js').ProgressModel} ProgressModel */
@@ -17,7 +17,7 @@ import { record, text, number, strings } from '../responses.js';
 export function emptyProgress(now) {
   return {
     startedAt: now, phase: StepPhase.PLAN, state: StepState.ACTIVE, planText: '', planDetail: '',
-    note: '', route: '', cacheHit: false, hops: [],
+    note: '', route: '', cacheHit: false, degraded: [], lowConfidence: false, hops: [],
   };
 }
 
@@ -74,6 +74,16 @@ export function applyHopDone(model, payload, now) {
 /** @param {ProgressModel} model */
 export function applyCacheHit(model) {
   return { ...model, cacheHit: true };
+}
+
+/** One or more retrieval channels failed (O-9). @param {ProgressModel} model @param {unknown} payload */
+export function applyDegraded(model, payload) {
+  const data = record(payload);
+  const channels = Array.isArray(data.channels) ? data.channels : [];
+  const degraded = channels.filter(isRecord).map(c => ({
+    channel: text(c.channel), reason: text(c.reason), status: text(c.status),
+  }));
+  return { ...model, degraded, lowConfidence: data.low_confidence === true };
 }
 
 /** Attach the final chain: hit counts per hop and the answer phase. @param {ProgressModel} model @param {Answer} answer */

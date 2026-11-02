@@ -17,15 +17,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from agentic_graphrag.core.json_types import JsonObject
-from agentic_graphrag.core.ports.stores import ChunkRecord, DocStore, FulltextStore, VectorStore
+from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, VectorStore
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.ingest import chunk_document
+from agentic_graphrag.knowledge.ingest_stages import embed_chunks, index_chunks, ingest_graph
 from agentic_graphrag.knowledge.ingest_tasks import (
     DEFAULT_STALE_SECONDS,
     IngestStatus,
     IngestTask,
     IngestTaskStore,
+)
+from agentic_graphrag.observability.degradation import (
+    REASON_UNEXPECTED,
+    ChannelStatus,
+    record_degradation,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,63 +136,23 @@ class IngestWorker:
         if not chunks:
             self._processed.add(doc_id)
             return IngestResult(doc_id=doc_id)
-        embed_error = self._embed_chunks(chunks)
-        indexed = self._index_chunks(doc_id, chunks)
+        embed_error = embed_chunks(self.embed_fn, chunks)
+        indexed = index_chunks(
+            chunks,
+            doc_id=doc_id,
+            vector_store=self.vector_store,
+            fulltext_store=self.fulltext_store,
+        )
         self._processed.add(doc_id)
         return IngestResult(
             doc_id=doc_id,
             chunks_created=len(chunks),
             chunks_indexed=indexed,
             error=embed_error,
-            graph=self._ingest_graph(chunks, doc.tenant_id, batch_id),
+            graph=ingest_graph(
+                self.graph_ingestor, chunks, tenant_id=doc.tenant_id, batch_id=batch_id
+            ),
         )
-
-    def _ingest_graph(
-        self, chunks: list[ChunkRecord], tenant_id: str, batch_id: str
-    ) -> JsonObject | None:
-        """Graph stage (BL-01); a failure is reported, never silently dropped."""
-        if self.graph_ingestor is None:
-            return None
-        try:
-            outcome = self.graph_ingestor.ingest_chunks(
-                chunks, tenant_id=tenant_id, batch_id=batch_id
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Graph ingest failed: %s", exc)
-            return {"error": f"graph_ingest_failed: {type(exc).__name__}"}
-        return outcome.to_dict()
-
-    def _embed_chunks(self, chunks: list[Any]) -> str | None:
-        """Embed every chunk; return an error when none of them succeeded.
-
-        Per-chunk warnings alone let a run where *every* embed failed finish as
-        ``done`` with zero vectors indexed (docs/design/BUSINESS_LOGIC.md BL-10).
-        """
-        if self.embed_fn is None:
-            return None
-        failures = 0
-        for chunk in chunks:
-            try:
-                chunk.embedding = self.embed_fn(chunk.text)
-            except Exception as exc:  # noqa: BLE001
-                failures += 1
-                logger.warning("Embed failed for %s: %s", chunk.chunk_id, exc)
-        if failures and failures == len(chunks):
-            return f"embed_failed_all ({failures}/{len(chunks)})"
-        if failures:
-            logger.warning("Embed failed for %d/%d chunks", failures, len(chunks))
-        return None
-
-    def _index_chunks(self, doc_id: str, chunks: list[Any]) -> int:
-        embedded = [chunk for chunk in chunks if chunk.embedding]
-        indexed = self.vector_store.upsert(embedded) if embedded else 0
-        if self.fulltext_store is None:
-            return indexed
-        try:
-            self.fulltext_store.index(chunks)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Fulltext index failed for %s: %s", doc_id, exc)
-        return indexed
 
     def run_once(self) -> list[IngestResult]:
         """Poll queued tasks first, then legacy unprocessed documents."""
@@ -234,6 +199,13 @@ class IngestWorker:
         try:
             results = self._process_task_docs(task)
         except Exception as exc:  # noqa: BLE001
+            record_degradation(
+                "ingest",
+                REASON_UNEXPECTED,
+                exc,
+                severity=ChannelStatus.FAILED,
+                task_id=task.id,
+            )
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
             return []
         self._finalize(task.id, *task_outcome(results))
@@ -288,7 +260,9 @@ class IngestWorker:
                         ", ".join(r.doc_id for r in results),
                     )
             except Exception as exc:  # noqa: BLE001
-                logger.error("IngestWorker error: %s", exc)
+                # The worker loop must survive, but a silent pass hid a worker
+                # that never ingested anything (O-9).
+                record_degradation("ingest", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED)
             self._stop.wait(timeout=self.config.poll_interval_seconds)
         logger.info("IngestWorker stopped")
 

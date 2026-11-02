@@ -19,6 +19,7 @@ from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.observability.degradation import REASON_UNEXPECTED, record_degradation
 
 _RECURSION_REASON = "agent recursion_limit reached (guardrail backstop)"
 
@@ -80,7 +81,8 @@ def _checkpoint_values(graph: AgentGraph, thread_id: str) -> dict[str, Any] | No
         from agentic_graphrag.agent.loop import invoke_config
 
         snap = graph.get_state(invoke_config(thread_id))
-    except Exception:  # noqa: BLE001 — recovery must not raise
+    except Exception as exc:  # noqa: BLE001 — recovery must not raise
+        record_degradation("agent_recovery", REASON_UNEXPECTED, exc, step="checkpoint_read")
         return None
     if snap is None:
         return None
@@ -92,8 +94,8 @@ def _chain_from_state(state: dict[str, Any] | None, question: str) -> ReasoningC
     if state and state.get("chain"):
         try:
             return ReasoningChain.model_validate(state["chain"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            record_degradation("agent_recovery", REASON_UNEXPECTED, exc, step="chain_parse")
     return ReasoningChain(question=question, route=QueryRoute.AGENTIC)
 
 
@@ -104,7 +106,8 @@ def _evidence_from_state(state: dict[str, Any] | None) -> list[Candidate]:
     for raw in state.get("evidence") or []:
         try:
             out.append(Candidate.model_validate(raw))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            record_degradation("agent_recovery", REASON_UNEXPECTED, exc, step="evidence_parse")
             continue
     return out
 

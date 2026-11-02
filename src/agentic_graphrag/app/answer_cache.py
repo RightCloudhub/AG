@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
+from agentic_graphrag.app.degradation_policy import promote_degradation_fields
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
+from agentic_graphrag.observability.degradation import (
+    DEGRADED_CHANNELS_KEY,
+    LOW_CONFIDENCE_KEY,
+    REASON_CACHE_WRITE_FAILED,
+    record_degradation,
+)
 
 if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
@@ -34,7 +41,7 @@ def _try_answer_cache(
     meta = hit.get("metadata") if isinstance(hit, dict) else None
     if isinstance(meta, dict) and meta.get("tenant_id") not in (None, tenant_id):
         return None
-    data = QueryResultData.model_validate(hit)
+    data = QueryResultData.model_validate(promote_degradation_fields(dict(hit)))
     data.metadata = {**(data.metadata or {}), "cache_hit": True}
     return data
 
@@ -46,7 +53,9 @@ def _is_cacheable_answer(chain: ReasoningChain) -> bool:
     if not (chain.answer or "").strip():
         return False
     meta = chain.metadata or {}
-    if meta.get("llm_degraded"):
+    # Even a single degraded channel can leave incomplete evidence or fallback
+    # text that must be recomputed after recovery, regardless of low_confidence.
+    if meta.get("llm_degraded") or meta.get(LOW_CONFIDENCE_KEY) or meta.get(DEGRADED_CHANNELS_KEY):
         return False
     return True
 
@@ -74,5 +83,6 @@ def _maybe_cache_answer(
             force_agentic=req.force_agentic,
             timeout_ms=req.timeout_ms,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        # Losing the cache write only costs the next identical query.
+        record_degradation("answer_cache", REASON_CACHE_WRITE_FAILED, exc)

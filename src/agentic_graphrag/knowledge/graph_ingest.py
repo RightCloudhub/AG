@@ -14,7 +14,6 @@ document, so an upload reaches the graph without a separate CLI step.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -28,8 +27,7 @@ from agentic_graphrag.knowledge.incremental import IncrementalUpdater
 from agentic_graphrag.knowledge.resolution import normalize_key
 from agentic_graphrag.knowledge.review.queue import ReviewQueue
 from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, default_schema
-
-logger = logging.getLogger(__name__)
+from agentic_graphrag.observability.degradation import REASON_EXTRACT_FAILED, record_degradation
 
 _ENTITY_SCAN_LIMIT = 100_000
 
@@ -115,7 +113,11 @@ class GraphIngestor:
         try:
             accepted, rejected = extract_from_chunk(chunk, self.schema, self.llm)
         except Exception as exc:  # noqa: BLE001 — one bad chunk must not sink the doc
-            logger.warning("LLM extract failed for %s, using rules: %s", chunk.chunk_id, exc)
+            # Rule extraction still runs, so the doc reaches the graph with
+            # weaker triples; the loss must be visible (O-9).
+            record_degradation(
+                "knowledge_extract", REASON_EXTRACT_FAILED, exc, chunk_id=chunk.chunk_id
+            )
             result.error = f"llm_extract_failed: {type(exc).__name__}"
             return extract_rules_from_chunk(chunk)
         result.rejected += len(rejected)

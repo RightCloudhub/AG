@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -17,8 +16,12 @@ from agentic_graphrag.core.constants import BYTES_PER_MEBIBYTE
 from agentic_graphrag.core.enums import IngestStatus
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.stores import DocumentRecord
-
-logger = logging.getLogger(__name__)
+from agentic_graphrag.observability.degradation import (
+    REASON_AUDIT_WRITE_FAILED,
+    REASON_DOC_WRITE_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 
 MAX_FILE_SIZE_BYTES = 5 * BYTES_PER_MEBIBYTE
 MAX_BATCH_FILES = 20
@@ -132,7 +135,13 @@ async def _save_upload(
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
         # task still listed it as queued (docs/design/BUSINESS_LOGIC.md BL-10).
-        logger.error("Doc store save failed for %s: %s", doc_id, exc, exc_info=True)
+        record_degradation(
+            "doc_store",
+            REASON_DOC_WRITE_FAILED,
+            exc,
+            severity=ChannelStatus.FAILED,
+            doc_id=doc_id,
+        )
         row["error"] = f"save_failed: {type(exc).__name__}"
     return row
 
@@ -161,5 +170,7 @@ def emit_audit(request: Request, event: dict[str, Any]) -> None:
         tenant_id = principal.tenant_id if principal else "default"
         user_id = principal.user_id if principal else "anonymous"
         emit_audit_event(tenant_id=tenant_id, user_id=user_id, **event)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        record_degradation(
+            "audit_events", REASON_AUDIT_WRITE_FAILED, exc, severity=ChannelStatus.FAILED
+        )

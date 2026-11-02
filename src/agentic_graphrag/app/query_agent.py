@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import run_query as agent_run_query
+from agentic_graphrag.agent.options import QueryOptions
 from agentic_graphrag.app.contracts import QueryRequest
 from agentic_graphrag.app.errors import INTERNAL_ERROR, SERVICE_UNAVAILABLE, ApiError
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
+from agentic_graphrag.observability.context import query_context, submit_with_context
 from agentic_graphrag.observability.trace import TraceContext, span
 
 if TYPE_CHECKING:
@@ -50,7 +52,8 @@ def run_agent_with_timeout(
 ) -> ReasoningChain:
     """Hard wall-clock timeout around the agent (hop checks alone cannot cancel LLM I/O)."""
     timeout_s = float(guard_cfg.query_timeout_seconds or 0)
-    fut = _AGENT_POOL.submit(
+    fut = submit_with_context(
+        _AGENT_POOL,
         run_agent,
         svc,
         req,
@@ -87,24 +90,28 @@ def run_agent(
     budget_error_factory: Callable[[BudgetExceeded], ApiError],
     tenant_id: str = "",
 ) -> ReasoningChain:
-    try:
-        with span(trace_ctx, "run_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
-            return agent_run_query(
-                req.question,
-                executor,
-                llm if svc.allow_llm else None,
-                guard_cfg=guard_cfg,
-                budget=budget,
-                allow_llm=svc.allow_llm,
-                force_agentic=req.force_agentic,
-                enable_triage=svc.enable_triage and not req.force_agentic,
-                known_entities=executor.known_entities,
-                tenant_id=tenant_id,
-            )
-    except BudgetExceeded as exc:
-        raise budget_error_factory(exc) from exc
-    except Exception as exc:  # noqa: BLE001 — map to safe envelope
-        raise map_query_exception(exc) from exc
+    with query_context(query_id=trace_ctx.query_id, tenant_id=tenant_id, user_id=trace_ctx.user_id):
+        try:
+            with span(trace_ctx, "run_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
+                return agent_run_query(
+                    req.question,
+                    executor,
+                    llm if svc.allow_llm else None,
+                    options=QueryOptions(
+                        query_id=trace_ctx.query_id,
+                        guard_cfg=guard_cfg,
+                        budget=budget,
+                        allow_llm=svc.allow_llm,
+                        force_agentic=req.force_agentic,
+                        enable_triage=svc.enable_triage and not req.force_agentic,
+                        known_entities=executor.known_entities,
+                        tenant_id=tenant_id,
+                    ),
+                )
+        except BudgetExceeded as exc:
+            raise budget_error_factory(exc) from exc
+        except Exception as exc:  # noqa: BLE001 — map to safe envelope
+            raise map_query_exception(exc) from exc
 
 
 def map_query_exception(exc: BaseException) -> ApiError:

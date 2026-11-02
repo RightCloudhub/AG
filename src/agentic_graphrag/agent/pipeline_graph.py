@@ -83,7 +83,11 @@ def _iter_agentic(
     rec_limit = (
         opts.recursion_limit if opts.recursion_limit is not None else guard_cfg.recursion_limit
     )
-    chain = ReasoningChain(question=ctx.question, route=QueryRoute.AGENTIC)
+    chain = ReasoningChain(
+        question=ctx.question,
+        route=QueryRoute.AGENTIC,
+        query_id=ctx.opts.query_id or str(uuid4()),
+    )
     tid = opts.thread_id or chain.query_id or str(uuid4())
     graph = build_graph(
         ctx.executor, ctx.llm, guard_cfg, budget=budget, checkpointer=opts.checkpointer

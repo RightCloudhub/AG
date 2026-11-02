@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.agent.executor import Executor, ExecutorConfig, ExecutorDeps
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
+from agentic_graphrag.app.degradation_policy import promote_degradation_fields
 from agentic_graphrag.config import (
     AppConfig,
     RetrievalConfig,
@@ -24,6 +25,7 @@ from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.llm.provider import MockLLMProvider
+from agentic_graphrag.observability.degradation import ChannelHealth
 from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
@@ -58,13 +60,13 @@ def _entities_from_triples(triples: list[Triple]) -> list[str]:
 
 
 def _chain_to_data(chain: ReasoningChain) -> QueryResultData:
-    payload = chain.model_dump(mode="json")
-    # Promote metadata.evidence catalog to top-level for UI citation click-through.
+    # Degradation state lives in chain metadata; promote it (same helper the
+    # answer-cache replay path uses) so both report the same channels.
+    payload = promote_degradation_fields(chain.model_dump(mode="json"))
     meta = payload.get("metadata") or {}
-    if not payload.get("evidence") and isinstance(meta, dict):
-        catalog = meta.get("evidence") or []
-        if catalog:
-            payload["evidence"] = catalog
+    # Evidence catalog promoted for UI citation click-through.
+    if isinstance(meta, dict) and not payload.get("evidence"):
+        payload["evidence"] = meta.get("evidence") or []
     return QueryResultData.model_validate(payload)
 
 
@@ -80,18 +82,22 @@ def build_executor_for_service(
     tenant_id: str | None = None,
 ) -> Executor:
     ret = cfg.retrieval
-    reranker = build_reranker(ret.rerank)
+    # One health object per query run, shared by every retriever and the executor
+    # so each swallowed failure lands in the same `degraded_channels` list (O-9).
+    health = ChannelHealth()
+    reranker = build_reranker(ret.rerank, health=health)
     vec_k, ft_k = _recall_sizes(ret, reranked=reranker is not None)
-    graph_ret = GraphRetriever.from_config(bundle.graph, cfg)
-    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k)
+    graph_ret = GraphRetriever.from_config(bundle.graph, cfg, health=health)
+    fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k, health=health)
     llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
-    vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k)
+    vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k, health=health)
     deps = ExecutorDeps(
         vector=vector_ret,
         fulltext=fulltext_ret,
         llm=llm_for_embed if allow_llm else None,
         known_entities=known_entities,
         tenant_id=tenant_id,
+        health=health,
     )
     config = ExecutorConfig(
         parallel=bool(ret.parallel),

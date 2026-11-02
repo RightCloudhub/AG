@@ -15,11 +15,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agentic_graphrag.core.enums import MergeAction, MessageRole, ResolutionMethod
+from agentic_graphrag.core.enums import MergeAction, MessageRole, ResolutionMethod, RetrievalChannel
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore
 from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
 from agentic_graphrag.llm.structured import complete_structured
+from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 _ALIAS_SCORE = 0.95
 _NGRAM_N = 3
@@ -266,7 +267,9 @@ class EntityResolver:
                 MergeDecision,
                 tier=Tier.LIGHT,
             )
-        except Exception:
+        except Exception as exc:
+            # Uncertain decisions go to human review; the outage must be visible.
+            record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, exc, step="merge")
             return MergeDecision(
                 action=MergeAction.UNCERTAIN, confidence=0.0, rationale="llm failed"
             )

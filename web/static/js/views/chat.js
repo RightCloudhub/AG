@@ -23,7 +23,7 @@ import { suggestFollowups } from '../chat/followups.js';
 import { buildPages } from '../chat/pages.js';
 import { hopClass, hopOfEvidence, linkPending, railFromAnswer, railFromProgress } from '../chat/hoprail.js';
 import {
-  citationsFor, citeSnippet, confidenceClass, confidenceTag, copyText, logFrame, metaLine, railAria, railLabel, railMeta, routeLabel,
+  citationsFor, citeSnippet, confidenceClass, confidenceTag, copyText, degradedClass, degradedTag, logFrame, metaLine, railAria, railLabel, railMeta, routeLabel,
 } from '../chat/presenters.js';
 import { COMPOSER_TEMPLATE, WIZARD_TEMPLATE } from '../chat/tpl_composer.js';
 import { PAGE_TEMPLATE, WELCOME_GROUPS, WELCOME_TEMPLATE } from '../chat/tpl_page.js';
@@ -142,6 +142,7 @@ export default {
         [StreamEvent.SUB_QUESTION](p) { log(StreamEvent.SUB_QUESTION, p); update(m => progress.applySubQuestion(m, p, Date.now())); },
         [StreamEvent.HOP_DONE](p) { log(StreamEvent.HOP_DONE, p); update(m => progress.applyHopDone(m, p, Date.now())); },
         [StreamEvent.CACHE_HIT](p) { log(StreamEvent.CACHE_HIT, p); update(progress.applyCacheHit); },
+        [StreamEvent.DEGRADED](p) { log(StreamEvent.DEGRADED, p); update(m => progress.applyDegraded(m, p)); },
         [StreamEvent.ANSWER](p) { log(StreamEvent.ANSWER, p); finish(parseAnswer(p), q, target); },
         [StreamEvent.ERROR](p) { log(StreamEvent.ERROR, p); fail(text(record(p).message, T.common.unknownError), target); },
         done() { if (streaming.value) settle(); },
@@ -254,7 +255,7 @@ export default {
       pages, planLines, canSend, feedbackReasons, sendQuestion, confirmPlan, cancelPlan, cancelStream, handleKeydown, onSlash, submitFeedback,
       startNegative, useHint, selectHop, isSelected, openEvidence, hopOf, rerunFromHop, askAgain, startEdit, saveEdit, cancelEdit, supplyKnowledge,
       noAnswerReason, toggleCopyMenu, closeCopyMenu, toggleHopMenu, closeHopMenu, copyValue, applyWizardAndSend, linkPending, hopClass,
-      citationsFor, citeSnippet, confidenceClass, confidenceTag, metaLine, railAria, railLabel, railMeta, routeLabel,
+      citationsFor, citeSnippet, confidenceClass, confidenceTag, degradedClass, degradedTag, metaLine, railAria, railLabel, railMeta, routeLabel,
       T, fmt, UiPolicy, MessageRole, ClarifyKind, QueryStatus, QueryRoute, WizardStep, RELATION_CATALOG, WELCOME_GROUPS,
     };
   },

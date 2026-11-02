@@ -157,6 +157,8 @@ agr-build-graph --triples data/processed/seed_triples.jsonl --no-llm            
 图谱/索引更新后调用 `RetrievalCache.on_index_update()`（代码侧）或重启进程（版本键失效）。
 磁盘：`data/cache/`。注意：**检索缓存键已含 tenant_id**（`retrieval_key(query, tools, tenant_id=…)`），带租户的检索正常读写缓存，隔离由键本身保证（BL-04）。`RetrievalCache.persist_cache_stats()` 写 `data/cache/cache_stats.json`（仅计数，非 embedding 向量；无读回路径，仅供人工查看）。
 
+缓存只接收健康结果：融合和 rerank 完成后，只要本次查询共享的 `ChannelHealth` 已记录任何非 OK 状态，就跳过该次及后续子查询的检索缓存写入，包括 embedding / reranker 回退。答案的 `degraded_channels` 非空时同样不写缓存，不要求触发 `low_confidence`。故障期间重复查询会重试后端，恢复后可重新获取完整证据；需要限制重试压力时应使用熔断或退避。检索及答案缓存均为进程内存缓存，部署修复时重启进程即可清除旧版本可能留下的降级结果。
+
 ### 5. 审计回查（推理链 + 安全事件）
 
 ```bash
@@ -212,7 +214,12 @@ PII 脱敏：`AGR_REDACTION_ENABLED=1`（默认关）启用正则管道，挂在
 
 Prometheus 抓取 `GET /metrics-prom`（公开，文本协议）。指标：
 `agr_queries_total`、`agr_latency_p50/p95/p99_ms`、`agr_route_queries_total{route}`、
-`agr_errors_total{code}`、`agr_budget_trips_total`、`agr_event_handler_failures_total{handler}`（V2 O-4：缓存失效等关键订阅者在重试后仍失败的次数；出现即说明缓存已被 fail-safe 清空，需要排查）。
+`agr_errors_total{code}`、`agr_budget_trips_total`、`agr_event_handler_failures_total{handler}`（V2 O-4：缓存失效等关键订阅者在重试后仍失败的次数；出现即说明缓存已被 fail-safe 清空，需要排查）、
+`agr_degradation_total{component,reason}`（O-9：被吞掉的依赖失败；`component` ∈ `vector`/`fulltext`/`graph`/`rerank`/`embedding`/`llm` 或子系统名，`reason` 是固定 slug，出现即说明有通道降级）。
+
+查询响应会同时返回 `degraded_channels`（每个降级通道及其原因）与 `low_confidence`；SSE 在 `answer` 之前多发一个 `degraded` 事件。当 `configs/default.yaml` 的 `degradation.low_confidence_channels`（默认 `[vector, graph]`）全部为 `failed` 时，答案被标记为不可靠 —— 这类查询的 `degraded_channels` 与告警应一起看。
+
+查询执行前会绑定本次 `tenant_id` / `query_id` / `user_id`，三个线程池为每个任务单独复制上下文；日志中的 `query_id` 与返回答案一致。SSE 在每次迭代和关闭时恢复自己的上下文，避免交错消费的查询串用身份。工具规划、triage 和 entailment 校验失败也会报告 `llm` 降级，即使答案正常生成；此类答案不写入答案缓存。
 
 告警规则示例（阈值沿用 `plan/engineering/cicd-observability.md` §3.3）：
 
@@ -231,14 +238,30 @@ groups:
       - alert: EventHandlerFailure
         expr: increase(agr_event_handler_failures_total[5m]) > 0
         labels: {severity: high}
+      # O-9: 第一条抓持续降级；第二条关联同一实例窗口内的两种通道故障。
+      - alert: RetrievalChannelDegrading
+        expr: rate(agr_degradation_total{component=~"vector|graph|fulltext"}[10m]) > 0.05
+        for: 10m
+        labels: {severity: medium}
+      - alert: RetrievalChannelsDown
+        expr: |
+          sum by (job, instance) (increase(agr_degradation_total{component="vector",reason=~".*unavailable"}[15m])) > 0
+          and on (job, instance)
+          sum by (job, instance) (increase(agr_degradation_total{component="graph",reason=~".*unavailable"}[15m])) > 0
+        labels: {severity: high}
       - alert: BudgetTripsSpike
         expr: increase(agr_budget_trips_total[10m]) > 10
         labels: {severity: medium}
 ```
 
+`RetrievalChannelsDown` 表示同一 `job` / `instance` 在过去 15 分钟内，vector 和 graph 都出现过 `unavailable` 事件；两次故障可能来自不同查询，也可能已恢复。故障增量离开窗口后告警解除，历史累计值不会令它永久触发。它不等于某次查询触发了 `low_confidence`；精确判断应读取查询响应。当前未导出 `agr_low_confidence_total`，如需按实际低置信度查询告警，应另增该计数后使用 `increase(agr_low_confidence_total[15m]) > 0`。
+
+`RetrievalChannelDegrading` 的 `0.05/s` 是每个 `component` / `reason` 序列约每 10 分钟超过 30 次降级，并要求持续 10 分钟，适用于持续故障。低流量部署若希望少量失败即报警，可将表达式改为 `increase(agr_degradation_total{component=~"vector|graph|fulltext"}[10m]) > 0`，并按响应要求缩短或移除 `for`。这些阈值需要结合实际流量调整。
+
 OTel：`./scripts/setup.sh --extras dev,otel` + `AGR_OTEL_ENABLED=1 AGR_OTEL_ENDPOINT=<collector>`；
 进程内 trace span 桥接为 OTel span 并重键为公开 `query_id`；入向解析 W3C `traceparent`，
 出向可用 `inject_trace_context()` 注入。无 SDK 时优雅退化为进程内 trace。
+span 创建、进入和退出失败均不影响业务结果；业务异常保持原类型，即使 span 清理同时失败。
 **collector / Jaeger / Tempo 实际导出与告警规则部署仍待环境验证。**
 
 ## 安全检查清单（P4-REL-02，2026-07-25 更新）

@@ -1,6 +1,6 @@
 // @ts-check
 /** Pure presentation helpers for the question page, the rail, the citations and the log. */
-import { StepState, StreamEvent, UiPolicy } from '../contracts.js';
+import { StepState, StreamEvent, UiPolicy, isRecord } from '../contracts.js';
 import { text as T, fmt } from '../i18n.js';
 import { record, text, number } from '../responses.js';
 import { hopTitle } from './hoprail.js';
@@ -66,6 +66,21 @@ export function confidenceTag(answer) {
 export function confidenceClass(answer) {
   const level = answer.confidence?.level;
   return level === 'high' ? 'tag--ok' : level === 'low' ? 'tag--warn' : 'tag';
+}
+
+/** "检索降级：向量、图谱" (O-9); empty when every channel answered. @param {Answer} answer */
+export function degradedTag(answer) {
+  if (answer.low_confidence === true) return T.answer.lowConfidence;
+  const channels = Array.isArray(answer.degraded) ? answer.degraded : [];
+  const names = /** @type {Record<string, string>} */ (T.answer.degradedChannels);
+  const labels = channels.filter(isRecord).map(c => text(c.channel)).filter(Boolean)
+    .map(channel => names[channel] ?? channel);
+  return labels.length ? fmt(T.answer.degraded, { channels: labels.join('、') }) : '';
+}
+
+/** @param {Answer} answer */
+export function degradedClass(answer) {
+  return answer.low_confidence === true ? 'tag--err' : 'tag--warn';
 }
 
 /** The label under a rail node (§5.1): what the hop found, else what it asked, at most 12 字. @param {RailItem} item */

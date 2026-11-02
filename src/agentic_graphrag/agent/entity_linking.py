@@ -9,7 +9,12 @@ better connected in the graph, and only when it clearly dominates.
 
 from __future__ import annotations
 
+from agentic_graphrag.core.enums import RetrievalChannel
 from agentic_graphrag.core.ports.stores import GraphStore
+from agentic_graphrag.observability.degradation import (
+    REASON_GRAPH_STORE_UNAVAILABLE,
+    record_degradation,
+)
 
 # The best candidate must have at least this many times the runner-up's degree.
 _DOMINANCE = 2
@@ -41,5 +46,7 @@ def _degree(store: GraphStore, name: str, *, tenant_id: str | None = None) -> in
         return len(
             store.neighbors(name, max_hops=1, limit=_DEGREE_PROBE_LIMIT, tenant_id=tenant_id)
         )
-    except Exception:  # noqa: BLE001 — a missing node simply has no prior
+    except Exception as exc:  # noqa: BLE001 — a missing node simply has no prior
+        # Losing the degree probe costs disambiguation, not the answer (O-9).
+        record_degradation(RetrievalChannel.GRAPH, REASON_GRAPH_STORE_UNAVAILABLE, exc)
         return 0

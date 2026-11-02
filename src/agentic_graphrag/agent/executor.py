@@ -25,6 +25,7 @@ from agentic_graphrag.core.enums import ExternalToolName, FusionMethod, Retrieva
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.observability.degradation import ChannelHealth
 from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.fusion import Reranker
@@ -68,6 +69,9 @@ class ExecutorDeps:
     llm: LLMClient | None = None
     known_entities: list[str] | None = None
     tenant_id: str | None = None
+    # Per-run channel health (O-9): the retrievers and the executor share one
+    # instance so a swallowed tool failure is visible in the response.
+    health: ChannelHealth | None = None
 
 
 @dataclass
@@ -109,6 +113,7 @@ class Executor:
         cache: RetrievalCache | None = None,
         reranker: Reranker | None = None,
         tools: ToolRegistry[list[Candidate]] | None = None,
+        health: ChannelHealth | None = None,
     ) -> None:
         self.graph = graph
         self.deps = deps or ExecutorDeps(
@@ -116,6 +121,7 @@ class Executor:
             fulltext=fulltext,
             llm=llm,
             known_entities=known_entities,
+            health=health,
         )
         self.config = _merge_config(
             config,
@@ -140,6 +146,7 @@ class Executor:
         # Every tool call goes through this registry (refactor §1.2).
         self.tools = tools if tools is not None else default_retrieval_tools()
         self.reranker = self.config.reranker
+        self.health = self.deps.health or ChannelHealth()
 
     def run(
         self,

@@ -1,16 +1,17 @@
 """Shared query-service telemetry helpers."""
 
-import logging
-
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.audit_store import AuditStore
+from agentic_graphrag.observability.degradation import (
+    REASON_AUDIT_WRITE_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.observability.metrics import QueryMetrics, get_metrics
-
-logger = logging.getLogger(__name__)
 
 
 def save_chain_audit(audit_store: AuditStore | None, chain: ReasoningChain) -> bool:
-    """Persist a chain to the audit store; log (never raise) on failure.
+    """Persist a chain to the audit store; record (never raise) on failure.
 
     A bare ``except: pass`` here let compliance records vanish silently — the
     query looked successful with no audit trail behind it (BL-10).
@@ -19,8 +20,14 @@ def save_chain_audit(audit_store: AuditStore | None, chain: ReasoningChain) -> b
         return False
     try:
         audit_store.save(chain)
-    except Exception:
-        logger.error("Audit save failed for query %s", chain.query_id, exc_info=True)
+    except Exception as exc:
+        record_degradation(
+            "audit_store",
+            REASON_AUDIT_WRITE_FAILED,
+            exc,
+            severity=ChannelStatus.FAILED,
+            query_id=chain.query_id,
+        )
         return False
     return True
 

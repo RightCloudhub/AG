@@ -126,7 +126,7 @@ def default_retrieval_tools(
 
     Handlers take keyword args ``executor``, ``args``, ``sub_question``, ``tenant_id``.
     """
-    from agentic_graphrag.agent.executor_dispatch import TOOL_HANDLERS
+    from agentic_graphrag.agent.executor_tools import TOOL_HANDLERS
 
     reg: ToolRegistry[list[Candidate]] = ToolRegistry(middleware)
     for name, desc, cost in _RETRIEVAL_TOOLS:
