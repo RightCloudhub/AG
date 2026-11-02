@@ -108,6 +108,7 @@ def attach_write_path(svc: QueryService) -> None:
             review_queue=svc.review_queue,
             task_store=svc.ingest_tasks,
             events=events_for(svc),
+            docs=svc.bundle.docs,
         )
     )
 
@@ -121,6 +122,7 @@ def review_executor_for(svc: QueryService) -> ReviewExecutor | None:
     executor.graph = svc.bundle.graph
     executor.review_queue = svc.review_queue
     executor.task_store = svc.ingest_tasks
+    executor.docs = svc.bundle.docs
     return executor
 
 

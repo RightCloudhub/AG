@@ -24,19 +24,23 @@ class IngestResult:
         return int((self.graph or {}).get("conflicts_review", 0))
 
 
-def task_outcome(results: list[IngestResult]) -> tuple[IngestStatus, str]:
+def task_outcome(
+    results: list[IngestResult], *, pending_reviews: int | None = None
+) -> tuple[IngestStatus, str]:
     failed = [r for r in results if r.fatal]
     if failed:
         return IngestStatus.FAILED, failed[0].error or "index_failed"
-    return _nonfatal_outcome(results)
+    return _nonfatal_outcome(results, pending_reviews=pending_reviews)
 
 
-def _nonfatal_outcome(results: list[IngestResult]) -> tuple[IngestStatus, str]:
+def _nonfatal_outcome(
+    results: list[IngestResult], *, pending_reviews: int | None
+) -> tuple[IngestStatus, str]:
     incomplete = sum(r.counts.get("incomplete", 0) for r in results)
     if incomplete or any(r.error for r in results):
         reasons = "; ".join(sorted(filter(None, (r.error for r in results))))
         return IngestStatus.PARTIAL, f"{incomplete} incomplete chunk(s); {reasons}"
-    pending = sum(r.review_items for r in results)
+    pending = sum(r.review_items for r in results) if pending_reviews is None else pending_reviews
     if pending:
         return IngestStatus.REVIEW, f"{REVIEW_MESSAGE_PREFIX}{pending} conflict(s) await review"
     return IngestStatus.DONE, _done_message(results)

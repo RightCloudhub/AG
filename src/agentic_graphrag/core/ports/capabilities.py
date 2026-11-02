@@ -11,6 +11,14 @@ DEFAULT_RELATION_SCAN = 50_000
 
 
 @runtime_checkable
+class ProcessLocalIndex(Protocol):
+    """A new generation means persisted checkpoints must be restored or invalidated."""
+
+    @property
+    def index_generation(self) -> str: ...
+
+
+@runtime_checkable
 class Closable(Protocol):
     @abstractmethod
     def close(self) -> None: ...

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
 from fastapi import Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from agentic_graphrag.app.documents import index_changed, lifecycle_for
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
@@ -130,8 +131,8 @@ async def _save_upload(
     )
     row = {"doc_id": doc_id, "bytes": str(len(content)), "name": file.filename or ""}
     try:
-        row = lifecycle_for(svc).accept(record)
-        index_changed(svc)
+        row = await run_in_threadpool(lifecycle_for(svc).accept, record)
+        await run_in_threadpool(index_changed, svc)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
         # task still listed it as queued (docs/design/BUSINESS_LOGIC.md BL-10).

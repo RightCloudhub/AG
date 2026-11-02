@@ -143,3 +143,53 @@ def test_upload_session_restart_and_expiry_are_tenant_scoped(tmp_path, monkeypat
     assert restarted.prune(tenant_id="alpha") == 1
     monkeypatch.setattr(module.time, "time", lambda: 100)
     assert restarted.get(other["id"], "beta")["name"] == "x.txt"
+
+
+def test_upload_acceptance_keeps_event_loop_responsive(client_service, monkeypatch):
+    import asyncio
+    import io
+    import threading
+
+    from starlette.datastructures import UploadFile
+
+    from agentic_graphrag.api.routes.knowledge_upload import save_uploads
+    from agentic_graphrag.knowledge.document_lifecycle import DocumentLifecycle
+
+    _, svc, _ = client_service
+    entered, released = threading.Event(), threading.Event()
+    accept = DocumentLifecycle.accept
+    observed = []
+
+    def blocking_accept(self, doc):
+        entered.set()
+        released.wait(timeout=2)
+        return accept(self, doc)
+
+    monkeypatch.setattr(DocumentLifecycle, "accept", blocking_accept)
+
+    async def probe():
+        while not entered.is_set():
+            await asyncio.sleep(0)
+        observed.append(not released.is_set())
+        released.set()
+
+    async def run():
+        await asyncio.gather(
+            save_uploads(
+                svc,
+                [UploadFile(io.BytesIO(b"evidence"), filename="x.txt")],
+                tenant_id="beta",
+                task_id="test",
+            ),
+            probe(),
+        )
+
+    # Watchdog prevents a broken event loop from hanging the regression test.
+    watchdog = threading.Timer(1, released.set)
+    watchdog.start()
+    try:
+        asyncio.run(run())
+    finally:
+        released.set()
+        watchdog.cancel()
+    assert observed == [True]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from uuid import uuid4
 
 from agentic_graphrag.core.ports.capabilities import (
     DEFAULT_RELATION_SCAN,
@@ -20,12 +21,14 @@ class InMemoryGraphStore(
     MemoryDocumentDeletion, EntityLister, RelationLister, RelationDeletion, EntityMutation
 ):
     def __init__(self) -> None:
+        self.index_generation = uuid4().hex
         self._entities: dict[str, EntityRecord] = {}
         self._relations: dict[str, RelationRecord] = {}
         # Lazy endpoint-name → relation keys index; None = stale (any mutation).
         self._by_name: dict[str, list[str]] | None = None
 
     def clear(self) -> None:
+        self.index_generation = uuid4().hex
         self._entities.clear()
         self._relations.clear()
         self._by_name = None

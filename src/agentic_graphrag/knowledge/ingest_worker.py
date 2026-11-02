@@ -108,7 +108,7 @@ class IngestWorker:
         results = []
         for doc_id, tenant in self.doc_store.list_refs():
             doc = self.doc_store.get(doc_id, tenant_id=tenant)
-            if doc and (doc.metadata.get("lifecycle") or not doc.metadata.get("index_complete")):
+            if doc and self.pipeline.needs_processing(doc):
                 results.append(self.process_doc(doc_id, tenant_id=tenant))
             if len(results) >= self.config.batch_size:
                 break
@@ -121,7 +121,7 @@ class IngestWorker:
             if did in attempted:
                 continue
             doc = self.doc_store.get(did, tenant_id=tenant_id)
-            if doc and (doc.metadata.get("lifecycle") or not doc.metadata.get("index_complete")):
+            if doc and self.pipeline.needs_processing(doc):
                 results.append(self.process_doc(did, tenant_id=tenant_id))
         return results
 
@@ -195,7 +195,22 @@ class IngestWorker:
         except Exception as exc:  # noqa: BLE001
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
             return [IngestResult("", error=type(exc).__name__, fatal=True)]
-        self._finalize(task.id, *task_outcome(results), counts=total_counts(results))
+        # Review execution uses the same lock, so a decision cannot miss settlement
+        # between counting pending items and publishing the terminal task state.
+        with self.doc_store.lock():
+            queue = self.graph_ingestor.review_queue if self.graph_ingestor else None
+            pending = (
+                queue.count(
+                    status="pending", type="conflict", tenant_id=task.tenant_id, batch_id=task.id
+                )
+                if queue is not None
+                else None
+            )
+            self._finalize(
+                task.id,
+                *task_outcome(results, pending_reviews=pending),
+                counts=total_counts(results),
+            )
         return results
 
     def _process_task_docs(self, task: IngestTask) -> list[IngestResult]:

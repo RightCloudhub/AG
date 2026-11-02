@@ -147,5 +147,12 @@ def _legacy_source(doc: DocumentRecord) -> str:
 
 def reset_index_state(doc: DocumentRecord) -> None:
     doc.chunks = []
-    for key in ("chunks_initialized", "index_complete", "index_error", "lifecycle", "replacement"):
+    for key in (
+        "chunks_initialized",
+        "index_complete",
+        "index_error",
+        "index_generations",
+        "lifecycle",
+        "replacement",
+    ):
         doc.metadata.pop(key, None)

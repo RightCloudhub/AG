@@ -269,8 +269,12 @@ CLI 为绝对 `file://` URI；需要自定义 source 的客户端使用 resumabl
 
 任务 `done` 表示全部必需阶段完成；`partial` 附每阶段 chunk 计数和脱敏错误。
 `failed` 中的 401 先修复 embedding 凭据，再显式 reconcile，避免重复认证请求。
-worker 在每批向量和每个图抽取后保存进度。进程中断的 `extracting` 任务在租约过期后重投；
-成功的 chunk 阶段不再调用 embedding / fulltext / graph。服务与 worker 必须共享 runtime
+worker 在每批向量和每个图抽取后仅更新对应 chunk 行，不再逐 chunk 重写正文和全部 embedding。
+已有 SQLite 文档首次打开时自动迁移到独立 chunk 表；升级前备份 `documents.sqlite3`，
+升级后不要混用旧版 writer。进程中断的 `extracting` 任务在租约过期后重投；
+持久 adapter 的成功阶段可直接跳过。内存 adapter 重建或清空后，reconcile 会恢复已保存的向量、
+重建 fulltext 并重新抽取图，完成后才更新 checkpoint；已完成文档也会检查内存索引代次。
+恢复已有向量不调用 embedding 服务。服务与 worker 必须共享 runtime
 目录；live profile 同时共享 Neo4j、Qdrant 和 BM25 snapshot。SQLite/文件锁适用于同机或支持
 可靠 POSIX 锁的共享卷；offline 的图和向量仍是进程本地，使用 API inline worker。
 
@@ -285,6 +289,10 @@ reconcile 同时恢复失败的版本替换/删除意图。DELETE 返回 503 `De
 时不要当成成功：修复存储后执行 reconcile，意图完成后源文档和 chunk journal 才删除。
 `DELETE /v1/documents/{UUID}` 仅 admin/operator 可用；跨租户与不存在均为 404，成功写审计。
 其它文档支持的图关系会保留，但删去已删除文档的 provenance。
+审核写入携带文档版本，并在文档锁内校验：来源已删除、已替换或尚在清理时，决策记录
+`execution.effect=stale_document`，不修改图。旧审核优先从任务记录读取版本；无版本时仅允许
+未替换的第一版文档。任务终态使用当前队列的 pending 数量；共享 JSONL 的 API/worker 会刷新
+其它进程的决策，已处理的审核不会令修复后的任务再次卡在 `review`。
 
 模型升级：先验证新模型服务，再让维护进程使用目标 `llm.embedding_model` 运行 reindex；
 查询会读取当前 collection 的 embedding_model 来选择 encoder；alias 在 embedding 请求期间变化时重新编码，

@@ -104,7 +104,12 @@ class GraphIngestor:
     def _extract(self, chunks: list[ChunkRecord], result: GraphIngestResult) -> list[Triple]:
         triples: list[Triple] = []
         for chunk in chunks:
-            triples.extend(self._extract_chunk(chunk, result))
+            extracted = self._extract_chunk(chunk, result)
+            for triple in extracted:
+                triple.source_doc_id = chunk.doc_id
+                triple.source_chunk_id = chunk.chunk_id
+                triple.source_doc_version = chunk.metadata.get("document_version")
+            triples.extend(extracted)
         return triples
 
     def _extract_chunk(self, chunk: ChunkRecord, result: GraphIngestResult) -> list[Triple]:

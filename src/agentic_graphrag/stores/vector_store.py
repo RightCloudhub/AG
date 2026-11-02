@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
@@ -158,6 +158,7 @@ class InMemoryVectorStore:
     """Simple in-memory cosine store for tests / offline POC without Qdrant."""
 
     def __init__(self) -> None:
+        self.index_generation = uuid4().hex
         self._items: list[ChunkRecord] = []
         self._dim: int | None = None
 
@@ -202,6 +203,7 @@ class InMemoryVectorStore:
 
     def clear(self) -> None:
         self._items.clear()
+        self.index_generation = uuid4().hex
 
     def close(self) -> None:
         return None
