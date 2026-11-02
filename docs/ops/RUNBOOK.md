@@ -212,7 +212,10 @@ PII 脱敏：`AGR_REDACTION_ENABLED=1`（默认关）启用正则管道，挂在
 
 Prometheus 抓取 `GET /metrics-prom`（公开，文本协议）。指标：
 `agr_queries_total`、`agr_latency_p50/p95/p99_ms`、`agr_route_queries_total{route}`、
-`agr_errors_total{code}`、`agr_budget_trips_total`、`agr_event_handler_failures_total{handler}`（V2 O-4：缓存失效等关键订阅者在重试后仍失败的次数；出现即说明缓存已被 fail-safe 清空，需要排查）。
+`agr_errors_total{code}`、`agr_budget_trips_total`、`agr_event_handler_failures_total{handler}`（V2 O-4：缓存失效等关键订阅者在重试后仍失败的次数；出现即说明缓存已被 fail-safe 清空，需要排查）、
+`agr_degradation_total{component,reason}`（O-9：被吞掉的依赖失败；`component` ∈ `vector`/`fulltext`/`graph`/`rerank`/`embedding`/`llm` 或子系统名，`reason` 是固定 slug，出现即说明有通道降级）。
+
+查询响应会同时返回 `degraded_channels`（每个降级通道及其原因）与 `low_confidence`；SSE 在 `answer` 之前多发一个 `degraded` 事件。当 `configs/default.yaml` 的 `degradation.low_confidence_channels`（默认 `[vector, graph]`）全部为 `failed` 时，答案被标记为不可靠 —— 这类查询的 `degraded_channels` 与告警应一起看。
 
 告警规则示例（阈值沿用 `plan/engineering/cicd-observability.md` §3.3）：
 
@@ -230,6 +233,18 @@ groups:
         labels: {severity: high}
       - alert: EventHandlerFailure
         expr: increase(agr_event_handler_failures_total[5m]) > 0
+        labels: {severity: high}
+      # O-9: 降级通道。第一条抓“任一通道持续失败”，第二条抓“向量/图都被打掉”
+      # —— 后者正是 low_confidence 的触发条件，此时答案不可当作正常结论。
+      - alert: RetrievalChannelDegrading
+        expr: rate(agr_degradation_total{component=~"vector|graph|fulltext"}[10m]) > 0.05
+        for: 10m
+        labels: {severity: medium}
+      - alert: RetrievalChannelsDown
+        expr: |
+          max_over_time(agr_degradation_total{component="vector",reason=~".*unavailable"}[15m]) > 0
+          and
+          max_over_time(agr_degradation_total{component="graph",reason=~".*unavailable"}[15m]) > 0
         labels: {severity: high}
       - alert: BudgetTripsSpike
         expr: increase(agr_budget_trips_total[10m]) > 10

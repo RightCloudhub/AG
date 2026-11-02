@@ -366,6 +366,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/ops/EXTERNAL_RUNTIMES.md`](../ops/EXTERNAL_RUNTIMES.md) |
 | 前端视觉校验（headless Chromium） | [`docs/EXTERNAL_RUNTIMES.md`](../EXTERNAL_RUNTIMES.md) |
+| 降级可观测性审计（O-9，含残留缺口：审计事件丢失未计数、/healthz 探测未计数） | [`docs/reviews/DEGRADATION_AUDIT.md`](./DEGRADATION_AUDIT.md) |
 
 ---
 
