@@ -114,7 +114,7 @@ Web 工作台：<http://localhost:8000/web>
 
 | 错误码 | HTTP | 常见根因 | 处置 |
 |--------|------|----------|------|
-| `INVALID_INPUT` | 400/404/413/422 | 参数越界、未知 ID、上传超限 | 看 details；404 对"不存在/跨租户"同形（防探测） |
+| `INVALID_INPUT` | 400/404/413/415/422 | 参数越界、未知 ID、上传超限、类型不支持、无法解码 | 415 检查签名及 MinerU 配置；422 检查编码/正文；404 对"不存在/跨租户"同形（防探测） |
 | `UNAUTHORIZED` | 401 | 缺 key / key 无效或过期 | 核对 `AGR_API_KEYS`；查 `/v1/audit-events?action=auth_failure` |
 | `FORBIDDEN` | 403 | 角色不足（ENT-04） | 换更高角色 key 或调整 key 的 role 段 |
 | `RATE_LIMITED` | 429 | 租户 QPS / 并发超限 | 查 `tenants:` 覆盖；`/v1/audit-events?action=rate_limited` |
@@ -197,6 +197,45 @@ PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker          # 常
 独立 worker 完成 chunk → embed → 索引 → 抽取入图（`ingest_worker_cli.py` 装配 `GraphIngestor`）；
 离线模式下它的图与内存索引都是进程本地的，对 API 不可见，因此离线场景推荐上面的同进程处理器（`AGR_INGEST_INLINE=1`）。可见性限制见 §3.5。
 
+### 6.1 文档解析与分块（BL-08）
+
+API 与 CLI 共用解析端口。默认离线支持 `.md`、`.txt`、`.html`、`.htm`，检测文本编码
+（含 GBK/GB18030）并去 BOM；HTML 保留标题/表格、移除导航与页脚。现有 Web 文件选择器
+仍限定 MD/TXT；新增格式使用 `POST /v1/docs` 或 `agr-ingest --input <目录>`。
+
+PDF、DOCX、PPTX、XLSX、PNG/JPEG/GIF/TIFF/BMP/WebP 需要部署支持相应格式的 MinerU
+HTTP 服务，然后在 `configs/default.yaml` 中显式设置：
+
+```yaml
+knowledge:
+  chunk_size_tokens: 512
+  chunk_overlap_tokens: 64
+  tokenizer: cl100k_base
+  parsing:
+    encoding_min_confidence: 0.8
+    encoding_preference: gb18030
+    mineru:
+      enabled: true
+      endpoint: http://127.0.0.1:8001/file_parse
+      timeout_seconds: 120
+```
+
+接口使用 multipart 字段 `files`，附带真实 MIME；表单包含 `return_md=true`、
+`return_images=false`、`return_content_list=false`、`parse_method=auto`。响应合约为
+`{"results":{"文件名":{"md_content":"# Markdown 正文"}}}`，一次只发一个文件。
+可选 `X-MinerU-Version` 响应头写入文档元数据。仓库不安装/下载 OCR 模型；离线测试
+mock 此接口，部署前需用真实 PDF、Office 和扫描件验证所用服务版本的解析能力。
+
+未配置 MinerU 或签名与扩展名不符返回 415；无法可靠解码/无正文返回 422；服务错误或
+超时返回 503。每文件 5 MiB、每批 20 个的限制不变（超限 413）。chunk 预算包含
+breadcrumb，大表格只按整行拆分并重复表头，单个代码块/列表项/引用块或表头加一行
+无法容纳时任务会 failed，提示增大 `chunk_size_tokens`。
+
+旧 `chunk_size_chars` / `chunk_overlap_chars` 必须迁移为 token 配置；旧键不被静默忽略。
+默认词表随包分发，无首次网络下载。本地自定义 tokenizer 的 JSON 合约见
+[编码器说明](../../src/agentic_graphrag/knowledge/tokenizers/README.md)。现有 doc_id 和
+chunk ID 格式不变，重新摄取会按新分块规则生成内容；本变更不重建既有索引或 embedding。
+
 ## 数据保留与清理（ENT-06）
 
 `configs/default.yaml` `retention:`（audit_chains 90 天 / audit_events 90 天 /
@@ -269,7 +308,7 @@ span 创建、进入和退出失败均不影响业务结果；业务异常保持
 - [ ] 无硬编码密钥；生产 `AGR_REQUIRE_AUTH=1` 且 key 带角色段（reader 缺省）
 - [ ] Cypher 参数化（Neo4j 适配器）
 - [ ] 错误 envelope 不泄露内部路径 / 栈（栈只入服务端 JSON 日志）
-- [x] 上传治理已在应用层兜底：单文件 ≤5MB（分片读取，超限立即中断）、单批 ≤20、类型白名单 md/txt（pdf 返回「暂不支持」）、非 UTF-8 拒绝、超限 413
+- [x] 上传治理已在应用层兜底：单文件 ≤5 MiB（分片读取，超限立即中断）、单批 ≤20；扩展名 + 签名校验、编码检测、可选 MinerU（§6.1）；类型 415、解码 422、超限 413
       （反向代理限制仍建议作为外层）
 - [ ] 租户隔离：应用层 `tenant_id` 已贯穿 stores / 检索 / agent / 审计 / 复核（ENT-06）；
       生产仍需物理分库或标签隔离核查 + 真实 Neo4j/Qdrant 跨租户回归（P4-REL-01 运维侧）

@@ -87,8 +87,16 @@ degradation:
   low_confidence_channels: [vector, graph]
 
 knowledge:
-  chunk_size_chars: 1200
-  chunk_overlap_chars: 150
+  chunk_size_tokens: 512       # Includes breadcrumb; replaces chunk_size_chars.
+  chunk_overlap_tokens: 64     # Maximum prose overlap within one heading path.
+  tokenizer: cl100k_base       # Bundled offline vocabulary, or a local encoder JSON path.
+  parsing:
+    encoding_min_confidence: 0.8  # 1 - charset-normalizer chaos; strict UTF-8 preferred.
+    encoding_preference: gb18030  # Tie-break only for ambiguous detected encodings.
+    mineru:
+      enabled: false
+      endpoint: ""            # Full MinerU HTTP /file_parse URL; explicitly opt in.
+      timeout_seconds: 120
   extract_confidence_threshold: 0.5
   schema_path: configs/schema/domain_v0.yaml
   extract_max_attempts: 3

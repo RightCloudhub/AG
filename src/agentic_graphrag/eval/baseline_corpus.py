@@ -9,6 +9,7 @@ from agentic_graphrag.config import AppConfig, resolve_path
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
+from agentic_graphrag.knowledge.parsers import create_parser
 from agentic_graphrag.llm.provider import MockLLMProvider
 
 
@@ -25,12 +26,13 @@ def load_or_build_chunks(
     if not docs_dir.exists():
         raise FileNotFoundError(f"No chunks at {chunks_path} and raw docs dir missing: {docs_dir}")
     chunks: list[ChunkRecord] = []
-    for doc in load_documents_from_dir(docs_dir):
+    for doc in load_documents_from_dir(docs_dir, parser=create_parser(cfg.knowledge.parsing)):
         chunks.extend(
             chunk_document(
                 doc,
-                chunk_size=cfg.knowledge.chunk_size_chars,
-                overlap=cfg.knowledge.chunk_overlap_chars,
+                chunk_size=cfg.knowledge.chunk_size_tokens,
+                overlap=cfg.knowledge.chunk_overlap_tokens,
+                tokenizer=cfg.knowledge.tokenizer,
             )
         )
     return chunks

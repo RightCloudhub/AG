@@ -53,8 +53,9 @@ def build_cli_worker() -> IngestWorker:
         fulltext_store=bundle.fulltext,
         task_store=IngestTaskStore(processed / "ingest_tasks.jsonl"),
         config=IngestWorkerConfig(
-            chunk_size_chars=cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=cfg.knowledge.chunk_overlap_chars,
+            chunk_size_tokens=cfg.knowledge.chunk_size_tokens,
+            chunk_overlap_tokens=cfg.knowledge.chunk_overlap_tokens,
+            tokenizer=cfg.knowledge.tokenizer,
         ),
         graph_ingestor=ingestor,
     )

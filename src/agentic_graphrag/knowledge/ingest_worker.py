@@ -18,15 +18,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, VectorStore
+from agentic_graphrag.knowledge.chunk_splitting import ChunkingError
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.ingest import chunk_document
 from agentic_graphrag.knowledge.ingest_stages import embed_chunks, index_chunks, ingest_graph
 from agentic_graphrag.knowledge.ingest_tasks import (
-    DEFAULT_STALE_SECONDS,
     IngestStatus,
     IngestTask,
     IngestTaskStore,
 )
+from agentic_graphrag.knowledge.ingest_worker_config import IngestWorkerConfig as IngestWorkerConfig
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
     ChannelStatus,
@@ -57,17 +58,6 @@ class IngestResult:
     @property
     def review_items(self) -> int:
         return int((self.graph or {}).get("conflicts_review", 0))
-
-
-@dataclass
-class IngestWorkerConfig:
-    """Tuning knobs for the background ingest loop."""
-
-    poll_interval_seconds: float = 5.0
-    batch_size: int = 10
-    chunk_size_chars: int = 1200
-    chunk_overlap_chars: int = 150
-    stale_task_seconds: float = DEFAULT_STALE_SECONDS
 
 
 def task_outcome(results: list[IngestResult]) -> tuple[IngestStatus, str]:
@@ -128,11 +118,15 @@ class IngestWorker:
         doc = self.doc_store.get(doc_id, tenant_id=tenant_id)
         if doc is None:
             return IngestResult(doc_id=doc_id, error="not_found")
-        chunks = chunk_document(
-            doc,
-            chunk_size=self.config.chunk_size_chars,
-            overlap=self.config.chunk_overlap_chars,
-        )
+        try:
+            chunks = chunk_document(
+                doc,
+                chunk_size=self.config.chunk_size_tokens,
+                overlap=self.config.chunk_overlap_tokens,
+                tokenizer=self.config.tokenizer,
+            )
+        except ChunkingError as exc:
+            return IngestResult(doc_id=doc_id, error=str(exc))
         if not chunks:
             self._processed.add(doc_id)
             return IngestResult(doc_id=doc_id)

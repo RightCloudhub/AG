@@ -10,12 +10,21 @@ if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
 from fastapi import Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
-from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+from agentic_graphrag.app.errors import INVALID_INPUT, SERVICE_UNAVAILABLE, ApiError
 from agentic_graphrag.core.constants import BYTES_PER_MEBIBYTE
 from agentic_graphrag.core.enums import IngestStatus
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.parsing import (
+    DocumentParseError,
+    ParsedDocument,
+    ParserServiceError,
+    UnsupportedDocumentType,
+)
 from agentic_graphrag.core.ports.stores import DocumentRecord
+from agentic_graphrag.knowledge.parsers import create_parser
+from agentic_graphrag.knowledge.parsers.sniff import validate_filename
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
     REASON_DOC_WRITE_FAILED,
@@ -26,39 +35,15 @@ from agentic_graphrag.observability.degradation import (
 MAX_FILE_SIZE_BYTES = 5 * BYTES_PER_MEBIBYTE
 MAX_BATCH_FILES = 20
 READ_CHUNK_BYTES = 256 * 1024
-# Text-only: every upload is decoded as UTF-8 and chunked as plain text. ``pdf``
-# used to sit here while no extractor existed, so PDFs were stored as mojibake
-# and indexed as if they were text (docs/design/BUSINESS_LOGIC.md BL-08).
-ALLOWED_EXTENSIONS = frozenset({"md", "txt"})
-# Rejected with an explicit "not supported yet" instead of a generic type error.
-KNOWN_UNSUPPORTED_EXTENSIONS = frozenset({"pdf"})
 UPLOAD_REJECT_STATUS = 413
 
 
 def validate_upload(file: UploadFile) -> None:
-    """Check a file extension against the upload allow list.
-
-    Extension-less names used to short-circuit the check entirely, so a file
-    simply named ``payload`` bypassed the allow list (BL-08).
-    """
-    name = (file.filename or "").lower()
-    ext = name.rsplit(".", 1)[-1] if "." in name else ""
-    if ext in ALLOWED_EXTENSIONS:
-        return
-    if ext in KNOWN_UNSUPPORTED_EXTENSIONS:
-        raise ApiError(
-            INVALID_INPUT,
-            f".{ext} upload is not supported yet (no text extractor); "
-            f"convert to {' or '.join(sorted(ALLOWED_EXTENSIONS))} first",
-            status_code=UPLOAD_REJECT_STATUS,
-        )
-    allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
-    shown = f".{ext}" if ext else "(no extension)"
-    raise ApiError(
-        INVALID_INPUT,
-        f"File type not allowed: {shown} (allowed: {allowed})",
-        status_code=UPLOAD_REJECT_STATUS,
-    )
+    """Check the allow list before buffering; the parser also checks magic bytes."""
+    try:
+        validate_filename(file.filename or "")
+    except UnsupportedDocumentType as exc:
+        raise ApiError(INVALID_INPUT, str(exc), status_code=415) from exc
 
 
 async def save_uploads(
@@ -98,16 +83,16 @@ async def _read_capped(file: UploadFile) -> bytes:
             )
 
 
-def _decode_text(file: UploadFile, content: bytes) -> str:
-    """Strict UTF-8 decode — never index replacement-character mojibake (BL-08)."""
+async def _parse_upload(svc: QueryService, file: UploadFile, content: bytes) -> ParsedDocument:
+    parser = create_parser(svc.cfg.knowledge.parsing)
     try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ApiError(
-            INVALID_INPUT,
-            f"File is not valid UTF-8 text: {file.filename}",
-            status_code=UPLOAD_REJECT_STATUS,
-        ) from exc
+        return await run_in_threadpool(parser.parse, content, filename=file.filename or "")
+    except UnsupportedDocumentType as exc:
+        raise ApiError(INVALID_INPUT, str(exc), status_code=415) from exc
+    except ParserServiceError as exc:
+        raise ApiError(SERVICE_UNAVAILABLE, str(exc), status_code=503) from exc
+    except DocumentParseError as exc:
+        raise ApiError(INVALID_INPUT, str(exc), status_code=422) from exc
 
 
 async def _save_upload(
@@ -115,17 +100,18 @@ async def _save_upload(
 ) -> dict[str, str]:
     validate_upload(file)
     content = await _read_capped(file)
-    text = _decode_text(file, content)
+    parsed = await _parse_upload(svc, file, content)
     doc_id = file.filename or str(uuid.uuid4())
     record = DocumentRecord(
         doc_id=doc_id,
         title=file.filename or doc_id,
-        content=text,
+        content=parsed.markdown,
         metadata={
             "task_id": task_id,
             "source": "upload",
             "bytes": len(content),
             "tenant_id": tenant_id,
+            **parsed.metadata(),
         },
         tenant_id=tenant_id,
     )

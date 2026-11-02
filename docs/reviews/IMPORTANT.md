@@ -228,7 +228,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
 | 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
 | SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |
-| 接入格式 | 仅 MD/TXT —— **PDF 已从上传白名单移除**（BL-08：无文本抽取器时入库即乱码，现返回「暂不支持」） | 若试点需要，PDF 文本作为一等路径（PRD 列了 PDF 文本），需先引入抽取依赖 |
+| 接入格式 | API/CLI 支持 MD/TXT/HTML 编码检测与结构化解析；PDF/Office/扫描件经显式配置的 MinerU（BL-08，默认关闭时 415） | 真实 MinerU 解析质量需部署验证；Web 选择器仍限定 MD/TXT，新增格式走 API/CLI |
 | 评测集布局 | `evals/datasets/poc_cases.jsonl` | `dev` / `heldout` / `guardrail` 分集（R7） |
 | LLM 判卷 | 不存在 | 结构计划中的 `evals/judge.py` |
 
@@ -374,3 +374,4 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 *关闭某项时：在此勾记，并同步阶段清单；门禁 JSON / 风险状态尽量同一变更集更新。*
 - [x] 2026-11-03 需求登记表边界修复：旧支撑引用永不删除、Verifier 独立模型配置与并发校验、累计否决退休及审计、跨跳收敛提醒与异常 WARNING；默认关闭及 `--no-llm` 不变；696 单测通过、覆盖率 89.53%、Ruff/mypy/代码指标通过，离线 G2 基线/候选均 200/200（McNemar p=1）；真实模型效果仍待配对评估。
 - [~] 2026-11-03 cross-encoder 重排：已补齐池扩展、批处理/截断/重试/熔断、图策略与 run 内缓存；无 TEI/live 预算，保持默认 none，待真实准确率与 P95 验收，见 [rerank_eval.md](../../reports/rerank_eval.md)。
+- [x] 2026-11-03 BL-08：统一解析端口、签名/编码校验、MinerU 适配器及含 breadcrumb 的 token 分块已完成；714 单测、89.82% 覆盖率，五组离线评测均无分数变化（0 pp），CI 下限未改；见 [验证记录](INGEST_PARSE_CHUNK.md)。

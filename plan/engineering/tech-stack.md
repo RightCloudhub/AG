@@ -118,6 +118,17 @@
   （取舍见设计文档 §4）。pip 仍是构建后端的互操作目标，第三方环境仍可用
   `pip install -e ".[otel]"`，但它不再是仓库推荐的安装路径。
 
+### ADR-009：统一文档解析端口与离线结构化分块（已采纳，2026-11-03）
+
+- **决策**：上传与 CLI 共用 `DocumentParser` 端口。文本经 charset-normalizer 检测编码，
+  HTML 用 trafilatura 提取正文、BeautifulSoup 兜底；PDF、Office 与扫描图片显式启用
+  MinerU HTTP 服务后解析。扩展名必须与文件签名一致，不能把任意二进制当作文本。
+- **分块**：markdown-it-py 识别标题层级、表格、列表与代码块；tiktoken 按 token 计量，
+  默认随包携带 `cl100k_base` 词表，首次运行也无需网络。允许配置本地编码器定义。
+  breadcrumb 占用预算，表格按整行拆分并重复表头；无法容纳的原子结构明确报错。
+- **边界**：MinerU 默认关闭；不安装 OCR 模型或在离线路径下载资源。不改变文档 ID、
+  chunk ID、索引及 embedding 逻辑。解析器版本、源 MIME 和标题路径进入元数据。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）
