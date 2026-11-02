@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agentic_graphrag.agent.register_llm import json_text
 from agentic_graphrag.agent.register_progress import context_size
-from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.agent.requirements import VERIFIER_RETIRE_REASON, Register
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.enums import PromptName, RequirementStatus
@@ -74,9 +74,13 @@ def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChai
 
 def _missing_requirements(register: Register, state: AgentState) -> list[str]:
     rejected = state.get("register_rejections", {})
+    # Rejection history survives later evidence-based retirement; check the cause.
     return [
         r.text
         for r in register.items.values()
         if r.status != RequirementStatus.RESOLVED
-        and (r.status != RequirementStatus.RETIRED or r.req_id in rejected)
+        and (
+            r.status != RequirementStatus.RETIRED
+            or r.retire_reason == VERIFIER_RETIRE_REASON.format(count=rejected.get(r.req_id, 0))
+        )
     ]

@@ -8,6 +8,7 @@ from agentic_graphrag.core.enums import RequirementStatus
 from agentic_graphrag.core.json_types import JsonObject
 
 OPEN_STATUSES = frozenset({RequirementStatus.PENDING, RequirementStatus.ACTIVE})
+VERIFIER_RETIRE_REASON = "verifier rejected {count} times"
 
 
 class Requirement(BaseModel):

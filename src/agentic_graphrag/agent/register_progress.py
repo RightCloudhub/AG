@@ -9,7 +9,7 @@ from contextvars import copy_context
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.register_invariants import schedule
 from agentic_graphrag.agent.register_llm import initial_context, json_text, verify
-from agentic_graphrag.agent.requirements import Register, Requirement, diff
+from agentic_graphrag.agent.requirements import VERIFIER_RETIRE_REASON, Register, Requirement, diff
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.config_register import RegisterVerifierConfig
@@ -96,7 +96,7 @@ def _apply_verdict(
         item.status = RequirementStatus.PENDING
         if counts[rid] >= limit:
             item.status = RequirementStatus.RETIRED
-            item.retire_reason = f"verifier rejected {counts[rid]} times"
+            item.retire_reason = VERIFIER_RETIRE_REASON.format(count=counts[rid])
     return {
         "type": "verification",
         "req_id": rid,

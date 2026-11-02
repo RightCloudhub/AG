@@ -173,7 +173,8 @@ def test_verifications_are_concurrent_and_reports_keep_requirement_order():
     assert all(r["entailed"] for r in reports)
 
 
-def test_verifier_retirement_stays_visible_as_missing_information():
+@pytest.mark.parametrize("policy,status", [("partial", "partial"), ("abstain", "no_answer")])
+def test_verifier_retirement_stays_visible_as_missing_information(policy, status):
     requirement = Requirement(
         req_id="owner",
         text="Who owns Acme?",
@@ -186,11 +187,68 @@ def test_verifier_retirement_stays_visible_as_missing_information():
         "requirement_register": register.snapshot(),
         "register_rejections": {"owner": 2},
         "register_stop": "clear",
+        "register_answer_policy": policy,
     }
     chain = annotate_register(ReasoningChain(question=QUESTION, status="answered"), state)
-    assert chain.status == "partial"
+    assert chain.status == status
     assert chain.missing_info == [requirement.text]
     assert chain.metadata["register_rejections"] == {"owner": 2}
+
+
+@pytest.mark.parametrize("policy", ["partial", "abstain"])
+def test_evidence_retirement_after_rejection_preserves_supported_answer(monkeypatch, policy):
+    fresh = Candidate(
+        id="c19",
+        source="fulltext",
+        content="Acme has no owner. Its headquarters is in Santa Monica.",
+    )
+    reason = "c19 contradicts the premise that Acme has an owner"
+    script = [
+        {"requirement_register": {"owner": initialization()["requirement_register"]["owner"]}},
+        {"requirement_register": {"owner": resolved_update()["requirement_register"]["owner"]}},
+        {"entailed": False, "reason": "ownership is not established"},
+        {
+            "requirement_register": {
+                "owner": {
+                    "text": "Who owns Acme?",
+                    "status": "retired",
+                    "retire_reason": reason,
+                    "passages": [fresh.id],
+                    "touched_passages": [fresh.id],
+                },
+                "city": {
+                    "text": "Where is Acme's own headquarters?",
+                    "status": "resolved",
+                    "passages": [fresh.id],
+                    "touched_passages": [fresh.id],
+                },
+            }
+        },
+        {"entailed": True, "reason": "headquarters is explicit"},
+        {
+            "answer": fresh.content,
+            "status": "answered",
+            "claims": [{"text": fresh.content, "evidence_ids": [fresh.id]}],
+        },
+    ]
+    executor, llm, guards, _, _ = setup_runtime(monkeypatch, script, answer_policy=policy)
+    runtime = AgentRuntime(executor, llm, guards)
+    state = runtime.node_critic(runtime.node_executor(start(runtime)))
+    assert state["register_rejections"] == {"owner": 1} and not state["done"]
+    runtime = AgentRuntime(executor, llm, guards)
+    state = runtime.node_executor(json.loads(json.dumps(state)))
+    state["evidence"].append(fresh.model_dump())
+    state["register_fresh"] = [fresh.id]
+    state = runtime.node_critic(state)
+    assert state["requirement_register"]["items"]["owner"]["retire_reason"] == reason
+    assert state["requirement_register"]["items"]["owner"]["status"] == "retired"
+    assert state["requirement_register"]["items"]["city"]["status"] == "resolved"
+    assert state["done"] and state["register_stop"] == "clear"
+    chain = ReasoningChain.model_validate(runtime.node_answer(state)["chain"])
+    assert chain.status == "answered" and chain.missing_info == []
+    assert chain.answer == fresh.content and chain.claims[0].evidence_ids == [fresh.id]
+    assert chain.metadata["register_rejections"] == {"owner": 1}
+    assert not llm.script
 
 
 def test_no_llm_does_not_configure_an_unsupported_custom_verifier(monkeypatch):
