@@ -1,0 +1,1512 @@
+{
+  "original": {
+    "base": {
+      "correct": 40,
+      "total": 40,
+      "accuracy": 1.0,
+      "ci95": [
+        0.9124,
+        1.0
+      ],
+      "latency_p50_ms": 43.0,
+      "latency_p95_ms": 71.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 1.0,
+          "ci95": [
+            0.4385,
+            1.0
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 40,
+      "total": 40,
+      "accuracy": 1.0,
+      "ci95": [
+        0.9124,
+        1.0
+      ],
+      "latency_p50_ms": 46.0,
+      "latency_p95_ms": 70.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 1.0,
+          "ci95": [
+            0.4385,
+            1.0
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 0,
+      "both": 40,
+      "neither": 0,
+      "p_value": 1.0
+    },
+    "verdict": "no_significant_difference",
+    "flipped_cases": []
+  },
+  "synonym": {
+    "base": {
+      "correct": 35,
+      "total": 40,
+      "accuracy": 0.875,
+      "ci95": [
+        0.7389,
+        0.9454
+      ],
+      "latency_p50_ms": 39.0,
+      "latency_p95_ms": 69.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 11,
+          "total": 16,
+          "accuracy": 0.6875,
+          "ci95": [
+            0.444,
+            0.8584
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 7,
+          "total": 8,
+          "accuracy": 0.875,
+          "ci95": [
+            0.5291,
+            0.9776
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 4,
+          "total": 5,
+          "accuracy": 0.8,
+          "ci95": [
+            0.3755,
+            0.9638
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.5615
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 37,
+      "total": 40,
+      "accuracy": 0.925,
+      "ci95": [
+        0.8014,
+        0.9742
+      ],
+      "latency_p50_ms": 45.0,
+      "latency_p95_ms": 72.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 13,
+          "total": 16,
+          "accuracy": 0.8125,
+          "ci95": [
+            0.5699,
+            0.9341
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 4,
+          "total": 5,
+          "accuracy": 0.8,
+          "ci95": [
+            0.3755,
+            0.9638
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 0.3333,
+          "ci95": [
+            0.0615,
+            0.7923
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 2,
+      "both": 35,
+      "neither": 3,
+      "p_value": 0.5
+    },
+    "verdict": "no_significant_difference",
+    "flipped_cases": [
+      {
+        "case_id": "g2-2hop-0005::synonym",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0088::synonym",
+        "candidate_correct": true
+      }
+    ]
+  },
+  "reordered": {
+    "base": {
+      "correct": 23,
+      "total": 40,
+      "accuracy": 0.575,
+      "ci95": [
+        0.422,
+        0.7149
+      ],
+      "latency_p50_ms": 42.0,
+      "latency_p95_ms": 63.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 5,
+          "total": 16,
+          "accuracy": 0.3125,
+          "ci95": [
+            0.1416,
+            0.556
+          ]
+        },
+        "3hop": {
+          "correct": 10,
+          "total": 16,
+          "accuracy": 0.625,
+          "ci95": [
+            0.3864,
+            0.8152
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 0,
+          "total": 8,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3244
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 0,
+          "total": 6,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3903
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.5615
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 23,
+      "total": 40,
+      "accuracy": 0.575,
+      "ci95": [
+        0.422,
+        0.7149
+      ],
+      "latency_p50_ms": 43.0,
+      "latency_p95_ms": 62.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 5,
+          "total": 16,
+          "accuracy": 0.3125,
+          "ci95": [
+            0.1416,
+            0.556
+          ]
+        },
+        "3hop": {
+          "correct": 10,
+          "total": 16,
+          "accuracy": 0.625,
+          "ci95": [
+            0.3864,
+            0.8152
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 0,
+          "total": 8,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3244
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 0,
+          "total": 6,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3903
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.5615
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 0,
+      "both": 23,
+      "neither": 17,
+      "p_value": 1.0
+    },
+    "verdict": "no_significant_difference",
+    "flipped_cases": []
+  },
+  "chinese": {
+    "base": {
+      "correct": 8,
+      "total": 40,
+      "accuracy": 0.2,
+      "ci95": [
+        0.105,
+        0.3476
+      ],
+      "latency_p50_ms": 26.0,
+      "latency_p95_ms": 43.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 0,
+          "total": 16,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.1936
+          ]
+        },
+        "3hop": {
+          "correct": 0,
+          "total": 16,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.1936
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 0,
+          "total": 10,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.2775
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 0,
+          "total": 8,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3244
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 0,
+          "total": 6,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3903
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 0,
+          "total": 5,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.4345
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.5615
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 38,
+      "total": 40,
+      "accuracy": 0.95,
+      "ci95": [
+        0.835,
+        0.9862
+      ],
+      "latency_p50_ms": 45.0,
+      "latency_p95_ms": 70.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 14,
+          "total": 16,
+          "accuracy": 0.875,
+          "ci95": [
+            0.6398,
+            0.965
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 0.3333,
+          "ci95": [
+            0.0615,
+            0.7923
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 30,
+      "both": 8,
+      "neither": 2,
+      "p_value": 0.0
+    },
+    "verdict": "better",
+    "flipped_cases": [
+      {
+        "case_id": "g2-2hop-0001::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0004::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0005::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0006::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0011::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0015::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0017::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0030::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0041::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0043::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0045::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0046::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0057::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0089::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0001::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0004::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0006::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0007::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0009::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0011::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0018::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0024::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0034::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0044::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0047::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0048::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0049::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0051::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0055::chinese",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0059::chinese",
+        "candidate_correct": true
+      }
+    ]
+  },
+  "typo": {
+    "base": {
+      "correct": 3,
+      "total": 40,
+      "accuracy": 0.075,
+      "ci95": [
+        0.0258,
+        0.1986
+      ],
+      "latency_p50_ms": 25.0,
+      "latency_p95_ms": 42.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 1,
+          "total": 16,
+          "accuracy": 0.0625,
+          "ci95": [
+            0.0111,
+            0.2833
+          ]
+        },
+        "3hop": {
+          "correct": 1,
+          "total": 16,
+          "accuracy": 0.0625,
+          "ci95": [
+            0.0111,
+            0.2833
+          ]
+        },
+        "open": {
+          "correct": 1,
+          "total": 8,
+          "accuracy": 0.125,
+          "ci95": [
+            0.0224,
+            0.4709
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 1,
+          "total": 10,
+          "accuracy": 0.1,
+          "ci95": [
+            0.0179,
+            0.4042
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 0,
+          "total": 8,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3244
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 0,
+          "total": 6,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.3903
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 0,
+          "total": 5,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.4345
+          ]
+        },
+        "competes_path": {
+          "correct": 1,
+          "total": 8,
+          "accuracy": 0.125,
+          "ci95": [
+            0.0224,
+            0.4709
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 0.3333,
+          "ci95": [
+            0.0615,
+            0.7923
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 39,
+      "total": 40,
+      "accuracy": 0.975,
+      "ci95": [
+        0.8712,
+        0.9956
+      ],
+      "latency_p50_ms": 46.0,
+      "latency_p95_ms": 73.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 15,
+          "total": 16,
+          "accuracy": 0.9375,
+          "ci95": [
+            0.7167,
+            0.9889
+          ]
+        },
+        "3hop": {
+          "correct": 16,
+          "total": 16,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8064,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 10,
+          "total": 10,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7225,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 7,
+          "total": 8,
+          "accuracy": 0.875,
+          "ci95": [
+            0.5291,
+            0.9776
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 6,
+          "total": 6,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6097,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 1.0,
+          "ci95": [
+            0.4385,
+            1.0
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 36,
+      "both": 3,
+      "neither": 1,
+      "p_value": 0.0
+    },
+    "verdict": "better",
+    "flipped_cases": [
+      {
+        "case_id": "g2-2hop-0001::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0004::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0006::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0011::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0015::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0017::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0030::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0041::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0043::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0045::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0046::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0057::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0088::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-2hop-0089::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0001::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0004::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0007::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0009::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0011::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0018::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0024::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0034::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0044::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0047::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0048::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0049::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0051::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0055::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-3hop-0059::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0001::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0002::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0003::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0005::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0007::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0010::typo",
+        "candidate_correct": true
+      },
+      {
+        "case_id": "g2-open-0014::typo",
+        "candidate_correct": true
+      }
+    ]
+  },
+  "casual": {
+    "base": {
+      "correct": 15,
+      "total": 40,
+      "accuracy": 0.375,
+      "ci95": [
+        0.2422,
+        0.5297
+      ],
+      "latency_p50_ms": 14.0,
+      "latency_p95_ms": 52.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 5,
+          "total": 16,
+          "accuracy": 0.3125,
+          "ci95": [
+            0.1416,
+            0.556
+          ]
+        },
+        "3hop": {
+          "correct": 2,
+          "total": 16,
+          "accuracy": 0.125,
+          "ci95": [
+            0.035,
+            0.3602
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 1,
+          "total": 10,
+          "accuracy": 0.1,
+          "ci95": [
+            0.0179,
+            0.4042
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 4,
+          "total": 8,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2152,
+            0.7848
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 1,
+          "total": 6,
+          "accuracy": 0.1667,
+          "ci95": [
+            0.0301,
+            0.5635
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 0,
+          "total": 5,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.4345
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 0.3333,
+          "ci95": [
+            0.0615,
+            0.7923
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 16,
+      "total": 40,
+      "accuracy": 0.4,
+      "ci95": [
+        0.2635,
+        0.554
+      ],
+      "latency_p50_ms": 26.0,
+      "latency_p95_ms": 52.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 5,
+          "total": 16,
+          "accuracy": 0.3125,
+          "ci95": [
+            0.1416,
+            0.556
+          ]
+        },
+        "3hop": {
+          "correct": 3,
+          "total": 16,
+          "accuracy": 0.1875,
+          "ci95": [
+            0.0659,
+            0.4301
+          ]
+        },
+        "open": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 2,
+          "total": 10,
+          "accuracy": 0.2,
+          "ci95": [
+            0.0567,
+            0.5098
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 4,
+          "total": 8,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2152,
+            0.7848
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 1,
+          "total": 6,
+          "accuracy": 0.1667,
+          "ci95": [
+            0.0301,
+            0.5635
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 0,
+          "total": 5,
+          "accuracy": 0.0,
+          "ci95": [
+            0.0,
+            0.4345
+          ]
+        },
+        "competes_path": {
+          "correct": 8,
+          "total": 8,
+          "accuracy": 1.0,
+          "ci95": [
+            0.6756,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 0.3333,
+          "ci95": [
+            0.0615,
+            0.7923
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 1,
+      "both": 15,
+      "neither": 24,
+      "p_value": 1.0
+    },
+    "verdict": "no_significant_difference",
+    "flipped_cases": [
+      {
+        "case_id": "g2-3hop-0024::casual",
+        "candidate_correct": true
+      }
+    ]
+  }
+}

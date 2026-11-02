@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import re
+from functools import lru_cache
+
+from agentic_graphrag.core.text_normalization import normalize_text
 
 STOPWORDS = frozenset(
     {
@@ -206,5 +208,6 @@ def _cjk_is_function_span(text: str) -> bool:
     return any(p in text for p in _CJK_FUNCTION_PARTICLES)
 
 
+@lru_cache(maxsize=4096)
 def normalize_entity_key(name: str) -> str:
-    return re.sub(r"\s+", " ", name.strip().lower())
+    return normalize_text(name).casefold()

@@ -6,11 +6,13 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from agentic_graphrag.agent.entity_linking import match_entity_spelling, repair_entity_mentions
 from agentic_graphrag.agent.entity_stopwords import (
     STOPWORDS,
     is_stopword_entity,
     normalize_entity_key,
 )
+from agentic_graphrag.core.text_normalization import normalize_text
 
 
 @dataclass
@@ -84,6 +86,7 @@ def extract_entity_mentions(
     if not text or not text.strip():
         return []
     lexicon = lexicon_from_names(known_entities)
+    text = repair_entity_mentions(normalize_text(text), tuple(lexicon))
     buf = _MatchBuf()
     _add_quoted(text, buf)
     _add_lexicon_hits(text, lexicon, buf)
@@ -126,8 +129,16 @@ def _scan_lexicon_name(scan: _TextScan, name: str) -> None:
 
 
 def _boundary_ok(text: str, idx: int, end: int) -> bool:
-    before_ok = idx == 0 or not text[idx - 1].isalnum()
-    after_ok = end >= len(text) or not text[end].isalnum()
+    before_ok = (
+        idx == 0
+        or not text[idx - 1].isalnum()
+        or (text[idx].isascii() and not text[idx - 1].isascii())
+    )
+    after_ok = (
+        end >= len(text)
+        or not text[end].isalnum()
+        or (text[end - 1].isascii() and not text[end].isascii())
+    )
     return before_ok and after_ok
 
 
@@ -189,7 +200,7 @@ def _resolve_to_lexicon(name: str, lexicon: list[str], canon_map: dict[str, str]
         return canon_map[key]
     if not lexicon or not key:
         return name.strip()
-    return _fuzzy_lexicon_hit(key, lexicon) or name.strip()
+    return _fuzzy_lexicon_hit(key, lexicon) or match_entity_spelling(name, lexicon) or name.strip()
 
 
 def _fuzzy_lexicon_hit(key: str, lexicon: list[str]) -> str | None:

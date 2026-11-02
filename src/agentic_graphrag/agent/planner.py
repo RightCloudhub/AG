@@ -17,6 +17,7 @@ from agentic_graphrag.agent.plan_dag import (
     topological_sort,
 )
 from agentic_graphrag.agent.planner_patterns import OFFLINE_MATCHERS, PlanContext
+from agentic_graphrag.agent.question_normalization import normalize_question
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import MessageRole, PromptName
@@ -71,7 +72,7 @@ def plan_offline(
     known_entities: list[str] | None = None,
 ) -> list[SubQuestion]:
     """Deterministic multi-hop DAG decomposition without LLM."""
-    q = question.strip()
+    q = normalize_question(question, known_entities)
     entities = extract_entity_mentions(q, known_entities)
     ctx = PlanContext(
         q=q,

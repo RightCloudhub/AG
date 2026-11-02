@@ -1,0 +1,67 @@
+{
+  "groups": 40,
+  "total": 240,
+  "by_variant": {
+    "original": {
+      "correct": 40,
+      "total": 40,
+      "accuracy": 1.0,
+      "errors": 0,
+      "exact_set_correct": 32,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 1.0
+    },
+    "synonym": {
+      "correct": 37,
+      "total": 40,
+      "accuracy": 0.925,
+      "errors": 0,
+      "exact_set_correct": 25,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 0.78125
+    },
+    "reordered": {
+      "correct": 23,
+      "total": 40,
+      "accuracy": 0.575,
+      "errors": 0,
+      "exact_set_correct": 15,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 0.46875
+    },
+    "chinese": {
+      "correct": 38,
+      "total": 40,
+      "accuracy": 0.95,
+      "errors": 0,
+      "exact_set_correct": 30,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 0.9375
+    },
+    "typo": {
+      "correct": 39,
+      "total": 40,
+      "accuracy": 0.975,
+      "errors": 0,
+      "exact_set_correct": 30,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 0.9375
+    },
+    "casual": {
+      "correct": 16,
+      "total": 40,
+      "accuracy": 0.4,
+      "errors": 0,
+      "exact_set_correct": 6,
+      "exact_set_total": 32,
+      "exact_set_accuracy": 0.1875
+    }
+  },
+  "all_correct_groups": 10,
+  "consistent_correct_groups": 3,
+  "consistency": 0.075,
+  "mode": "offline",
+  "triage": true,
+  "dataset_sha256": "099157442e882c2974f96f6a4a89b3ed29dcc6468fde59c8c3c96e4e2ac49fff",
+  "triples_sha256": "d1f5717fa99e51daf48e6f4633089573bda24eb413ede3683793fdc248a34efe"
+}

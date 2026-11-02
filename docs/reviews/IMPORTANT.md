@@ -370,3 +370,5 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 ---
 
 *关闭某项时：在此勾记，并同步阶段清单；门禁 JSON / 风险状态尽量同一变更集更新。*
+
+- 2026-11-03 [~] Paraphrase robustness: 40 dev groups + 2 graph-verified 4-hop supplement groups; Chinese 20%→95%, typos 7.5%→97.5%, strict consistency 0%→7.5%; four planner xfails and reordered/casual gaps remain; live skipped (no key). [Results and validation](../../reports/paraphrase_robustness.md).

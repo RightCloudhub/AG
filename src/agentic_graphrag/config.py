@@ -121,6 +121,7 @@ class EvalConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    question_matching_path: str = "configs/question_matching.yaml"
     name: str = "agentic-graphrag"
     env: str = "local"
     guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
