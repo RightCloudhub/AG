@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
+from agentic_graphrag.config_ingest import IndexingConfig
 from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
@@ -21,7 +22,6 @@ from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, Re
 if TYPE_CHECKING:
     from agentic_graphrag.governance.budget import BudgetTracker
     from agentic_graphrag.llm.provider import LLMProvider
-
 
 ROOT_DIR = find_root()
 DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.yaml"
@@ -126,6 +126,7 @@ class AppConfig(BaseModel):
     guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
+    indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)

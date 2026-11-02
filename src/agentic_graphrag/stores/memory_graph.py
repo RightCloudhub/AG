@@ -13,9 +13,12 @@ from agentic_graphrag.core.ports.capabilities import (
 )
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.core.tenancy import tenant_matches as _tenant_matches
+from agentic_graphrag.stores.document_provenance import MemoryDocumentDeletion, merge_sources
 
 
-class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityMutation):
+class InMemoryGraphStore(
+    MemoryDocumentDeletion, EntityLister, RelationLister, RelationDeletion, EntityMutation
+):
     def __init__(self) -> None:
         self._entities: dict[str, EntityRecord] = {}
         self._relations: dict[str, RelationRecord] = {}
@@ -34,7 +37,11 @@ class InMemoryGraphStore(EntityLister, RelationLister, RelationDeletion, EntityM
 
     def upsert_relations(self, relations: list[RelationRecord]) -> int:
         for relation in relations:
-            self._relations[_key(relation.tenant_id, relation.id)] = relation
+            key = _key(relation.tenant_id, relation.id)
+            old = self._relations.get(key)
+            sources = merge_sources(old.sources if old else [], relation.sources)
+            relation.sources = sources
+            self._relations[key] = relation
         self._by_name = None
         return len(relations)
 

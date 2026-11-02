@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from agentic_graphrag.cli._common import _ensure_dirs
-from agentic_graphrag.config import get_config, resolve_path
+from agentic_graphrag.config import get_config, resolve_path, runtime_dir
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.ingest import chunk_document, load_documents_from_dir
-from agentic_graphrag.stores.doc_store import FileDocStore
+from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
+from agentic_graphrag.knowledge.ingest_worker_cli import build_cli_worker
 
 
 def ingest_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Ingest and chunk documents")
     parser.add_argument("--input", default=None, help="Raw docs directory")
     parser.add_argument("--out", default=None, help="Processed chunks JSONL path")
+    parser.add_argument("--tenant", default="default")
     args = parser.parse_args(argv)
     cfg = get_config()
     _ensure_dirs(cfg)
@@ -23,10 +26,19 @@ def ingest_main(argv: list[str] | None = None) -> None:
     out_path = resolve_path(args.out or f"{cfg.paths.processed_dir}/chunks.jsonl")
 
     docs = load_documents_from_dir(input_dir)
-    doc_store = FileDocStore(resolve_path(cfg.paths.processed_dir) / "docs")
+    worker = build_cli_worker()
+    doc_store = worker.doc_store
+    tasks = IngestTaskStore(runtime_dir(cfg) / "ingest_tasks.jsonl")
     chunks: list[ChunkRecord] = []
     for doc in docs:
-        doc_store.save(doc)
+        doc.tenant_id = args.tenant
+        doc.source_uri = Path(doc.metadata["source_path"]).resolve().as_uri()
+        row = worker.pipeline.lifecycle.accept(doc)
+        if row["status"] != "duplicate":
+            tasks.create(args.tenant, [row])
+        stored = doc_store.get(row["doc_id"], tenant_id=args.tenant)
+        assert stored is not None
+        doc = stored
         chunks.extend(
             chunk_document(
                 doc,
@@ -46,6 +58,7 @@ def ingest_main(argv: list[str] | None = None) -> None:
                         "text": ch.text,
                         "index": ch.index,
                         "metadata": ch.metadata,
+                        "tenant_id": ch.tenant_id,
                     },
                     ensure_ascii=False,
                 )

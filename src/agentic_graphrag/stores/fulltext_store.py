@@ -83,6 +83,16 @@ class BM25FulltextStore:
         ranked = sorted(scored, key=lambda row: row[1], reverse=True)[:top_k]
         return [(chunk, float(score)) for chunk, score in ranked if score > 0]
 
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
+        before = len(self._chunks)
+        self._chunks = [
+            c
+            for c in self._chunks
+            if not (c.doc_id == doc_id and tenant_matches(c.tenant_id, tenant_id))
+        ]
+        self.index([])
+        return before - len(self._chunks)
+
     def clear(self) -> None:
         self._chunks.clear()
         self._corpus_tokens.clear()

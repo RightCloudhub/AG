@@ -1,96 +1,178 @@
-"""Document store adapters implementing ``DocStore`` (P2-ARCH-02)."""
+"""Document adapters with indexed identity and durable chunk progress."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-import tempfile
+import sqlite3
+from contextlib import AbstractContextManager, closing
 from dataclasses import asdict
 from pathlib import Path
 
-from agentic_graphrag.core.ports.stores import DocumentRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord, DocumentRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
+from agentic_graphrag.stores.file_lock import FileMutex
+
+
+def decode_document(payload: str) -> DocumentRecord:
+    data = json.loads(payload)
+    data["chunks"] = [ChunkRecord(**chunk) for chunk in data.get("chunks", [])]
+    data.setdefault("title", "")
+    data.setdefault("content", "")
+    data["metadata"] = data.get("metadata") or {}
+    data["tenant_id"] = data.get("tenant_id") or data["metadata"].get("tenant_id", "")
+    return DocumentRecord(**data)
+
+
+def _tenant(doc: DocumentRecord) -> str:
+    return doc.tenant_id or str(doc.metadata.get("tenant_id") or "default")
 
 
 class InMemoryDocStore:
-    """Process-local document store for tests and offline API smoke."""
-
     durable = False
 
     def __init__(self) -> None:
         self._docs: dict[str, DocumentRecord] = {}
+        self._mutex = FileMutex()
+
+    def lock(self) -> AbstractContextManager[None]:
+        return self._mutex.hold()
 
     def save(self, doc: DocumentRecord) -> None:
-        self._docs[scoped_id(_tenant(doc), doc.doc_id)] = doc
+        self._docs[scoped_id(_tenant(doc), doc.doc_id)] = decode_document(json.dumps(asdict(doc)))
 
     def get(self, doc_id: str, *, tenant_id: str | None = None) -> DocumentRecord | None:
-        if tenant_id is not None:
-            return self._docs.get(scoped_id(tenant_id, doc_id))
-        matches = [doc for doc in self._docs.values() if doc.doc_id == doc_id]
-        return matches[0] if len(matches) == 1 else None
+        matches = [
+            d
+            for d in self._docs.values()
+            if d.doc_id == doc_id and tenant_matches(_tenant(d), tenant_id)
+        ]
+        return decode_document(json.dumps(asdict(matches[0]))) if len(matches) == 1 else None
+
+    def list_refs(self, *, tenant_id: str | None = None) -> list[tuple[str, str]]:
+        return sorted(
+            (d.doc_id, _tenant(d))
+            for d in self._docs.values()
+            if tenant_matches(_tenant(d), tenant_id)
+        )
 
     def list_ids(self, *, tenant_id: str | None = None) -> list[str]:
-        return sorted(
-            {doc.doc_id for doc in self._docs.values() if tenant_matches(_tenant(doc), tenant_id)}
+        return sorted({did for did, _ in self.list_refs(tenant_id=tenant_id)})
+
+    def delete(self, doc_id: str, *, tenant_id: str) -> None:
+        self._docs.pop(scoped_id(tenant_id, doc_id), None)
+
+    def find(self, value: str, *, tenant_id: str, by_hash: bool = False) -> DocumentRecord | None:
+        field = "content_sha256" if by_hash else "source_uri"
+        return next(
+            (
+                self.get(d.doc_id, tenant_id=tenant_id)
+                for d in self._docs.values()
+                if tenant_matches(_tenant(d), tenant_id) and getattr(d, field) == value
+            ),
+            None,
         )
 
 
 class FileDocStore:
-    """JSON-per-document store; readable by any process sharing the directory."""
+    """SQLite identity index and document payloads; imports legacy JSON once.
+
+    Identity and chunk progress commit together. Imported paths are tracked so
+    deleted documents cannot be resurrected from legacy migration input.
+    """
 
     durable = True
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.path = self.root / "documents.sqlite3"
+        self._mutex = FileMutex(self.root / ".documents.lock")
+        self._legacy_stamp: tuple[int, ...] = ()
+        with closing(self._connect()) as db, db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS documents (tenant TEXT, id TEXT, "
+                "source TEXT, hash TEXT, payload TEXT, PRIMARY KEY(tenant,id))"
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS doc_source ON documents(tenant,source)")
+            db.execute("CREATE INDEX IF NOT EXISTS doc_hash ON documents(tenant,hash)")
+            db.execute("CREATE INDEX IF NOT EXISTS doc_id ON documents(id)")
+            db.execute("CREATE TABLE IF NOT EXISTS imported (path TEXT PRIMARY KEY)")
+        self._import_legacy()
 
-    def _path(self, doc_id: str, tenant_id: str) -> Path:
-        digest = hashlib.sha256(scoped_id(tenant_id, doc_id).encode()).hexdigest()
-        return self.root / "v2" / f"{digest}.json"
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.path, timeout=60)
+
+    def lock(self) -> AbstractContextManager[None]:
+        return self._mutex.hold()
 
     def save(self, doc: DocumentRecord) -> None:
-        path = self._path(doc.doc_id, _tenant(doc))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=path.parent) as directory:
-            staging = Path(directory) / "document.json"
-            staging.write_text(json.dumps(asdict(doc), ensure_ascii=False), encoding="utf-8")
-            staging.replace(path)
+        with closing(self._connect()) as db, db:
+            self._save(db, doc)
+
+    @staticmethod
+    def _save(db: sqlite3.Connection, doc: DocumentRecord) -> None:
+        db.execute(
+            "INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?)",
+            (
+                _tenant(doc),
+                doc.doc_id,
+                doc.source_uri,
+                doc.content_sha256,
+                json.dumps(asdict(doc), ensure_ascii=False),
+            ),
+        )
+
+    def _import_legacy(self, *, force: bool = False) -> None:
+        directories = [self.root, self.root / "v2"]
+        stamp = tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in directories)
+        if not force and stamp == self._legacy_stamp:
+            return
+        with self.lock(), closing(self._connect()) as db, db:
+            imported = {r[0] for r in db.execute("SELECT path FROM imported")}
+            paths = [p for directory in directories for p in directory.glob("*.json")]
+            for path in paths:
+                if str(path) not in imported:
+                    self._save(db, decode_document(path.read_text(encoding="utf-8")))
+                    db.execute("INSERT INTO imported VALUES (?)", (str(path),))
+        self._legacy_stamp = stamp
+
+    def _lookup(self, sql: str, params: tuple[str, ...]) -> DocumentRecord | None:
+        self._import_legacy()
+        with closing(self._connect()) as db:
+            rows = db.execute(sql, params).fetchall()
+            if not rows:
+                self._import_legacy(force=True)
+                rows = db.execute(sql, params).fetchall()
+        return decode_document(rows[0][0]) if len(rows) == 1 else None
 
     def get(self, doc_id: str, *, tenant_id: str | None = None) -> DocumentRecord | None:
+        sql = "SELECT payload FROM documents WHERE id=?"
+        params: tuple[str, ...] = (doc_id,)
         if tenant_id is not None:
-            path = self._path(doc_id, tenant_id)
-            if path.exists():
-                doc = _read(path)
-                return (
-                    doc
-                    if doc.doc_id == doc_id and tenant_matches(_tenant(doc), tenant_id)
-                    else None
-                )
-        matches = {
-            scoped_id(_tenant(doc), doc.doc_id): doc
-            for doc in self._records(tenant_id)
-            if doc.doc_id == doc_id
-        }
-        return next(iter(matches.values())) if len(matches) == 1 else None
+            sql, params = sql + " AND tenant=?", (*params, tenant_id or "default")
+        return self._lookup(sql, params)
+
+    def find(self, value: str, *, tenant_id: str, by_hash: bool = False) -> DocumentRecord | None:
+        column = "hash" if by_hash else "source"
+        return self._lookup(
+            f"SELECT payload FROM documents WHERE tenant=? AND {column}=? LIMIT 1",
+            (tenant_id or "default", value),
+        )
+
+    def list_refs(self, *, tenant_id: str | None = None) -> list[tuple[str, str]]:
+        self._import_legacy()
+        sql = "SELECT id,tenant FROM documents"
+        params: tuple[str, ...] = ()
+        if tenant_id is not None:
+            sql, params = sql + " WHERE tenant=?", (tenant_id or "default",)
+        with closing(self._connect()) as db:
+            return [(str(r[0]), str(r[1])) for r in db.execute(sql + " ORDER BY id", params)]
 
     def list_ids(self, *, tenant_id: str | None = None) -> list[str]:
-        return sorted({doc.doc_id for doc in self._records(tenant_id)})
+        return sorted({did for did, _ in self.list_refs(tenant_id=tenant_id)})
 
-    def _records(self, tenant_id: str | None) -> list[DocumentRecord]:
-        paths = [*self.root.glob("*.json"), *(self.root / "v2").glob("*.json")]
-        return [doc for path in paths if tenant_matches(_tenant(doc := _read(path)), tenant_id)]
-
-
-def _read(path: Path) -> DocumentRecord:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return DocumentRecord(
-        doc_id=data["doc_id"],
-        title=data.get("title", ""),
-        content=data.get("content", ""),
-        metadata=data.get("metadata") or {},
-        tenant_id=str(data.get("tenant_id") or (data.get("metadata") or {}).get("tenant_id", "")),
-    )
-
-
-def _tenant(doc: DocumentRecord) -> str:
-    return doc.tenant_id or str(doc.metadata.get("tenant_id") or "")
+    def delete(self, doc_id: str, *, tenant_id: str) -> None:
+        with closing(self._connect()) as db, db:
+            db.execute(
+                "DELETE FROM documents WHERE id=? AND tenant=?", (doc_id, tenant_id or "default")
+            )

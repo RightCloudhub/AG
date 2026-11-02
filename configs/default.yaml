@@ -122,3 +122,15 @@ retention:
   audit_events_days: 90
   review_queue_days: 30
   ingest_tasks_days: 30
+
+# Durable ingestion, bounded retries and upload capacity.
+indexing:
+  embedding_batch_size: 32
+  embedding_max_attempts: 4
+  retry_base_seconds: 0.5
+  retry_max_seconds: 30
+  max_file_bytes: 52428800
+  max_batch_files: 100
+  max_upload_bytes: 524288000
+  upload_part_bytes: 5242880
+  upload_expiry_seconds: 86400

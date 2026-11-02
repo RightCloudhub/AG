@@ -370,3 +370,4 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 ---
 
 *关闭某项时：在此勾记，并同步阶段清单；门禁 JSON / 风险状态尽量同一变更集更新。*
+- 2026-11-03：摄取新增 UUID/版本/hash 去重、SQLite chunk checkpoint、partial/reconcile、租户隔离删除、批量 embedding 重试、模型 reindex 与断点续传；旧 ID 迁移和 live 模型切换操作见 RUNBOOK，离线 adapter 回归不替代 Neo4j/Qdrant 线上验收。

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.deps import principal, service
+from agentic_graphrag.api.routes.document_routes import router as document_router
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
 from agentic_graphrag.api.tenant import request_tenant
@@ -27,6 +28,8 @@ from agentic_graphrag.knowledge.review.queue import (
 )
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
+
+router.include_router(document_router)
 
 # Placeholder confidence for upload spot-checks until a real sampling policy
 # exists — named so it reads as a policy value, not a magic number (BL-11).
@@ -65,14 +68,15 @@ async def upload_docs(
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
     remember_task(task_id, row)
-    if svc.review_queue is not None and saved:
+    review_docs = [r for r in saved if r.get("status") != "duplicate" and not r.get("error")]
+    if svc.review_queue is not None and review_docs:
         svc.review_queue.enqueue(
             ReviewType.SPOTCHECK,
             {
                 "task_id": task_id,
                 "doc_count": len(saved),
                 # Rejecting the spot-check rolls back facts sourced from these docs (BL-03).
-                "doc_ids": [row["doc_id"] for row in saved if row.get("doc_id")],
+                "doc_ids": [row["doc_id"] for row in review_docs if row.get("doc_id")],
             },
             confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
             batch_id=task_id,

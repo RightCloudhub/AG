@@ -7,42 +7,50 @@ from uuid import NAMESPACE_URL, uuid5
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
+from agentic_graphrag.stores.qdrant_models import QdrantModelRouting, tenant_filter
 
 
-class QdrantVectorStore:
+class QdrantVectorStore(QdrantModelRouting):
     def __init__(self, url: str, collection: str) -> None:
         from qdrant_client import QdrantClient
 
         self._client = QdrantClient(url=url)
         self._collection = collection
+        self._routing_enabled = True
         self._dim: int | None = None
 
     def ping(self) -> None:
         """Raise if Qdrant is unreachable (used by the factory to fail fast)."""
         self._client.get_collections()
 
-    def ensure_collection(self, dim: int) -> None:
+    def ensure_collection(self, dim: int, *, collection: str | None = None) -> None:
         from qdrant_client.http import models as qm
 
+        collection = collection or self._collection
         self._dim = dim
         names = {c.name for c in self._client.get_collections().collections}
-        if self._collection not in names:
+        if collection not in names:
             self._client.create_collection(
-                collection_name=self._collection,
+                collection_name=collection,
                 vectors_config=qm.VectorParams(size=dim, distance=qm.Distance.COSINE),
             )
 
     def upsert(self, chunks: list[ChunkRecord]) -> int:
+        return sum(
+            self._upsert_collection(group, collection=collection)
+            for collection, group in self._group_chunks(chunks).items()
+        )
+
+    def _upsert_collection(self, chunks: list[ChunkRecord], *, collection: str) -> int:
         from qdrant_client.http import models as qm
 
         if not chunks:
             return 0
+        self.ensure_collection(len(chunks[0].embedding or []), collection=collection)
         points = []
         for ch in chunks:
             if not ch.embedding:
                 raise ValueError(f"Chunk {ch.chunk_id} missing embedding")
-            if self._dim is None:
-                self.ensure_collection(len(ch.embedding))
             point_id = str(uuid5(NAMESPACE_URL, scoped_id(ch.tenant_id, ch.chunk_id)))
             points.append(
                 qm.PointStruct(
@@ -55,10 +63,11 @@ class QdrantVectorStore:
                         "index": ch.index,
                         "metadata": ch.metadata or {},
                         "tenant_id": ch.tenant_id,
+                        "embedding_model": ch.embedding_model,
                     },
                 )
             )
-        self._client.upsert(collection_name=self._collection, points=points)
+        self._client.upsert(collection_name=collection, points=points, wait=True)
         return len(points)
 
     def search(
@@ -67,6 +76,16 @@ class QdrantVectorStore:
         top_k: int = 10,
         *,
         tenant_id: str | None = None,
+    ) -> list[tuple[ChunkRecord, float]]:
+        return self._search_collection(
+            query_vector,
+            top_k=top_k,
+            tenant_id=tenant_id,
+            collection=self._active_collection(tenant_id),
+        )
+
+    def _search_collection(
+        self, query_vector: list[float], *, top_k: int, tenant_id: str | None, collection: str
     ) -> list[tuple[ChunkRecord, float]]:
         query_filter = None
         if tenant_id is not None:
@@ -83,7 +102,7 @@ class QdrantVectorStore:
                     ]
                 )
         hits = self._client.query_points(
-            collection_name=self._collection,
+            collection_name=collection,
             query=query_vector,
             query_filter=query_filter,
             limit=top_k,
@@ -98,9 +117,28 @@ class QdrantVectorStore:
                 index=int(payload.get("index", 0)),
                 metadata=payload.get("metadata") or {},
                 tenant_id=str(payload.get("tenant_id") or ""),
+                embedding_model=str(payload.get("embedding_model") or ""),
+                embedded=True,
             )
             out.append((chunk, float(hit.score)))
         return out
+
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
+        from qdrant_client.http import models as qm
+
+        scope = qm.Filter(
+            must=[
+                tenant_filter(tenant_id),
+                qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=doc_id)),
+            ]
+        )
+        count = 0
+        for name in self._document_collections(tenant_id):
+            count += self._client.count(collection_name=name, count_filter=scope).count
+            self._client.delete(
+                collection_name=name, points_selector=qm.FilterSelector(filter=scope), wait=True
+            )
+        return int(count)
 
     def clear(self) -> None:
         from qdrant_client.http import models as qm
@@ -152,6 +190,15 @@ class InMemoryVectorStore:
             scored.append((ch, score))
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
+
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
+        before = len(self._items)
+        self._items = [
+            c
+            for c in self._items
+            if not (c.doc_id == doc_id and tenant_matches(c.tenant_id, tenant_id))
+        ]
+        return before - len(self._items)
 
     def clear(self) -> None:
         self._items.clear()

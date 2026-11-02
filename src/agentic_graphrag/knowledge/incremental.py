@@ -234,6 +234,8 @@ class IncrementalUpdater:
     def _retire_conflicting_edges(self, conflict: Conflict) -> None:
         """Remove every superseded edge so AUTO_UPDATE does not leave dual facts."""
         for old in conflict.edges_to_retire():
+            if index_key(old.head_name, old.type, old.tail_name) == triple_key(conflict.incoming):
+                continue  # Same fact: upsert merges provenance from every supporting document.
             self._rel_index.pop(index_key(old.head_name, old.type, old.tail_name), None)
             self._delete_relation(old)
 

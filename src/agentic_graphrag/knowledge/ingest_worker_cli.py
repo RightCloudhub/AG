@@ -15,15 +15,16 @@ import time
 
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
 from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
-from agentic_graphrag.knowledge.ingest_worker import IngestWorker, IngestWorkerConfig
+from agentic_graphrag.knowledge.ingest_worker import IngestWorker
 from agentic_graphrag.knowledge.review.queue import ReviewQueue
+from agentic_graphrag.knowledge.worker_wiring import batch_embedder, worker_config
 
 logger = logging.getLogger(__name__)
 
 
 def build_cli_worker() -> IngestWorker:
     from agentic_graphrag.bootstrap import build_stores, resolve_runtime_profile
-    from agentic_graphrag.config import get_config, get_settings, resolve_path
+    from agentic_graphrag.config import get_config, get_settings, runtime_dir
 
     cfg = get_config()
     settings = get_settings()
@@ -41,7 +42,7 @@ def build_cli_worker() -> IngestWorker:
             "to the API. Use AGR_PROFILE=live|hybrid (shared BM25 snapshot).",
             type(bundle.fulltext).__name__,
         )
-    processed = resolve_path(cfg.paths.processed_dir)
+    processed = runtime_dir(cfg)
     ingestor = GraphIngestor(
         GraphIngestDeps(
             graph=bundle.graph, review_queue=ReviewQueue(processed / "review_queue.jsonl")
@@ -52,10 +53,8 @@ def build_cli_worker() -> IngestWorker:
         vector_store=bundle.vector,
         fulltext_store=bundle.fulltext,
         task_store=IngestTaskStore(processed / "ingest_tasks.jsonl"),
-        config=IngestWorkerConfig(
-            chunk_size_chars=cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=cfg.knowledge.chunk_overlap_chars,
-        ),
+        config=worker_config(cfg, live=rp.allow_llm),
+        embed_many=batch_embedder(cfg, settings, live=rp.allow_llm),
         graph_ingestor=ingestor,
     )
 

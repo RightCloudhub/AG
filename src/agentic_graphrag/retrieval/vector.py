@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from agentic_graphrag.core.evidence import Candidate, CandidateSource
-from agentic_graphrag.core.ports.llm import LLMClient
+from agentic_graphrag.core.ports.capabilities import ModelVectorSearch
+from agentic_graphrag.core.ports.llm import LLMClient, ModelEmbedder
 from agentic_graphrag.core.ports.stores import VectorStore
 from agentic_graphrag.retrieval.chunk_hits import candidates_from_chunk_hits
 
@@ -18,6 +19,15 @@ class VectorRetriever:
         self, query: str, top_k: int | None = None, *, tenant_id: str | None = None
     ) -> list[Candidate]:
         k = top_k or self.top_k
-        vector = self.llm.embed(query)
-        hits = self.store.search(vector, top_k=k, tenant_id=tenant_id)
+        if (
+            tenant_id is not None
+            and isinstance(self.store, ModelVectorSearch)
+            and isinstance(self.llm, ModelEmbedder)
+        ):
+            hits = self.store.search_with_model(
+                query, self.llm.embed_for_model, top_k=k, tenant_id=tenant_id
+            )
+        else:
+            vector = self.llm.embed(query)
+            hits = self.store.search(vector, top_k=k, tenant_id=tenant_id)
         return candidates_from_chunk_hits(hits, source=CandidateSource.VECTOR_CHUNK)

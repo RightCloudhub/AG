@@ -18,6 +18,7 @@ from agentic_graphrag.core.ports.capabilities import (
     Pingable,
 )
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
+from agentic_graphrag.stores.document_provenance import merge_sources
 from agentic_graphrag.stores.neo4j_codec import (
     attrs_for_neo4j,
     attrs_from_neo4j,
@@ -26,6 +27,7 @@ from agentic_graphrag.stores.neo4j_codec import (
     sources_for_neo4j,
     sources_from_neo4j,
 )
+from agentic_graphrag.stores.neo4j_documents import Neo4jDocumentDeletion
 from agentic_graphrag.stores.neo4j_mutation import Neo4jEntityMutation
 from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record, tenant_predicate
 
@@ -52,7 +54,7 @@ def _validate_identifier(value: str, kind: str) -> str:
     return value
 
 
-class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
+class Neo4jGraphStore(Neo4jDocumentDeletion, Neo4jEntityMutation, EntityLister, Closable, Pingable):
     def __init__(self, uri: str, user: str, password: str) -> None:
         self._uri = uri
         self._driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -108,6 +110,13 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
         return count
 
     def _upsert_one_relation(self, session: Any, rel: RelationRecord) -> bool:
+        old = session.run(
+            "MATCH ()-[r]->() WHERE r.id=$id AND r.tenant_id=$tenant_id "
+            "RETURN r.sources AS sources",
+            id=rel.id,
+            tenant_id=rel.tenant_id,
+        ).single()
+        sources = merge_sources(sources_from_neo4j(old["sources"]) if old else [], rel.sources)
         rel_type = _validate_identifier(rel.type, "rel")
         query = (
             "MERGE (h {id: $head_id, tenant_id: $tenant_id}) "
@@ -137,7 +146,7 @@ class Neo4jGraphStore(Neo4jEntityMutation, EntityLister, Closable, Pingable):
             confidence=rel.confidence,
             tenant_id=rel.tenant_id,
             attributes=attrs_for_neo4j(rel.attributes),
-            sources=sources_for_neo4j(rel.sources),
+            sources=sources_for_neo4j(sources),
         )
         return result.single() is not None
 

@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 from pathlib import Path
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.stores.file_lock import FileMutex
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class SharedFileBM25Store:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._inner = BM25FulltextStore()
-        self._lock = threading.RLock()
+        self._mutex = FileMutex(self.path.with_suffix(".lock"))
         self._seen_mtime: int | None = None
         self.reloads = 0
         self._refresh()
@@ -62,7 +62,7 @@ class SharedFileBM25Store:
         self._seen_mtime = self._mtime()
 
     def index(self, chunks: list[ChunkRecord]) -> int:
-        with self._lock:
+        with self._mutex.hold():
             self._refresh()  # merge onto the newest snapshot, not a stale copy
             n = self._inner.index(chunks)
             self._persist()
@@ -71,21 +71,28 @@ class SharedFileBM25Store:
     def search(
         self, query: str, top_k: int = 10, *, tenant_id: str | None = None
     ) -> list[tuple[ChunkRecord, float]]:
-        with self._lock:
+        with self._mutex.hold():
             self._refresh()
             return self._inner.search(query, top_k, tenant_id=tenant_id)
 
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
+        with self._mutex.hold():
+            self._refresh()
+            count = self._inner.delete_by_doc(doc_id, tenant_id)
+            self._persist()
+            return count
+
     def clear(self) -> None:
-        with self._lock:
+        with self._mutex.hold():
             self._inner.clear()
             self._persist()
 
     def save(self, path: str) -> None:
-        with self._lock:
+        with self._mutex.hold():
             self._inner.save(path)
 
     def load(self, path: str) -> int:
-        with self._lock:
+        with self._mutex.hold():
             n = self._inner.load(path)
             self._persist()
             return n

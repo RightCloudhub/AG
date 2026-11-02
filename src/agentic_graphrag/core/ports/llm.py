@@ -76,3 +76,10 @@ class CircuitGate(Protocol):
 class CircuitControlledClient(LLMClient, Protocol):
     @property
     def circuit(self) -> CircuitGate: ...
+
+
+@runtime_checkable
+class ModelEmbedder(Protocol):
+    """Encode a query using a pinned index model without changing shared config."""
+
+    def embed_for_model(self, text: str, model: str) -> list[float]: ...

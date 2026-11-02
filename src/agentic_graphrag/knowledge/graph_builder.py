@@ -153,6 +153,8 @@ def load_triples_into_graph(
         store.clear()
     n_ent = store.upsert_entities(entities)
     n_rel = store.upsert_relations(relations)
+    if n_ent != len(entities) or n_rel != len(relations):
+        raise RuntimeError("Incomplete graph write")
     counts = store.counts()
     stats: dict[str, Any] = {
         "entities_upserted": n_ent,

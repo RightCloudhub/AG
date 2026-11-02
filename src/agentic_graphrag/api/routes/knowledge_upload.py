@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -12,6 +11,7 @@ if TYPE_CHECKING:
 
 from fastapi import Request, UploadFile
 
+from agentic_graphrag.app.documents import index_changed, lifecycle_for
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.core.constants import BYTES_PER_MEBIBYTE
 from agentic_graphrag.core.enums import IngestStatus
@@ -20,8 +20,8 @@ from agentic_graphrag.core.ports.stores import DocumentRecord
 
 logger = logging.getLogger(__name__)
 
-MAX_FILE_SIZE_BYTES = 5 * BYTES_PER_MEBIBYTE
-MAX_BATCH_FILES = 20
+MAX_FILE_SIZE_BYTES = 50 * BYTES_PER_MEBIBYTE
+MAX_BATCH_FILES = 100
 READ_CHUNK_BYTES = 256 * 1024
 # Text-only: every upload is decoded as UTF-8 and chunked as plain text. ``pdf``
 # used to sit here while no extractor existed, so PDFs were stored as mojibake
@@ -61,10 +61,11 @@ def validate_upload(file: UploadFile) -> None:
 async def save_uploads(
     svc: QueryService, files: list[UploadFile], *, tenant_id: str, task_id: str
 ) -> list[JsonObject]:
-    if len(files) > MAX_BATCH_FILES:
+    max_files = svc.cfg.indexing.max_batch_files
+    if len(files) > max_files:
         raise ApiError(
             INVALID_INPUT,
-            f"Too many files: max {MAX_BATCH_FILES}",
+            f"Too many files: max {max_files}",
             status_code=UPLOAD_REJECT_STATUS,
         )
     saved: list[dict[str, str]] = []
@@ -73,7 +74,7 @@ async def save_uploads(
     return saved
 
 
-async def _read_capped(file: UploadFile) -> bytes:
+async def _read_capped(file: UploadFile, limit: int = MAX_FILE_SIZE_BYTES) -> bytes:
     """Read the upload in slices, rejecting as soon as it exceeds the cap.
 
     ``await file.read()`` materialized the whole upload before the size check,
@@ -87,10 +88,10 @@ async def _read_capped(file: UploadFile) -> bytes:
         if not chunk:
             return bytes(buffer)
         buffer.extend(chunk)
-        if len(buffer) > MAX_FILE_SIZE_BYTES:
+        if len(buffer) > limit:
             raise ApiError(
                 INVALID_INPUT,
-                f"File too large: {file.filename} (max {MAX_FILE_SIZE_BYTES} bytes)",
+                f"File too large: {file.filename} (max {limit} bytes)",
                 status_code=UPLOAD_REJECT_STATUS,
             )
 
@@ -111,9 +112,9 @@ async def _save_upload(
     svc: QueryService, file: UploadFile, *, tenant_id: str, task_id: str
 ) -> dict[str, str]:
     validate_upload(file)
-    content = await _read_capped(file)
+    content = await _read_capped(file, svc.cfg.indexing.max_file_bytes)
     text = _decode_text(file, content)
-    doc_id = file.filename or str(uuid.uuid4())
+    doc_id = ""
     record = DocumentRecord(
         doc_id=doc_id,
         title=file.filename or doc_id,
@@ -125,10 +126,12 @@ async def _save_upload(
             "tenant_id": tenant_id,
         },
         tenant_id=tenant_id,
+        source_uri=f"upload://{file.filename}",
     )
     row = {"doc_id": doc_id, "bytes": str(len(content)), "name": file.filename or ""}
     try:
-        svc.bundle.docs.save(record)
+        row = lifecycle_for(svc).accept(record)
+        index_changed(svc)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
         # task still listed it as queued (docs/design/BUSINESS_LOGIC.md BL-10).

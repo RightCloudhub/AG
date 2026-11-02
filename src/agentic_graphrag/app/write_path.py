@@ -25,8 +25,9 @@ from agentic_graphrag.core.events import (
 )
 from agentic_graphrag.core.ports.capabilities import EntityLister
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
-from agentic_graphrag.knowledge.ingest_worker import IngestWorker, IngestWorkerConfig
+from agentic_graphrag.knowledge.ingest_worker import IngestWorker
 from agentic_graphrag.knowledge.review.executor import ReviewExecutor, ReviewExecutorDeps
+from agentic_graphrag.knowledge.worker_wiring import batch_embedder, worker_config
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +142,16 @@ def build_graph_ingestor(svc: QueryService) -> GraphIngestor:
 
 def build_inline_worker(svc: QueryService) -> IngestWorker:
     """Ingest worker sharing the API's stores (docs, vectors, BM25, graph)."""
+    config = worker_config(svc.cfg, live=svc.allow_llm)
+    config.poll_interval_seconds = float(os.environ.get("AGR_INGEST_POLL_SECONDS", "2"))
     return IngestWorker(
         doc_store=svc.bundle.docs,
         vector_store=svc.bundle.vector,
         fulltext_store=svc.bundle.fulltext,
         task_store=svc.ingest_tasks,
-        config=IngestWorkerConfig(
-            poll_interval_seconds=float(os.environ.get("AGR_INGEST_POLL_SECONDS", "2")),
-            chunk_size_chars=svc.cfg.knowledge.chunk_size_chars,
-            chunk_overlap_chars=svc.cfg.knowledge.chunk_overlap_chars,
-        ),
+        config=config,
+        embed_many=batch_embedder(svc.cfg, svc.settings, live=svc.allow_llm),
+        on_commit=lambda: events_for(svc).publish(GraphCommitted(source="index")),
         graph_ingestor=build_graph_ingestor(svc),
     )
 

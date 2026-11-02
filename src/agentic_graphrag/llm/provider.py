@@ -136,7 +136,10 @@ class LLMProvider:
         return content
 
     def embed(self, text: str) -> list[float]:
-        payload = {"model": self.embedding_model, "input": text}
+        return self.embed_for_model(text, self.embedding_model)
+
+    def embed_for_model(self, text: str, model: str) -> list[float]:
+        payload = {"model": model or self.embedding_model, "input": text}
         # Include endpoint in cache key so multi-provider caches do not collide.
         cache_key = self._cache_key(
             "embed",
@@ -166,7 +169,22 @@ class LLMProvider:
         return list(embedding)
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed(t) for t in texts]
+        if not texts:
+            return []
+        payload = {"model": self.embedding_model, "input": texts}
+        data = self._post(
+            "/embeddings",
+            payload,
+            base_url=self.embedding_base_url,
+            api_key=self.embedding_api_key,
+            route=ROUTE_EMBED,
+        )
+        rows = sorted(data["data"], key=lambda row: row["index"])
+        if [row["index"] for row in rows] != list(range(len(texts))):
+            raise ValueError("Embedding response indexes do not match the input batch")
+        if self.budget:
+            self.budget.record_embedding(int((data.get("usage") or {}).get("total_tokens", 0)))
+        return [list(row["embedding"]) for row in rows]
 
     def _post(
         self,
@@ -267,3 +285,9 @@ class MockLLMProvider(LLMProvider):
         h = hashlib.sha256(text.encode("utf-8")).digest()
         vals = [((h[i % len(h)] / 255.0) * 2 - 1) for i in range(self.embedding_dim)]
         return vals
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
+    def embed_for_model(self, text: str, model: str) -> list[float]:
+        return self.embed(text)
