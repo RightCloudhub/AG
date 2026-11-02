@@ -6,15 +6,14 @@ must still emit a partial/honest answer, never a bare exception name to clients.
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import TypeAdapter
+from dataclasses import replace
+from typing import cast
 
 from agentic_graphrag.agent.graph_types import AgentGraph
+from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.enums import QueryRoute
 from agentic_graphrag.core.evidence import Candidate
-from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
@@ -57,25 +56,27 @@ def recover_chain_after_recursion(
     meta["recursion_limit_hit"] = True
     meta["guardrail_status"] = _RECURSION_REASON
     chain.metadata = meta
-    payload = {
-        "chain": chain.model_dump(),
-        "evidence": [c.model_dump() for c in evidence],
-        "memory_snapshot": (state or {}).get("memory_snapshot") or {},
+    payload: AgentState = {
+        "chain": chain,
+        "evidence": {c.id: c for c in evidence},
+        "memory": state.get("memory", MemoryState()) if state is not None else MemoryState(),
     }
     return finalize_agentic_chain(payload, budget=budget, tid=thread_id, t0=t0)
 
 
-def _annotate_register_recovery(chain: ReasoningChain, state: JsonObject | None) -> ReasoningChain:
-    if not state or not state.get("requirement_register"):
+def _annotate_register_recovery(chain: ReasoningChain, state: AgentState | None) -> ReasoningChain:
+    if not state or state.get("register") is None:
         return chain
     from agentic_graphrag.agent.register_answer import annotate_register
 
-    resumed = TypeAdapter(AgentState).validate_python(state)
-    resumed["register_stop"] = "recursion_limit"
+    resumed: AgentState = {
+        **state,
+        "register_runtime": replace(state["register_runtime"], stop="recursion_limit"),
+    }
     return annotate_register(chain, resumed)
 
 
-def _checkpoint_values(graph: AgentGraph, thread_id: str) -> dict[str, Any] | None:
+def _checkpoint_values(graph: AgentGraph, thread_id: str) -> AgentState | None:
     try:
         from agentic_graphrag.agent.loop import invoke_config
 
@@ -85,35 +86,25 @@ def _checkpoint_values(graph: AgentGraph, thread_id: str) -> dict[str, Any] | No
     if snap is None:
         return None
     values = snap.values
-    return values if isinstance(values, dict) else None
+    return cast(AgentState, values) if isinstance(values, dict) else None
 
 
-def _chain_from_state(state: dict[str, Any] | None, question: str) -> ReasoningChain:
-    if state and state.get("chain"):
-        try:
-            return ReasoningChain.model_validate(state["chain"])
-        except Exception:  # noqa: BLE001
-            pass
+def _chain_from_state(state: AgentState | None, question: str) -> ReasoningChain:
+    if state and isinstance(state.get("chain"), ReasoningChain):
+        return state["chain"].model_copy(deep=True)
     return ReasoningChain(question=question, route=QueryRoute.AGENTIC)
 
 
-def _evidence_from_state(state: dict[str, Any] | None) -> list[Candidate]:
+def _evidence_from_state(state: AgentState | None) -> list[Candidate]:
     if not state:
         return []
-    out: list[Candidate] = []
-    for raw in state.get("evidence") or []:
-        try:
-            out.append(Candidate.model_validate(raw))
-        except Exception:  # noqa: BLE001
-            continue
-    return out
+    return [c for c in state.get("evidence", {}).values() if isinstance(c, Candidate)]
 
 
-def _conclusions_from_state(state: dict[str, Any] | None) -> str:
+def _conclusions_from_state(state: AgentState | None) -> str:
     if not state:
         return ""
-    snap = state.get("memory_snapshot") or {}
-    conc = snap.get("conclusions") or []
-    if isinstance(conc, list):
-        return "; ".join(str(c) for c in conc if c)
+    memory = state.get("memory")
+    if memory is not None:
+        return "; ".join(c for c in memory.conclusions if c)
     return ""

@@ -64,9 +64,9 @@ class AgentRuntime:
 
     def _hydrate_from_state(self, state: AgentState) -> None:
         """Restore Memory (and hop floor) from checkpointer-backed state."""
-        snap = state.get("memory_snapshot")
-        if snap:
-            self.memory = MemoryState.from_snapshot(snap)
+        memory = state.get("memory")
+        if memory is not None:
+            self.memory = memory.copy()
         hop = int(state.get("hop") or 0)
         if hop > self.guards.state.hop:
             self.guards.state.hop = hop
@@ -94,12 +94,12 @@ class AgentRuntime:
         self.guards.note_plan_breadth(len(sqs))
         return {
             **state,
-            "sub_questions": [s.model_dump() for s in kept],
+            "sub_questions": kept,
             "dropped_sub_questions": [s.text for s in dropped],
             "current_index": 0,
             "hop": 0,
             "done": False,
-            "memory_snapshot": self.memory.to_snapshot(),
+            "memory": self.memory.copy(),
         }
 
     def node_executor(self, state: AgentState) -> AgentState:
@@ -114,7 +114,7 @@ class AgentRuntime:
                 "hop": hop,
                 "done": True,
                 "guardrail_status": self.guards.status_text(),
-                "memory_snapshot": self.memory.to_snapshot(),
+                "memory": self.memory.copy(),
             }
 
         sqs = list(state.get("sub_questions") or [])
@@ -125,7 +125,7 @@ class AgentRuntime:
                 "hop": hop,
                 "done": True,
                 "guardrail_status": self.guards.status_text(),
-                "memory_snapshot": self.memory.to_snapshot(),
+                "memory": self.memory.copy(),
             }
 
         sq, sqs = materialize_current(sqs, idx, self.memory)
@@ -149,7 +149,7 @@ class AgentRuntime:
         hops measure dependency depth, not breadth (BL-12)."""
         sqs = list(state.get("sub_questions") or [])
         idx = int(state.get("current_index") or 0)
-        if idx < len(sqs) and is_prefetched(state, str(sqs[idx].get("id"))):
+        if idx < len(sqs) and is_prefetched(state, sqs[idx].id):
             self.guards.check_branch()
         else:
             self.guards.on_hop_start()
@@ -171,7 +171,7 @@ class AgentRuntime:
 
         sqs = list(state.get("sub_questions") or [])
         idx = int(state.get("current_index") or 0)
-        sq = SubQuestion.model_validate(sqs[idx]) if idx < len(sqs) else None
+        sq = sqs[idx] if idx < len(sqs) else None
         sq_text = sq.text if sq else state["question"]
         sq_id = sq.id if sq else f"sq{idx}"
         remaining = max(0, len(sqs) - idx - 1)
@@ -211,7 +211,7 @@ class AgentRuntime:
         self._hydrate_from_state(state)
         if self.register_runtime.enabled(state):
             return self.register_runtime.node_answer(state)
-        chain = ReasoningChain.model_validate(state["chain"])
+        chain = state["chain"].model_copy(deep=True)
         evidence = load_evidence(state)
         allow_llm = bool(state.get("allow_llm", True))
         self._apply_budget_to_chain(chain)
@@ -239,9 +239,9 @@ class AgentRuntime:
         annotate_plan_coverage(chain, state)
         return {
             **state,
-            "chain": chain.model_dump(),
+            "chain": chain,
             "done": True,
-            "memory_snapshot": self.memory.to_snapshot(),
+            "memory": self.memory.copy(),
         }
 
     def _can_retrieve_again(self, state: AgentState) -> bool:
@@ -258,9 +258,7 @@ class AgentRuntime:
         start = len(sqs)
         for i, text in enumerate(m for m in missing[:MAX_GAP_SUB_QUESTIONS] if m.strip()):
             sqs.append(
-                SubQuestion(
-                    id=f"gap{start + i}", text=text.strip(), rationale="evidence_gap"
-                ).model_dump()
+                SubQuestion(id=f"gap{start + i}", text=text.strip(), rationale="evidence_gap")
             )
         meta = dict(chain.metadata or {})
         meta.pop("evidence_gap", None)
@@ -268,13 +266,13 @@ class AgentRuntime:
         chain.metadata = meta
         return {
             **state,
-            "chain": chain.model_dump(),
+            "chain": chain,
             "sub_questions": sqs,
             "current_index": start,
             "done": False,
             "answer_retries": int(state.get("answer_retries") or 0) + 1,
             "evidence_gap": {"missing": missing},
-            "memory_snapshot": self.memory.to_snapshot(),
+            "memory": self.memory.copy(),
         }
 
     def route_after_answer(self, state: AgentState) -> AgentNode:

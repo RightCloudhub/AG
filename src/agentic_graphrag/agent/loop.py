@@ -8,18 +8,19 @@ and exposes :func:`run_agentic_query` / :func:`run_query` (with triage).
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop_policy import should_escalate_chain
 from agentic_graphrag.agent.loop_runtime import AgentRuntime
+from agentic_graphrag.agent.loop_stream_events import serialize_metadata
 from agentic_graphrag.agent.options import AgentDeps, AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.agent.state_checkpointer import typed_checkpointer
 from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.enums import AgentNode
-from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.confidence import grade_confidence
@@ -28,7 +29,12 @@ from agentic_graphrag.governance.budget import BudgetTracker
 _MS_PER_SEC = MILLISECONDS_PER_SECOND
 
 if TYPE_CHECKING:
-    from agentic_graphrag.agent.graph_types import AgentCheckpointer, AgentGraph, RunnableConfig
+    from agentic_graphrag.agent.graph_types import (
+        AgentCheckpointer,
+        AgentGraph,
+        GraphNodeUpdate,
+        RunnableConfig,
+    )
 
 __all__ = [
     "AgentDeps",
@@ -60,10 +66,10 @@ def build_graph(
     if deps is None:
         deps = AgentDeps(executor, llm, guard_cfg, budget=budget)
     rt = AgentRuntime(deps.executor, deps.llm, deps.guard_cfg, budget=deps.budget)
-    cp = checkpointer if checkpointer is not None else default_checkpointer()
+    cp = typed_checkpointer(checkpointer if checkpointer is not None else default_checkpointer())
     g: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     g.add_node(AgentNode.PLANNER, rt.node_planner)
-    g.add_node(AgentNode.EXECUTOR, rt.node_executor)
+    g.add_node(AgentNode.EXECUTOR, _executor_updates(rt))
     g.add_node(AgentNode.CRITIC, rt.node_critic)
     g.add_node(AgentNode.ANSWER, rt.node_answer)
     g.set_entry_point(AgentNode.PLANNER)
@@ -87,6 +93,17 @@ def build_graph(
         {AgentNode.EXECUTOR: AgentNode.EXECUTOR, AgentNode.END: END},
     )
     return g.compile(checkpointer=cp)
+
+
+def _executor_updates(runtime: AgentRuntime) -> GraphNodeUpdate:
+    """Apply the executor's complete evidence pool with legacy replacement semantics."""
+    from langgraph.types import Overwrite
+
+    def update(state: AgentState) -> dict[str, object]:
+        result = runtime.node_executor(state)
+        return {**result, "evidence": Overwrite(result.get("evidence", {}))}
+
+    return update
 
 
 def invoke_config(
@@ -177,13 +194,13 @@ def _run_agentic(
 
 
 def finalize_agentic_chain(
-    result: dict[str, Any],
+    result: AgentState,
     *,
     budget: BudgetTracker | None,
     tid: str,
     t0: float,
 ) -> ReasoningChain:
-    out = ReasoningChain.model_validate(result["chain"])
+    out = result["chain"].model_copy(deep=True)
     out.cost.latency_ms = int((time.perf_counter() - t0) * _MS_PER_SEC)
     if budget:
         snap = budget.snapshot()
@@ -194,11 +211,11 @@ def finalize_agentic_chain(
     meta = dict(out.metadata or {})
     meta["thread_id"] = tid
     meta["checkpointer"] = True
-    mem_snap = result.get("memory_snapshot") or {}
-    meta["memory_evidence_count"] = len(mem_snap.get("evidence") or [])
-    evidence = [Candidate.model_validate(e) for e in (result.get("evidence") or [])]
+    memory = result.get("memory")
+    meta["memory_evidence_count"] = len(memory.evidence) if memory is not None else 0
+    evidence = list(result.get("evidence", {}).values())
     meta["confidence"] = grade_confidence(out, evidence)
-    out.metadata = meta
+    out.metadata = serialize_metadata(meta)
     return out
 
 

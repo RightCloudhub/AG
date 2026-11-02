@@ -7,11 +7,32 @@ pause) can detect and migrate an older shape instead of misreading it.
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Annotated, TypedDict
 
-from agentic_graphrag.agent.memory import MemorySnapshot
+from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.plan_dag import SubQuestion
+from agentic_graphrag.agent.register_state import RegisterRuntimeState, merge_register_runtime
+from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain, ToolCallTrace
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
+
+type Retrieved = tuple[list[Candidate], list[ToolCallTrace]]
+
+
+class EvidenceGap(TypedDict):
+    missing: list[str]
+
+
+def merge_evidence(
+    previous: dict[str, Candidate], incoming: dict[str, Candidate]
+) -> dict[str, Candidate]:
+    """Keep the first candidate for each id, matching MemoryState.add_evidence."""
+    result = dict(previous)
+    for key, candidate in incoming.items():
+        result.setdefault(key, candidate)
+    return result
 
 
 class AgentState(TypedDict, total=False):
@@ -19,41 +40,41 @@ class AgentState(TypedDict, total=False):
 
     state_version: int
     question: str
-    chain: dict[str, Any]
-    sub_questions: list[dict[str, Any]]
+    chain: ReasoningChain
+    sub_questions: list[SubQuestion]
     current_index: int
     hop: int
-    evidence: list[dict[str, Any]]
+    evidence: Annotated[dict[str, Candidate], merge_evidence]
     memory_summary: str
-    memory_snapshot: MemorySnapshot
+    memory: MemoryState
     done: bool
     guardrail_status: str
     allow_llm: bool
     tenant_id: str
     dropped_sub_questions: list[str]
-    prefetched: dict[str, Any]
+    prefetched: dict[str, Retrieved]
     # Structured "missing evidence" signal from the answer node (refactor §1.5).
-    evidence_gap: dict[str, Any]
+    evidence_gap: EvidenceGap
     answer_retries: int
-    requirement_register: dict[str, Any]
-    register_context: list[dict[str, str]]
-    register_events: list[dict[str, Any]]
-    register_cache: dict[str, list[str]]
-    register_seen: list[str]
-    register_attempts: dict[str, int]
-    register_fresh: list[str]
-    register_stop: str
-    register_progress: str
-    register_answer_policy: str
+    register: Register | None
+    register_runtime: Annotated[RegisterRuntimeState, merge_register_runtime]
+
+
+def active_register(state: AgentState) -> Register:
+    """Require the register initialized by the register planner."""
+    register = state.get("register")
+    if register is None:
+        raise ValueError("register planner has not initialized the register")
+    return register
 
 
 def initial_state(
     question: str,
-    chain: dict[str, Any],
+    chain: ReasoningChain,
     *,
     allow_llm: bool,
     tenant_id: str = "",
-    evidence: list[dict[str, Any]] | None = None,
+    evidence: list[Candidate] | None = None,
 ) -> AgentState:
     """Build the initial state. ``tenant_id`` MUST be set: omitting it made runs
     retrieve with ``tenant_id=None`` ("no filter") → cross-tenant leak (BL-04)."""
@@ -64,7 +85,10 @@ def initial_state(
         sub_questions=[],
         current_index=0,
         hop=0,
-        evidence=list(evidence or []),
+        evidence={candidate.id: candidate for candidate in evidence or []},
+        memory=MemoryState(),
+        register=None,
+        register_runtime=RegisterRuntimeState(),
         done=False,
         allow_llm=allow_llm,
         tenant_id=tenant_id,

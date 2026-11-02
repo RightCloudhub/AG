@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+import typing
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -178,7 +179,7 @@ def _consume_progress(
         req.question, executor, llm if svc.allow_llm else None, options=opts
     ):
         if etype != EVENT_FINAL_CHAIN:
-            yield etype, payload
+            yield etype, typing.cast(dict[str, object], payload)
             continue
         yield from _finish_answer(svc, req, payload, tenant_id=tenant_id, user_id=user_id, t0=t0)
 

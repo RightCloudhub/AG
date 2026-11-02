@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from typing import Literal, TypedDict
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer
 
 from agentic_graphrag.core.enums import RequirementStatus
 from agentic_graphrag.core.json_types import JsonObject
@@ -23,6 +25,10 @@ class Requirement(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     # An update must name the fresh passages that actually touched this need.
     touched_passages: set[str] = Field(default_factory=set)
+
+    @field_serializer("passages", "touched_passages", when_used="json")
+    def sorted_passages(self, value: set[str]) -> list[str]:
+        return sorted(value)
 
     def snapshot(self) -> JsonObject:
         data = self.model_dump(mode="json")
@@ -68,23 +74,30 @@ class RegisterPayload(BaseModel):
     reasoning_note: str = ""
 
 
+class RequirementChange(TypedDict):
+    req_id: str
+    before: RequirementStatus | Literal["new"]
+    after: RequirementStatus
+    requirement: Requirement
+
+
 def compose(question: str, item: Requirement) -> str:
     """Keep the global goal, the current gap and confirmed bridge entities."""
     parts = [question, item.text, item.notes, " ".join(item.anchors)]
     return "\n".join(p for p in parts if p)
 
 
-def diff(old: Register, new: Register) -> list[JsonObject]:
-    changes = []
+def diff(old: Register, new: Register) -> list[RequirementChange]:
+    changes: list[RequirementChange] = []
     for rid, item in new.items.items():
         previous = old.items.get(rid)
-        if previous is None or previous.snapshot() != item.snapshot():
+        if previous is None or previous != item:
             changes.append(
                 {
                     "req_id": rid,
                     "before": previous.status if previous else "new",
                     "after": item.status,
-                    "requirement": item.snapshot(),
+                    "requirement": item.model_copy(deep=True),
                 }
             )
     return changes

@@ -45,8 +45,8 @@ def annotate_plan_coverage(chain: ReasoningChain, state: AgentState) -> None:
 def _unexecuted(chain: ReasoningChain, state: AgentState) -> list[str]:
     executed = {(s.sub_question or "").strip() for s in chain.steps}
     out: list[str] = []
-    for raw in state.get("sub_questions") or []:
-        text = str((raw or {}).get("text") or "").strip()
+    for sub_question in state.get("sub_questions") or []:
+        text = sub_question.text.strip()
         if text and text not in executed and text not in out:
             out.append(text)
     return out

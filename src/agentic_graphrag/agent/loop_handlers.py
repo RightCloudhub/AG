@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from agentic_graphrag.agent.critic import CriticAction, CriticResult
 from agentic_graphrag.agent.executor import Executor
@@ -19,7 +18,7 @@ from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
-from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
+from agentic_graphrag.core.reasoning import ReasoningStep
 
 
 @dataclass
@@ -28,7 +27,7 @@ class ExecutorNodeCtx:
 
     state: AgentState
     sq: SubQuestion
-    sqs: list[dict[str, Any]]
+    sqs: list[SubQuestion]
     idx: int
     memory: MemoryState
     guards: Guardrails
@@ -69,7 +68,7 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
             "hop": hop,
             "done": hop_cap or idx + 1 >= len(sqs),
             "guardrail_status": guards.status_text(),
-            "memory_snapshot": memory.to_snapshot(),
+            "memory": memory.copy(),
         }
     if memory.is_duplicate_subquestion(sq.text) and idx > 0:
         memory.exclude_hypothesis(sq.text)
@@ -80,7 +79,7 @@ def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
             "hop": hop,
             "guardrail_status": guards.status_text(),
             "done": hop_cap or idx + 1 >= len(sqs),
-            "memory_snapshot": memory.to_snapshot(),
+            "memory": memory.copy(),
         }
     return None
 
@@ -102,7 +101,7 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
         tool_calls=traces,
         evidence_ids=step_ids,
     )
-    chain = ReasoningChain.model_validate(ctx.state["chain"])
+    chain = ctx.state["chain"].model_copy(deep=True)
     chain.steps.append(step)
     chain.explored_paths = sorted(memory.explored_paths)
     if len(group) > 1:
@@ -113,23 +112,23 @@ def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
         PREFETCH_KEY: prefetch,
         "sub_questions": ctx.sqs,
         "hop": guards.state.hop,
-        "evidence": [c.model_dump() for c in memory.evidence_list()],
-        "chain": chain.model_dump(),
+        "evidence": dict(memory.evidence),
+        "chain": chain,
         "memory_summary": memory.summary(),
-        "memory_snapshot": memory.to_snapshot(),
+        "memory": memory.copy(),
         "guardrail_status": guards.status_text(),
     }
 
 
 def materialize_current(
-    sqs: list[dict[str, Any]],
+    sqs: list[SubQuestion],
     idx: int,
     memory: MemoryState,
-) -> tuple[SubQuestion, list[dict[str, Any]]]:
-    sq = SubQuestion.model_validate(sqs[idx])
+) -> tuple[SubQuestion, list[SubQuestion]]:
+    sq = sqs[idx]
     sq = materialize_subquestion(sq, memory.conclusions_by_subquestion)
     sqs = list(sqs)
-    sqs[idx] = sq.model_dump()
+    sqs[idx] = sq
     return sq, sqs
 
 
@@ -158,7 +157,7 @@ def apply_critic_result(ctx: CriticApplyCtx) -> AgentState:
 
 def _record_critic_on_chain(ctx: CriticApplyCtx) -> str:
     result, memory = ctx.result, ctx.memory
-    chain = ReasoningChain.model_validate(ctx.state["chain"])
+    chain = ctx.state["chain"].model_copy(deep=True)
     conclusion = result.partial_answer or ""
     if chain.steps:
         chain.steps[-1].critic_action = result.action
@@ -167,7 +166,7 @@ def _record_critic_on_chain(ctx: CriticApplyCtx) -> str:
     if result.sub_answered or result.action == CriticAction.SUFFICIENT or conclusion:
         memory.mark_subquestion_done(ctx.sq_id, conclusion or None)
     # Mutate ctx.state chain via side channel used by _base_state_after_critic
-    ctx.state = {**ctx.state, "chain": chain.model_dump()}
+    ctx.state = {**ctx.state, "chain": chain}
     return conclusion
 
 
@@ -176,7 +175,7 @@ def _base_state_after_critic(ctx: CriticApplyCtx) -> AgentState:
     return {
         **ctx.state,
         "guardrail_status": guards.status_text(),
-        "memory_snapshot": memory.to_snapshot(),
+        "memory": memory.copy(),
         "memory_summary": memory.summary(),
     }
 
@@ -195,7 +194,7 @@ def _cap_hops(
 def _resolve_terminal_action(
     new_state: AgentState,
     ctx: CriticApplyCtx,
-    sqs: list[dict[str, Any]],
+    sqs: list[SubQuestion],
 ) -> None:
     result, memory, guards = ctx.result, ctx.memory, ctx.guards
     action = result.action
@@ -218,7 +217,7 @@ def _resolve_terminal_action(
 def _append_dynamic_subquestion(
     new_state: AgentState,
     ctx: CriticApplyCtx,
-    sqs: list[dict[str, Any]],
+    sqs: list[SubQuestion],
 ) -> None:
     """Insert critic follow-up after the current node so remaining plan nodes run.
 
@@ -248,7 +247,7 @@ def _append_dynamic_subquestion(
             text=new_sq,
             depends_on=[ctx.sq_id] if ctx.sq else [],
             rationale=ctx.result.rationale,
-        ).model_dump(),
+        ),
     )
     new_state["sub_questions"] = sqs
     # Next executor hop runs the inserted node; original tail still follows.
@@ -256,7 +255,7 @@ def _append_dynamic_subquestion(
 
 
 def load_evidence(state: AgentState) -> list[Candidate]:
-    return [Candidate.model_validate(e) for e in state.get("evidence") or []]
+    return list(state.get("evidence", {}).values())
 
 
 def load_evidence_for_critic(state: AgentState) -> list[Candidate]:
@@ -268,14 +267,10 @@ def load_evidence_for_critic(state: AgentState) -> list[Candidate]:
     all_ev = load_evidence(state)
     if not all_ev:
         return all_ev
-    chain = state.get("chain") or {}
-    steps = chain.get("steps") if isinstance(chain, dict) else None
-    if not steps:
+    chain = state.get("chain")
+    if chain is None or not chain.steps:
         return all_ev
-    last = steps[-1] if isinstance(steps[-1], dict) else None
-    if not last:
-        return all_ev
-    ids = set(last.get("evidence_ids") or [])
+    ids = set(chain.steps[-1].evidence_ids)
     if not ids:
         return all_ev
     local = [c for c in all_ev if c.id in ids]

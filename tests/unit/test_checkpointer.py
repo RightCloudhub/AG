@@ -13,7 +13,9 @@ from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.loop import build_graph, invoke_config, run_agentic_query
 from agentic_graphrag.agent.loop_runtime import AgentRuntime, AgentState
 from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.state_checkpointer import StateCheckpointer
 from agentic_graphrag.config import resolve_path
+from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.knowledge.graph_builder import triples_to_records
 from agentic_graphrag.knowledge.schema_check import Triple
 from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource
@@ -126,7 +128,8 @@ def _make_executor() -> Executor:
 def test_make_checkpointer_memory():
     cp = make_checkpointer("memory")
     assert cp is not None
-    assert type(cp).__name__ in ("MemorySaver", "InMemorySaver")
+    assert isinstance(cp, StateCheckpointer)
+    assert isinstance(cp.backend, MemorySaver)
 
 
 def test_make_checkpointer_unknown_raises():
@@ -183,9 +186,9 @@ def test_run_agentic_query_writes_checkpoint_with_memory_snapshot():
     cfg = invoke_config(thread_id, recursion_limit=12)
     st = g.get_state(cfg)
     assert st.values.get("question")
-    snap = st.values.get("memory_snapshot") or {}
+    memory = st.values["memory"]
     # Offline run should accumulate some evidence into shared memory
-    assert "evidence" in snap or "explored_subquestions" in snap
+    assert memory.evidence or memory.explored_subquestions
     history = list(g.get_state_history(cfg))
     assert len(history) >= 2
 
@@ -208,9 +211,9 @@ def test_memory_hydrate_from_checkpoint_snapshot():
     )
     state: AgentState = {
         "question": "q",
-        "memory_snapshot": mem.to_snapshot(),
+        "memory": mem,
         "hop": 2,
-        "chain": {},
+        "chain": ReasoningChain(question="q"),
     }
     # New runtime instance (simulates resume after rehydrate)
     rt2 = AgentRuntime(ex, None, GuardrailConfig(max_hops=2))
