@@ -52,11 +52,20 @@ retrieval:
   cache_answer_ttl_seconds: 3600
   # Two-stage retrieval (docs/design/ARCH_OPTIMIZATION_V2.md O-5). Env AGR_RERANK overrides kind.
   rerank:
-    kind: none           # none | lexical | http (cross-encoder, e.g. bge-reranker-v2-m3 on TEI)
+    kind: none           # none | lexical | http | local; live promotion gated by reports/rerank_eval.md
     candidate_pool: 30   # per-channel recall when kind != none
-    top_n: 10            # fused hits kept after re-ranking
-    endpoint: ""         # http only: POST {query, texts} -> [{index, score}]
+    top_n: null          # defaults to retrieval.top_k; optional legacy override
+    endpoint: "http://127.0.0.1:8081/rerank"
+    model: "BAAI/bge-reranker-v2-m3" # must match the HTTP service model/revision
     timeout_seconds: 2.0
+    batch_size: 16
+    max_chars: 2000
+    max_query_chars: 1000
+    max_length: 512      # local tokenizer pair limit; TEI uses truncate=true
+    graph_policy: exempt # score | exempt (keep RRF slots) | floor
+    graph_floor: 0.0     # model score units; used only with graph_policy=floor
+    failure_threshold: 2
+    cooldown_seconds: 20.0
   graph:
     max_hop_neighbors: 2
     max_path_hops: 4

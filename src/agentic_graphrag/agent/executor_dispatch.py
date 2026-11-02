@@ -55,9 +55,6 @@ def _record_tool_failure(executor: Executor, tool: ToolName, exc: BaseException)
     )
 
 
-# ToolHandler checks positional arguments and the keyword-only tenant scope.
-
-
 def dispatch(
     executor: Executor,
     tool: ToolName,

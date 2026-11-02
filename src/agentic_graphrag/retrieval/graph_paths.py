@@ -96,6 +96,7 @@ def path_candidates(
                     "relation_ids": [r.id for r in path.relations if r.id],
                     "length": path.length,
                     "signature": path_signature(path.nodes, path.relations),
+                    "rerank_edges": _rerank_edges(path),
                     "source_chunk_ids": source_chunk_ids(sources),
                 },
                 citations=[
@@ -106,3 +107,15 @@ def path_candidates(
             )
         )
     return out
+
+
+def _rerank_edges(path: PathRecord) -> list[dict[str, str]]:
+    names = {node.id: node.name for node in path.nodes}
+    return [
+        {
+            "head": rel.head_name or names.get(rel.head_id, rel.head_id),
+            "relation": rel.type,
+            "tail": rel.tail_name or names.get(rel.tail_id, rel.tail_id),
+        }
+        for rel in path.relations
+    ]

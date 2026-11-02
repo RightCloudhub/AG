@@ -33,6 +33,16 @@ services:
       retries: 10
       start_period: 10s
 
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    profiles: [rerank]
+    ports:
+      - "127.0.0.1:8081:80"
+    command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--max-client-batch-size", "16"]
+    volumes:
+      - reranker_data:/data
+
 volumes:
   neo4j_data:
   qdrant_data:
+  reranker_data:

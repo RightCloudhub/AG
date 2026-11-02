@@ -85,9 +85,15 @@ def build_executor_for_service(
     # One health object per query run, shared by every retriever and the executor
     # so each swallowed failure lands in the same `degraded_channels` list (O-9).
     health = ChannelHealth()
-    reranker = build_reranker(ret.rerank, health=health)
+    reranker = build_reranker(ret.rerank, health=health) if allow_llm else None
     vec_k, ft_k = _recall_sizes(ret, reranked=reranker is not None)
-    graph_ret = GraphRetriever.from_config(bundle.graph, cfg, health=health)
+    graph_cfg = ret.graph.model_copy(deep=True)
+    if reranker is not None:
+        pool = ret.rerank.candidate_pool
+        graph_cfg.max_neighbors_per_layer = max(pool, graph_cfg.max_neighbors_per_layer)
+        graph_cfg.max_paths = max(pool, graph_cfg.max_paths)
+        graph_cfg.beam_width = max(pool, graph_cfg.beam_width)
+    graph_ret = GraphRetriever.from_config(bundle.graph, graph_cfg, health=health)
     fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k, health=health)
     llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
     vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k, health=health)
@@ -103,11 +109,12 @@ def build_executor_for_service(
         parallel=bool(ret.parallel),
         fusion_method=(ret.fusion_method or DEFAULT_FUSION_METHOD),
         fusion_k=int(ret.fusion_k),
-        cache=retrieval_cache if enable_cache else None,
+        cache=retrieval_cache if enable_cache and reranker is None else None,
         reranker=reranker,
+        candidate_pool=ret.rerank.candidate_pool if reranker is not None else None,
     )
     if reranker is not None:
-        config.fusion_limit = int(ret.rerank.top_n)
+        config.fusion_limit = ret.rerank.top_n or ret.top_k
     return Executor(graph=graph_ret, deps=deps, config=config)
 
 
@@ -116,7 +123,7 @@ def _recall_sizes(ret: RetrievalConfig, *, reranked: bool) -> tuple[int, int]:
     if not reranked:
         return int(ret.vector_top_k), int(ret.fulltext_top_k)
     pool = int(ret.rerank.candidate_pool)
-    return max(pool, int(ret.vector_top_k)), max(pool, int(ret.fulltext_top_k))
+    return pool, pool
 
 
 def build_llm_for_service(

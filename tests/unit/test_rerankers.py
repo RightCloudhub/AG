@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import httpx
 import pytest
 
 from agentic_graphrag.app.wiring import _recall_sizes
-from agentic_graphrag.config import RetrievalConfig
+from agentic_graphrag.config import RerankConfig, RetrievalConfig
 from agentic_graphrag.core.evidence import Candidate, CandidateSource
 from agentic_graphrag.retrieval.fusion import fuse_candidates
 from agentic_graphrag.retrieval.rerankers import (
@@ -60,7 +58,14 @@ def test_http_reranker_wrapped_results_and_fallback(monkeypatch) -> None:
         httpx,
         "post",
         lambda *a, **k: httpx.Response(
-            200, json={"results": [{"index": 0, "relevance_score": 2.0}]}, request=req
+            200,
+            json={
+                "results": [
+                    {"index": 0, "relevance_score": 2.0},
+                    {"index": 1, "relevance_score": 1.0},
+                ]
+            },
+            request=req,
         ),
     )
     rr = HttpCrossEncoderReranker("http://r")
@@ -70,7 +75,7 @@ def test_http_reranker_wrapped_results_and_fallback(monkeypatch) -> None:
         raise httpx.ConnectTimeout("down")
 
     monkeypatch.setattr(httpx, "post", boom)
-    out = rr.rerank("q", [_c("0", "a"), _c("1", "b")])
+    out = rr.rerank("new query", [_c("0", "a"), _c("1", "b")])
     assert [c.id for c in out] == ["0", "1"]
     assert out[0].metadata["rerank_fallback"] == "ConnectTimeout"
     assert rr.fallbacks == 1
@@ -78,12 +83,12 @@ def test_http_reranker_wrapped_results_and_fallback(monkeypatch) -> None:
 
 
 def test_build_reranker_and_recall_sizes() -> None:
-    assert build_reranker(SimpleNamespace(kind="none")) is None
-    assert isinstance(build_reranker(SimpleNamespace(kind="lexical")), LexicalReranker)
-    http = build_reranker(SimpleNamespace(kind="http", endpoint="http://x", timeout_seconds=1))
+    assert build_reranker(RerankConfig(kind="none")) is None
+    assert isinstance(build_reranker(RerankConfig(kind="lexical")), LexicalReranker)
+    http = build_reranker(RerankConfig(kind="http", endpoint="http://x", timeout_seconds=1))
     assert isinstance(http, HttpCrossEncoderReranker)
     with pytest.raises(ValueError):
-        build_reranker(SimpleNamespace(kind="magic"))
+        build_reranker(RerankConfig(kind="magic"))
     with pytest.raises(ValueError):
         HttpCrossEncoderReranker("")
     ret = RetrievalConfig()

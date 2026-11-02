@@ -84,6 +84,7 @@ class ExecutorConfig:
     fusion_limit: int | None = DEFAULT_FUSION_LIMIT
     cache: RetrievalCache | None = None
     reranker: Reranker | None = None
+    candidate_pool: int | None = None
 
 
 class Executor:
@@ -234,6 +235,7 @@ def _merge_config(
         fusion_limit=base.fusion_limit if fusion_limit is None else fusion_limit,
         cache=base.cache if cache is None else cache,
         reranker=base.reranker if reranker is None else reranker,
+        candidate_pool=base.candidate_pool,
     )
 
 

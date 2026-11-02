@@ -55,7 +55,12 @@ def _is_cacheable_answer(chain: ReasoningChain) -> bool:
     meta = chain.metadata or {}
     # Even a single degraded channel can leave incomplete evidence or fallback
     # text that must be recomputed after recovery, regardless of low_confidence.
-    if meta.get("llm_degraded") or meta.get(LOW_CONFIDENCE_KEY) or meta.get(DEGRADED_CHANNELS_KEY):
+    if (
+        meta.get("llm_degraded")
+        or meta.get("rerank_degraded")
+        or meta.get(LOW_CONFIDENCE_KEY)
+        or meta.get(DEGRADED_CHANNELS_KEY)
+    ):
         return False
     return True
 

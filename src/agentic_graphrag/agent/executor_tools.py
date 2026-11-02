@@ -39,6 +39,7 @@ def handle_graph_neighbors(
         return []
     return executor.graph.neighbors(
         entity,
+        limit=executor.config.candidate_pool,
         max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_NEIGHBOR_HOPS)),
         relation_types=args.get(ToolArgument.RELATION_TYPES),
         sub_question=sub_question,
@@ -59,6 +60,7 @@ def handle_graph_path(
     return executor.graph.paths(
         src,
         dst,
+        limit=executor.config.candidate_pool,
         max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_PATH_HOPS)),
         sub_question=sub_question,
         tenant_id=tenant_id,
@@ -79,6 +81,7 @@ def handle_graph_subgraph(
         seeds = executor.resolve_entities(sub_question)[:MAX_SUBGRAPH_SEEDS]
     return executor.graph.subgraph(
         [str(s) for s in seeds],
+        limit=executor.config.candidate_pool,
         max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_SUBGRAPH_HOPS)),
         relation_types=args.get(ToolArgument.RELATION_TYPES),
         sub_question=sub_question,
@@ -98,6 +101,8 @@ def handle_vector_search(
     options = (
         {ToolArgument.TOP_K: int(args[ToolArgument.TOP_K])} if ToolArgument.TOP_K in args else {}
     )
+    if executor.config.candidate_pool is not None:
+        options[ToolArgument.TOP_K] = executor.config.candidate_pool
     return executor.vector.search(
         str(args.get(ToolArgument.QUERY) or sub_question), tenant_id=tenant_id, **options
     )

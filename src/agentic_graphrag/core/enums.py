@@ -70,6 +70,7 @@ class RerankKind(StrEnum):
     NONE = "none"
     LEXICAL = "lexical"
     HTTP = "http"
+    LOCAL = "local"
 
 
 class RetrievalChannel(StrEnum):

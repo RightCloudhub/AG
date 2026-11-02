@@ -1,38 +1,21 @@
-"""Second-stage re-rankers behind :class:`~agentic_graphrag.retrieval.fusion.Reranker` (O-5).
-
-Two-stage retrieval: each channel recalls ``candidate_pool`` hits, RRF fuses
-them, then a re-ranker reorders the fused list by *content* before the top-N
-cut. RRF only sees ranks, so near-duplicate "similar but off-topic" chunks that
-two channels agree on float to the top; a content-aware stage fixes that.
-
-* :class:`LexicalReranker` — offline, deterministic (query-token coverage
-  blended with the RRF prior). Useful as a baseline and in tests.
-* :class:`HttpCrossEncoderReranker` — a cross-encoder served over HTTP
-  (TEI / Infinity ``POST /rerank``: ``{"query", "texts"}`` →
-  ``[{"index", "score"}]``), e.g. ``bge-reranker-v2-m3``. Any error or timeout
-  falls back to the input order and tags ``metadata.rerank_fallback``.
-
-Graph hits are already linearised text (``A -[REL]-> B``), so they are scored
-like chunks.
-"""
+"""Second-stage lexical, HTTP and optional local rerankers behind one protocol."""
 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from functools import lru_cache
 
+from agentic_graphrag.config_rerank import RerankConfig
 from agentic_graphrag.core.constants import SCORE_PRECISION
-from agentic_graphrag.core.enums import RerankKind, RetrievalChannel
-from agentic_graphrag.observability.degradation import (
-    REASON_RERANK_UNAVAILABLE,
-    ChannelHealth,
-    record_degradation,
-)
-
-if TYPE_CHECKING:
-    from agentic_graphrag.config import RerankConfig
-
+from agentic_graphrag.core.enums import RerankKind
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.llm.circuit import CircuitBreaker
+from agentic_graphrag.observability.degradation import ChannelHealth
+from agentic_graphrag.retrieval.fusion import Reranker
+from agentic_graphrag.retrieval.rerank_http import (
+    HttpCrossEncoderReranker as HttpCrossEncoderReranker,
+)
+from agentic_graphrag.retrieval.rerank_text import candidate_text, with_meta
 
 _TOKEN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 _STOP = frozenset(
@@ -46,10 +29,6 @@ def _terms(text: str) -> set[str]:
     return {t.lower() for t in _TOKEN.findall(text or "") if t.lower() not in _STOP}
 
 
-def _with_meta(c: Candidate, **meta: Any) -> Candidate:
-    return c.model_copy(update={"metadata": {**c.metadata, **meta}})
-
-
 class LexicalReranker:
     """Query-term coverage + RRF prior; ties keep the fused order."""
 
@@ -59,83 +38,34 @@ class LexicalReranker:
             return list(candidates)
         scored = []
         for rank, c in enumerate(candidates):
-            coverage = len(q & _terms(c.content)) / len(q)
+            coverage = len(q & _terms(candidate_text(c))) / len(q)
             prior = _PRIOR_WEIGHT / (1 + rank)
             scored.append((coverage + prior, rank, c))
         scored.sort(key=lambda t: (-t[0], t[1]))
         return [
-            _with_meta(c, rerank_score=round(s, SCORE_PRECISION), rerank="lexical")
+            with_meta(c, rerank_score=round(s, SCORE_PRECISION), rerank="lexical")
             for s, _r, c in scored
         ]
 
 
-class HttpCrossEncoderReranker:
-    """Cross-encoder over HTTP; never raises into retrieval."""
-
-    def __init__(
-        self,
-        endpoint: str,
-        *,
-        timeout_seconds: float = 2.0,
-        max_chars: int = 2000,
-        health: ChannelHealth | None = None,
-    ):
-        if not endpoint:
-            raise ValueError("HttpCrossEncoderReranker needs an endpoint")
-        self.endpoint = endpoint
-        self.timeout_seconds = timeout_seconds
-        self.max_chars = max_chars
-        self.health = health
-        self.fallbacks = 0
-
-    def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
-        if len(candidates) < 2:
-            return list(candidates)
-        try:
-            scores = self._score(query, [c.content[: self.max_chars] for c in candidates])
-        except Exception as exc:  # noqa: BLE001 — degrade to fused order
-            self.fallbacks += 1
-            record_degradation(
-                RetrievalChannel.RERANK,
-                REASON_RERANK_UNAVAILABLE,
-                exc,
-                health=self.health,
-            )
-            return [_with_meta(c, rerank_fallback=type(exc).__name__) for c in candidates]
-        order = sorted(range(len(candidates)), key=lambda i: (-scores.get(i, float("-inf")), i))
-        return [
-            _with_meta(candidates[i], rerank_score=scores.get(i), rerank="cross_encoder")
-            for i in order
-        ]
-
-    def _score(self, query: str, texts: list[str]) -> dict[int, float]:
-        import httpx
-
-        resp = httpx.post(
-            self.endpoint,
-            json={"query": query, "texts": texts, "truncate": True},
-            timeout=self.timeout_seconds,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        if isinstance(rows, dict):  # some servers wrap: {"results": [...]}
-            rows = rows.get("results") or []
-        return {int(r["index"]): float(r.get("score", r.get("relevance_score", 0.0))) for r in rows}
+@lru_cache(maxsize=32)
+def _shared_circuit(identity: str, threshold: int, cooldown: float) -> CircuitBreaker:
+    """Share upstream health across requests, never query text or scores."""
+    return CircuitBreaker(failure_threshold=threshold, cooldown_seconds=cooldown)
 
 
-def build_reranker(
-    cfg: RerankConfig, *, health: ChannelHealth | None = None
-) -> LexicalReranker | HttpCrossEncoderReranker | None:
-    """``cfg`` is :class:`~agentic_graphrag.config.RerankConfig` (kind none|lexical|http)."""
+def build_reranker(cfg: RerankConfig, *, health: ChannelHealth | None = None) -> Reranker | None:
+    """Cross-encoder fallbacks are marked on the run's ``health`` (O-9)."""
     kind = RerankKind(cfg.kind)
     if kind is RerankKind.NONE:
         return None
     if kind is RerankKind.LEXICAL:
         return LexicalReranker()
+    circuit = _shared_circuit(
+        f"{kind}:{cfg.endpoint}:{cfg.model}", cfg.failure_threshold, cfg.cooldown_seconds
+    )
     if kind is RerankKind.HTTP:
-        return HttpCrossEncoderReranker(
-            cfg.endpoint,
-            timeout_seconds=cfg.timeout_seconds,
-            health=health,
-        )
-    raise ValueError(f"unknown reranker kind {kind!r} (expected none|lexical|http)")
+        return HttpCrossEncoderReranker(cfg.endpoint, cfg=cfg, circuit=circuit, health=health)
+    from agentic_graphrag.retrieval.rerank_local import LocalCrossEncoderReranker
+
+    return LocalCrossEncoderReranker(cfg, circuit=circuit, health=health)

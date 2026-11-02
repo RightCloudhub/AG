@@ -1,0 +1,1087 @@
+{
+  "mode": "deterministic answers and hash embeddings; live quality not established",
+  "top_k": 10,
+  "graph_policy": "exempt",
+  "model": "BAAI/bge-reranker-v2-m3",
+  "http_status": "unmeasured: no endpoint",
+  "fixtures": {
+    "cases": "b8ec32e3557505fbf614bd2b95b66cd68821d38205adf909056b12da4b570237",
+    "triples": "d1f5717fa99e51daf48e6f4633089573bda24eb413ede3683793fdc248a34efe",
+    "chunks": "3c2da114a41f6b8686a438d939346d146cd527251f33657f0c2a1baeb49828d0"
+  },
+  "variants": {
+    "none_10": {
+      "correct": 185,
+      "total": 200,
+      "accuracy": 0.925,
+      "ci95": [
+        0.88,
+        0.954
+      ],
+      "latency_p50_ms": 42.43393600336276,
+      "latency_p95_ms": 72.66725200315705,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 87,
+          "total": 90,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.9065,
+            0.9886
+          ]
+        },
+        "3hop": {
+          "correct": 58,
+          "total": 60,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.8864,
+            0.9908
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 45,
+          "total": 46,
+          "accuracy": 0.9783,
+          "ci95": [
+            0.8866,
+            0.9962
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 36,
+          "total": 39,
+          "accuracy": 0.9231,
+          "ci95": [
+            0.7968,
+            0.9735
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 13,
+          "total": 14,
+          "accuracy": 0.9286,
+          "ci95": [
+            0.6853,
+            0.9873
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 0,
+        "both": 185,
+        "neither": 15,
+        "p_value": 1.0
+      },
+      "recall_at_10": 0.9265838945005612,
+      "recall_n": 180,
+      "paired_added_p50_ms": 0.0,
+      "paired_added_p95_ms": 0.0,
+      "rerank_stage_p50_ms": 0.003140994522254914,
+      "rerank_stage_p95_ms": 0.0056319517170777544,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    },
+    "lexical_10": {
+      "correct": 190,
+      "total": 200,
+      "accuracy": 0.95,
+      "ci95": [
+        0.9104,
+        0.9726
+      ],
+      "latency_p50_ms": 44.093672004237305,
+      "latency_p95_ms": 73.76694100094028,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 90,
+          "total": 90,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9591,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 60,
+          "total": 60,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9398,
+            1.0
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 39,
+          "total": 39,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9103,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 14,
+          "total": 14,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7847,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 5,
+        "both": 185,
+        "neither": 10,
+        "p_value": 0.0625
+      },
+      "recall_at_10": 0.9146787317620652,
+      "recall_n": 180,
+      "paired_added_p50_ms": 2.175165500375442,
+      "paired_added_p95_ms": 16.15947335194504,
+      "rerank_stage_p50_ms": 0.8762929974182043,
+      "rerank_stage_p95_ms": 1.6584987530222857,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    },
+    "none_20": {
+      "correct": 185,
+      "total": 200,
+      "accuracy": 0.925,
+      "ci95": [
+        0.88,
+        0.954
+      ],
+      "latency_p50_ms": 45.23458699986804,
+      "latency_p95_ms": 80.3042120023747,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 87,
+          "total": 90,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.9065,
+            0.9886
+          ]
+        },
+        "3hop": {
+          "correct": 58,
+          "total": 60,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.8864,
+            0.9908
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 45,
+          "total": 46,
+          "accuracy": 0.9783,
+          "ci95": [
+            0.8866,
+            0.9962
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 36,
+          "total": 39,
+          "accuracy": 0.9231,
+          "ci95": [
+            0.7968,
+            0.9735
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 13,
+          "total": 14,
+          "accuracy": 0.9286,
+          "ci95": [
+            0.6853,
+            0.9873
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 0,
+        "both": 185,
+        "neither": 15,
+        "p_value": 1.0
+      },
+      "recall_at_10": 0.9265838945005612,
+      "recall_n": 180,
+      "paired_added_p50_ms": 0.0,
+      "paired_added_p95_ms": 0.0,
+      "rerank_stage_p50_ms": 0.003506997018121183,
+      "rerank_stage_p95_ms": 0.006474543988588265,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    },
+    "lexical_20": {
+      "correct": 190,
+      "total": 200,
+      "accuracy": 0.95,
+      "ci95": [
+        0.9104,
+        0.9726
+      ],
+      "latency_p50_ms": 44.96728800586425,
+      "latency_p95_ms": 68.79729600041173,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 90,
+          "total": 90,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9591,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 60,
+          "total": 60,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9398,
+            1.0
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 39,
+          "total": 39,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9103,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 14,
+          "total": 14,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7847,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 5,
+        "both": 185,
+        "neither": 10,
+        "p_value": 0.0625
+      },
+      "recall_at_10": 0.9131635802469136,
+      "recall_n": 180,
+      "paired_added_p50_ms": -0.8017459986149333,
+      "paired_added_p95_ms": 15.485104149774969,
+      "rerank_stage_p50_ms": 1.4791735011385754,
+      "rerank_stage_p95_ms": 2.783517553689307,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    },
+    "none_30": {
+      "correct": 185,
+      "total": 200,
+      "accuracy": 0.925,
+      "ci95": [
+        0.88,
+        0.954
+      ],
+      "latency_p50_ms": 45.572315000754315,
+      "latency_p95_ms": 69.70478699804517,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 87,
+          "total": 90,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.9065,
+            0.9886
+          ]
+        },
+        "3hop": {
+          "correct": 58,
+          "total": 60,
+          "accuracy": 0.9667,
+          "ci95": [
+            0.8864,
+            0.9908
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 45,
+          "total": 46,
+          "accuracy": 0.9783,
+          "ci95": [
+            0.8866,
+            0.9962
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 36,
+          "total": 39,
+          "accuracy": 0.9231,
+          "ci95": [
+            0.7968,
+            0.9735
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 13,
+          "total": 14,
+          "accuracy": 0.9286,
+          "ci95": [
+            0.6853,
+            0.9873
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 0,
+        "both": 185,
+        "neither": 15,
+        "p_value": 1.0
+      },
+      "recall_at_10": 0.9247320426487093,
+      "recall_n": 180,
+      "paired_added_p50_ms": 0.0,
+      "paired_added_p95_ms": 0.0,
+      "rerank_stage_p50_ms": 0.0035510020097717643,
+      "rerank_stage_p95_ms": 0.00584345070819836,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    },
+    "lexical_30": {
+      "correct": 190,
+      "total": 200,
+      "accuracy": 0.95,
+      "ci95": [
+        0.9104,
+        0.9726
+      ],
+      "latency_p50_ms": 46.014833002118394,
+      "latency_p95_ms": 78.16113699664129,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 90,
+          "total": 90,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9591,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 60,
+          "total": 60,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9398,
+            1.0
+          ]
+        },
+        "no_answer": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 39,
+          "total": 39,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9103,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 14,
+          "total": 14,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7847,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 10,
+          "total": 20,
+          "accuracy": 0.5,
+          "ci95": [
+            0.2993,
+            0.7007
+          ]
+        }
+      },
+      "paired": {
+        "a_only": 0,
+        "b_only": 5,
+        "both": 185,
+        "neither": 10,
+        "p_value": 0.0625
+      },
+      "recall_at_10": 0.9131635802469136,
+      "recall_n": 180,
+      "paired_added_p50_ms": -0.24678300178493373,
+      "paired_added_p95_ms": 16.74038229612051,
+      "rerank_stage_p50_ms": 1.9385359992156737,
+      "rerank_stage_p95_ms": 3.617628703796071,
+      "errors": 0,
+      "fallbacks": 0,
+      "scored_pairs": 0,
+      "requests": 0,
+      "llm_tokens": 0
+    }
+  },
+  "date": "2026-11-03",
+  "hardware": "AMD Ryzen 5 6600H CPU; no TEI/GPU model run",
+  "default_offline": {
+    "poc": [
+      31,
+      31
+    ],
+    "poc_triage": [
+      31,
+      31
+    ],
+    "g2": [
+      200,
+      200
+    ],
+    "probe_compositional": [
+      54,
+      54
+    ],
+    "probe_negative": [
+      20,
+      20
+    ]
+  },
+  "default_comparison_base": "844d2b0",
+  "default_comparison": {
+    "base": {
+      "correct": 200,
+      "total": 200,
+      "accuracy": 1.0,
+      "ci95": [
+        0.9812,
+        1.0
+      ],
+      "latency_p50_ms": 40.0,
+      "latency_p95_ms": 62.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 90,
+          "total": 90,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9591,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 60,
+          "total": 60,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9398,
+            1.0
+          ]
+        },
+        "no_answer": {
+          "correct": 20,
+          "total": 20,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8389,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 39,
+          "total": 39,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9103,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 14,
+          "total": 14,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7847,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 20,
+          "total": 20,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8389,
+            1.0
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "correct": 200,
+      "total": 200,
+      "accuracy": 1.0,
+      "ci95": [
+        0.9812,
+        1.0
+      ],
+      "latency_p50_ms": 35.0,
+      "latency_p95_ms": 56.0,
+      "llm_calls_mean": 0.0,
+      "by_category": {
+        "2hop": {
+          "correct": 90,
+          "total": 90,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9591,
+            1.0
+          ]
+        },
+        "3hop": {
+          "correct": 60,
+          "total": 60,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9398,
+            1.0
+          ]
+        },
+        "no_answer": {
+          "correct": 20,
+          "total": 20,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8389,
+            1.0
+          ]
+        },
+        "open": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        }
+      },
+      "by_template": {
+        "ceo_competitor_producer": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "ceo_of_parent": {
+          "correct": 39,
+          "total": 39,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9103,
+            1.0
+          ]
+        },
+        "ceo_parent_producer": {
+          "correct": 14,
+          "total": 14,
+          "accuracy": 1.0,
+          "ci95": [
+            0.7847,
+            1.0
+          ]
+        },
+        "ceo_prior_employers": {
+          "correct": 46,
+          "total": 46,
+          "accuracy": 1.0,
+          "ci95": [
+            0.9229,
+            1.0
+          ]
+        },
+        "competes_path": {
+          "correct": 30,
+          "total": 30,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8865,
+            1.0
+          ]
+        },
+        "competitor_of_producer": {
+          "correct": 5,
+          "total": 5,
+          "accuracy": 1.0,
+          "ci95": [
+            0.5655,
+            1.0
+          ]
+        },
+        "no_answer_phantom": {
+          "correct": 20,
+          "total": 20,
+          "accuracy": 1.0,
+          "ci95": [
+            0.8389,
+            1.0
+          ]
+        }
+      }
+    },
+    "paired": {
+      "a_only": 0,
+      "b_only": 0,
+      "both": 200,
+      "neither": 0,
+      "p_value": 1.0
+    },
+    "verdict": "no_significant_difference",
+    "flipped_cases": []
+  },
+  "validation": {
+    "ruff": "pass",
+    "ruff_format": "pass",
+    "mypy": "pass",
+    "code_metrics": "pass",
+    "lock_freshness": "pass",
+    "unit_tests_passed": 656,
+    "coverage_percent": 89.74
+  }
+}
