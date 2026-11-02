@@ -1,0 +1,208 @@
+"""Regression tests for evidence, independent verification and convergence boundaries."""
+
+import json
+import logging
+from dataclasses import replace
+from threading import Barrier
+
+import pytest
+from test_register_runtime import (
+    CONTENT,
+    QUESTION,
+    initialization,
+    resolved_update,
+    setup_runtime,
+)
+
+from agentic_graphrag.agent.loop import run_agentic_query
+from agentic_graphrag.agent.loop_runtime import AgentRuntime
+from agentic_graphrag.agent.register_answer import annotate_register
+from agentic_graphrag.agent.register_progress import verify_resolutions
+from agentic_graphrag.agent.requirements import Register, Requirement
+from agentic_graphrag.agent.state import initial_state
+from agentic_graphrag.config import load_prompt
+from agentic_graphrag.core.enums import PromptName, RequirementStatus
+from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.llm.provider import LLMProvider, MockLLMProvider
+
+
+def start(runtime):
+    return runtime.node_planner(
+        initial_state(QUESTION, ReasoningChain(question=QUESTION).model_dump(), allow_llm=True)
+    )
+
+
+def test_verifier_uses_configured_model_and_isolated_prompt(monkeypatch):
+    executor, _, guards, _, _ = setup_runtime(
+        monkeypatch, verifier={"model": "independent-judge", "temperature": 0.3}
+    )
+    calls = []
+
+    def post(self, path, payload, **kwargs):
+        calls.append(payload)
+        prompt = payload["messages"][-1]["content"]
+        if "Independently verify" in prompt:
+            response = {"entailed": True, "reason": "supported"}
+        else:
+            response = initialization() if len(calls) == 1 else resolved_update()
+        return {"choices": [{"message": {"content": json.dumps(response)}}], "usage": {}}
+
+    monkeypatch.setattr(LLMProvider, "_post", post)
+    budget = BudgetTracker()
+    llm = LLMProvider(api_key="test", strong_model="proposer", budget=budget)
+    runtime = AgentRuntime(executor, llm, guards, budget=budget)
+    state = runtime.node_critic(runtime.node_executor(start(runtime)))
+    assert state["done"]
+    assert [c["model"] for c in calls] == ["proposer", "proposer"] + ["independent-judge"] * 2
+    assert all(c["temperature"] == 0.3 for c in calls[2:])
+    assert llm.strong_model == "proposer" and llm.light_model == "gpt-4.1-mini"
+    assert budget.llm_calls == 4
+    for call in calls[2:]:
+        prompt = json.dumps(call["messages"])
+        assert CONTENT in prompt
+        assert QUESTION not in prompt
+        assert "Acme is a company" not in prompt
+        assert "Bridge owns Acme" not in prompt
+        assert '"role": "assistant"' not in prompt
+
+
+def test_identical_verifier_model_warns_on_runtime_startup(monkeypatch, caplog):
+    executor, llm, guards, _, _ = setup_runtime(monkeypatch)
+    llm.strong_model = llm.light_model = "same-model"
+    with caplog.at_level(logging.WARNING):
+        runtime = AgentRuntime(executor, llm, guards)
+        assert runtime.register_runtime.enabled({"allow_llm": True})
+    assert "verifier" in caplog.text.lower() and "same-model" in caplog.text
+
+
+@pytest.mark.parametrize("limit", [None, 1, 3])
+def test_rejection_loop_retires_at_cap_and_survives_resume(monkeypatch, limit):
+    cap = limit or 2
+    init = {"requirement_register": {"owner": initialization()["requirement_register"]["owner"]}}
+    script = [init]
+    for hop in range(1, cap + 1):
+        proposal = resolved_update()["requirement_register"]["owner"]
+        proposal.update(passages=[f"c{hop}"], touched_passages=[f"c{hop}"])
+        script.extend(
+            [
+                {"requirement_register": {"owner": proposal}},
+                {"entailed": False, "reason": "not enough support"},
+            ]
+        )
+    options = {"verifier": {"max_rejections": limit}} if limit else {}
+    executor, llm, guards, _, _ = setup_runtime(monkeypatch, script, **options)
+    guards = replace(guards, max_hops=10)
+    runtime = AgentRuntime(executor, llm, guards)
+    state = start(runtime)
+    for hop in range(1, cap + 1):
+        state = runtime.node_executor(state)
+        hit = Candidate(id=f"c{hop}", source="vector", content=CONTENT)
+        state["evidence"].append(hit.model_dump())
+        state["register_fresh"] = [hit.id]
+        state = runtime.node_critic(state)
+        if hop < cap:
+            assert not state["done"]
+            state = json.loads(json.dumps(state))
+            runtime = AgentRuntime(executor, llm, guards)
+    requirement = state["requirement_register"]["items"]["owner"]
+    assert requirement["status"] == "retired"
+    assert requirement["retire_reason"] == f"verifier rejected {cap} times"
+    assert state["register_rejections"] == {"owner": cap}
+    assert state["done"] and state["register_stop"] == "clear"
+    report = state["register_events"][-1]["verifier"][0]
+    assert report["req_id"] == "owner" and report["retire_reason"] == requirement["retire_reason"]
+    assert report["rejections"] == cap and report["accepted"] is False
+
+
+@pytest.mark.parametrize("delta_enabled", [True, False])
+def test_convergence_nudge_survives_skipped_hop_and_is_sent_once(monkeypatch, delta_enabled):
+    executor, llm, guards, _, _ = setup_runtime(
+        monkeypatch,
+        [initialization(), {"requirement_register": {}}],
+        convergence_ratio=0.5,
+        delta_enabled=delta_enabled,
+    )
+    runtime = AgentRuntime(executor, llm, guards)
+    state = runtime.node_executor(start(runtime))
+    state["hop"] = 3  # Recovery skipped the threshold hop (ceil(0.5 * 3) == 2).
+    state = runtime.node_critic(state)
+    nudge = load_prompt(PromptName.REGISTER_BUDGET)
+    assert sum(m.content == nudge for m in llm.calls[1]) == 1
+    assert state["register_budget_nudged"] is True
+    runtime = AgentRuntime(executor, llm, guards)
+    state["register_fresh"] = []
+    state = runtime.node_critic(json.loads(json.dumps(state)))
+    assert sum(m["content"] == nudge for m in state["register_context"]) <= 1
+    assert state["register_budget_nudged"] is True
+
+
+def test_update_failure_logs_requirement_context(monkeypatch, caplog):
+    executor, llm, guards, _, _ = setup_runtime(monkeypatch, [initialization(), "invalid JSON"])
+    runtime = AgentRuntime(executor, llm, guards)
+    state = runtime.node_executor(start(runtime))
+    with caplog.at_level(logging.WARNING):
+        result = runtime.node_critic(state)
+    assert result["requirement_register"] == state["requirement_register"]
+    assert "owner" in caplog.text and "register" in caplog.text.lower()
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_verifications_are_concurrent_and_reports_keep_requirement_order():
+    barrier = Barrier(2)
+
+    class ConcurrentLLM(MockLLMProvider):
+        def complete(self, messages, **kwargs):
+            barrier.wait(timeout=2)
+            return json.dumps({"entailed": True, "reason": "supported"})
+
+    old = Register(question="q", items={rid: Requirement(text=rid) for rid in ("a", "b")})
+    new = old.model_copy(deep=True)
+    for requirement in new.items.values():
+        requirement.status = RequirementStatus.RESOLVED
+        requirement.passages = {"c1"}
+    reports = verify_resolutions(
+        new,
+        old,
+        ConcurrentLLM(),
+        evidence={"c1": Candidate(id="c1", source="vector", content=CONTENT)},
+        context_limit=128_000,
+    )
+    assert [r["req_id"] for r in reports] == ["a", "b"]
+    assert all(r["entailed"] for r in reports)
+
+
+def test_verifier_retirement_stays_visible_as_missing_information():
+    requirement = Requirement(
+        req_id="owner",
+        text="Who owns Acme?",
+        status="retired",
+        passages={"c1"},
+        retire_reason="verifier rejected 2 times",
+    )
+    register = Register(question=QUESTION, items={"owner": requirement})
+    state = {
+        "requirement_register": register.snapshot(),
+        "register_rejections": {"owner": 2},
+        "register_stop": "clear",
+    }
+    chain = annotate_register(ReasoningChain(question=QUESTION, status="answered"), state)
+    assert chain.status == "partial"
+    assert chain.missing_info == [requirement.text]
+    assert chain.metadata["register_rejections"] == {"owner": 2}
+
+
+def test_no_llm_does_not_configure_an_unsupported_custom_verifier(monkeypatch):
+    executor, llm, guards, _, _ = setup_runtime(
+        monkeypatch, verifier={"model": "independent-judge"}
+    )
+
+    class CustomClient:
+        complete = llm.complete
+        embed = llm.embed
+        embed_many = llm.embed_many
+
+    chain = run_agentic_query(QUESTION, executor, CustomClient(), guard_cfg=guards, allow_llm=False)
+    assert not llm.calls
+    assert "requirement_register" not in chain.metadata

@@ -13,6 +13,10 @@ guardrails:
     updates_enabled: true
     delta_enabled: true
     verifier_enabled: true
+    verifier:
+      model: null  # Use llm.light_model; set a distinct judge model on the chat endpoint.
+      temperature: 0.0
+      max_rejections: 2
     answer_policy: partial  # partial | abstain; factual claims still require citations
     seed_top_k: 5
     max_rounds: 15

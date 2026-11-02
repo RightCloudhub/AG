@@ -41,6 +41,8 @@ class AgentState(TypedDict, total=False):
     register_cache: dict[str, list[str]]
     register_seen: list[str]
     register_attempts: dict[str, int]
+    register_rejections: dict[str, int]
+    register_budget_nudged: bool
     register_fresh: list[str]
     register_stop: str
     register_progress: str

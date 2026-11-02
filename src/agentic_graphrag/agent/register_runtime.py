@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import math
+import logging
 
 from agentic_graphrag.agent.guardrails import Guardrails
-from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps
 from agentic_graphrag.agent.register_answer import answer_from_register
 from agentic_graphrag.agent.register_invariants import schedule
@@ -18,19 +17,24 @@ from agentic_graphrag.agent.register_llm import (
 )
 from agentic_graphrag.agent.register_progress import (
     context_size,
+    nudge_budget,
     progress_state,
+    snapshot_state,
     verify_resolutions,
 )
 from agentic_graphrag.agent.register_search import search, seed_search
 from agentic_graphrag.agent.requirements import Register, Requirement, compose
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.core.enums import CriticAction, MessageRole, PromptName, RequirementStatus
+from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.llm.verifier import build_verifier
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterRuntime:
@@ -40,12 +44,18 @@ class RegisterRuntime:
         self.guards = guards
         self.config = deps.guard_cfg.requirement_register
         self.round_limit = min(self.config.max_rounds, deps.guard_cfg.max_hops)
+        self.verifier: LLMClient | None = None
 
     def _llm(self, state: AgentState) -> LLMClient | None:
         return self.llm if state.get("allow_llm", True) else None
 
     def enabled(self, state: AgentState) -> bool:
-        return self.config.enabled and self._llm(state) is not None
+        llm = self._llm(state)
+        if not self.config.enabled or llm is None:
+            return False
+        if self.config.verifier_enabled and self.verifier is None:
+            self.verifier = build_verifier(llm, self.config.verifier)
+        return True
 
     def node_planner(self, state: AgentState) -> AgentState:
         cache: dict[str, list[str]] = {}
@@ -73,9 +83,11 @@ class RegisterRuntime:
             "register_cache": cache,
             "register_seen": [],
             "register_attempts": {},
+            "register_rejections": {},
+            "register_budget_nudged": False,
             "sub_questions": [{"id": r.req_id, "text": r.text} for r in register.items.values()],
         }
-        return _snapshot(result)
+        return snapshot_state(result)
 
     def _seed(
         self,
@@ -171,7 +183,7 @@ class RegisterRuntime:
                 evidence_ids=[c.id for c in hits],
             )
         )
-        return _snapshot(
+        return snapshot_state(
             {
                 **state,
                 "chain": chain.model_dump(),
@@ -189,12 +201,9 @@ class RegisterRuntime:
         new = old.model_copy(deep=True)
         evidence = {c.id: c for c in _evidence(state)}
         fresh = [evidence[rid] for rid in state.get("register_fresh", [])]
-        context = list(state.get("register_context") or [])
-        if state["hop"] == math.ceil(self.config.convergence_ratio * self.round_limit):
-            context.append(
-                {"role": MessageRole.USER, "content": load_prompt(PromptName.REGISTER_BUDGET)}
-            )
-        state = {**state, "register_context": context}
+        state = nudge_budget(state, ratio=self.config.convergence_ratio, limit=self.round_limit)
+        state = {**state, "register_rejections": dict(state.get("register_rejections", {}))}
+        context = state.get("register_context", [])
         if (
             context_size(context, update_prompt(old.question, fresh))
             > self.config.context_limit_tokens
@@ -205,6 +214,12 @@ class RegisterRuntime:
         except BudgetExceeded:
             return {**state, "done": True, "register_stop": "llm_budget"}
         except Exception as exc:
+            logger.warning(
+                "Requirement register update failed: req_ids=%s hop=%s error=%s",
+                sorted(old.items),
+                state.get("hop", 0),
+                type(exc).__name__,
+            )
             reports = [{"error": type(exc).__name__, "entailed": False}]
         schedule(new, attempts=state.get("register_attempts"))
         result = progress_state(
@@ -213,16 +228,10 @@ class RegisterRuntime:
         result["register_seen"] = sorted(
             set(state.get("register_seen", [])) | {c.id for c in fresh}
         )
-        chain = ReasoningChain.model_validate(result["chain"])
-        chain.steps[-1].conclusion = result["register_progress"] or "No requirement was closed."
-        chain.steps[-1].critic_action = (
-            CriticAction.SUFFICIENT if new.is_clear() else CriticAction.NEXT_HOP
-        )
-        result["chain"] = chain.model_dump()
         reason = self._stop_reason(result, new)
         result["done"] = bool(reason)
         result["register_stop"] = reason
-        return _snapshot(result)
+        return snapshot_state(result)
 
     def _update(
         self,
@@ -246,9 +255,16 @@ class RegisterRuntime:
             proposals=proposals,
         )
         reports = []
-        if self.config.verifier_enabled:
+        if self.verifier is not None:
             reports = verify_resolutions(
-                new, old, llm, evidence=evidence, context_limit=self.config.context_limit_tokens
+                new,
+                old,
+                self.verifier,
+                evidence=evidence,
+                context_limit=self.config.context_limit_tokens,
+                config=self.config.verifier,
+                rejections=state["register_rejections"],
+                budget=self.guards.budget,
             )
         for proposal in proposals:
             item = new.items.get(proposal["req_id"])
@@ -280,13 +296,3 @@ class RegisterRuntime:
 
 def _evidence(state: AgentState) -> list[Candidate]:
     return [Candidate.model_validate(c) for c in state.get("evidence", [])]
-
-
-def _snapshot(state: AgentState) -> AgentState:
-    memory = MemoryState()
-    memory.add_evidence(_evidence(state))
-    register = Register.model_validate(state["requirement_register"])
-    for item in register.items.values():
-        if item.status == RequirementStatus.RESOLVED:
-            memory.mark_subquestion_done(item.req_id, item.notes)
-    return {**state, "memory_snapshot": memory.to_snapshot()}

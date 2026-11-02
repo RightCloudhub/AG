@@ -7,7 +7,7 @@ from agentic_graphrag.agent.register_progress import context_size
 from agentic_graphrag.agent.requirements import Register
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.core.enums import PromptName
+from agentic_graphrag.core.enums import PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
@@ -21,7 +21,7 @@ def answer_from_register(
     register = Register.model_validate(state["requirement_register"])
     chain = ReasoningChain.model_validate(state["chain"])
     evidence = [Candidate.model_validate(c) for c in state.get("evidence", [])]
-    if register.open_items() and state.get("register_answer_policy") == "abstain":
+    if _missing_requirements(register, state) and state.get("register_answer_policy") == "abstain":
         chain.honest_fallback("unresolved information needs")
         return annotate_register(chain, state)
     conclusions = (
@@ -50,7 +50,7 @@ def answer_from_register(
 
 def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChain:
     register = Register.model_validate(state["requirement_register"])
-    missing = [r.text for r in register.open_items()]
+    missing = _missing_requirements(register, state)
     if missing:
         if state.get("register_answer_policy") == "abstain":
             chain.honest_fallback("unresolved information needs")
@@ -62,6 +62,7 @@ def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChai
         **chain.metadata,
         "requirement_register": register.snapshot(),
         "register_events": state.get("register_events", []),
+        "register_rejections": state.get("register_rejections", {}),
         "register_stop": state.get("register_stop") or "clear",
         "register_rounds": state.get("hop", 0),
         "register_retrieved_ids": [c["id"] for c in state.get("evidence", [])],
@@ -69,3 +70,13 @@ def annotate_register(chain: ReasoningChain, state: AgentState) -> ReasoningChai
         "register_context_byte_bound": context_size(state.get("register_context", [])),
     }
     return chain
+
+
+def _missing_requirements(register: Register, state: AgentState) -> list[str]:
+    rejected = state.get("register_rejections", {})
+    return [
+        r.text
+        for r in register.items.values()
+        if r.status != RequirementStatus.RESOLVED
+        and (r.status != RequirementStatus.RETIRED or r.req_id in rejected)
+    ]

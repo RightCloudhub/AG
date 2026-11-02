@@ -16,9 +16,12 @@ LLM；`--no-llm` 或没有 LLM 的查询继续使用原来的确定性流程。
 | `seed_top_k` | 5 | 原问题的向量种子检索 |
 | `max_rounds` | 15 | 轮数上限，同时受 `guardrails.max_hops` 限制 |
 | `context_limit_tokens` | 128000 | 用完整提示内容的 UTF-8 字节数保守估算上下文上限 |
-| `convergence_ratio` | 0.8 | 实际轮数上限的 80% 时注入收敛提醒 |
+| `convergence_ratio` | 0.8 | 首次达到或超过实际轮数上限的 80% 时注入一次收敛提醒 |
 | `max_requirements` | 32 | 拒绝超限更新，保留已有需求 |
-| `verifier_enabled` | true | 独立提示与 LIGHT 模型档位验证拟解决项 |
+| `verifier_enabled` | true | 用独立提示与专用客户端验证拟解决项 |
+| `verifier.model` | null | 默认使用配置的 LIGHT 模型；可指定同一聊天端点上的独立验证模型 |
+| `verifier.temperature` | 0.0 | 验证调用的温度，不影响更新模型 |
+| `verifier.max_rejections` | 2 | 同一 req_id 累计被否决达到此次数后退休 |
 | `answer_policy` | partial | `partial` 给有引用的部分答案；`abstain` 有未解决项则弃答 |
 | `seed_enabled` / `updates_enabled` / `delta_enabled` | true | 种子、更新、delta 消融开关 |
 
@@ -27,6 +30,10 @@ LLM；`--no-llm` 或没有 LLM 的查询继续使用原来的确定性流程。
 候选同时配置 `max_hops: 15`、足够的调用/时间预算；服务端仍限制请求覆盖值。
 初始化、更新、Verifier、最终生成都计入既有 LLM 预算。LangGraph 的递归
 上限继续由既有护栏根据跳数计算。
+以上键均位于 `guardrails.requirement_register` 下。Verifier 复用聊天端点、
+凭据和查询预算，不自行开启 LLM 或选择其他服务。`verifier.model: null`
+选用 `llm.light_model`；通常与更新使用的 `llm.strong_model` 不同。
+如果最终选出的模型相同，服务构造或登记表运行时启动会记录 WARNING。
 
 ## 状态与执行
 
@@ -37,9 +44,11 @@ LLM；`--no-llm` 或没有 LLM 的查询继续使用原来的确定性流程。
 初始化只能产生未完成项。更新返回受新证据触及的条目，每条必须用
 `touched_passages` 指向本轮新内容；省略的旧条目自动恢复。代码强制：
 
-- 支撑证据追加，引用只能来自本次查询实际取回的 Candidate。
+- 支撑证据追加：只对新提议的引用检查当前 Candidate 池；旧表的 passages
+  必须是结果 passages 的子集，即使池被裁剪、去重或截断也不删除已接受的引用。
 - 已有需求的文本和依赖保持不变，细化写入笔记；前提改变须显式退休并新增需求。
 - 无支撑不能 resolved，无非空理由不能 retired。
+- retired 为终态，同一 req_id 不允许重新打开；前提改变应新增需求。
 - 实体锚必须出现在所引用的证据文本中。
 - 拒绝不存在的依赖与依赖环；仅调度依赖已 resolved 的未完成项。
 - 有可调度项时恰好一条 active；依赖被 retired 阻塞时保留未完成项并显式停止。
@@ -49,16 +58,26 @@ LLM；`--no-llm` 或没有 LLM 的查询继续使用原来的确定性流程。
 现有确定性策略，不修改检索器。一次更新可同时解决多条需求。
 
 Verifier 只收到子问题和拟引用的完整证据，不收到原问题、其他需求、
-更新模型的推理或建议结论。它使用另一套提示和配置中的 LIGHT 档位；
-如果 STRONG 与 LIGHT 配成同一个模型，这属于独立提示校验，并非独立模型。
-否决、无效 JSON、服务错误或上下文超限都不能让拟解决项结案。预算异常时
-保留上一张已通过校验的登记表并停止检索。
+更新模型的推理或建议结论。专用客户端使用 `verifier.model`（未指定时取
+LIGHT），不更改提出解决方案的客户端配置，也不回退到 STRONG 模型。
+同轮拟解决项并发验证（最多 8 个工作线程），每次调用只包含一条需求和其
+支撑段落，审计结果仍按需求顺序记录。启动批次前检查剩余调用预算；
+预算不足或任一验证触发预算异常时，保留上一张已批准的表和否决计数并停止。
+
+否决、无效 JSON、服务错误、上下文超限或支撑原文不可用均不能结案，
+并计入该 req_id 的累计否决数。达到 `verifier.max_rejections` 时设为
+`retired`，理由固定为 `verifier rejected N times`，审计事件记录次数与理由。
+这类退休项停止调度，但仍写入答案的 `missing_info`；不能据此给出完整 answered。
+预算异常不计为一次否决。
 
 同一查询内的缓存按工具和参数隔离：BM25 查询小写、压缩空白、词排序；
 语义查询小写、压缩空白、保留词序；图参数使用稳定 JSON。失败的调用保持
 可重试，成功的空结果也缓存。已进入更新流程的 Candidate 不再次投给更新
 提示。初始化后只保留初始状态与代码批准的 delta，不累积旧证据正文。
 `delta_enabled: false` 消融会改为注入完整当前状态，避免让更新模型读到过期表。
+收敛提醒使用 `hop >= ceil(convergence_ratio * round_limit)` 和持久化的
+`register_budget_nudged` 标记；跳过阈值轮次或 checkpoint 恢复后仍能提醒，
+后续轮次不重复追加。关闭 delta 时重建的上下文仍保留这条提醒。
 
 所有需求关闭或任一预算达到上限后，最终生成不再回到检索节点。仍未解决
 的需求会写入 `missing_info` 和答案正文，并禁止将最终状态标为 answered。
@@ -67,11 +86,14 @@ Verifier 只收到子问题和拟引用的完整证据，不收到原问题、�
 ## 审计
 
 AgentState 版本为 2；新增字段均可选，旧的版本 0/1 状态仍可读取。
-登记表、缓存、已读集合、尝试次数、上下文和进度事件进入 checkpoint。
+登记表、缓存、已读集合、尝试次数、逐 req_id 的 `register_rejections`、
+`register_budget_nudged`、上下文和进度事件进入 checkpoint；旧 checkpoint
+缺少新字段时按空计数和未提醒处理。
 最终 `ReasoningChain.metadata` 包含：
 
 - `requirement_register`：最后一张代码批准的表。
 - `register_events`：初始化、逐轮状态变化、拟解决事件与 Verifier 结果。
+- `register_rejections`：各需求的累计否决次数。
 - `register_stop`、`register_rounds`：停止原因和实际轮数。
 - `register_retrieved_ids`、`register_evidence`：全部取回的证据及原文。
 - `register_context_byte_bound`：保守上下文估算。
@@ -80,6 +102,8 @@ AgentState 版本为 2；新增字段均可选，旧的版本 0/1 状态仍可�
 拒绝的解决提议也会记录 `accepted: false`。普通 SSE `thinking` 事件的
 `stage: progress` 发送相同进展，兼容现有客户端。递归兜底也保留表和未完成项。
 提示词通过现有注册机制记录内容哈希，未增加另一套审计存储。
+更新异常除保留在事件报告外，还以 WARNING 记录需求 id、轮次和异常类型；
+日志不包含原问题、段落正文或模型响应。
 
 ## 评估
 

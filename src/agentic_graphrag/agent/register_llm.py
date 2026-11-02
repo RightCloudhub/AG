@@ -120,13 +120,19 @@ def update_prompt(question: str, fresh: list[Candidate]) -> str:
     )
 
 
-def verify(item: Requirement, evidence: dict[str, Candidate], llm: LLMClient) -> Verification:
+def verify(
+    item: Requirement,
+    evidence: dict[str, Candidate],
+    llm: LLMClient,
+    *,
+    temperature: float = 0.0,
+) -> Verification:
     supporting = [evidence[i] for i in sorted(item.passages)]
     user = load_prompt(PromptName.REGISTER_VERIFY).format(
         input_json=json_text({"requirement": item.text, "passages": evidence_input(supporting)})
     )
     return complete_structured(
-        llm, _messages(user), Verification, tier=Tier.LIGHT, temperature=0, max_retries=0
+        llm, _messages(user), Verification, tier=Tier.LIGHT, temperature=temperature, max_retries=0
     )
 
 

@@ -129,14 +129,23 @@ def test_one_chunk_closes_two_hops_and_is_fully_auditable(monkeypatch):
 
 @pytest.mark.parametrize("verdict", [{"entailed": False, "reason": "mere mention"}, "invalid JSON"])
 def test_verifier_rejects_false_resolution_and_errors_fail_closed(monkeypatch, verdict):
-    responses = [
-        initialization(),
-        resolved_update(),
-        verdict,
-        {"entailed": True, "reason": "city explicit"},
-        answer(),
-    ]
+    responses = [initialization(), resolved_update(), answer()]
     executor, llm, guards, _, fulltext = setup_runtime(monkeypatch, responses, max_rounds=1)
+    complete = llm.complete
+
+    def verify_by_requirement(messages, **kwargs):
+        if kwargs.get("tier") != Tier.LIGHT:
+            return complete(messages, **kwargs)
+        # Concurrent judges can arrive in either order; bind each canned verdict
+        # to its information need instead of consuming a shared response queue.
+        response = (
+            verdict
+            if '"requirement": "Who owns Acme?"' in messages[-1].content
+            else {"entailed": True, "reason": "city explicit"}
+        )
+        return response if isinstance(response, str) else json.dumps(response)
+
+    monkeypatch.setattr(llm, "complete", verify_by_requirement)
     chain = run_agentic_query(QUESTION, executor, llm, guard_cfg=guards)
     assert chain.status == "partial"
     assert "Who owns Acme?" in chain.missing_info
