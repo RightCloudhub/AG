@@ -1,6 +1,6 @@
 # 代码仓库结构
 
-**原则**（遵循全局编码规范）：按功能域组织而非按类型；多个小文件优于大文件（单文件 <800 行，典型 200-400 行）；存储与 LLM 全部走抽象接口（Repository 模式，NFR-10）。
+**原则**（遵循全局编码规范，并按仓库硬指标收紧）：按功能域组织而非按类型；多个小文件优于大文件（单文件 ≤300 行、函数 ≤50 行、嵌套 ≤3、位置参数 ≤3、CC ≤10，由 `scripts/check_code_metrics.py` 强制；新模块目标 200–300 行）；存储与 LLM 全部走抽象接口（Repository 模式，NFR-10）。
 
 > 以 Python/FastAPI 为例（ADR-004）；若评审改选语言，结构原则不变。
 
@@ -13,8 +13,11 @@ agentic-graphrag/
 │   ├── schema/                   # 图谱 Schema 版本化定义
 │   └── prompts/                  # 各角色 Prompt 版本化管理
 ├── src/agentic_graphrag/
+│   ├── core/                     # 共享内核：契约 · 端口 · 领域事件 · IndexVersion
+│   ├── bootstrap/                # 组合根：Profile + 能力矩阵 + store 装配
+│   ├── app/                      # 应用层：QueryApp / IngestApp / ReviewApp
 │   ├── api/                      # 接入层
-│   │   ├── routes/               # query / docs / review / audit
+│   │   ├── routes/               # query · knowledge（docs/review/metrics/audit）· workspace · admin · deps
 │   │   ├── envelope.py           # 统一响应封装（FR-API-04）
 │   │   ├── auth.py               # 鉴权 + 速率限制
 │   │   └── sse.py                # 流式响应（FR-API-02）
@@ -34,32 +37,36 @@ agentic-graphrag/
 │   │   ├── fusion.py             # RRF + Re-ranker 接口（FR-RT-04）
 │   │   └── contracts.py          # 统一候选项契约
 │   ├── knowledge/                # 知识层：图谱构建管线
-│   │   ├── ingest/               # 文档接入与分段（FR-KG-01）
-│   │   ├── extraction/           # 三元组抽取（FR-KG-02）
+│   │   ├── ingest.py             # 文档接入与分段（FR-KG-01）
+│   │   ├── extraction.py         # 三元组抽取门面（FR-KG-02；另有 extract_core / extract_pipeline / extract_chunk）
 │   │   ├── schema_check.py       # FR-KG-03
 │   │   ├── resolution.py         # 实体消歧（FR-KG-04）
 │   │   ├── incremental.py        # 增量更新与冲突检测（FR-KG-05）
 │   │   └── review/               # 审核队列（FR-KG-06）
 │   ├── generation/               # 答案生成
 │   │   ├── answer.py             # 引用绑定 + 编造拦截（FR-AN-01）
-│   │   └── trace.py              # 推理链构建与落库（FR-AN-02/04）
+│   │   └── trace.py              # 兼容别名 → core/reasoning.py（推理链契约；FR-AN-02/04）
 │   ├── stores/                   # 存储抽象（Repository 模式）
-│   │   ├── interfaces.py         # GraphStore/VectorStore/DocStore/…
+│   │   ├── interfaces.py         # 兼容别名 → core/ports/stores.py（GraphStore/VectorStore/DocStore/…）
 │   │   ├── neo4j_store.py
 │   │   ├── vector_store.py
 │   │   └── fulltext_store.py
 │   ├── llm/                      # LLMProvider 抽象 + 网关（ADR-003）
 │   │   ├── provider.py
-│   │   ├── budget.py             # 成本核算与熔断（FR-OP-02）
+│   │   ├── budget.py             # 兼容别名 → governance/budget.py（成本核算；FR-OP-02）
+│   │   ├── circuit.py            # 连续失败熔断（FR-OP-02）
 │   │   └── structured.py         # 结构化输出 + 校验重试
-│   └── observability/            # trace / 指标（NFR-08, FR-OP-01）
+│   ├── governance/               # 预算 / 审计账本 / 保留策略 / 脱敏
+│   ├── observability/            # trace / 指标（NFR-08, FR-OP-01）
+│   ├── cli/                      # 命令行驱动层（`__main__.py` 分发 14 个子命令）
+│   └── webapp/                   # 可选独立 Web 应用（ADR-007）：身份库 · Cookie 会话 · 租户
 ├── evals/                        # 评测体系（workstreams/evaluation.md）
 │   ├── datasets/                 # dev / heldout / guardrail 评测集
 │   ├── baseline/                 # 纯向量 RAG Baseline
-│   ├── judge.py                  # LLM 判卷器
+│   ├── judge.py                  # 确定性判卷（包含 / 词重叠；LLM 判卷延后）
 │   └── run.py                    # 一键评测入口（FR-OP-04）
-├── web/                          # Vue 3 零构建工作台（index.html + static/{js,css,vendor}；无 npm）
-├── tests/                        # 镜像 src 结构；unit / integration / e2e
+├── web/                          # Vue 3 零构建前端（index.html 控制台 + application.html 多租户应用；static/{js,css,vendor}；无 npm）
+├── tests/                        # 当前只有 unit/（含走 QueryApp 的离线端到端用例）；integration/e2e 目录不存在，真实后端由 scripts/ 门禁脚本覆盖
 ├── scripts/                      # setup.sh（环境初始化）· doctor.py（环境体检）· 建图、索引重建、门禁与演练脚本
 └── docs/                         # 运维手册、API 文档、标注规范
 ```

@@ -2,6 +2,7 @@
 
 > 状态：**第一批（O-1 ~ O-8）已在 `refactor/arch-v2` 上实现并通过验证**（验证记录见 §7），其余项见 §5。
 > 基线：`8942ddb`（Batch 1 + CI 门禁）。
+> **后续状态（2026-11-02）**：§1 / §6 / §7 记录的是当时的离线基线与门禁；当前 CI 门禁已提高到 **POC 30/31、G2 196/200**，另加 probe `52/54` 与 `19/20`，金标审计改为 `scripts/audit_gold.py --max-flagged 0`（**阻塞合并**）。因此文中的 21/31、167/200 与「审计标记 29 题且只出报告」均为历史值。
 > 输入：外部《架构优化评估》（结论摘要 + §1–§10）。
 > 方法：逐条对照代码（标注 `file:line`），并在离线 Profile 下实测 `poc_cases`（31 题）和 `g2_all`（200 题）。
 > 关联文档：[REFACTOR_PLAN.md](REFACTOR_PLAN.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · 前一份《架构对效果的影响评估》。
@@ -30,8 +31,8 @@
 
 | 数据集 | 正确 | 准确率 | 95% Wilson CI | 备注 |
 |---|---|---|---|---|
-| `poc_cases` | 21/31 | 67.7% | [50.1, 81.4] | CI 门禁 |
-| `g2_all` | 167/200 | 83.5% | [77.7, 88.0] | pilot 三元组 |
+| `poc_cases` | 21/31 | 67.7% | [50.1, 81.4] | 当时基线（现 CI 门禁 30/31） |
+| `g2_all` | 167/200 | 83.5% | [77.7, 88.0] | 当时基线（现 CI 门禁 196/200）；pilot 三元组 |
 | ├ 2hop | 82/90 | 91.1% | | |
 | ├ 3hop | 35/60 | 58.3% | [45.7, 69.9] | **主要短板** |
 | ├ open | 30/30 | 100% | | 全部来自 `competes_path` 一个模板，区分度为零 |
@@ -73,7 +74,7 @@ g2 按模板：`ceo_parent_producer` 0/14、`competitor_of_producer` 1/5、`ceo_
 |---|---|---|
 | 逐块抽取，块间没有上下文 | ✓ | `knowledge/extract_chunk.py` |
 | 边和 chunk 之间缺少溯源 | **◐** | 存储层**有**（`graph_builder.py:60-71`，`neo4j_codec.py:26-31`），检索层**没带出来**（`retrieval/graph.py:166-187` 的 Citation 不含 chunk_id） |
-| Schema 固定，Schema 外的关系被拒 | ✓ | `configs/schema/domain_v0.yaml`（5 种实体、13 种关系）+ `rejected_triples.jsonl` |
+| Schema 固定，Schema 外的关系被拒 | ✓ | `configs/schema/domain_v0.yaml`（5 种实体、14 种关系）+ `rejected_triples.jsonl` |
 | 消歧逐对判定，超线性增长 | ✓ | `knowledge/resolution.py:135-145`：同类型内 O(n²) |
 
 ### 2.4 存储
@@ -122,7 +123,7 @@ g2 按模板：`ceo_parent_producer` 0/14、`competitor_of_producer` 1/5、`ceo_
 | 31 题时 CI 约 ±16pp | ✓ | Wilson 区间 [50.1, 81.4] |
 | 需要扩容到 ≥300 条 | ◐ | 先要审计金标：g2 中 13 道题金标有歧义，16 道互逆标签写反，open 类只有 1 个模板且全是 1 跳 |
 | 300 条能检出 5–8pp 差异 | ◐ | 非配对比较时，n=300 的最小可检出差异约为 11pp；**配对 McNemar** 才能到 5–8pp，前提是 A/B 跑同一批题 |
-| 没有分模块评测 | ✓ | `eval/` 只有端到端评测和证据召回 |
+| 没有分模块评测 | ✓ | `eval/` 只有端到端评测和证据召回（2026-07 核对时的结论；此后新增 `badcase.py` / `scoring_strict.py` / `stats.py` / `compare.py` / `gold_audit.py` / `search_drift.py` / `drift_alignment.py`） |
 
 ---
 
@@ -144,7 +145,7 @@ g2 按模板：`ceo_parent_producer` 0/14、`competitor_of_producer` 1/5、`ceo_
 
 ## 4. 第一批精细化设计（本次实现）
 
-每一项都满足：离线行为不变（poc 21/31，g2 167/200），默认关闭或向后兼容，并有单测。
+每一项都满足：离线行为不变（当时基线 poc 21/31、g2 167/200），默认关闭或向后兼容，并有单测。
 
 ### O-1（E-1）评测统计与配对对比
 
@@ -245,8 +246,8 @@ g2 按模板：`ceo_parent_producer` 0/14、`competitor_of_producer` 1/5、`ceo_
 
 ## 6. 验证方法
 
-- 每个提交都必须通过：ruff、format、`check_code_metrics`、单测覆盖率 ≥80%、离线评测 poc 21/31（agentic + triage）。
-- 本批另外要求：g2_all 保持 167/200（默认配置下行为不变）。新开关打开时（`rerank.kind=lexical`、`critic_mode=tiered`），用 `scripts/eval_compare.py` 出配对报告，结果记入 §7。
+- 每个提交都必须通过：ruff、format、`check_code_metrics`、单测覆盖率 ≥80%、离线评测 poc 21/31（agentic + triage）。（当时门禁）
+- 本批另外要求：g2_all 保持 167/200（默认配置下行为不变）。（当时基线）新开关打开时（`rerank.kind=lexical`、`critic_mode=tiered`），用 `scripts/eval_compare.py` 出配对报告，结果记入 §7。
 
 ## 7. 本批验证记录
 
@@ -293,4 +294,6 @@ python scripts/eval_compare.py reports/base.jsonl reports/cand.jsonl \
   --cases evals/datasets/g2_all.jsonl --fail-on-worse
 ```
 
-**CI**：`eval-offline` job 新增 g2 门禁（下限 167/200）和金标审计报告（只出报告，不拦截合并）。
+**CI（当时）**：`eval-offline` job 新增 g2 门禁（下限 167/200）和金标审计报告（只出报告，不拦截合并）。
+
+**CI（2026-11-02 现状）**：`eval-offline` 门禁为 POC 30/31、G2 196/200，并新增 probe `52/54` 与 `19/20`；金标审计 `scripts/audit_gold.py --max-flagged 0` **阻塞合并**。

@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-10-31
+**最近汇总：** 2026-11-02
 
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
@@ -53,6 +53,7 @@
 | 2026-10-31 | **Web 图标与动效对齐参考 demo（已实施，同日）**：图标改用 Lucide 几何（vendored 子集 `web/static/vendor/lucide-icons.js`，由 `scripts/build_lucide_icons.mjs` 从 `lucide-static` 1.65.0 生成，ISC，名称表为唯一来源），品牌标记 `mark` 为唯一自绘字形；动效采用 demo 词表 `enter-note` / `enter-node`（跳节点 55ms 级联）/ `panel-in` / `breathe` / `spin`，`prefers-reduced-motion` 下只留透明度。22 个状态在 headless Chromium 实测 0 FAIL（对话/抽屉快照按 `--allow covered-text`）；规范同步 `docs/design/UI_DESIGN.md` §10 与 `docs/EXTERNAL_RUNTIMES.md` |
 | 2026-09-07 | **P5-UI-02 角色感知控制台交付**：壳 + hash 路由 + 五视图（问答 / 知识 / 审核 / 可观测 / 图谱浏览）；M0 前置两项（`GET /v1/me`、`GET /v1/ingest-tasks` 分页）随批落地（`api/routes/workspace.py`）；2026-10-31 v2 重设计后管理视图位于 `js/admin/` |
 | 2026-08-08 | **P5-UI-02 前端重规划立项**（已于 2026-09-07 交付）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向；2026-10-31 起由 v2「推理笔记本」取代，见 UI_DESIGN §10） |
+| 2026-11-02 | **文档同步（代码复核）**：BL-01/03/12/13/14 状态由「挂账」改为已解挂（对齐 `BUSINESS_LOGIC.md` §5）；`ARCH_OPTIMIZATION_V2.md` 标注当时的离线基线与现 CI 门禁差异；`DESIGN_VS_IMPLEMENTATION.md` 增补 D1–D5 复核；`EXTERNAL_RUNTIMES.md` §3.1 改为记录静态 ESM 加载；`evaluation.md` / `repo-structure.md` / `cicd-observability.md` / `testing-strategy.md` / `ARCHITECTURE.md` / `RUNBOOK.md` / `README.md` / `CLAUDE.md` 按当前代码校正 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -241,16 +242,17 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 ### 业务逻辑断链（BL-01…14，2026-07-27）
 
-来源：[`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §4 + §7。BL-02/04/05/06/07/08/09/10/11 已在同一变更集中修复，
-以下为**仍然挂账**的部分：
+来源：[`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §4 + §7。**这 14 条已于 2026-10-16 全部解挂**（状态与实现位置以 BUSINESS_LOGIC.md §5 为准），下表保留原始挂账原因供追溯：
 
 | # | 状态 | 挂账原因 | 解挂需要 |
 |---|------|----------|----------|
-| BL-01 上传 → 知识图谱无运行期通路 | `[ ]` | 属功能新建而非缺陷修复：需要「抽取 → 消解 → 冲突 → 入图」的运行期编排与幂等/回滚语义；且入图前须先定 BL-14 的时间维度，否则建成后要回填全量图谱 | 立项 + ADR；先决 BL-14 |
-| BL-03 人工复核决策无执行器 | `[ ]` | 决策只改队列状态，不产生图谱副作用。本次仅补齐决策自身的正确性（终态保护 409、租户校验 404） | 与 BL-01 同批立项（共用写图通路） |
-| BL-12 DAG 并发执行 | `[~]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
-| BL-13 真 NLI 支撑判定 | `[~]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
-| BL-14 图谱无时间维度 | `[ ]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
+| BL-01 上传 → 知识图谱无运行期通路 | `[x]` | 属功能新建而非缺陷修复：需要「抽取 → 消解 → 冲突 → 入图」的运行期编排与幂等/回滚语义；且入图前须先定 BL-14 的时间维度，否则建成后要回填全量图谱 | 立项 + ADR；先决 BL-14 |
+| BL-03 人工复核决策无执行器 | `[x]` | 决策只改队列状态，不产生图谱副作用。本次仅补齐决策自身的正确性（终态保护 409、租户校验 404） | 与 BL-01 同批立项（共用写图通路） |
+| BL-12 DAG 并发执行 | `[x]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
+| BL-13 真 NLI 支撑判定 | `[x]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
+| BL-14 图谱无时间维度 | `[x]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
+
+> **解挂记录（2026-10-16）**：BL-01 `knowledge/graph_ingest.py` + `api/service_ingest.py`；BL-03 `knowledge/review/executor.py`；BL-12 `agent/parallel_branches.py`；BL-13 `generation/entailment.py` + `generation/relation_consistency.py`；BL-14 `knowledge/temporal.py`。全部经 `test_bl_write_path.py` / `test_bl_reasoning_gates.py` 覆盖。
 
 ### 前端向导改版挂账（2026-10-31，`web/`）
 

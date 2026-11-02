@@ -386,7 +386,7 @@ Vanilla vector RAG returns doc#412 and stops: doc#77 never mentions Acme Robotic
 
 | # | Capability | Layer | Notes |
 |---|---|---|---|
-| F-01 | Document ingest + structure-aware chunking with provenance | L0 | md/txt/pdf/html |
+| F-01 | Document ingest + structure-aware chunking with provenance | L0 | md/txt（`api/routes/knowledge_upload.py` 的 `ALLOWED_EXTENSIONS`；pdf/html 当前不接受） |
 | F-02 | LLM triple/event extraction with resume, retry, quarantine | L0 | restartable long job |
 | F-03 | Ontology + confidence validation; reject-and-record | L0 | never auto-repair |
 | F-04 | Three-tier entity resolution & disambiguation | L0 | cost scales with ambiguity |

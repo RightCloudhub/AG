@@ -83,14 +83,15 @@ rm -rf /tmp/jdk-17 /tmp/jdk17.tar.gz /tmp/neo4j-home /tmp/neo4j.tgz /tmp/binshim
 
 | 项 | 值 |
 |----|-----|
-| 版本 | **3.5.13**（升级须同步 ADR-006、`web/static/app.js` 的 `VUE_VERSION`、本文件） |
+| 版本 | **3.5.13**（升级须同步 ADR-006、vendor 文件与本文件） |
 | 产物 | `vue.esm-browser.prod.js`（全量构建，含浏览器内模板编译） |
-| 本地路径 | `web/static/vendor/vue.esm-browser.prod.js`（**建议 vendor 后提交入库**，完全离线） |
-| 加载顺序 | vendor → 钉版 jsDelivr → 钉版 unpkg（见 `web/static/app.js`） |
-| 说明文档 | [`web/static/vendor/README.md`](../web/static/vendor/README.md) |
+| 本地路径 | `web/static/vendor/vue.esm-browser.prod.js`（已入库，完全离线） |
+| 加载方式 | **静态 ESM import**：各模块 `import … from '../vendor/vue.esm-browser.prod.js'`（入口 `web/static/js/app.js`、`web/static/js/product/main.js`）。无 CDN 兜底、无运行时加载器、无 `VUE_VERSION` 常量 |
+| 说明文档 | [`web/static/vendor/README.md`](../../web/static/vendor/README.md) |
 | 许可 | MIT · 约 170 KB min |
 
 ```bash
+# 仅在需要重新 vendor / 升级版本时执行（日常运行只读已入库的 vendor 文件）
 mkdir -p web/static/vendor
 curl -fsSL -o web/static/vendor/vue.esm-browser.prod.js \
   https://unpkg.com/vue@3.5.13/dist/vue.esm-browser.prod.js
@@ -206,3 +207,4 @@ rm -f "$NEO4J_HOME/.password_set"
 | 2026-07-20 | 补充：tarball Neo4j 已能 start，但初始密码/已有 data 导致认证失败；增加重置步骤 |
 | 2026-07-21 | P5-UI-01 / ADR-006：§3 增加 Vue 3.5.13 运行时（浏览器 ESM / vendor，**非 npm**）与 §3.1 vendor 小节 |
 | 2026-10-31 | Web 图标：§3.2 记录 Lucide 1.65.0（ISC）vendored 子集与生成器 `scripts/build_lucide_icons.mjs`，对齐 `Prompt.md` §3.3 |
+| 2026-11-02 | 文档同步：§3.1 改为记录当前加载方式（静态 ESM import，无 CDN 兜底与 `VUE_VERSION`），修正 vendor 说明文档相对链接 |

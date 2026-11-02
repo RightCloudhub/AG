@@ -73,7 +73,7 @@
 
 ## 8. 样式文件
 
-`tokens.css` 保存双主题颜色、字体、间距、圆角、层级与动效令牌；`base.css` 为重置、字体角色与通用控件（按钮、标签、输入、浮层）；`shell.css` 为顶栏、三栏 Grid、笔记本栏与检查器框架；`notebook.css` 为问题页（标题、HopRail、结论与引用、元信息、追问、输入框）；`inspector.css` 为证据卡、子图与日志；`wizard.css` 为提问向导与知识导入向导；`admin.css` 为管理视图的表格、统计与分页；`responsive.css` 为四档断点与减少动效。结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本安全、资源与尺寸约束；API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。
+`tokens.css` 保存双主题颜色、字体、间距、圆角、层级与动效令牌；`base.css` 为重置、字体角色与通用控件（按钮、标签、输入、浮层）；`shell.css` 为顶栏、三栏 Grid、笔记本栏与检查器框架；`notebook.css` 为问题页（标题、HopRail、结论与引用、元信息、追问、输入框）；`inspector.css` 为证据卡、子图与日志；`wizard.css` 为提问向导与知识导入向导；`admin.css` 为管理视图的表格、统计与分页；`responsive.css` 为四档断点与减少动效；`product.css` / `settings.css` / `identity-shell.css` 服务于独立多租户应用（`application.html` + `js/product/*`：登录注册、工作空间、设置与成员管理）。结构或样式变化由 `tests/unit/test_web_claude_ui.py` 覆盖基本安全、资源与尺寸约束；API 契约与角色 / 租户流程由 `tests/unit/test_console_api.py`、`tests/unit/test_graph_entities_api.py` 覆盖。
 
 ## 9. 分步向导式交互（已实现，2026-10-31）
 

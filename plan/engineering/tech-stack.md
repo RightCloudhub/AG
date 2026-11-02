@@ -42,7 +42,7 @@
 
 ### ADR-005：Agent 循环采用 LangGraph 运行时 + 自研控制逻辑（已采纳，2026-07 修订）
 - **背景**：原提议为全自研轻量循环。经 LangGraph vs AgentScope vs 组合方案评估后修订本决策。
-- **决策**：Agent 循环基于 LangGraph（≥1.0，API 已稳定）的 `StateGraph` 实现：分诊/Planner/Executor/Critic/生成为节点，Critic 动作枚举映射为条件边路由。护栏、Memory 去重、推理链构建、引用拦截等控制逻辑仍自研，作为节点/状态逻辑挂载。**不引入 LangChain 的检索与链抽象**——检索走本项目工具接口，LLM 调用仍走自研网关（ADR-003）。
+- **决策**：Agent 循环基于 LangGraph 的 `StateGraph` 实现（依赖下限见 `pyproject.toml`：`langgraph>=0.2.60`；升级须过评测回归）：分诊/Planner/Executor/Critic/生成为节点，Critic 动作枚举映射为条件边路由。护栏、Memory 去重、推理链构建、引用拦截等控制逻辑仍自研，作为节点/状态逻辑挂载。**不引入 LangChain 的检索与链抽象**——检索走本项目工具接口，LLM 调用仍走自研网关（ADR-003）。
 - **理由**：
   - 本项目 Agent 层是显式状态机（分诊→Planner→Executor→Critic→条件回环+硬性出口），与 StateGraph 的节点+条件边模型一一对应，几乎无适配成本。
   - 免费获得工程地基：checkpoint（状态持久化，服务 FR-AN-04 审计回放）、事件流 `astream_events`（直接映射 SSE 事件，FR-API-02）、中断/恢复、`recursion_limit` 最终兜底——这些正是原自研方案中成本最高的健壮性管道。
@@ -77,6 +77,8 @@
   - 仍明确不做（V1）：多轮上下文、图谱编辑、移动端适配、路径编辑器。
 
 > **2026-10-31 更新**：前端已按 `Prompt.md` v2 重做为「推理笔记本」（[UI_DESIGN](../../docs/design/UI_DESIGN.md) §10）：`js/app.js`（壳 + hash 路由 + 全局快捷键）· `js/shell/*` · `js/views/chat.js` + `js/chat/*` · `js/admin/*` · `js/store/*` · `js/i18n.js`；样式 `css/{tokens,base,shell,notebook,inspector,wizard,admin,responsive}.css`（各 ≤300 行）；图标几何为 vendored Lucide 子集（`web/static/vendor/lucide-icons.js`，生成器 `scripts/build_lucide_icons.mjs`，记录见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) §3.2）。仍为零构建、无 npm / 打包器、无新运行时框架，本 ADR 决策不变；响应式布局差异（原「V1 不做」项）挂账见 [docs/reviews/IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6。
+
+> **2026-11-02 更新**：Vue 运行时改为**静态 ESM import**——各模块直接 `import … from '../vendor/vue.esm-browser.prod.js'`（入口 `web/static/js/app.js`、`web/static/js/product/main.js`），**已移除**上文第 2/3 条的 jsDelivr / unpkg CDN 兜底与 `VUE_VERSION` 常量；vendor 文件已入库。ADR-007 的独立多租户应用由 `web/application.html` + `js/product/*` 提供，并新增 `vue-router`（记录见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) §3.3）。
 
 ### ADR-007：独立多租户 Web 应用（已采纳，2026-11-01）
 

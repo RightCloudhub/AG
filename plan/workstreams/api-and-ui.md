@@ -33,19 +33,19 @@
 
 ### 1.3 流式响应（FR-API-02 / P3-PERF-06）[x]
 
-`POST /v1/query/stream`（SSE，`sse.py` 逐帧编码）。事件序列（`service_stream.py` + `agent/loop_stream.py`）：
+`POST /v1/query/stream`（SSE，`sse.py` 逐帧编码）。事件序列（`agent/loop_stream_events.py`；`agent/loop_stream.py` 与 `api/service_stream.py` 现为兼容别名）：
 
 | 事件 | 载荷 | 触发 |
 |---|---|---|
 | `cache_hit` | `{query_id}` | 命中答案缓存（随后直接发 `answer`；`force_agentic` 时绕过） |
 | `triage` | 分诊决策 JSON | 非缓存查询开头；`force_agentic` 时发合成帧 `{route:agentic, rule_hit:force_agentic}` |
-| `thinking` | `{stage, text, detail?}` | Planner 拆解完成（`stage=plan`）或 Executor 检索工具（`stage=retrieve`）；Fast Path 亦发 plan 帧 |
+| `thinking` | `{stage, text, detail?}` | Planner 拆解完成（`stage=plan`）、Executor 检索工具（`stage=retrieve`）或 Critic 进度（`stage=progress`）；Fast Path 亦发 plan 帧 |
 | `sub_question` | `{hop, sub_question}` | Executor 节点完成时（LangGraph `stream(updates)` 实时） |
 | `hop_done` | `{hop, conclusion, critic_action}` | Critic 节点完成时 |
 | `answer` | 完整推理链 JSON | 结束（finalize + audit/cache/metrics 之后） |
 | `error` | `{code, message}` | 异常终止（`ApiError` 保留错误码；其余仅异常类型名） |
 
-> **实现说明**：设计文档写的是 `astream_events`；同步 FastAPI 生成器用 LangGraph `graph.stream(..., stream_mode="updates")` 做节点级映射，语义等价（每个节点完成后立即 yield），见 `agent/loop_stream.py`。
+> **实现说明**：设计文档写的是 `astream_events`；同步 FastAPI 生成器用 LangGraph `graph.stream(..., stream_mode="updates")` 做节点级映射，语义等价（每个节点完成后立即 yield），映射见 `agent/loop_stream_events.py`。
 
 ### 1.4 知识管理 API（FR-API-03）[x]
 
@@ -59,9 +59,9 @@
 | `GET /audit/queries/{query_id}` | 推理链审计回查（FR-AN-04 / P3-AN-01） |
 | `POST /feedback` | 反馈回路（FR-OP-03）：负反馈入 ReviewQueue 并写回 audit metadata |
 | `GET /metrics`（admin） | 监控指标（P4-REL-03；ENT-04 收权 admin-only） |
-| `GET /graph/entities` | 图实体浏览脚手架（P5-CAP） |
+| `GET /graph/entities` | 图实体浏览脚手架（P5-CAP；定义在 `routes/workspace.py`，与 `GET /ingest-tasks` 列表同模块） |
 
-**ENT 增补（2026-07-25）**：`routes/admin.py`（前缀 `/v1`，均 admin）— `GET /traces/{query_id}`（trace 回查）、`GET /budget/snapshot`（三级预算快照）、`GET /audit-events`（安全事件，支持 since/until/tenant_id/action 过滤）；app 级 `GET /metrics-prom`（Prometheus 文本，免鉴权，ENT-08）。上传治理（ENT-06）：`POST /docs` 收权 operator+，单文件 ≤5MB、单批 ≤20、白名单 md/txt/pdf，超限 413；任务落盘 `IngestTaskStore`（worker 独立运行，见 runbook §6）。
+**ENT 增补（2026-07-25）**：`routes/admin.py`（前缀 `/v1`，均 admin）— `GET /traces/{query_id}`（trace 回查）、`GET /budget/snapshot`（三级预算快照）、`GET /audit-events`（安全事件，支持 since/until/tenant_id/action 过滤）；app 级 `GET /metrics-prom`（Prometheus 文本，免鉴权，ENT-08）。上传治理（ENT-06）：`POST /docs` 收权 operator+，单文件 ≤5MB、单批 ≤20、白名单 md/txt（pdf 属显式不支持，返回 413）、超限 413；任务落盘 `IngestTaskStore`（worker 独立运行，见 runbook §6）。
 
 ### 1.5 横切要求 [x]（部分）
 
@@ -81,11 +81,11 @@
 | 项 | 现状 |
 |---|---|
 | 框架 | Vue 3.5.13（Options API；in-DOM 根模板 + 组件 string template）；[ADR-006](../engineering/tech-stack.md) |
-| 加载 | vendored-first → 钉版 jsDelivr → 钉版 unpkg；**无** npm / 打包器（见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
+| 加载 | 单一 vendored 静态 import（`import … from '../vendor/vue.esm-browser.prod.js'`，**无 CDN 兜底、无加载器常量**）；**无** npm / 打包器（见 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md) + `web/static/vendor/README.md`） |
 | 模块 | `js/app.js`（壳 + hash 路由 + 全局快捷键）· `js/theme.js`（双主题）· `js/shell/{use_shell,use_palette,use_inspector,tpl_topbar,tpl_notebook,tpl_inspector}.js` · `js/api.js` / `js/stream.js` / `js/responses.js` / `js/contracts.js` · `js/i18n.js`（全部文案）· `js/views/chat.js`（问题页）· `js/chat/*`（HopRail 模型、分页、向导 / 澄清 / 进度 / 子图 / 追问纯函数、composer composable、模板片段）· `js/admin/{graph,knowledge,review,ops}.js`（管理视图）· `js/store/*`（localStorage 会话、偏好、壳层开关、图谱聚焦）· `js/knowledge/ingest_wizard.js` |
 | 样式 | `tokens.css`（双主题令牌）· `base.css` · `shell.css` · `notebook.css` · `inspector.css` · `wizard.css` · `admin.css` · `responsive.css`；各 ≤300 行；视觉规范见 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10 |
 | 挂载 | `agr-api` 静态挂载：`GET /web` → `index.html`，资源 `/web/static/*` |
-| SSE 消费 | `js/api.js`：`fetch` + `ReadableStream` 手工解析（**非** `EventSource`，因需 POST + JSON body） |
+| SSE 消费 | `js/stream.js`（`consumeStream`）：`fetch` + `ReadableStream` 手工解析，由 `js/api.js` 调用（**非** `EventSource`，因需 POST + JSON body） |
 | 结构冒烟测试 | `tests/unit/test_web_claude_ui.py`（文件全集、钉版、注入安全、静态资源 200）· `tests/unit/test_web_wizard_ui.py`（向导 / 澄清 / 进度 / 子图纯模块的 Node 运行时断言、FeatureFlag 默认关闭、文案集中） |
 
 ### 2.2 页面结构与功能（实现，2026-10-31「推理笔记本」v2）
@@ -104,9 +104,9 @@
 
 | 能力 | 实现 |
 |---|---|
-| 论断内联引用**角标** | `buildAnswerSegments` + `cite-btn`；点击高亮对应论断（`claim-active`）并滚动 |
-| 子问题分解**树** | `plan-tree` 组件：`buildPlanNodes`，状态色（sufficient/partial/fail），展示 depends_on |
-| 图路径**可视化** | `path-list`：`buildPathRows` → node/edge chips；`MAX_PATH_ROWS=40` 后显式溢出提示 |
+| 论断内联引用**角标** | `js/chat/presenters.js`（`citationsFor` / `citeSnippet`）+ `js/chat/tpl_page.js`（`class="cite"`、`cite-anchor`）；点击定位证据卡 |
+| 子问题分解**树** | `js/chat/tpl_page.js` + `js/chat/hoprail.js`（HopRail 节点、按跳筛选） |
+| 图路径**可视化** | `js/shell/tpl_inspector.js` 的子图标签（`nbr:` / `path:` 行渲染） |
 | 复制推理链 | 折叠区「复制」→ `navigator.clipboard`（localhost secure context） |
 
 仍明确不做：图路径**编辑器**、多轮上下文、移动端适配（见 §2.5）。
@@ -138,7 +138,7 @@
 
 ### 2.7 P5-UI-02 前端重规划概要（2026-08-08 立项；2026-09-07 交付，管理视图现于 `js/admin/*`）
 
-试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 chain-view）、`#/graph`（reader：实体分页表，低优先）。
+试用问答 → 角色感知控制台，hash 视图五个：`#/chat`（现状行为冻结）、`#/knowledge`（operator+：上传 + 抽取任务列表/轮询）、`#/review`（operator+：审核队列 + 决策，文案不暗示图谱写回——BL-01/03 挂账）、`#/ops`（admin：指标 / 预算 / 安全事件 / 按 query_id 审计回查复用 `js/chat/presenters.js`）、`#/graph`（reader：实体分页表，低优先）。
 
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
 - **API 前置两项**（M0，已交付）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页。

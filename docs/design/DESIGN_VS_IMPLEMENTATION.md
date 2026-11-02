@@ -8,6 +8,14 @@ designed capabilities, 20 are present and structurally equivalent, 2 are present
 without an implementation, and 4 are absent. Three places where the code deliberately does something
 the design did not anticipate are, on inspection, better than the design.
 
+> **复核（2026-11-02）**：下列差异是 2026-07-26 对 `feat/all-phases-complete` 的快照。此后 D1、D2、D3、D4、D5 相关能力陆续落地，原「4 项缺失 / 2 个空接口」的结论已不成立；§2 的 D1–D5 正文与 §5 记分卡保留原始判断，以下为当前实现位置：
+> - **D1 并行分支已真正执行**：`agent/parallel_branches.py`（`ready_siblings` / `retrieve_group`）经 `agent/executor_dispatch.py` 的 `ThreadPoolExecutor` 并发，`agent/loop_handlers.py` 调用 `retrieve_for_node`；跳数预算不再按宽度计费。
+> - **D2 蕴含校验已接入**：`generation/entailment.py` 的 `judge_claims` 在 `generation/answer.py` 调用；词项支持改为 CJK 感知（`generation/claim_support.py`）。`unbound_claim_rate` 保留为历史口径，`fabrication_rate` 改用严格关系一致规则。
+> - **D3 时效字段已存在**：`knowledge/temporal.py`、`knowledge/incremental_conflicts.py`、`knowledge/extract_rules.py` 使用 `valid_from` / `valid_to` / `as_of`（另见 `BUSINESS_LOGIC.md` V-19）。
+> - **D4 重排器已实现**：`retrieval/rerankers.py` 的 `LexicalReranker` 与 `HttpCrossEncoderReranker`（默认关闭，离线 A/B 无显著收益，见 `ARCH_OPTIMIZATION_V2.md` §7）。
+> - **D5 审核回写已闭环**：`knowledge/review/executor.py` 的 `ReviewExecutor` 由 `api/routes/knowledge.py` 的决策端点驱动。
+> - 仍然成立：**D6**（固定窗口分块）与 **D8 / D9 / D10**（符号化路径渲染、消融数量、人工签署）。
+
 These findings are **not** ledgered in `docs/reviews/IMPORTANT.md`. They are an external design's opinion,
 not project-sanctioned debt. Promote individual items there only if you agree they are debt.
 
@@ -227,8 +235,8 @@ design named as a risk but offered no mechanism against.
 
 ## 4. Unanticipated in the design
 
-**The offline heuristic answer layer.** `generation/offline_heuristics/rules_*.py` — 8 rule modules
-(~1,400 lines) hardcoded to the demo corpus, coverage-omitted, driving `--no-llm` determinism. The
+**The offline heuristic answer layer.** `generation/offline_heuristics/rules_*.py` — 7 rule modules
+(~940 lines) hardcoded to the demo corpus, coverage-omitted, driving `--no-llm` determinism. The
 design assumed a mock LLM would suffice for offline determinism; the reality is a rule engine large
 enough to be its own maintenance surface. It is honestly labelled in `CLAUDE.md` as not the
 production path, and quarantined behind the omit list. Still: it is the single largest divergence in
@@ -244,25 +252,25 @@ production path, and quarantined behind the omit list. Still: it is the single l
 | F-02 | Extraction w/ journal, retry, quarantine | ● |
 | F-03 | Ontology gate, reject-and-record | ● |
 | F-04 | Three-tier entity resolution | ● |
-| F-05 | Typed edges + confidence + provenance | ◐ no temporal validity (**D3**) |
+| F-05 | Typed edges + confidence + provenance | ● 时效字段已补（**D3** 已落地） |
 | F-06 | Multi-index build | ● |
 | F-07 | Incremental update + review queue | ● |
 | F-08 | Swappable stores, offline default | ● |
 | F-09 | Three retrievers | ◐ conditional, not always-on (**E1**) |
 | F-10 | Beam search, path scoring, verbalization | ◐ symbolic rendering (**D8**) |
-| F-11 | RRF fusion + rerank + cache | ◐ rerank is a no-op seam (**D4**) |
+| F-11 | RRF fusion + rerank + cache | ● rerank 已实现（lexical / HTTP cross-encoder，默认关闭；**D4** 已落地） |
 | F-12 | Triage + escalation | ● |
-| F-13 | Sub-question DAG | ◐ built, topo-sorted, executed linearly (**D1**) |
+| F-13 | Sub-question DAG | ● 就绪分支并发执行（**D1** 已落地） |
 | F-14 | Executor + evidence pool | ● |
 | F-15 | Critic replan-or-stop | ● |
 | F-16 | Guardrails | ● (**E2** improves on design) |
 | F-17 | Grounded synthesis + citation binding | ● |
-| F-18 | Faithfulness + abstention | ◐ abstention yes, entailment no (**D2**) |
+| F-18 | Faithfulness + abstention | ● 蕴含校验已接入（**D2** 已落地） |
 | F-19 | Reasoning-chain export | ● |
 | F-20 | Sync + SSE API | ● |
 | F-21 | RBAC, tenancy, budgets | ● |
 | F-22 | Logs, metrics, traces, audit | ● |
-| F-23 | Feedback → curator → graph | ○ loop does not close (**D5**) |
+| F-23 | Feedback → curator → graph | ● 审核决策回写图谱（**D5** 已落地） |
 | F-24 | Gold generation | ◐ graph-walk yes, human sign-off pending (**D10**) |
 | F-25 | Accuracy/recall/fabrication/latency/cost | ◐ fabrication measures binding (**D2**) |
 | F-26 | Baseline + ablations | ◐ baseline yes, 1 of 4 ablations (**D9**) |

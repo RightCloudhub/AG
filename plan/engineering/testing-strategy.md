@@ -7,7 +7,7 @@
 | 层 | 范围 | 工具/方式 | 要点 |
 |---|---|---|---|
 | 单元测试 | 各模块纯逻辑 | pytest + mock | LLM/存储全部 mock；重点：护栏触顶逻辑、Memory 去重、RRF 计算、Schema 校验、引用绑定拦截 |
-| 集成测试 | 模块间 + 真实存储 | pytest + testcontainers（Neo4j/向量库/ES 容器） | 图检索剪枝正确性、增量更新事务、审核队列流转、API envelope 与错误码 |
+| 集成测试 | 模块间（`QueryApp`/`IngestApp` 离线装配） | pytest + 内存/文件存储；真实后端回归用 `scripts/neo4j_regression.sh`（**不在 CI**） | 图检索剪枝正确性、增量更新事务、审核队列流转、API envelope 与错误码 |
 | E2E 测试 | API 端到端 | 固定小图谱 fixture + LLM 录制回放（record/replay） | 关键用户流：多跳问答、无答案兜底、预算熔断、SSE 流式、审计回查 |
 | 评测回归 | 效果指标 | evals/run.py | 与功能测试分离；见 [evaluation.md](../workstreams/evaluation.md) |
 

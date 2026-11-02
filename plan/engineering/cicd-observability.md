@@ -5,12 +5,12 @@
 ## 1. CI 流水线（自 MVP 起）
 
 ```
-PR 提交 → lint/format → 类型检查 → 单元测试 → 集成测试(容器) → 覆盖率门禁(≥80%)
-       → [Prompt/配置变更时] 评测集 dev 回归 → 人工评审 → 合入
+PR 提交 → ruff lint/format → 代码硬指标 → mypy 严格类型 + tsc → 单元测试 + 覆盖率门禁(≥80%)
+       → 离线评测门禁 → 人工评审 → 合入
 ```
 
 - 提交信息遵循 conventional commits（feat/fix/refactor/docs/test/chore/perf/ci）。
-- 集成测试用 testcontainers 拉起 Neo4j/向量库/ES，CI 内自包含。
+- CI 全程离线（无 Neo4j/Qdrant、无 LLM key、无网络）：`.github/workflows/ci.yml` 三个 job——`lint`（ruff + `scripts/check_code_metrics.py`）、`test`（mypy + `web/jsconfig.json` 的 tsc + pytest 覆盖率 ≥80%）、`eval-offline`（POC 30/31、G2 196/200、probe 52/54 与 19/20、`scripts/audit_gold.py --max-flagged 0`）。**无 testcontainers 依赖**；真实后端回归由 `scripts/neo4j_regression.sh` 在 CI 之外手动执行。
 - **评测回归触发规则**：`configs/prompts/`、`configs/default.yaml`（分诊/护栏参数）、`agent/`、`retrieval/fusion.py` 变更，以及核心依赖升级（langgraph 等，版本锁定见 ADR-005/R11）时，必须附 dev 集评测报告链接；指标回退 >2pp 阻塞合入。
 - 夜间任务：dev 集全量评测 + 趋势图，防隐性回退。
 

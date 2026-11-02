@@ -20,9 +20,9 @@
 | B | 权限管理 | ✅ 已交付 | ~~无 RBAC~~ → ENT-04 三角色（admin/operator/reader）+ `require_role()` 路由守卫 + key 过期 + KeyRegistry YAML 配置已落地 | P4-UI-02 |
 | C | 并发调度 | ✅ 工程交付 / 🟡 部署验证 | 租户 YAML 限额、限流覆盖、持久化摄取任务状态机、worker 与协议抽象已交付；Redis/横向公平调度与 SQLite checkpointer 需部署验证 | P3-OP-02、P5-EXT-03 |
 | D | 数据安全 | ✅ 工程交付 / 🟡 部署验证 | 上传治理、脱敏、显式 tenant_id 隔离、保留期清理、live 模式启动凭据校验已交付；物理分库仍归运维 | P4-REL-01（开）、P4-REL-02 |
-| E | 审计日志 | ✅ 已交付 | ~~无安全事件审计~~ → ENT-03 五类事件（auth_failure/rate_limited/budget_exceeded/review_decision/doc_upload）+ 轮转 + 过滤查询 + admin 端点已落地 | P3-AN-01、P4-AC-02（开） |
+| E | 审计日志 | ✅ 已交付 | ~~无安全事件审计~~ → ENT-03 事件常量七类（auth_failure/rate_limited/budget_exceeded/review_decision/doc_upload/feedback_submitted/config_change，其中 5 类有采集点）+ 轮转 + 过滤查询 + admin 端点已落地 | P3-AN-01、P4-AC-02（开） |
 | F | 日志集成 | ✅ 工程交付 / 🟡 部署验证 | JSON 日志、Prometheus、可选 OTel OTLP、W3C 入向 context 与出向注入已交付；collector 联调待部署验证 | cicd-observability §3 |
-| G | RPA 流程集成 | ❌ 基本缺失 | 有 REST+SSE+OpenAPI+推理链 JSON Schema 等地基；**无 webhook/异步作业/幂等键/批量接口**，摄取任务永远停在 queued | 无 |
+| G | RPA 流程集成 | ❌ 基本缺失 | 有 REST+SSE+OpenAPI+推理链 JSON Schema 等地基；**无 webhook/异步作业/幂等键/批量接口**（摄取任务本身已由状态机 + worker 消费，不会停在 queued） | 无 |
 
 ---
 
@@ -148,7 +148,7 @@
 | 主张 | 评定 | 依据 |
 |------|------|------|
 | "兜底全链路无缝、清晰排障路径" | **基本成立** | ENT-01 结构化 JSON 日志 + ENT-02 traces/budget/audit-events admin 端点 + `/healthz` 熔断器/审核队列 + ingest task 状态机已落地；`request_id` 入审计链 metadata；生产恢复仍需演练 |
-| "权限管理" | **基本成立** | ENT-04 RBAC 三角色 + `require_role()` 路由守卫 + Key 过期 + KeyRegistry YAML；**`/v1/metrics` 尚未 per-tenant 过滤** |
+| "权限管理" | **基本成立** | ENT-04 RBAC 三角色 + `require_role()` 路由守卫 + Key 过期 + KeyRegistry YAML；`/v1/metrics` 已按租户过滤（2026-11-02 复核：`api/routes/knowledge.py` 传 `request_tenant(request)`） |
 | "并发调度" | **基本成立（工程）** | ENT-05 已交付 per-tenant 配置化限额（`tenants:` 段）、持久化摄取任务状态机 + worker、`LimiterStore`/`BudgetStore`/`AuditSink` 协议；仍单进程内存态，排队/Redis 横向扩展未实施（部署验证与规模化项） |
 | "数据安全" | **基本成立（工程）** | 上传治理 + 脱敏 + tenant_id 检索过滤 + 启动凭据校验 + prune 已交付；物理隔离/加密属部署验证 |
 | "审计日志" | **基本成立** | ENT-03 五类安全事件审计 + 推理链审计 + 反馈关联 + admin 端点；**导出 CLI + 防篡改仍缺** |
@@ -167,10 +167,12 @@
 |-----|--------|----------|----------|
 | **ENT-01** ✅ | 结构化 JSON 日志：`JSONFormatter` + `contextvars`（request_id/query_id/tenant_id/user_id）+ `RotatingFileHandler` + `AGR_LOG_LEVEL`/`AGR_LOG_FILE` 环境开关；中间件注入 `api/auth.py:_bind_request_context`；异常处理器（app.py 三级 handler）已写日志 | `observability/logging_setup.py`（219 行） | `tests/unit/test_logging_setup.py`（17 用例）+ `test_enterprise_readiness.py::TestENT01Logging`（4 用例）|
 | **ENT-02** ✅ | 排障闭环：`GET /v1/traces/{query_id}` + `GET /v1/budget/snapshot` + `GET /v1/audit-events`（均 admin-only via ENT-04）；`/healthz` 增 LLM 熔断器状态 + 审核队列积压；`request_id` 写入链 metadata（`service_query.py:_finalize_chain`） | `api/routes/admin.py`（148 行） | `test_enterprise_readiness.py::TestENT02And08AdminRoutes`（6 用例）|
-| **ENT-03** ✅ | 安全事件审计流：`AuditEventStore` append-only JSONL + 大小轮转 + 内存索引；五类事件（AUTH_FAILURE/RATE_LIMITED/BUDGET_EXCEEDED/REVIEW_DECISION/DOC_UPLOAD）+ 便捷 `emit_audit_event()` + ContextVar 自动填充；采集点挂入 `auth.py`（鉴权失败 + 限流）、`knowledge.py`（上传 + 审核决议） | `observability/audit_events.py`（256 行） | `test_enterprise_readiness.py::TestENT03AuditEvents`（5 用例：roundtrip/五类事件/租户过滤/轮转/重载）|
+| **ENT-03** ✅ | 安全事件审计流：`AuditEventStore` append-only JSONL + 大小轮转 + 内存索引；**七类事件常量**（AUTH_FAILURE/RATE_LIMITED/BUDGET_EXCEEDED/REVIEW_DECISION/DOC_UPLOAD/FEEDBACK_SUBMITTED/CONFIG_CHANGE）+ 便捷 `emit_audit_event()` + ContextVar 自动填充；采集点挂入 `auth.py`（鉴权失败 + 限流）、`knowledge.py`（上传 + 审核决议 + 反馈）、`app/query_run.py`（预算超限） | `governance/audit_events.py`（`observability/audit_events.py` 现为兼容别名） | `test_enterprise_readiness.py::TestENT03AuditEvents`（5 用例：roundtrip/五类事件/租户过滤/轮转/重载）|
 | **ENT-04** ✅ | RBAC：`Role`（admin/operator/reader）StrEnum + `parse_api_keys_with_roles()` 三段式兼容解析 + `require_role()` FastAPI Depends 守卫 + `KeyInfo` 含过期 + `KeyRegistry` YAML 配置；`auth.py` 已迁移为 RBAC 感知；路由已收权：metrics/traces/budget/audit-events → admin，docs 上传/审核决议 → admin\|operator | `api/rbac.py`（256 行）+ `api/auth.py` 改造 | `test_enterprise_readiness.py::TestENT04RBAC`（11 用例：解析/向后兼容/过期/403 矩阵/KeyRegistry）|
 | **ENT-06** ✅ | 上传治理、PII 脱敏、tenant_id 字段与三路检索过滤、审核队列/任务租户边界、live 凭据 fail-fast、保留期 prune | stores、knowledge、api、retention | `test_enterprise_completion.py` + ENT readiness tests |
 | **ENT-08** ✅（部署验证待办） | Prometheus + optional OTel bridge、sample rate、W3C inbound attach/outbound inject、custom span bridge | `observability/otel_bridge.py`、`trace.py`、`api/app.py` | ENT readiness + completion tests |
+
+> **模块位置复核（2026-11-02）**：策略类模块已迁到 `governance/`——`governance/audit_events.py`、`governance/redaction.py`、`governance/retention.py`、`governance/budget.py`；`observability/` 保留 `logging_setup.py`、`metrics.py`、`trace.py`、`otel_bridge.py`。上文提到的 `observability/audit_events.py`、`llm/budget.py`、`generation/audit_store.py`、`api/service*.py`、`retention.py` 均为 `sys.modules` 兼容别名，新代码请从 `governance/`、`app/`、`core/` 导入。
 
 ### 剩余部署验证（非 RPA）
 
@@ -231,7 +233,7 @@
 
 </details>
 
-**实现确认：** `observability/audit_events.py`（256 行）；`AuditEventStore` 含大小轮转（`_rotate()` + `max_backups`）；`emit_audit_event()` 便捷接口 + ContextVar 自动填充；采集点：`auth.py:_emit_auth_failure` / `_emit_rate_limit`、`knowledge.py:_emit_doc_upload` / `_emit_review_decision`。5 单测覆盖（roundtrip/五类事件/租户过滤/轮转/磁盘重载）。**待办：CLI 导出命令、防篡改 prev-hash；`BUDGET_EXCEEDED` / `FEEDBACK_SUBMITTED` / `CONFIG_CHANGE` 事件类型已定义但 `emit` 采集点未接**（当前已接：auth_failure / rate_limited / doc_upload / review_decision 四点）。
+**实现确认：** `governance/audit_events.py`（`observability/audit_events.py` 现为兼容别名）；`AuditEventStore` 含大小轮转（`_rotate()` + `max_backups`）；`emit_audit_event()` 便捷接口 + ContextVar 自动填充；采集点：`auth.py:_emit_auth_failure` / `_emit_rate_limit`、`knowledge.py:_emit_doc_upload` / `_emit_review_decision`。5 单测覆盖（roundtrip/事件类型/租户过滤/轮转/磁盘重载）。**待办（2026-11-02 复核后更新）：CLI 导出命令、防篡改 prev-hash；`BUDGET_EXCEEDED` 已接入（`app/query_run.py` 预算超限时 emit）、`FEEDBACK_SUBMITTED` 由 `knowledge.py` 以字面量 `feedback_submitted` 记录、`CONFIG_CHANGE` 仍未接。**
 
 ### P5-ENT-04 RBAC 与密钥治理 — ✅ 已交付（2026-07-25）
 
@@ -245,7 +247,7 @@
 
 </details>
 
-**实现确认：** `api/rbac.py`（256 行）；`Role` StrEnum + `parse_api_keys_with_roles()` 三段/两段/单段兼容 + `require_role()` FastAPI Depends + `KeyInfo`（含 `expires_at`）+ `KeyRegistry`（env + YAML 合并）+ `check_key_expiry()`；`auth.py` 已集成 RBAC 解析与 `Principal.role`；路由收权已落地。11 单测覆盖。**待办：`/v1/metrics` 按租户过滤（当前 admin 看全局但 reader 被 403，无 per-tenant 聚合）；`KeyRegistry` YAML（`configs/api_keys.yaml`）为独立组件，中间件生效路径仍是 `AGR_API_KEYS` env，YAML 注册表接入待办**。
+**实现确认：** `api/rbac.py`（256 行）；`Role` StrEnum + `parse_api_keys_with_roles()` 三段/两段/单段兼容 + `require_role()` FastAPI Depends + `KeyInfo`（含 `expires_at`）+ `KeyRegistry`（env + YAML 合并）+ `check_key_expiry()`；`auth.py` 已集成 RBAC 解析与 `Principal.role`；路由收权已落地。11 单测覆盖。**待办（2026-11-02 复核后更新）：`/v1/metrics` 已按租户过滤（`api/routes/knowledge.py`），本项关闭；`KeyRegistry` YAML 仍是独立组件 —— 仓库不含 `configs/api_keys.yaml`，中间件生效路径只有 `AGR_API_KEYS` env**。
 
 ### P5-ENT-05 并发调度升级 — ✅ 工程交付（部署验证待办）
 

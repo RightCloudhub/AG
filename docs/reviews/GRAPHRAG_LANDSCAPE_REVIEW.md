@@ -16,10 +16,10 @@ AgenticGraphRAG 已具备多跳 Agent、图/向量/BM25 混合召回、增量冲
 
 | 领域 | 仓库现状 | 评估注意点 |
 |---|---|---|
-| 检索与推理 | 三路召回、RRF、Agent 计划 DAG、Fast Path/Agentic 分流、引用绑定与推理链审计 | `Reranker` 目前是可注入协议，默认 `IdentityReranker`，不会实际重排；见 [`retrieval/fusion.py`](../../src/agentic_graphrag/retrieval/fusion.py)。 |
+| 检索与推理 | 三路召回、RRF、Agent 计划 DAG、Fast Path/Agentic 分流、引用绑定与推理链审计 | `Reranker` 是可注入协议，默认 `none`（不重排）；`retrieval/rerankers.py` 已提供 `lexical` / `http` cross-encoder 实现（2026-11-02 复核）。见 [`retrieval/fusion.py`](../../src/agentic_graphrag/retrieval/fusion.py)。 |
 | 索引与上传 | 图谱构建有抽取、校验、冲突处理；HTTP 上传只接受 UTF-8 Markdown/纯文本，交给单独 worker 建文档/向量/BM25 索引 | 上传路径不是完整图谱抽取路径；PDF 不支持，worker 不由 API 自动启动；见 [`ARCHITECTURE.md`](../ARCHITECTURE.md)。 |
 | 分块 | 默认固定字符窗口（1200 字符、150 重叠） | 已有设计审计指出尚未保留标题、列表、表格等结构；见 [`DESIGN_VS_IMPLEMENTATION.md`](../design/DESIGN_VS_IMPLEMENTATION.md) 与 [`default.yaml`](../../configs/default.yaml)。 |
-| 质量与性能 | 有 dev/heldout/guardrail 数据集和离线评测脚手架 | 仓库的待办总账最新汇总日期为 2026-08-08；其中真实域签字、live fair baseline、生产 P95 等仍列为开放项。旧的约 92 秒 P95 是历史记录，不应当作 2026-09-23 的当前实测值；应先复测。见 [`IMPORTANT.md`](./IMPORTANT.md)。 |
+| 质量与性能 | 有 dev/heldout/guardrail 数据集和离线评测脚手架 | 仓库的待办总账最新汇总日期为 2026-11-02（撰写时为 2026-08-08）；其中真实域签字、live fair baseline、生产 P95 等仍列为开放项。旧的约 92 秒 P95 是历史记录，不应当作 2026-09-23 的当前实测值；应先复测。见 [`IMPORTANT.md`](./IMPORTANT.md)。 |
 | 证据校验 | claim 与检索证据绑定，执行规则性引用门禁 | 当前规则门禁不等于自然语言蕴含判定；待办总账也记录了真 NLI 支撑判定缺口。见 [`ARCHITECTURE.md`](../ARCHITECTURE.md) 与 [`IMPORTANT.md`](./IMPORTANT.md)。 |
 | 企业治理 | RBAC、租户过滤、预算、审计、Prometheus/可选 OTel 已有代码 | 多副本共享队列/状态及生产后端联调仍属于部署验证或规模化工作；不要把应用层租户过滤等同于物理隔离。见 [`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 |
 
@@ -47,7 +47,7 @@ AgenticGraphRAG 已具备多跳 Agent、图/向量/BM25 混合召回、增量冲
 
 ### P0：补上真实重排并降低长尾
 
-1. 将当前 identity 默认替换为可选的真实 reranker 实现（例如本地 cross-encoder 或受控远端服务），保留协议和离线 identity fallback；增加超时、候选数限制、模型版本和失败降级策略。
+1. 将当前 identity 默认替换为可选的真实 reranker 实现（例如本地 cross-encoder 或受控远端服务），保留协议和离线 identity fallback；增加超时、候选数限制、模型版本和失败降级策略。**（已落地：`retrieval/rerankers.py` 的 `lexical` / `http` 实现 + `AGR_RERANK` 开关；离线 A/B 无显著收益，默认仍为 `none`。）**
 2. 用前述 heldout 集测 reranker 的增益及额外延迟/成本；对没有显著提升的 query class 不启用重排。
 3. 给每个阶段记录耗时和调用量：规划、每路召回、融合/重排、critic、答案生成。用慢查询 trace 调整 Agent 升级、图展开宽度、Top-K、缓存与预算，而不是只收紧全局 hop 上限。
 
@@ -93,4 +93,4 @@ AgenticGraphRAG 已具备多跳 Agent、图/向量/BM25 混合召回、增量冲
 
 - 本文对竞品能力的描述来自表中项目官方文档、代码仓库或论文；查阅日期为 **2026-09-23**。滚动文档可能随上游更新，正式立项前应再核对版本与许可证。
 - 竞品表对照的是公开能力和架构方向，没有以相同语料、模型、成本预算运行统一基准；不据此宣称某项目整体优于本项目。
-- 本项目现状以仓库文档和代码接口为依据。尤其是 [`IMPORTANT.md`](./IMPORTANT.md) 的状态汇总日期是 2026-08-08；本文明确将其中延迟与验收记录视作历史待复测证据，而不是当前 live 结果。
+- 本项目现状以仓库文档和代码接口为依据。尤其是 [`IMPORTANT.md`](./IMPORTANT.md) 的状态汇总日期为 2026-11-02（撰写时为 2026-08-08）；本文明确将其中延迟与验收记录视作历史待复测证据，而不是当前 live 结果。

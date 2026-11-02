@@ -1,7 +1,7 @@
 # AgenticGraphRAG 实施计划总览
 
 **关联文档**：[../PRD.md](../docs/product/PRD.md) · [../lixiang.md](../docs/product/PROPOSAL.md)
-**版本**：V1.1（2026-07-20：新增 engineering/rules.md 硬性规则汇总；api-and-ui.md 补充实现现状与前端交付）
+**版本**：V1.2（2026-11-02：目录导航补齐 phases/p5-ui-01-vue-refactor.md、phases/p5-ui-02-console-replan.md、workstreams/multitenant-webapp.md；V1.1 2026-07-20：新增 engineering/rules.md 硬性规则汇总、api-and-ui.md 补充实现现状与前端交付）
 
 本目录是项目实施计划的唯一入口，按"阶段（时间维度）× 工作流（能力维度）"双视角组织。
 
@@ -17,13 +17,16 @@ plan/
 │   ├── phase-2-mvp.md            # 阶段二：MVP 构建（4-6周）
 │   ├── phase-3-optimization.md   # 阶段三：工程优化（3-4周）
 │   ├── phase-4-pilot.md          # 阶段四：试点上线（2-3周）
-│   └── phase-5-scale.md          # 阶段五：规模化推广（持续）
+│   ├── phase-5-scale.md          # 阶段五：规模化推广（持续）
+│   ├── p5-ui-01-vue-refactor.md  # 阶段五 UI：原生 JS → Vue 3 零构建重构（ADR-006）
+│   └── p5-ui-02-console-replan.md # 阶段五 UI：控制台重规划（推理笔记本）
 ├── workstreams/                  # 按工作流的技术方案与任务分解（怎么做）
 │   ├── knowledge-graph.md        # 图谱构建：抽取、消歧、增量更新
 │   ├── retrieval.md              # 混合检索：向量/图/全文 + 融合排序
 │   ├── agent-orchestration.md    # Agent 编排：Planner/Executor/Critic/Memory
 │   ├── api-and-ui.md             # 服务接口与问答界面
-│   └── evaluation.md             # 评测体系：评测集、指标、回归
+│   ├── evaluation.md             # 评测体系：评测集、指标、回归
+│   └── multitenant-webapp.md     # 独立多租户 Web 应用（ADR-007）
 ├── engineering/                  # 工程规范与基础设施
 │   ├── rules.md                  # 硬性规则汇总（代码指标/安全/架构边界/文档同步）
 │   ├── tech-stack.md             # 技术选型与决策记录

@@ -18,7 +18,7 @@ Web 工作台：<http://localhost:8000/web>
 启动期（lifespan）自动执行：`setup_logging()`（ENT-01）→ 可选 `setup_otel()`（ENT-08，
 `AGR_OTEL_ENABLED=1` 时）→ **解析运行 Profile 并按能力矩阵装配**（`bootstrap/`）→ **凭据 fail-fast 校验**（ENT-06b）：
 `live` Profile（或旧开关 `AGR_USE_LIVE_STORES=1`）要求 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 全非空，
-`hybrid` 要求 `NEO4J_*`；`AGR_ALLOW_LLM=1` 要求 `LLM_API_KEY` 非空且非占位符 —— 缺失直接拒绝启动。
+`hybrid` 同样走该校验（`api/app.py` 的 `_missing_store_credentials`），因此也要求这五项全非空；`AGR_ALLOW_LLM=1` 要求 `LLM_API_KEY` 非空且非占位符 —— 缺失直接拒绝启动。
 
 **不再有隐式回退**：Neo4j 或 Qdrant 不可达时启动失败（`ProfileError`），不会悄悄换成内存图或内存向量。
 需要“Neo4j + 内存向量”时请显式设置 `AGR_PROFILE=hybrid`。
@@ -36,8 +36,10 @@ Web 工作台：<http://localhost:8000/web>
 
 ## 环境变量
 
-> `LLM_*` / `NEO4J_*` / `QDRANT_*` 走 `.env`（pydantic-settings）；**`AGR_*` 为进程环境变量
+> `LLM_*` / `NEO4J_*` / `QDRANT_*` 走 `.env`（pydantic-settings）；多数 **`AGR_*` 为进程环境变量
 > （代码内 `os.environ` 直读），写进 `.env` 不生效**，需在 shell / service unit 中 export。
+> 例外：`AGR_RERANK` / `AGR_CRITIC_MODE` 走 `Settings`（`.env` 生效），Web 应用的 `AGR_WEB_*` /
+> `AGR_DATABASE_URL` / `AGR_DEMO_PASSWORD` 由 `WebSettings` 从 `.env` 读取。
 
 | 变量 | 说明 |
 |------|------|
@@ -52,7 +54,7 @@ Web 工作台：<http://localhost:8000/web>
 | `AGR_RATE_LIMIT_QPS` / `AGR_RATE_LIMIT_CONCURRENT` | 全局默认限流（20 / 10）；per-tenant 覆盖见下方 `tenants:` 配置 |
 | `AGR_TRUST_X_USER_ID=1` | 显式信任客户端 `X-User-Id`（默认绑定 key 摘要） |
 | `AGR_LOG_LEVEL` | 日志级别（默认 INFO）（ENT-01） |
-| `AGR_LOG_FILE` | JSON 日志落盘路径（RotatingFileHandler；未设仅 stdout） |
+| `AGR_LOG_FILE` | JSON 日志落盘路径（RotatingFileHandler；未设仅 stderr） |
 | `AGR_REDACTION_ENABLED=1` | PII 脱敏管道（默认关）（ENT-06） |
 | `AGR_REDACTION_PATTERNS` | 脱敏模式选择，逗号分隔或 `all`（内置：email / phone_cn / phone_intl / id_cn） |
 | `AGR_OTEL_ENABLED=1` | 启用 OTel OTLP 导出（需 `./scripts/setup.sh --extras dev,otel`）（ENT-08） |
@@ -76,8 +78,8 @@ Web 工作台：<http://localhost:8000/web>
 | `GET /healthz` · `GET /metrics-prom` · `/web` · `/docs` · `/openapi.json` | 公开（免鉴权） |
 
 角色不足返回 403 `FORBIDDEN`。Key 过期由 `KeyInfo.expires_at` 支持；
-`configs/api_keys.yaml` 注册表（过期 / 备注）是独立组件；API 鉴权当前读取
-`AGR_API_KEYS` 环境变量。
+`api/rbac.py` 的 `KeyRegistry` 支持 YAML 注册表（过期 / 备注），但**仓库不含 `configs/api_keys.yaml`，
+也没有代码加载它**；API 鉴权当前只读 `AGR_API_KEYS` 环境变量。
 
 ## 全链路排障（ENT-01/02）
 
@@ -190,8 +192,8 @@ PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker --once   # 单
 PYTHONPATH=src python -m agentic_graphrag.knowledge.ingest_worker          # 常驻轮询（5s）
 ```
 
-独立 worker 完成 chunk → embed → 索引；离线模式下它的内存索引对 API 不可见。
-完整图谱抽取流程使用上面的同进程处理器；独立部署的可见性限制见 §3.5。
+独立 worker 完成 chunk → embed → 索引 → 抽取入图（`ingest_worker_cli.py` 装配 `GraphIngestor`）；
+离线模式下它的图与内存索引都是进程本地的，对 API 不可见，因此离线场景推荐上面的同进程处理器（`AGR_INGEST_INLINE=1`）。可见性限制见 §3.5。
 
 ## 数据保留与清理（ENT-06）
 

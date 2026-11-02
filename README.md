@@ -25,7 +25,7 @@ source .venv/bin/activate
 
 agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
 agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测（走生产路径 QueryApp，eval Profile）
-agr-api                                                          # http://127.0.0.1:8000/web
+agr-api                                                          # http://localhost:8000/web（默认绑定 0.0.0.0:8000）
 AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
 
@@ -42,7 +42,7 @@ AGR_WEB_ORIGIN=http://localhost:8000 \
 AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
 ```
 
-打开 **http://localhost:8000** → 创建账号 → 进入个人工作空间。顶栏可创建 / 切换团队空间，
+打开 **http://localhost:8000** → 创建账号 → 进入个人工作空间；也可以用 `agr-webapp-seed --email you@example.com`（密码取 `AGR_DEMO_PASSWORD`，未设则隐藏提示输入）直接建出首个演示账号。顶栏可创建 / 切换团队空间，
 “设置 → 成员与邀请”添加成员，“知识库”上传 UTF-8 Markdown / 文本。
 新空间初始没有业务知识；上面的命令会自动处理上传任务，离线体验不需要模型 API Key 或 Docker。
 `agr-webapp` 与 `agr-api` 默认都使用 8000 端口，启动前结束另一个占用该端口的进程。

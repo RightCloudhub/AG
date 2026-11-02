@@ -98,9 +98,9 @@ flowchart LR
     C["客户端 / Web 工作台"] --> MW["AuthRateLimitMiddleware<br/>API Key → Principal(tenant, user, role)<br/>QPS · 并发限流"]
     MW --> R{"api/routes/"}
     R --> RQ["query.py<br/>/v1/query · /v1/query/stream"]
-    R --> RK["knowledge*.py<br/>/v1/docs · /v1/ingest-tasks · /v1/review-queue"]
-    R --> RW["workspace*.py<br/>/v1/me · /v1/feedback"]
-    R --> RA["admin.py<br/>/v1/metrics · /v1/traces · /v1/budget · /v1/audit-events"]
+    R --> RK["knowledge*.py<br/>/v1/docs · /v1/ingest-tasks/{id} · /v1/review-queue · /v1/feedback · /v1/metrics · /v1/audit/queries"]
+    R --> RW["workspace*.py<br/>/v1/me · /v1/ingest-tasks · /v1/graph/entities"]
+    R --> RA["admin.py<br/>/v1/traces · /v1/budget/snapshot · /v1/audit-events"]
     RQ --> QA["app/ QueryApp<br/>答案缓存 · 三级预算 · Pipeline · 审计"]
     RK --> RVA["app/ ReviewApp<br/>记录决策 + 作用于图谱"]
     CLIE["cli/ agr-run-cases"] -->|eval Profile| QA
@@ -112,7 +112,8 @@ flowchart LR
 - **QueryApp**（`app/query_service.py` + `query_run.py` / `query_stream.py`）：查答案缓存 → 预留预算 → `QueryPipeline` → 落审计 → 结算预算 → 指标。`run_query()` 返回 API 视图，`run_query_chain()` 走同一条生产路径但返回完整 `ReasoningChain`（供 eval / CLI 使用）。
 - **ReviewApp**：`POST /v1/review-queue/{id}/decision` 只做鉴权与参数校验，记录决策和执行决策都在 `ReviewApp.decide()` 中完成。
 - **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行，`IngestApp` 装配）完成分块索引并抽取三元组入图，冲突进入复核队列（见 §4.4）。
-- **web/**：Vue 3 ESM 零构建工作台（「推理笔记本」壳：顶栏 + 笔记本栏 + 问题页 + 检查器；管理视图在 `js/admin/*`；文案集中 `i18n.js`），`api.js` 调用上述接口。
+- **web/**：Vue 3 ESM 零构建工作台（「推理笔记本」壳：顶栏 + 笔记本栏 + 问题页 + 检查器；管理视图在 `js/admin/*`；文案集中 `i18n.js`），`api.js` 调用上述接口。独立多租户应用由 `web/application.html` + `js/product/*` 提供（登录注册、工作空间、设置）。
+- **webapp/**（可选，ADR-007）：`agr-webapp` 启动独立身份库（SQLAlchemy/Alembic）+ Cookie 会话 + 租户/成员/邀请/服务密钥路由，业务端点复用 `api/routes/`；核心 `agr-api`、CLI 与离线评测不导入该包（见 `docs/ops/WEBAPP.md`）。
 
 ---
 
@@ -184,7 +185,7 @@ flowchart TD
     PAR --> G["GraphRetriever<br/>graph.py"]
     PAR --> F["FulltextRetriever<br/>fulltext.py · BM25"]
     G --> BEAM["BeamExpander graph_beam.py<br/>逐层扩展 · beam_width=20<br/>度数 >30 时改用关系类型硬过滤（空则无过滤重试）"]
-    BEAM --> REL["graph_relation.py<br/>关系意图推断 · 相关度阈值 0.12"]
+    BEAM --> REL["graph_relation.py<br/>关系意图推断（阈值 0.12 定义在 graph.py / graph_beam.py）"]
     BEAM --> PATH["graph_paths.py<br/>路径打分 → Candidate"]
     V --> FUS["fusion.py<br/>RRF k=60"]
     FUS --> RR["rerankers.py（可选，默认关闭）<br/>lexical / HTTP cross-encoder<br/>召回扩到 candidate_pool=30 → top_n=10"]
@@ -437,7 +438,7 @@ flowchart LR
     SC --> BAD["badcase.py 坏例归因"]
 ```
 
-`agr-run-cases` 默认通过 `QueryApp.run_query_chain()` 运行（eval Profile：关闭答案和检索缓存、加载 seed 图；指定 `--neo4j` 时使用 hybrid Profile），评测的就是生产路径（预算、Pipeline、审计、指标）。真实 LLM 的响应由 provider 的磁盘缓存回放。`--direct` 保留旧的直接调用 Agent 循环的方式。重构前后 `poc_cases` 的结果一致（21/31，31 条预测、状态和路由逐条相同）。
+`agr-run-cases` 默认通过 `QueryApp.run_query_chain()` 运行（eval Profile：关闭答案和检索缓存、加载 seed 图；指定 `--neo4j` 时使用 hybrid Profile），评测的就是生产路径（预算、Pipeline、审计、指标）。真实 LLM 的响应由 provider 的磁盘缓存回放。`--direct` 保留旧的直接调用 Agent 循环的方式。重构前后 `poc_cases` 的逐条结果一致（31 条预测、状态和路由相同；该对比运行时为 21/31，当前基线为 31/31、CI 门禁 30/31）。
 
 V2 评测工具（O-1 / O-2）：`scripts/eval_compare.py` 对两次运行做配对 A/B（Wilson 95% CI、精确 McNemar、分类别和分模板准确率、P50/P95 延迟、LLM 调用均值），p < 0.05 才判定“更好”或“更差”；`scripts/audit_gold.py` 在三元组上校验金标（`path_edge_missing` / `inverse_label` / `gold_unreachable` / `ambiguous_gold`），CI 中以 `--max-flagged 0` 阻断（金标已按正确方向与完整答案集合重生成）。CI 门禁：poc ≥30/31，g2_all ≥196/200，probe_compositional ≥52/54，probe_negative ≥19/20；准确率 JSON 另含 `strict`（答案实体集合精确匹配，仅报告）。
 

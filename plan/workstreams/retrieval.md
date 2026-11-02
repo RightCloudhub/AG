@@ -8,7 +8,7 @@
 ```
 子问题 ──┬─ 向量检索(chunk embedding, Top-K)
          ├─ 图检索(k跳邻居/路径/子图, 剪枝+Top-K路径)   ─→ RRF融合 ─→ 统一候选列表
-         └─ 全文检索(BM25)                                      (预留Re-ranker接口)
+         └─ 全文检索(BM25)                                      (已实现可插拔 Re-ranker：`none` / `lexical` / `http`)
 ```
 
 三路并行执行（阶段三 P3-PERF-02），任一路失败降级为其余两路结果并记录告警，不整体失败。
@@ -28,12 +28,12 @@
 ## 3. 各路要点
 
 ### 3.1 向量检索（FR-RT-01）
-- chunk 策略：按语义段落切分，目标 200-500 token，重叠可配置；chunk 记录 doc_id + span。
+- chunk 策略：按语义段落切分，目标 200-500 token，重叠可配置；chunk 记录 doc_id + 序号 index（`ChunkRecord` 无 `span` 字段）。
 - Top-K 可配置（默认 10）；embedding 结果缓存（P3-PERF-04）。
 
 ### 3.2 图检索（FR-RT-02）—— 本工作流核心
 封装为三个工具供 Executor 调用：
-1. **邻居查询**：实体 → k 跳邻居子图（默认 k=1，按关系类型过滤）
+1. **邻居查询**：实体 → k 跳邻居子图（代码默认 k=1，`configs/default.yaml` 的 `retrieval.graph.max_hop_neighbors` 配为 2；按关系类型过滤）
 2. **路径查询**：两实体间 Top-K 最短/加权路径（k≤4 跳）
 3. **子图遍历**：种子实体集 + 关系类型约束 → 相关子图
 
@@ -50,7 +50,7 @@
 ## 4. 融合排序（FR-RT-04，阶段三）
 
 - **V1：RRF**（Reciprocal Rank Fusion）：`score = Σ 1/(k + rank_i)`，k=60 起步，按评测调参。规避三路分数量纲不一致问题。
-- **V2 预留：学习型 Re-ranker**：接口设计为 `rerank(query, candidates) → sorted candidates`，训练数据来自评测集金标证据 + 线上反馈（阶段五 P5-CAP-04 落地）。
+- **已实现（V2 O-5）**：`retrieval/rerankers.py` 提供 `LexicalReranker` 与 `HttpCrossEncoderReranker`，配置 `retrieval.rerank.kind = none|lexical|http`（默认 `none`，环境变量 `AGR_RERANK`）；离线 A/B 无显著收益，默认关闭。
 - 融合层保序输出引用，供答案生成绑定。
 
 ## 5. 缓存策略（P3-PERF-04）

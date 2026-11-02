@@ -131,6 +131,9 @@ WebSettings 从 `.env` 或进程环境读取；字段见 `.env.example`。
 - `AGR_WEB_SECURE_COOKIES=true`：HTTPS 部署启用，使用 `__Host-` Cookie 名称。
 - `AGR_WEB_SECRET`：HTTPS 部署必填，至少 32 个随机字符，各 worker 相同。
 - `AGR_WEB_AUTO_MIGRATE=false`：部署时先单独运行迁移，再启动 worker。
+- `AGR_WEB_ACCESS_SECONDS`（900）/ `AGR_WEB_REFRESH_SECONDS`（604800）/ `AGR_WEB_INVITE_SECONDS`（604800）：访问、刷新与邀请令牌有效期（秒）。
+- `AGR_WEB_AUTH_ATTEMPTS`（10）/ `AGR_WEB_AUTH_WINDOW_SECONDS`（300）：登录尝试次数与窗口。
+- `AGR_WEB_SECRET_FILE`（`data/identity/signing.key`）：未设 `AGR_WEB_SECRET` 时的本地开发签名密钥路径。
 - `AGR_WEB_MAIL_BACKEND=log|smtp`：开发邮件只送到 `agr.webapp.mail` 日志；SMTP 使用 STARTTLS。
 
 ```bash
@@ -146,6 +149,7 @@ agr-webapp-seed --email admin@example.com
 
 Access JWT 默认 15 分钟，refresh 凭证绝对有效期 7 天。刷新轮换并消费旧凭证；
 重放已消费凭证会撤销该会话。退出、密码重置和修改密码立即撤销相应会话。
+会话列表与单会话撤销：`GET /v1/auth/sessions`、`DELETE /v1/auth/sessions/{session_id}`（`webapp/routes_account.py`；无 `/v1` 前缀的别名同样可用）。
 数据库只存 refresh / reset 凭证摘要；密码采用 Argon2id。登录限流同时按 IP 和
 账号摘要计数，状态保存在身份库，各 worker 共享，默认 5 分钟内 10 次。
 
@@ -203,5 +207,5 @@ admin 服务 key 可以管理身份库中对应的租户，但不能执行用户
 
 分步提交和实测结果记录在 [多租户实施记录](../../plan/workstreams/multitenant-webapp.md)。
 使用指南的离线流程已用临时 SQLite 和运行目录验证：注册、空间切换、导入两份样例、
-开发邮件链接和服务密钥均通过；样例写入 14 条图谱事实，快速与多跳问答均返回 Elena Varga。
+开发邮件链接和服务密钥均通过；`doc_01` / `doc_02` 入图后，快速与多跳问答均返回 Elena Varga。
 SQLite 单测不代表 PostgreSQL 或真实图／向量后端已完成部署验证。
