@@ -25,6 +25,12 @@ from starlette.types import ASGIApp
 from agentic_graphrag.api.envelope import fail
 from agentic_graphrag.api.rbac import KeyInfo, Role, parse_api_keys_with_roles
 from agentic_graphrag.app.errors import RATE_LIMITED
+from agentic_graphrag.observability.degradation import (
+    REASON_AUDIT_WRITE_FAILED,
+    REASON_UNEXPECTED,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.observability.otel_bridge import extract_otel_context
 
 _USER_ID_DIGEST_LEN = 16
@@ -179,8 +185,9 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
                 parsed = parse_api_keys_with_roles(env_keys)
                 self._key_infos.update(parsed)
                 self.api_keys.update(_tenant_map(parsed))
-        except Exception:
-            pass
+        except Exception as exc:
+            # Running with no keys from .env: auth falls back to the process env.
+            record_degradation("auth_config", REASON_UNEXPECTED, exc, source="dotenv")
 
     def _authenticate(self, request: Request) -> tuple[Principal, Response | None]:
         key = extract_api_key(request)
@@ -241,8 +248,9 @@ def _bind_request_context(request: Request, principal: Principal) -> None:
 
         rid = request.headers.get("x-request-id") or ""
         bind_context(request_id=rid, tenant_id=principal.tenant_id, user_id=principal.user_id)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # Every log line of this request loses its request/tenant context.
+        record_degradation("request_context", REASON_UNEXPECTED, exc, step="bind")
 
 
 def _clear_request_context() -> None:
@@ -250,8 +258,8 @@ def _clear_request_context() -> None:
         from agentic_graphrag.observability.logging_setup import clear_context
 
         clear_context()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        record_degradation("request_context", REASON_UNEXPECTED, exc, step="clear")
 
 
 def _emit_auth_failure(request: Request, tenant_id: str) -> None:
@@ -264,8 +272,11 @@ def _emit_auth_failure(request: Request, tenant_id: str) -> None:
             target=request.url.path,
             outcome="denied",
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # A lost auth-failure record is a security blind spot, not a warning.
+        record_degradation(
+            "audit_events", REASON_AUDIT_WRITE_FAILED, exc, severity=ChannelStatus.FAILED
+        )
 
 
 def _emit_rate_limit(principal: Principal) -> None:
@@ -279,5 +290,7 @@ def _emit_rate_limit(principal: Principal) -> None:
             user_id=principal.user_id,
             outcome="denied",
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        record_degradation(
+            "audit_events", REASON_AUDIT_WRITE_FAILED, exc, severity=ChannelStatus.FAILED
+        )

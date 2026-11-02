@@ -22,6 +22,15 @@ class MetricsSummary(TypedDict):
     error_counts: dict[str, int]
     budget_trips: int
     event_handler_failures: dict[str, int]
+    degradations: list[DegradationRow]
+
+
+class DegradationRow(TypedDict):
+    """One ``agr_degradation_total{component,reason}`` sample (O-9)."""
+
+    component: str
+    reason: str
+    count: int
 
 
 @dataclass
@@ -72,6 +81,7 @@ class MetricsRegistry:
         self._error_counts: dict[str, int] = defaultdict(int)
         self._budget_trips = 0
         self._event_failures: dict[str, int] = defaultdict(int)
+        self._degradations: dict[tuple[str, str], int] = defaultdict(int)
         self._tenants: dict[str, _TenantMetrics] = {}
 
     def record(self, m: QueryMetrics) -> None:
@@ -102,6 +112,19 @@ class MetricsRegistry:
             self._budget_trips += 1
             self._tenant(tenant_id).budget_trips += 1
 
+    def record_degradation(self, *, component: str, reason: str, tenant_id: str = "") -> None:
+        """One degraded dependency event (O-9): ``agr_degradation_total{component,reason}``."""
+        with self._lock:
+            self._degradations[(component, reason)] += 1
+            self._tenant(tenant_id).degradations[(component, reason)] += 1
+
+    @staticmethod
+    def _degradation_rows(counts: dict[tuple[str, str], int]) -> list[DegradationRow]:
+        return [
+            {"component": component, "reason": reason, "count": count}
+            for (component, reason), count in sorted(counts.items())
+        ]
+
     def percentile(self, p: float, values: list[int] | None = None) -> float:
         data = sorted(values if values is not None else self._latency)
         if not data:
@@ -129,6 +152,7 @@ class MetricsRegistry:
                 "error_counts": dict(self._error_counts),
                 "budget_trips": self._budget_trips,
                 "event_handler_failures": dict(self._event_failures),
+                "degradations": self._degradation_rows(dict(self._degradations)),
             }
 
     def _tenant_summary(self, tenant_id: str) -> MetricsSummary:
@@ -146,6 +170,7 @@ class MetricsRegistry:
             "error_counts": dict(totals.errors),
             "budget_trips": totals.budget_trips,
             "event_handler_failures": dict(totals.failures),
+            "degradations": self._degradation_rows(dict(totals.degradations)),
         }
 
     def recent(self, n: int = 50, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
@@ -159,6 +184,7 @@ class _TenantMetrics:
     routes: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     errors: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     failures: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    degradations: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
     budget_trips: int = 0
 
     def record(self, value: QueryMetrics) -> None:

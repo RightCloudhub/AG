@@ -18,19 +18,21 @@ like chunks.
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import TYPE_CHECKING, Any
 
 from agentic_graphrag.core.constants import SCORE_PRECISION
-from agentic_graphrag.core.enums import RerankKind
+from agentic_graphrag.core.enums import RerankKind, RetrievalChannel
+from agentic_graphrag.observability.degradation import (
+    REASON_RERANK_UNAVAILABLE,
+    ChannelHealth,
+    record_degradation,
+)
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import RerankConfig
 
 from agentic_graphrag.core.evidence import Candidate
-
-logger = logging.getLogger(__name__)
 
 _TOKEN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 _STOP = frozenset(
@@ -70,12 +72,20 @@ class LexicalReranker:
 class HttpCrossEncoderReranker:
     """Cross-encoder over HTTP; never raises into retrieval."""
 
-    def __init__(self, endpoint: str, *, timeout_seconds: float = 2.0, max_chars: int = 2000):
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        timeout_seconds: float = 2.0,
+        max_chars: int = 2000,
+        health: ChannelHealth | None = None,
+    ):
         if not endpoint:
             raise ValueError("HttpCrossEncoderReranker needs an endpoint")
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.max_chars = max_chars
+        self.health = health
         self.fallbacks = 0
 
     def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
@@ -85,7 +95,12 @@ class HttpCrossEncoderReranker:
             scores = self._score(query, [c.content[: self.max_chars] for c in candidates])
         except Exception as exc:  # noqa: BLE001 — degrade to fused order
             self.fallbacks += 1
-            logger.warning("reranker fallback (%s): %s", type(exc).__name__, exc)
+            record_degradation(
+                RetrievalChannel.RERANK,
+                REASON_RERANK_UNAVAILABLE,
+                exc,
+                health=self.health,
+            )
             return [_with_meta(c, rerank_fallback=type(exc).__name__) for c in candidates]
         order = sorted(range(len(candidates)), key=lambda i: (-scores.get(i, float("-inf")), i))
         return [
@@ -108,7 +123,9 @@ class HttpCrossEncoderReranker:
         return {int(r["index"]): float(r.get("score", r.get("relevance_score", 0.0))) for r in rows}
 
 
-def build_reranker(cfg: RerankConfig) -> LexicalReranker | HttpCrossEncoderReranker | None:
+def build_reranker(
+    cfg: RerankConfig, *, health: ChannelHealth | None = None
+) -> LexicalReranker | HttpCrossEncoderReranker | None:
     """``cfg`` is :class:`~agentic_graphrag.config.RerankConfig` (kind none|lexical|http)."""
     kind = RerankKind(cfg.kind)
     if kind is RerankKind.NONE:
@@ -119,5 +136,6 @@ def build_reranker(cfg: RerankConfig) -> LexicalReranker | HttpCrossEncoderReran
         return HttpCrossEncoderReranker(
             cfg.endpoint,
             timeout_seconds=cfg.timeout_seconds,
+            health=health,
         )
     raise ValueError(f"unknown reranker kind {kind!r} (expected none|lexical|http)")

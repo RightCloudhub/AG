@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentic_graphrag.core.enums import RetrievalChannel
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, PathRecord, RelationRecord
+from agentic_graphrag.observability.degradation import (
+    REASON_RELATION_EMBED_UNAVAILABLE,
+    ChannelHealth,
+    record_degradation,
+)
 from agentic_graphrag.retrieval.graph_relation import (
     RelationEmbedSim,
     blend_relation_score,
@@ -58,9 +64,13 @@ class BeamConfig:
 class BeamExpander:
     """Store-backed beam expansion and path join (no Candidate assembly)."""
 
-    def __init__(self, store: GraphStore, cfg: BeamConfig) -> None:
+    def __init__(
+        self, store: GraphStore, cfg: BeamConfig, *, health: ChannelHealth | None = None
+    ) -> None:
         self.store = store
         self.cfg = cfg
+        self.health = health
+        self._embed_failure_seen = False
 
     def layer_edges(
         self,
@@ -129,8 +139,25 @@ class BeamExpander:
             return None
         try:
             return scorer(relation_type, sub_question)
-        except Exception:  # noqa: BLE001 — never break retrieval on embed failure
+        except Exception as exc:  # noqa: BLE001 — never break retrieval on embed failure
+            self._note_embed_failure(exc)
             return None
+
+    def relation_sim(self, relation_type: str, sub_question: str | None) -> float | None:
+        """Guarded relation-embedding similarity for callers that score their own edges."""
+        return self._embed_sim(relation_type, sub_question)
+
+    def _note_embed_failure(self, exc: BaseException) -> None:
+        """Record this expansion's first embedder failure; per-edge logging floods."""
+        if self._embed_failure_seen:
+            return
+        self._embed_failure_seen = True
+        record_degradation(
+            RetrievalChannel.EMBEDDING,
+            REASON_RELATION_EMBED_UNAVAILABLE,
+            exc,
+            health=self.health,
+        )
 
     def looks_high_degree(self, entity_name: str) -> bool:
         rows = self.store.neighbors(

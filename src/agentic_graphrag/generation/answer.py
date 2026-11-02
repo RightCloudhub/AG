@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
-from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.enums import MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import CircuitControlledClient, LLMClient, Message, Tier
 from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
@@ -34,6 +34,7 @@ from agentic_graphrag.generation.evidence_catalog import (  # noqa: F401 — re-
 from agentic_graphrag.generation.offline_answer import offline_answer
 from agentic_graphrag.generation.verdict import report_gap
 from agentic_graphrag.llm.structured import complete_structured
+from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 
 class AnswerPayload(BaseModel):
@@ -185,6 +186,7 @@ def generate_answer(
     # Skip remote call entirely when circuit is already open (P95: avoid 3s connect).
     circuit = llm.circuit if isinstance(llm, CircuitControlledClient) else None
     if circuit is not None and not circuit.allow():
+        record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, error="CircuitOpen")
         chain.metadata = {
             **(chain.metadata or {}),
             "llm_degraded": True,
@@ -215,6 +217,9 @@ def _degrade(
 
     if isinstance(exc, BudgetExceeded):
         raise exc
+    # The LLM channel is reported through ``metadata.llm_degraded``; the answer
+    # policy turns that into a ``degraded_channels`` entry (O-9).
+    record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, error=type(exc).__name__)
     chain.metadata = {
         **(chain.metadata or {}),
         "llm_degraded": True,

@@ -15,6 +15,11 @@ from agentic_graphrag.agent.loop_stream import (
 )
 from agentic_graphrag.agent.options import QueryOptions
 from agentic_graphrag.app.contracts import QueryRequest
+from agentic_graphrag.app.degradation_policy import (
+    DEGRADED_CHANNELS_KEY,
+    LOW_CONFIDENCE_KEY,
+    apply_degradation_policy,
+)
 from agentic_graphrag.app.errors import INTERNAL_ERROR, ApiError
 from agentic_graphrag.app.query_run import (
     MS_PER_SECOND,
@@ -25,7 +30,7 @@ from agentic_graphrag.app.query_run import (
     _release_budget,
     _reserve_budget,
 )
-from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_ERROR
+from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_DEGRADED, EVENT_ERROR
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
 from agentic_graphrag.app.tenant_context import tenant_entities
 from agentic_graphrag.app.wiring import (
@@ -35,6 +40,11 @@ from agentic_graphrag.app.wiring import (
 )
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability.degradation import (
+    REASON_UNEXPECTED,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.observability.logging_setup import request_id_var
 from agentic_graphrag.observability.trace import get_tracer, span
 
@@ -84,6 +94,8 @@ def _stream_live(
     except AgentStreamEmptyError as exc:
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
     except Exception as exc:  # noqa: BLE001
+        # The client sees an error frame; before this the server saw nothing at all.
+        record_degradation("query_stream", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED)
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
     finally:
         if reserved:
@@ -180,21 +192,43 @@ def _consume_progress(
         if etype != EVENT_FINAL_CHAIN:
             yield etype, payload
             continue
-        yield from _finish_answer(svc, req, payload, tenant_id=tenant_id, user_id=user_id, t0=t0)
+        chain = _final_chain(payload)
+        # O-9: fold the run's channel health into the chain, then tell the client
+        # which channels degraded before the answer arrives.
+        apply_degradation_policy(chain, executor.health, svc.cfg)
+        yield from _degraded_events(chain)
+        yield from _finish_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id, t0=t0)
+
+
+def _final_chain(payload: Any) -> ReasoningChain:
+    if isinstance(payload, ReasoningChain):
+        return payload
+    return ReasoningChain.model_validate(payload)
+
+
+def _degraded_events(chain: ReasoningChain) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Emit one ``degraded`` frame when the run lost a retrieval channel."""
+    channels = chain.metadata.get(DEGRADED_CHANNELS_KEY) or []
+    if not channels:
+        return
+    yield (
+        EVENT_DEGRADED,
+        {
+            "channels": channels,
+            "low_confidence": bool(chain.metadata.get(LOW_CONFIDENCE_KEY)),
+        },
+    )
 
 
 def _finish_answer(
     svc: QueryService,
     req: QueryRequest,
-    payload: Any,
+    chain: ReasoningChain,
     *,
     tenant_id: str,
     user_id: str,
     t0: float,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    chain = (
-        payload if isinstance(payload, ReasoningChain) else ReasoningChain.model_validate(payload)
-    )
     # Streamed audit records used to carry an empty request_id while the
     # non-streaming path set it (docs/design/BUSINESS_LOGIC.md BL-11).
     _finalize_chain(

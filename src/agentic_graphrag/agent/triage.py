@@ -17,9 +17,10 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner_chain import parse_chain
-from agentic_graphrag.core.enums import MessageRole
+from agentic_graphrag.core.enums import MessageRole, RetrievalChannel
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
+from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 # Multi-hop / complex cues → force Agentic
 _MULTI_HOP_PATTERNS = (
@@ -240,7 +241,9 @@ def _llm_triage(q: str, llm: LLMClient) -> TriageResult | None:
             confidence=float(raw.confidence or _DEFAULT_LLM_CONFIDENCE),
             rule_hit="llm",
         )
-    except Exception:
+    except Exception as exc:
+        # Borderline cases fall back to the rule route (O-9).
+        record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, exc)
         return None
 
 

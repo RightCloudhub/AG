@@ -148,6 +148,9 @@ class InProcessEventBus:
                 return
             except Exception as exc:  # noqa: BLE001 — one bad subscriber must not break writers
                 error = exc
+        # Already logged and metered: handler_failures feeds
+        # agr_event_handler_failures_total, and core/ must not import the
+        # observability package (rules §6). Kept as-is on purpose.
         level = logging.ERROR if sub.critical else logging.WARNING
         logger.log(level, "event handler %s failed for %s", sub.name, event.name, exc_info=error)
         self.handler_failures[f"{event.name}:{sub.name}"] += 1

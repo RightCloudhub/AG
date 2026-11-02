@@ -66,6 +66,13 @@ triage:
   enabled: true        # P3-PERF-01 — keep on for Fast Path P95 ≤3s simple facts
   escalate_fast_path: true
 
+# O-9: degraded runs must not look like confident answers. Every swallowed
+# dependency failure is logged, counted (agr_degradation_total) and reported as
+# `degraded_channels`; when *all* channels listed here failed, the answer is
+# flagged `low_confidence` in the response instead of passing as a normal answer.
+degradation:
+  low_confidence_channels: [vector, graph]
+
 knowledge:
   chunk_size_chars: 1200
   chunk_overlap_chars: 150

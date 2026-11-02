@@ -26,6 +26,9 @@ def post_query(body: QueryRequest, request: Request) -> JsonObject:
     tenant_id, user_id = principal(request)
     try:
         result = service(request).run_query(body, tenant_id=tenant_id, user_id=user_id)
+        # Surface degraded channels on the envelope too (O-9): a caller that
+        # ignores data.degraded_channels still sees the run was not clean.
+        meta.degraded_channels = result.degraded_channels
         return ok(result.model_dump(mode="json"), meta=meta)
     except ApiError as exc:
         exc.details = {**(exc.details or {}), "request_id": request_id}

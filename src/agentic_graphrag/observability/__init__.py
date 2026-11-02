@@ -7,6 +7,12 @@ from agentic_graphrag.governance.audit_events import (
     get_audit_event_store,
 )
 from agentic_graphrag.governance.redaction import Redactor, get_redactor, redact_log_record
+from agentic_graphrag.observability.degradation import (
+    ChannelHealth,
+    ChannelStatus,
+    degraded_channel,
+    record_degradation,
+)
 from agentic_graphrag.observability.logging_setup import (
     bind_context,
     clear_context,
@@ -14,18 +20,21 @@ from agentic_graphrag.observability.logging_setup import (
     setup_logging,
 )
 from agentic_graphrag.observability.metrics import MetricsRegistry, QueryMetrics, get_metrics
-from agentic_graphrag.observability.otel_bridge import otel_span, setup_otel
+from agentic_graphrag.observability.otel_bridge import otel_span, otel_span_event, setup_otel
 from agentic_graphrag.observability.trace import TraceContext, get_tracer, span
 
 __all__ = [
     "AuditEvent",
     "AuditEventStore",
+    "ChannelHealth",
+    "ChannelStatus",
     "MetricsRegistry",
     "QueryMetrics",
     "Redactor",
     "TraceContext",
     "bind_context",
     "clear_context",
+    "degraded_channel",
     "emit_audit_event",
     "get_audit_event_store",
     "get_logger",
@@ -33,6 +42,8 @@ __all__ = [
     "get_redactor",
     "get_tracer",
     "otel_span",
+    "otel_span_event",
+    "record_degradation",
     "redact_log_record",
     "setup_logging",
     "setup_otel",

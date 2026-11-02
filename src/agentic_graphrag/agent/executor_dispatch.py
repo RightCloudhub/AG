@@ -5,11 +5,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
-from agentic_graphrag.agent.entities import is_stopword_entity
-from agentic_graphrag.agent.tools.contracts import ToolHandler
-from agentic_graphrag.core.enums import RetrievalTool, ToolArgument, ToolName
+from agentic_graphrag.core.enums import RetrievalChannel, RetrievalTool, ToolName
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.observability.degradation import (
+    REASON_TOOL_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.retrieval.fusion import fuse_candidates
 
 if TYPE_CHECKING:
@@ -21,6 +24,34 @@ DEFAULT_SUBGRAPH_HOPS = 2
 MAX_SUBGRAPH_SEEDS = 3
 MAX_PARALLEL_WORKERS = 8
 HIT_ID_PREVIEW = 20
+
+# Which channel a failed tool call belongs to (O-9). Keyed by the tool's string
+# value so an external tool name simply misses.
+_TOOL_CHANNELS: dict[str, RetrievalChannel] = {
+    RetrievalTool.VECTOR_SEARCH: RetrievalChannel.VECTOR,
+    RetrievalTool.FULLTEXT_SEARCH: RetrievalChannel.FULLTEXT,
+    RetrievalTool.GRAPH_NEIGHBORS: RetrievalChannel.GRAPH,
+    RetrievalTool.GRAPH_PATH: RetrievalChannel.GRAPH,
+    RetrievalTool.GRAPH_SUBGRAPH: RetrievalChannel.GRAPH,
+}
+
+
+def _record_tool_failure(executor: Executor, tool: ToolName, exc: BaseException) -> None:
+    """Attribute a swallowed tool failure to its channel.
+
+    Without this a channel that returned nothing because it raised looks the same
+    as a channel that legitimately had no evidence.
+    """
+    channel = _TOOL_CHANNELS.get(str(tool))
+    if channel is None:
+        return
+    record_degradation(
+        channel,
+        REASON_TOOL_FAILED,
+        exc,
+        severity=ChannelStatus.FAILED,
+        health=executor.health,
+    )
 
 
 # ToolHandler checks positional arguments and the keyword-only tenant scope.
@@ -90,121 +121,6 @@ def cache_hit_result(
     return cached, traces
 
 
-def handle_graph_neighbors(
-    executor: Executor,
-    args: dict[str, Any],
-    sub_question: str,
-    *,
-    tenant_id: str | None = None,
-) -> list[Candidate]:
-    entity = str(args.get(ToolArgument.ENTITY) or args.get(ToolArgument.NAME) or "")
-    if not entity or is_stopword_entity(entity):
-        resolved = executor.resolve_entities(sub_question)
-        entity = resolved[0] if resolved else ""
-    if not entity:
-        return []
-    return executor.graph.neighbors(
-        entity,
-        max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_NEIGHBOR_HOPS)),
-        relation_types=args.get(ToolArgument.RELATION_TYPES),
-        sub_question=sub_question,
-        tenant_id=tenant_id,
-    )
-
-
-def handle_graph_path(
-    executor: Executor,
-    args: dict[str, Any],
-    sub_question: str,
-    *,
-    tenant_id: str | None = None,
-) -> list[Candidate]:
-    src, dst = _resolve_path_endpoints(executor, args, sub_question)
-    if not src or not dst:
-        return []
-    return executor.graph.paths(
-        src,
-        dst,
-        max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_PATH_HOPS)),
-        sub_question=sub_question,
-        tenant_id=tenant_id,
-    )
-
-
-def handle_graph_subgraph(
-    executor: Executor,
-    args: dict[str, Any],
-    sub_question: str,
-    *,
-    tenant_id: str | None = None,
-) -> list[Candidate]:
-    seeds = args.get(ToolArgument.ENTITIES) or args.get(ToolArgument.SEEDS) or []
-    if isinstance(seeds, str):
-        seeds = [seeds]
-    if not seeds:
-        seeds = executor.resolve_entities(sub_question)[:MAX_SUBGRAPH_SEEDS]
-    return executor.graph.subgraph(
-        [str(s) for s in seeds],
-        max_hops=int(args.get(ToolArgument.MAX_HOPS, DEFAULT_SUBGRAPH_HOPS)),
-        relation_types=args.get(ToolArgument.RELATION_TYPES),
-        sub_question=sub_question,
-        tenant_id=tenant_id,
-    )
-
-
-def handle_vector_search(
-    executor: Executor,
-    args: dict[str, Any],
-    sub_question: str,
-    *,
-    tenant_id: str | None = None,
-) -> list[Candidate]:
-    if executor.vector is None:
-        return []
-    options = (
-        {ToolArgument.TOP_K: int(args[ToolArgument.TOP_K])} if ToolArgument.TOP_K in args else {}
-    )
-    return executor.vector.search(
-        str(args.get(ToolArgument.QUERY) or sub_question), tenant_id=tenant_id, **options
-    )
-
-
-def handle_fulltext_search(
-    executor: Executor,
-    args: dict[str, Any],
-    sub_question: str,
-    *,
-    tenant_id: str | None = None,
-) -> list[Candidate]:
-    if executor.fulltext is None:
-        return []
-    return executor.fulltext.search(
-        str(args.get(ToolArgument.QUERY) or sub_question), tenant_id=tenant_id
-    )
-
-
-TOOL_HANDLERS: dict[RetrievalTool, ToolHandler] = {
-    RetrievalTool.GRAPH_NEIGHBORS: handle_graph_neighbors,
-    RetrievalTool.GRAPH_PATH: handle_graph_path,
-    RetrievalTool.GRAPH_SUBGRAPH: handle_graph_subgraph,
-    RetrievalTool.VECTOR_SEARCH: handle_vector_search,
-    RetrievalTool.FULLTEXT_SEARCH: handle_fulltext_search,
-}
-
-
-def _resolve_path_endpoints(
-    executor: Executor, args: dict[str, Any], sub_question: str
-) -> tuple[str, str]:
-    src = str(args.get(ToolArgument.SOURCE) or "")
-    dst = str(args.get(ToolArgument.TARGET) or "")
-    names = executor.resolve_entities(sub_question)
-    if not src or is_stopword_entity(src):
-        src = names[0] if names else ""
-    if not dst or is_stopword_entity(dst):
-        dst = names[1] if len(names) > 1 else ""
-    return src, dst
-
-
 def _collect_sequential(
     executor: Executor,
     specs: list[ToolCallSpec],
@@ -263,6 +179,7 @@ def _run_parallel(
             try:
                 out.append((spec, fut.result(), None))
             except Exception as exc:  # noqa: BLE001
+                _record_tool_failure(executor, spec.tool, exc)
                 out.append((spec, [], type(exc).__name__))
     order = {id(s): i for i, s in enumerate(specs)}
     out.sort(key=lambda row: order.get(id(row[0]), 0))
@@ -282,6 +199,7 @@ def _safe_dispatch(
         )
         return hits, None
     except Exception as exc:  # noqa: BLE001 — channel failure degrades
+        _record_tool_failure(executor, spec.tool, exc)
         return [], type(exc).__name__
 
 

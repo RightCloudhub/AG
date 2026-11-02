@@ -31,6 +31,11 @@ from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability.degradation import (
+    REASON_LLM_UNAVAILABLE,
+    REASON_UNEXPECTED,
+    record_degradation,
+)
 
 
 class RegisterRuntime:
@@ -122,6 +127,8 @@ class RegisterRuntime:
             )
             return register, "", audit
         except Exception as exc:
+            # Fall back to a single-requirement register, loudly (O-9).
+            record_degradation("requirement_register", REASON_LLM_UNAVAILABLE, exc)
             register = Register(
                 question=state["question"],
                 items={
@@ -205,6 +212,7 @@ class RegisterRuntime:
         except BudgetExceeded:
             return {**state, "done": True, "register_stop": "llm_budget"}
         except Exception as exc:
+            record_degradation("requirement_register", REASON_UNEXPECTED, exc, step="update")
             reports = [{"error": type(exc).__name__, "entailed": False}]
         schedule(new, attempts=state.get("register_attempts"))
         result = progress_state(

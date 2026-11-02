@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 import time
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from agentic_graphrag.observability.degradation import (
+    REASON_MAIL_DELIVERY_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.webapp.database import Database
 from agentic_graphrag.webapp.mail import MailSender
 from agentic_graphrag.webapp.models import Membership, PasswordResetToken, Tenant, User
@@ -109,9 +113,10 @@ def forgot_password(db: Database, settings: WebSettings, *, email: str, mail: Ma
             subject="Reset your AGR password",
             body=f"{settings.public_origin}/reset?token={raw}",
         )
-    except Exception:
-        # The public response must not reveal whether an account exists or mail failed.
-        logging.getLogger(__name__).error("Password reset delivery failed")
+    except Exception as exc:
+        # The public response must not reveal whether an account exists or mail
+        # failed. Server-side the loss is logged and counted (O-9).
+        record_degradation("mail", REASON_MAIL_DELIVERY_FAILED, exc, severity=ChannelStatus.FAILED)
 
 
 def reset_password(db: Database, *, token: str, password: str) -> None:

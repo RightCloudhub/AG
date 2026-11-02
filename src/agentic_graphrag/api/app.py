@@ -23,6 +23,7 @@ from agentic_graphrag.app.query_service import QueryService, build_default_servi
 from agentic_graphrag.config import ROOT_DIR
 from agentic_graphrag.core.enums import ReviewStatus
 from agentic_graphrag.core.ports.capabilities import Pingable
+from agentic_graphrag.observability.degradation import REASON_UNEXPECTED, record_degradation
 from agentic_graphrag.observability.logging_setup import get_logger, setup_logging
 
 _log = get_logger("api.app")
@@ -218,8 +219,8 @@ def _add_operational_checks(svc: QueryService, checks: dict[str, str]) -> None:
         return
     try:
         checks["review_queue_pending"] = str(svc.review_queue.counts().get(ReviewStatus.PENDING, 0))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        record_degradation("review_queue", REASON_UNEXPECTED, exc, step="counts")
 
 
 def _mount_web_ui(app: FastAPI) -> None:

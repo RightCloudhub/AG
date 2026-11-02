@@ -12,6 +12,10 @@ from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.observability.degradation import (
+    REASON_VERIFIER_UNAVAILABLE,
+    record_degradation,
+)
 
 
 def context_size(context: list[dict[str, str]], extra: str = "") -> int:
@@ -61,6 +65,8 @@ def _verify_one(
     except BudgetExceeded:
         raise
     except Exception as exc:
+        # Abstention is the safe answer, but it must be visible (O-9).
+        record_degradation("requirement_register", REASON_VERIFIER_UNAVAILABLE, exc)
         return {
             "entailed": False,
             "reason": "verifier could not establish sufficiency",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 from urllib.parse import quote
 
@@ -10,6 +9,10 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from sqlalchemy import select
 
 from agentic_graphrag.api.envelope import ok
+from agentic_graphrag.observability.degradation import (
+    REASON_MAIL_DELIVERY_FAILED,
+    record_degradation,
+)
 from agentic_graphrag.webapp import invites
 from agentic_graphrag.webapp.models import Invite, Tenant
 from agentic_graphrag.webapp.runtime import WebRuntime, principal, runtime, user_principal
@@ -99,4 +102,4 @@ def _send(ctx: WebRuntime, data: dict[str, Any], *, token: str, tenant_name: str
             ),
         )
     except Exception as exc:
-        logging.getLogger(__name__).warning("Invitation delivery failed: %s", type(exc).__name__)
+        record_degradation("mail", REASON_MAIL_DELIVERY_FAILED, exc)

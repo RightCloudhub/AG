@@ -82,6 +82,18 @@ class EvidenceOut(BaseModel):
     score: float = 0.0
 
 
+class DegradedChannelOut(BaseModel):
+    """One retrieval channel that degraded or failed during the run (O-9).
+
+    Reported per query so a caller can tell "no evidence exists" from "retrieval
+    was broken": ``failed`` means the channel produced nothing at all.
+    """
+
+    channel: str
+    reason: str = ""
+    status: str = "degraded"
+
+
 class QueryResultData(BaseModel):
     """Reasoning-chain payload returned in envelope.data."""
 
@@ -97,3 +109,7 @@ class QueryResultData(BaseModel):
     missing_info: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     evidence: list[EvidenceOut] = Field(default_factory=list)
+    degraded_channels: list[DegradedChannelOut] = Field(default_factory=list)
+    # True when the configured channels all failed: the answer is the best
+    # available guess, not a retrieved result (see app.degradation_policy).
+    low_confidence: bool = False

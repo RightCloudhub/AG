@@ -1,18 +1,25 @@
 """Graph multi-hop retrieval: candidate / citation assembly (FR-RT-02 / P2-RT-01).
 
 Beam traversal and relation scoring live in
-:mod:`agentic_graphrag.retrieval.graph_beam`. Path helpers in
-:mod:`agentic_graphrag.retrieval.graph_paths`.
+:mod:`agentic_graphrag.retrieval.graph_beam`; path helpers in
+:mod:`agentic_graphrag.retrieval.graph_paths`; neighbor-candidate assembly and
+edge labels in :mod:`agentic_graphrag.retrieval.graph_candidates`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
-from agentic_graphrag.core.evidence import Candidate, CandidateSource, Citation
+from agentic_graphrag.core.enums import RetrievalChannel
+from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore, RelationRecord
-from agentic_graphrag.knowledge.temporal import validity_label
+from agentic_graphrag.observability.degradation import (
+    REASON_GRAPH_STORE_UNAVAILABLE,
+    ChannelHealth,
+    ChannelStatus,
+    degradation_guard,
+)
 from agentic_graphrag.retrieval.graph_beam import (
     BeamConfig,
     BeamExpander,
@@ -24,8 +31,13 @@ from agentic_graphrag.retrieval.graph_beam import (
     normalize_name,
     relation_relevance,
 )
+from agentic_graphrag.retrieval.graph_candidates import (
+    apply_seed_boost,
+    edge_labels,
+    iter_beam_edges,
+    neighbor_candidates,
+)
 from agentic_graphrag.retrieval.graph_paths import path_candidates, score_paths
-from agentic_graphrag.retrieval.provenance import source_chunk_ids, source_citations
 
 if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GraphRetrievalConfig
@@ -36,6 +48,16 @@ __all__ = [
     "infer_relation_types",
     "relation_relevance",
 ]
+
+
+def _graph_store_guard(health: ChannelHealth | None) -> AbstractContextManager[None]:
+    """Guard for direct store reads: an unreachable graph store fails the channel (O-9)."""
+    return degradation_guard(
+        RetrievalChannel.GRAPH,
+        REASON_GRAPH_STORE_UNAVAILABLE,
+        severity=ChannelStatus.FAILED,
+        health=health,
+    )
 
 
 class GraphRetriever:
@@ -51,6 +73,7 @@ class GraphRetriever:
         high_degree_threshold: int = 30,
         relation_relevance_threshold: float = 0.12,
         relation_embed_sim: RelationEmbedSim | None = None,
+        health: ChannelHealth | None = None,
     ) -> None:
         self.store = store
         self.max_neighbors_per_layer = max_neighbors_per_layer
@@ -61,6 +84,7 @@ class GraphRetriever:
         self.high_degree_threshold = high_degree_threshold
         self.relation_relevance_threshold = relation_relevance_threshold
         self.relation_embed_sim = relation_embed_sim
+        self.health = health
         self._beam = BeamExpander(
             store,
             BeamConfig(
@@ -71,6 +95,7 @@ class GraphRetriever:
                 relation_relevance_threshold=relation_relevance_threshold,
                 relation_embed_sim=relation_embed_sim,
             ),
+            health=health,
         )
 
     @classmethod
@@ -78,6 +103,8 @@ class GraphRetriever:
         cls,
         store: GraphStore,
         cfg: GraphRetrievalConfig | AppConfig | None = None,
+        *,
+        health: ChannelHealth | None = None,
     ) -> GraphRetriever:
         """Build from application / graph retrieval config (P2-RT-01 caps)."""
         from agentic_graphrag.config import AppConfig, get_config
@@ -97,6 +124,7 @@ class GraphRetriever:
             beam_width=g.beam_width,
             high_degree_threshold=g.high_degree_threshold,
             relation_relevance_threshold=g.relation_relevance_threshold,
+            health=health,
         )
 
     def neighbors(
@@ -114,24 +142,21 @@ class GraphRetriever:
         preferred = relation_types or infer_relation_types(
             sub_question, min_score=self.relation_relevance_threshold
         )
-        beams = self._beam.beam_expand(
-            entity_name,
-            max_hops=max(1, hops),
-            preferred_relations=preferred,
-            sub_question=sub_question,
-            tenant_id=tenant_id,
-        )
+        with _graph_store_guard(self.health):
+            beams = self._beam.beam_expand(
+                entity_name,
+                max_hops=max(1, hops),
+                preferred_relations=preferred,
+                sub_question=sub_question,
+                tenant_id=tenant_id,
+            )
         ranked = self._rank_neighbor_edges(beams, entity_name, sub_question)
-        return self._neighbor_candidates(ranked[:lim], entity_name, preferred)
+        return neighbor_candidates(ranked[:lim], entity_name, preferred)
 
     def _score_edge(self, rel: RelationRecord, sub_question: str | None) -> float:
-        sim = None
-        scorer = self.relation_embed_sim
-        if scorer is not None:
-            try:
-                sim = scorer(rel.type, sub_question)
-            except Exception:  # noqa: BLE001 — lexical fallback
-                sim = None
+        # The beam owns the guarded relation-embedding call, so an embedder outage
+        # is recorded once per run instead of once per edge (O-9).
+        sim = self._beam.relation_sim(rel.type, sub_question)
         return edge_score(rel, sub_question, embed_sim=sim)
 
     def _rank_neighbor_edges(
@@ -143,11 +168,11 @@ class GraphRetriever:
         best: dict[str, tuple[float, RelationRecord, EntityRecord, str, int]] = {}
         qn = normalize_name(entity_name)
         seen = 0
-        for rel, ent in _iter_beam_edges(beams):
-            head, tail, content = _edge_labels(rel, ent, entity_name)
+        for rel, ent in iter_beam_edges(beams):
+            head, tail, content = edge_labels(rel, ent, entity_name)
             key = f"{rel.type}:{normalize_name(head)}:{normalize_name(tail)}"
             sc = self._score_edge(rel, sub_question)
-            sc = _apply_seed_boost(sc, rel, ends=(head, tail), seed_norm=qn)
+            sc = apply_seed_boost(sc, rel, ends=(head, tail), seed_norm=qn)
             prev = best.get(key)
             if prev is None:
                 best[key] = (sc, rel, ent, content, seen)
@@ -156,45 +181,6 @@ class GraphRetriever:
                 best[key] = (sc, rel, ent, content, prev[4])
         ranked = sorted(best.values(), key=lambda t: (-t[0], t[4]))
         return [(sc, rel, ent, content) for sc, rel, ent, content, _ord in ranked]
-
-    def _neighbor_candidates(
-        self,
-        ranked: list[tuple[float, RelationRecord, EntityRecord, str]],
-        entity_name: str,
-        preferred: list[str] | None,
-    ) -> list[Candidate]:
-        out: list[Candidate] = []
-        for i, (sc, rel, ent, content) in enumerate(ranked):
-            head = rel.head_name or entity_name
-            tail = rel.tail_name or ent.name
-            sources = source_citations([rel])
-            out.append(
-                Candidate(
-                    id=f"nbr:{entity_name}:{rel.type}:{ent.name}:{i}",
-                    source=CandidateSource.GRAPH_NEIGHBOR,
-                    content=content,
-                    score=sc,
-                    structured={
-                        "kind": "neighbor",
-                        "query_entity": entity_name,
-                        "relation": rel.type,
-                        "head": head,
-                        "tail": tail,
-                        "neighbor": ent.name,
-                        "neighbor_type": ent.type,
-                        "attributes": ent.attributes,
-                        "relation_attributes": rel.attributes,
-                        "preferred_relations": preferred,
-                        "source_chunk_ids": source_chunk_ids(sources),
-                    },
-                    citations=[
-                        Citation(entity_id=ent.id, relation_id=rel.id, span=content),
-                        *sources,
-                    ],
-                    metadata={"beam_rank": i},
-                )
-            )
-        return out
 
     def paths(
         self,
@@ -209,18 +195,19 @@ class GraphRetriever:
         hops = max_hops if max_hops is not None else self.default_path_hops
         lim = min(limit or self.max_paths, self.max_paths)
         preferred = infer_relation_types(sub_question, min_score=self.relation_relevance_threshold)
-        path_rows = self.store.paths(
-            source_name, target_name, max_hops=hops, limit=lim * 3, tenant_id=tenant_id
-        )
-        if not path_rows:
-            path_rows = self._beam.beam_paths(
-                source_name,
-                target_name,
-                max_hops=hops,
-                preferred_relations=preferred,
-                sub_question=sub_question,
-                tenant_id=tenant_id,
+        with _graph_store_guard(self.health):
+            path_rows = self.store.paths(
+                source_name, target_name, max_hops=hops, limit=lim * 3, tenant_id=tenant_id
             )
+            if not path_rows:
+                path_rows = self._beam.beam_paths(
+                    source_name,
+                    target_name,
+                    max_hops=hops,
+                    preferred_relations=preferred,
+                    sub_question=sub_question,
+                    tenant_id=tenant_id,
+                )
         scored = score_paths(path_rows, sub_question)
         return path_candidates(scored[:lim], source_name, target_name)
 
@@ -259,41 +246,3 @@ class GraphRetriever:
         out.sort(key=lambda c: (-c.score, c.id))
         lim = limit or self.max_neighbors_per_layer
         return out[:lim]
-
-
-def _iter_beam_edges(beams: list[BeamItem]) -> Iterator[tuple[RelationRecord, EntityRecord]]:
-    for item in beams:
-        yield from item.edges
-
-
-def _edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tuple[str, str, str]:
-    head = rel.head_name or entity_name
-    tail = rel.tail_name or ent.name
-    if not rel.head_name and not rel.tail_name:
-        head, tail = entity_name, ent.name
-    content = f"{head} -[{rel.type}]-> {tail} ({ent.type}){validity_label(rel.attributes)}"
-    return head, tail, content
-
-
-def _apply_seed_boost(
-    score: float,
-    rel: RelationRecord,
-    *,
-    ends: tuple[str, str],
-    seed_norm: str,
-) -> float:
-    names = (*ends, rel.head_name or "", rel.tail_name or "")
-    if _names_touch_seed(names, seed_norm):
-        return score + 1.0
-    return score * 0.2
-
-
-def _names_touch_seed(names: tuple[str, ...], seed_norm: str) -> bool:
-    """True when any endpoint name involves the beam seed entity."""
-    if not seed_norm:
-        return True
-    for name in names:
-        n = normalize_name(name)
-        if n and (n == seed_norm or seed_norm in n or n in seed_norm):
-            return True
-    return False

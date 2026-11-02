@@ -11,6 +11,11 @@ from agentic_graphrag.core.ports.capabilities import (
     RelationLister,
 )
 from agentic_graphrag.core.ports.stores import GraphStore, RelationRecord
+from agentic_graphrag.observability.degradation import (
+    REASON_STORE_WRITE_FAILED,
+    ChannelStatus,
+    record_degradation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +38,15 @@ def delete_relations(
     for rid in dict.fromkeys(relation_ids):
         try:
             removed += 1 if graph.delete_relation(rid, tenant_id=tenant_id) else 0
-        except Exception:  # noqa: BLE001
-            logger.warning("delete_relation(%s) failed", rid)
+        except Exception as exc:  # noqa: BLE001
+            # The edge the reviewer rejected is still in the graph.
+            record_degradation(
+                "graph",
+                REASON_STORE_WRITE_FAILED,
+                exc,
+                severity=ChannelStatus.FAILED,
+                relation_id=rid,
+            )
     return removed
 
 

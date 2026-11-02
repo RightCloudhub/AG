@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.observability.degradation import REASON_UNEXPECTED, record_degradation
 
 _PARENT_RELS = frozenset({"PARENT_OF", "OWNS"})
 _SUBSIDIARY_RELS = frozenset({"SUBSIDIARY_OF"})
@@ -231,7 +232,9 @@ def conclusion_from_edge_parse(sub_question: str, c: Candidate) -> str | None:
         if not edges:
             return None
         return _parse_edge_pick(sub_question, edges[0])
-    except Exception:
+    except Exception as exc:
+        # Edge parsing is a best-effort conclusion shortcut (O-9).
+        record_degradation("critic", REASON_UNEXPECTED, exc)
         return None
 
 

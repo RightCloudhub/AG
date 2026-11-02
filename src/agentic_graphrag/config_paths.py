@@ -1,4 +1,4 @@
-"""Repo-root discovery for config and data path resolution.
+"""Repo-root discovery and path configuration.
 
 Split out of ``config.py`` so that module keeps headroom under the 300-line
 gate. ``config.py`` calls :func:`find_root` once at import to set ``ROOT_DIR``;
@@ -10,7 +10,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import BaseModel
+
 ROOT_ENV_VAR = "AGENTIC_GRAPHRAG_ROOT"
+
+
+class PathsConfig(BaseModel):
+    """Project-relative directories; every entry resolves against the repo root."""
+
+    data_dir: str = "data"
+    raw_docs_dir: str = "data/raw"
+    processed_dir: str = "data/processed"
+    cache_dir: str = "data/cache"
+    indexes_dir: str = "data/indexes"
+    prompts_dir: str = "configs/prompts"
 
 
 def find_root() -> Path:

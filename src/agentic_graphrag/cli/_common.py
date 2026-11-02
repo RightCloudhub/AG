@@ -5,8 +5,14 @@ from __future__ import annotations
 import sys
 
 from agentic_graphrag.config import AppConfig, Settings, resolve_path
+from agentic_graphrag.core.enums import RetrievalChannel
 from agentic_graphrag.core.ports.capabilities import Closable
 from agentic_graphrag.core.ports.stores import GraphStore
+from agentic_graphrag.observability.degradation import (
+    REASON_GRAPH_STORE_UNAVAILABLE,
+    ChannelStatus,
+    record_degradation,
+)
 from agentic_graphrag.stores.factory import GraphBackend
 
 
@@ -63,6 +69,14 @@ def _try_neo4j(
         store.ping()
         return store, GraphBackend.NEO4J
     except Exception as exc:
+        # Counted before the fallback/exit so an unreachable Neo4j is visible
+        # even when the run "succeeds" on an in-memory graph (O-9).
+        record_degradation(
+            RetrievalChannel.GRAPH,
+            REASON_GRAPH_STORE_UNAVAILABLE,
+            exc,
+            severity=ChannelStatus.FAILED,
+        )
         _close_quiet(store)
         if allow_memory_fallback:
             print(

@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentic_graphrag.app.contracts import DegradedChannelOut
+
 
 class ErrorBody(BaseModel):
     code: str
@@ -18,6 +20,9 @@ class MetaBody(BaseModel):
     page: int | None = None
     limit: int | None = None
     request_id: str | None = None
+    # Channels that degraded while answering (O-9). Filled by /v1/query; empty
+    # everywhere else. Mirrors data.degraded_channels at envelope level.
+    degraded_channels: list[DegradedChannelOut] = Field(default_factory=list)
     extra: dict[str, Any] = Field(default_factory=dict)
 
 

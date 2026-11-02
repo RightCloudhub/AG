@@ -15,19 +15,17 @@ chain metadata — the judge must never turn an outage into "cannot answer".
 
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER
-from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.enums import MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import EntailmentPolicy, LLMClient
 from agentic_graphrag.core.reasoning import Claim
-
-logger = logging.getLogger(__name__)
+from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 NOT_ENTAILED = "claim not entailed by cited evidence"
 JUDGE_ABSTAINED = "entailment_judge_abstained"
@@ -80,7 +78,8 @@ def judge_claims(
 
         if isinstance(exc, BudgetExceeded):
             raise
-        logger.warning("Entailment judge abstained: %s", exc)
+        # The judge abstained: the payload is kept, so its claims went unchecked.
+        record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, exc, step="entailment")
         return "", {JUDGE_ABSTAINED: type(exc).__name__}
     failed = [v.index for v in payload.verdicts if v.label != "entailed"]
     report = {"entailment": {str(v.index): v.label for v in payload.verdicts}}

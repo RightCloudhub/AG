@@ -73,10 +73,21 @@ class RerankKind(StrEnum):
 
 
 class RetrievalChannel(StrEnum):
+    """Where a candidate came from — and the health vocabulary of a query run (O-9).
+
+    ``FUSION`` labels candidates produced by RRF rather than by one channel;
+    ``RERANK`` / ``EMBEDDING`` / ``LLM`` are dependencies a channel needs and are
+    reported separately, so an embedder 401 stays distinguishable from an
+    unreachable vector or graph store.
+    """
+
     VECTOR = "vector"
     GRAPH = "graph"
     FULLTEXT = "fulltext"
     FUSION = "fusion"
+    RERANK = "rerank"
+    EMBEDDING = "embedding"
+    LLM = "llm"
 
 
 class MessageRole(StrEnum):
@@ -100,6 +111,9 @@ class StreamEvent(StrEnum):
     SUB_QUESTION = "sub_question"
     THINKING = "thinking"
     TRIAGE = "triage"
+    # A query run finished with one or more channels degraded (O-9). Clients that
+    # do not know the event ignore it, so emitting it is backward compatible.
+    DEGRADED = "degraded"
     FINAL_CHAIN = "__final_chain__"
 
 

@@ -21,6 +21,7 @@ from agentic_graphrag.knowledge.schema_check import (
     Triple,
     gate_triples,
 )
+from agentic_graphrag.observability.degradation import REASON_EXTRACT_FAILED, record_degradation
 
 _MS_PER_S = MILLISECONDS_PER_SECOND
 
@@ -84,6 +85,9 @@ def _try_once(
             t0=t0,
         )
     except Exception as exc:
+        # One chunk failed; without this the run only showed up as a lower
+        # triple count (O-9). Retry/quarantine behaviour is unchanged.
+        record_degradation("knowledge_extract", REASON_EXTRACT_FAILED, exc, chunk_id=chunk.chunk_id)
         if retry.should_retry(attempt, exc):
             return None
         return _failed_result(chunk, attempt=attempt, exc=exc, t0=t0)

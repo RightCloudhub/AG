@@ -68,15 +68,44 @@ def otel_span(
     *,
     attributes: dict[str, Any] | None = None,
 ) -> Generator[Any, None, None]:
-    """Context manager: creates an OTel span when enabled, no-op otherwise."""
+    """Context manager: creates an OTel span when enabled, no-op otherwise.
+
+    Only *starting* the span is guarded. An exception raised by the wrapped
+    application code must propagate untouched — the previous version caught it
+    and yielded again, which turned a real error into a confusing
+    ``RuntimeError: generator didn't stop after throw()``.
+    """
     if not _ENABLED or _TRACER is None:
         yield None
         return
-    try:
-        with _TRACER.start_as_current_span(name, attributes=attributes or {}) as span:
-            yield span
-    except Exception:  # noqa: BLE001 — never break application on OTel failure
+    span_cm = _start_span(name, attributes)
+    if span_cm is None:
         yield None
+        return
+    with span_cm as span:
+        yield span
+
+
+def _start_span(name: str, attributes: dict[str, Any] | None) -> Any:
+    """Span context manager, or None when the exporter is broken (tracing is optional)."""
+    try:
+        return _TRACER.start_as_current_span(name, attributes=attributes or {})
+    except Exception:  # noqa: BLE001 — never break application on OTel failure
+        return None
+
+
+def otel_span_event(name: str, *, attributes: dict[str, Any] | None = None) -> None:
+    """Attach an event to the active span so degradations show up in traces."""
+    if not _ENABLED:
+        return
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span is not None and span.is_recording():
+            span.add_event(name, attributes=dict(attributes or {}))
+    except Exception:  # noqa: BLE001 — never break application on OTel failure
+        return
 
 
 @contextlib.contextmanager
