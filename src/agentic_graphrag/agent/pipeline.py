@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
 from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
@@ -73,7 +73,7 @@ def iter_query_progress(
     llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
-) -> Iterator[tuple[str, Any]]:
+) -> Iterator[tuple[str, object]]:
     """Yield (event, payload); terminal event is ``(EVENT_FINAL_CHAIN, chain)``.
 
     The final chain carries ``metadata.prompt_versions`` (refactor §5.4).
@@ -95,7 +95,7 @@ def _route(
     llm: LLMClient | None,
     *,
     options: QueryOptions | None = None,
-) -> Iterator[tuple[str, Any]]:
+) -> Iterator[tuple[str, object]]:
     """Router: chitchat (Direct) → triage → Fast or Deep strategy."""
     opts = options or QueryOptions()
     chitchat = try_chitchat_answer(question)
@@ -151,11 +151,11 @@ def run_pipeline(
     return drain(iter_query_progress(question, executor, llm, options=options))
 
 
-def drain(events: Iterator[tuple[str, Any]]) -> ReasoningChain:
+def drain(events: Iterator[tuple[str, object]]) -> ReasoningChain:
     final: ReasoningChain | None = None
     for etype, payload in events:
         if etype == EVENT_FINAL_CHAIN:
-            final = payload
+            final = cast(ReasoningChain, payload)
     if final is None:
         raise AgentStreamEmptyError("query pipeline produced no final chain")
     return final
@@ -167,7 +167,7 @@ def iter_agentic(
     llm: LLMClient | None,
     *,
     run_opts: AgentRunOptions,
-) -> Iterator[tuple[str, Any]]:
+) -> Iterator[tuple[str, object]]:
     """Deep strategy only (no router), for callers that force the agentic loop."""
     ctx = _StreamCtx(
         question=question,
@@ -179,13 +179,13 @@ def iter_agentic(
     yield from _iter_agentic(ctx)
 
 
-def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
+def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, object]]:
     # Contract stability: clients always see a triage frame first — including
     # when triage is disabled, which previously emitted no frame at all (BL-11).
     yield EVENT_TRIAGE, _entry_triage(force_agentic=ctx.opts.force_agentic).model_dump(mode="json")
     for etype, payload in _iter_agentic(ctx):
         if etype == EVENT_FINAL_CHAIN and ctx.opts.force_agentic:
-            chain: ReasoningChain = payload
+            chain = cast(ReasoningChain, payload)
             chain.metadata = {**(chain.metadata or {}), "force_agentic": True}
             yield EVENT_FINAL_CHAIN, chain
         else:
@@ -203,7 +203,7 @@ def _entry_triage(*, force_agentic: bool) -> TriageResult:
     )
 
 
-def _stream_with_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
+def _stream_with_triage(ctx: _StreamCtx) -> Iterator[tuple[str, object]]:
     known = (
         ctx.opts.known_entities
         if ctx.opts.known_entities is not None
@@ -227,16 +227,16 @@ def _stream_with_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:
 
 def _agentic_with_meta(
     ctx: _StreamCtx,
-    triage_meta: dict[str, Any],
+    triage_meta: dict[str, object],
     *,
     escalated: bool = False,
     seed_evidence: list[Candidate] | None = None,
-) -> Iterator[tuple[str, Any]]:
+) -> Iterator[tuple[str, object]]:
     for etype, payload in _iter_agentic(ctx, seed_evidence=seed_evidence):
         if etype != EVENT_FINAL_CHAIN:
             yield etype, payload
             continue
-        chain: ReasoningChain = payload
+        chain = cast(ReasoningChain, payload)
         meta = {**(chain.metadata or {}), "triage": triage_meta}
         if escalated:
             meta["escalated_from_fast_path"] = True
@@ -246,8 +246,8 @@ def _agentic_with_meta(
 
 
 def _iter_fast_or_escalate(
-    ctx: _StreamCtx, triage_meta: dict[str, Any]
-) -> Iterator[tuple[str, Any]]:
+    ctx: _StreamCtx, triage_meta: dict[str, object]
+) -> Iterator[tuple[str, object]]:
     chain, candidates = run_fast_path_with_evidence(
         ctx.question,
         ctx.executor,
@@ -264,6 +264,6 @@ def _iter_fast_or_escalate(
     yield from _agentic_with_meta(ctx, triage_meta, escalated=True, seed_evidence=candidates)
 
 
-def _emit_steps_then_chain(chain: ReasoningChain) -> Iterator[tuple[str, Any]]:
+def _emit_steps_then_chain(chain: ReasoningChain) -> Iterator[tuple[str, object]]:
     yield from fast_path_step_events(list(chain.steps))
     yield EVENT_FINAL_CHAIN, chain

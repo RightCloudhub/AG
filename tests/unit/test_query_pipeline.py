@@ -43,4 +43,5 @@ def test_initial_state_seeds_inherited_evidence() -> None:
     ev = [Candidate(id="c1", source="vector", content="x")]
     state = pipeline._initial_state("q", chain, allow_llm=False, tenant_id="t", seed_evidence=ev)
     assert state["tenant_id"] == "t"
-    assert [e["id"] for e in state["evidence"]] == ["c1"]
+    assert list(state["evidence"]) == ["c1"]
+    assert state["evidence"]["c1"] is ev[0]

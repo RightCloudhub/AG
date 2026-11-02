@@ -14,6 +14,8 @@ from agentic_graphrag.agent.parallel_branches import (
     ready_siblings,
     retrieve_group,
 )
+from agentic_graphrag.agent.plan_dag import SubQuestion
+from agentic_graphrag.agent.state import initial_state
 from agentic_graphrag.eval.metrics_evidence import _Catalog, _CatalogEntry, _claim_grounded
 from agentic_graphrag.generation.answer import AnswerPayload, _apply_payload
 from agentic_graphrag.generation.citations import validate_answered_claims
@@ -25,8 +27,8 @@ from agentic_graphrag.retrieval.contracts import Candidate, CandidateSource
 # --- BL-12 ---------------------------------------------------------------
 
 
-def _sq(sid: str, text: str, deps: list[str] | None = None) -> dict:
-    return {"id": sid, "text": text, "depends_on": deps or []}
+def _sq(sid: str, text: str, deps: list[str] | None = None) -> SubQuestion:
+    return SubQuestion(id=sid, text=text, depends_on=deps or [])
 
 
 PLAN = [
@@ -67,20 +69,15 @@ def test_branches_run_concurrently() -> None:
 def test_parallel_sibling_shares_the_hop() -> None:
     rt = AgentRuntime(_SlowExecutor(), None, GuardrailConfig(max_hops=4))
     chain = ReasoningChain(question="q", route="agentic")
-    state = {
-        "question": "q",
-        "chain": chain.model_dump(),
-        "sub_questions": PLAN,
-        "current_index": 0,
-        "allow_llm": False,
-    }
+    state = initial_state("q", chain, allow_llm=False)
+    state["sub_questions"] = PLAN
     first = rt.node_executor(state)
     assert first["hop"] == 1 and is_prefetched(first, "sq2")
     rt.memory.mark_subquestion_done("sq1", "Elena Varga")
     second = rt.node_executor({**first, "current_index": 1})
     assert second["hop"] == 1  # breadth no longer consumes depth
     assert not is_prefetched(second, "sq2")
-    meta = ReasoningChain.model_validate(first["chain"]).metadata
+    meta = first["chain"].metadata
     assert meta["parallel_branches"] == [["sq1", "sq2"]]
 
 

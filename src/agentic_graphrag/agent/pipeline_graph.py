@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator, Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from langgraph.errors import GraphRecursionError
-from langgraph.types import StreamMode
+from langgraph.types import Overwrite, StreamMode
 
 from agentic_graphrag.agent.graph_types import AgentGraph, RunnableConfig
 from agentic_graphrag.agent.guardrails import GuardrailConfig
@@ -33,10 +33,10 @@ def _initial_state(
     """Initial agent state via the single constructor in :mod:`agent.state`."""
     return initial_state(
         question,
-        chain.model_dump(),
+        chain,
         allow_llm=allow_llm,
         tenant_id=tenant_id,
-        evidence=[c.model_dump() for c in seed_evidence or []],
+        evidence=seed_evidence,
     )
 
 
@@ -44,23 +44,32 @@ def _stream_graph_updates(
     graph: AgentGraph,
     initial: AgentState,
     config: RunnableConfig,
-) -> Generator[tuple[str, Any], None, dict[str, Any] | None]:
+) -> Generator[tuple[str, object], None, AgentState | None]:
     """Yield hop events; return full accumulated state from ``values`` mode."""
-    final_state: dict[str, Any] | None = None
-    for item in graph.stream(initial, config=config, stream_mode=_STREAM_MODES):
+    final_state: AgentState | None = None
+    # Fresh queries reset append channels even when the caller reuses a thread.
+    graph_input = cast(
+        AgentState,
+        {
+            **initial,
+            "evidence": Overwrite(initial["evidence"]),
+            "register_runtime": Overwrite(initial["register_runtime"]),
+        },
+    )
+    for item in graph.stream(graph_input, config=config, stream_mode=_STREAM_MODES):
         mode, chunk = _unpack_stream_item(item)
         if mode == GraphStreamMode.VALUES and isinstance(chunk, dict):
-            final_state = chunk
+            final_state = cast(AgentState, chunk)
             continue
         if mode != GraphStreamMode.UPDATES or not isinstance(chunk, dict):
             continue
-        for node_name, delta in chunk.items():
+        for node_name, delta in cast(dict[str, AgentState], chunk).items():
             if isinstance(delta, dict):
                 yield from events_for_node(node_name, delta)
     return final_state
 
 
-def _unpack_stream_item(item: Any) -> tuple[str, Any]:
+def _unpack_stream_item(item: object) -> tuple[str, object]:
     """Normalize multi-mode stream items to (mode, chunk)."""
     if isinstance(item, tuple) and len(item) == 2:
         return str(item[0]), item[1]
@@ -74,7 +83,7 @@ if TYPE_CHECKING:
 
 def _iter_agentic(
     ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
-) -> Iterator[tuple[str, Any]]:
+) -> Iterator[tuple[str, object]]:
     from agentic_graphrag.agent.pipeline import AgentStreamEmptyError
 
     opts = ctx.run_opts

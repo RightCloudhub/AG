@@ -1,15 +1,18 @@
 """Query memory: evidence, paths, exclusions, sub-question state (FR-AG-05 / P2-AG-03).
 
 Semantic logic (dedupe, excluded hypotheses, path loop prevention) is self-owned.
-State payload is a plain typed dict suitable for LangGraph ``AgentState`` /
-checkpointer serialization — framework stores bytes, this module judges meaning.
+AgentState holds this object directly. Snapshots are only used at persistence
+boundaries — framework stores bytes, this module judges meaning.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
+from typing import TypedDict
+
+from pydantic import TypeAdapter
 
 from agentic_graphrag.core.evidence import Candidate
 
@@ -43,13 +46,16 @@ def _near_duplicate_text(a: str, b: str) -> bool:
 class MemorySnapshot(TypedDict, total=False):
     """Serializable memory view for LangGraph typed state / checkpointer."""
 
-    evidence: list[dict[str, Any]]
+    evidence: list[dict[str, object]]
     explored_paths: list[str]
     explored_subquestions: list[str]
     excluded_hypotheses: list[str]
     conclusions: list[str]
     conclusions_by_subquestion: dict[str, str]
     done_subquestion_ids: list[str]
+
+
+_SNAPSHOT_ADAPTER = TypeAdapter(MemorySnapshot)
 
 
 @dataclass
@@ -143,6 +149,18 @@ class MemoryState:
         """All shared evidence across sub-questions (FR-AG-05)."""
         return list(self.evidence.values())
 
+    def copy(self) -> MemoryState:
+        """Copy mutable containers while sharing read-only Candidate instances."""
+        return MemoryState(
+            evidence=dict(self.evidence),
+            explored_paths=set(self.explored_paths),
+            explored_subquestions=set(self.explored_subquestions),
+            excluded_hypotheses=set(self.excluded_hypotheses),
+            conclusions=list(self.conclusions),
+            conclusions_by_subquestion=dict(self.conclusions_by_subquestion),
+            done_subquestion_ids=set(self.done_subquestion_ids),
+        )
+
     def to_snapshot(self) -> MemorySnapshot:
         """Export for LangGraph state / checkpointer (P2-AG-03)."""
         return MemorySnapshot(
@@ -156,15 +174,16 @@ class MemoryState:
         )
 
     @classmethod
-    def from_snapshot(cls, snap: MemorySnapshot | dict[str, Any]) -> MemoryState:
+    def from_snapshot(cls, snap: MemorySnapshot | Mapping[str, object]) -> MemoryState:
         """Restore from LangGraph state / checkpointer payload."""
+        snap = _SNAPSHOT_ADAPTER.validate_python(snap)
         mem = cls()
         _restore_evidence(mem, snap.get("evidence") or [])
         _restore_sets(mem, snap)
         return mem
 
 
-def _restore_evidence(mem: MemoryState, raw_list: list[Any]) -> None:
+def _restore_evidence(mem: MemoryState, raw_list: list[dict[str, object]]) -> None:
     for raw in raw_list:
         c = Candidate.model_validate(raw)
         mem.evidence[c.id] = c
@@ -172,7 +191,7 @@ def _restore_evidence(mem: MemoryState, raw_list: list[Any]) -> None:
             mem.explored_paths.add(_normalize(c.content))
 
 
-def _restore_sets(mem: MemoryState, snap: MemorySnapshot | dict[str, Any]) -> None:
+def _restore_sets(mem: MemoryState, snap: MemorySnapshot) -> None:
     mem.explored_paths |= {_normalize(p) for p in (snap.get("explored_paths") or [])}
     mem.explored_subquestions = {_normalize(s) for s in (snap.get("explored_subquestions") or [])}
     mem.excluded_hypotheses = {_normalize(h) for h in (snap.get("excluded_hypotheses") or [])}

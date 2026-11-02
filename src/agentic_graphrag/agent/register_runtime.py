@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from agentic_graphrag.agent.guardrails import Guardrails
-from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps
+from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_answer import answer_from_register
+from agentic_graphrag.agent.register_helpers import (
+    finish_register_round,
+    stopped_state,
+    with_register_memory,
+)
 from agentic_graphrag.agent.register_invariants import schedule
 from agentic_graphrag.agent.register_llm import (
     initial_context,
@@ -22,12 +28,17 @@ from agentic_graphrag.agent.register_progress import (
     verify_resolutions,
 )
 from agentic_graphrag.agent.register_search import search, seed_search
+from agentic_graphrag.agent.register_state import (
+    InitializationAudit,
+    InitializationEvent,
+    RegisterRuntimeState,
+    VerificationEvent,
+)
 from agentic_graphrag.agent.requirements import Register, Requirement, compose
-from agentic_graphrag.agent.state import AgentState
+from agentic_graphrag.agent.state import AgentState, active_register
 from agentic_graphrag.config import load_prompt
-from agentic_graphrag.core.enums import CriticAction, MessageRole, PromptName, RequirementStatus
+from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
-from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
@@ -54,33 +65,32 @@ class RegisterRuntime:
 
     def node_planner(self, state: AgentState) -> AgentState:
         cache: dict[str, list[str]] = {}
-        evidence = {c.id: c for c in _evidence(state)}
-        chain = ReasoningChain.model_validate(state["chain"])
+        evidence = dict(state.get("evidence", {}))
+        chain = state["chain"].model_copy(deep=True)
         self._seed(state, evidence, chain=chain, cache=cache)
         seed = list(evidence.values())
         register, error, audit = self._initialize(state, seed)
+        event: InitializationEvent = {
+            "type": "initialization",
+            "round": 0,
+            "error": error,
+            "register": register,
+            "seed_ids": [c.id for c in seed],
+            **audit,
+        }
         result: AgentState = {
             **state,
-            "chain": chain.model_dump(),
-            "evidence": [c.model_dump() for c in seed],
-            "requirement_register": register.snapshot(),
-            "register_context": initial_context(register),
-            "register_events": [
-                {
-                    "type": "initialization",
-                    "round": 0,
-                    "error": error,
-                    "register": register.snapshot(),
-                    "seed_ids": [c.id for c in seed],
-                    **audit,
-                }
+            "chain": chain,
+            "evidence": evidence,
+            "register": register,
+            "register_runtime": RegisterRuntimeState(
+                context=initial_context(register), events=[event], cache=cache
+            ),
+            "sub_questions": [
+                SubQuestion(id=r.req_id, text=r.text) for r in register.items.values()
             ],
-            "register_cache": cache,
-            "register_seen": [],
-            "register_attempts": {},
-            "sub_questions": [{"id": r.req_id, "text": r.text} for r in register.items.values()],
         }
-        return _snapshot(result)
+        return with_register_memory(result)
 
     def _seed(
         self,
@@ -112,8 +122,8 @@ class RegisterRuntime:
 
     def _initialize(
         self, state: AgentState, seed: list[Candidate]
-    ) -> tuple[Register, str, JsonObject]:
-        audit: JsonObject = {}
+    ) -> tuple[Register, str, InitializationAudit]:
+        audit: InitializationAudit = {}
         try:
             user = initialization_prompt(state["question"], seed, config=self.config)
             messages = [
@@ -140,20 +150,21 @@ class RegisterRuntime:
             return register, type(exc).__name__, audit
 
     def node_executor(self, state: AgentState) -> AgentState:
-        register = Register.model_validate(state["requirement_register"])
+        register = active_register(state)
         reason = self._stop_reason(state, register)
         if reason:
-            return {**state, "done": True, "register_stop": reason, "register_progress": ""}
+            return stopped_state(state, reason, clear_progress=True)
         self.guards.on_hop_start()
         if self.guards.state.tripped:
-            return {**state, "done": True, "register_stop": self.guards.state.reason}
+            return stopped_state(state, self.guards.state.reason)
         return self._retrieve(state, register)
 
     def _retrieve(self, state: AgentState, register: Register) -> AgentState:
         active = register.search_target(
             next(r for r in register.items.values() if r.status == RequirementStatus.ACTIVE)
         )
-        cache = dict(state.get("register_cache", {}))
+        runtime = state["register_runtime"]
+        cache = dict(runtime.cache)
         hits, traces = search(
             self.executor,
             compose(register.question, active),
@@ -161,14 +172,14 @@ class RegisterRuntime:
             tenant_id=state.get("tenant_id", ""),
             anchors=active.anchors,
         )
-        evidence = {c.id: c for c in _evidence(state)}
+        evidence = dict(state.get("evidence", {}))
         for hit in hits:
             evidence.setdefault(hit.id, hit)
-        seen = set(state.get("register_seen", []))
+        seen = set(runtime.seen)
         fresh = sorted(evidence.keys() - seen)
-        attempts = dict(state.get("register_attempts", {}))
+        attempts = dict(runtime.attempts)
         attempts[active.req_id] = attempts.get(active.req_id, 0) + 1
-        chain = ReasoningChain.model_validate(state["chain"])
+        chain = state["chain"].model_copy(deep=True)
         chain.steps.append(
             ReasoningStep(
                 hop=self.guards.state.hop,
@@ -178,59 +189,49 @@ class RegisterRuntime:
                 evidence_ids=[c.id for c in hits],
             )
         )
-        return _snapshot(
+        return with_register_memory(
             {
                 **state,
-                "chain": chain.model_dump(),
+                "chain": chain,
                 "hop": self.guards.state.hop,
-                "register_cache": cache,
-                "register_attempts": attempts,
-                "register_fresh": fresh,
-                "evidence": [c.model_dump() for c in evidence.values()],
-                "register_progress": "",
+                "register_runtime": replace(
+                    runtime, cache=cache, attempts=attempts, fresh=fresh, progress=""
+                ),
+                "evidence": evidence,
             }
         )
 
     def node_critic(self, state: AgentState) -> AgentState:
-        old = Register.model_validate(state["requirement_register"])
+        old = active_register(state)
         new = old.model_copy(deep=True)
-        evidence = {c.id: c for c in _evidence(state)}
-        fresh = [evidence[rid] for rid in state.get("register_fresh", [])]
-        context = list(state.get("register_context") or [])
+        evidence = state.get("evidence", {})
+        runtime = state["register_runtime"]
+        fresh = [evidence[rid] for rid in runtime.fresh]
+        context = list(runtime.context)
         if state["hop"] == math.ceil(self.config.convergence_ratio * self.round_limit):
             context.append(
                 {"role": MessageRole.USER, "content": load_prompt(PromptName.REGISTER_BUDGET)}
             )
-        state = {**state, "register_context": context}
+        state = {**state, "register_runtime": replace(runtime, context=context)}
         if (
             context_size(context, update_prompt(old.question, fresh))
             > self.config.context_limit_tokens
         ):
-            return {**state, "done": True, "register_stop": "context_limit"}
+            return stopped_state(state, "context_limit")
         try:
             new, reports = self._update(state, old, evidence=evidence, fresh=fresh)
         except BudgetExceeded:
-            return {**state, "done": True, "register_stop": "llm_budget"}
+            return stopped_state(state, "llm_budget")
         except Exception as exc:
             record_degradation("requirement_register", REASON_UNEXPECTED, exc, step="update")
             reports = [{"error": type(exc).__name__, "entailed": False}]
-        schedule(new, attempts=state.get("register_attempts"))
+        schedule(new, attempts=runtime.attempts)
         result = progress_state(
             state, old, new, verifier=reports, delta_enabled=self.config.delta_enabled
         )
-        result["register_seen"] = sorted(
-            set(state.get("register_seen", [])) | {c.id for c in fresh}
+        return finish_register_round(
+            result, new, fresh, seen=runtime.seen, stop=self._stop_reason(result, new)
         )
-        chain = ReasoningChain.model_validate(result["chain"])
-        chain.steps[-1].conclusion = result["register_progress"] or "No requirement was closed."
-        chain.steps[-1].critic_action = (
-            CriticAction.SUFFICIENT if new.is_clear() else CriticAction.NEXT_HOP
-        )
-        result["chain"] = chain.model_dump()
-        reason = self._stop_reason(result, new)
-        result["done"] = bool(reason)
-        result["register_stop"] = reason
-        return _snapshot(result)
 
     def _update(
         self,
@@ -239,21 +240,21 @@ class RegisterRuntime:
         *,
         evidence: dict[str, Candidate],
         fresh: list[Candidate],
-    ) -> tuple[Register, list[JsonObject]]:
+    ) -> tuple[Register, list[VerificationEvent]]:
         llm = self._llm(state)
         if not fresh or not self.config.updates_enabled or llm is None:
             return old.model_copy(deep=True), []
-        proposals: list[JsonObject] = []
+        proposals: list[VerificationEvent] = []
         new = update(
             old,
             fresh,
             llm,
-            context=state["register_context"],
+            context=state["register_runtime"].context,
             evidence=evidence,
             config=self.config,
             proposals=proposals,
         )
-        reports = []
+        reports: list[VerificationEvent] = []
         if self.config.verifier_enabled:
             reports = verify_resolutions(
                 new, old, llm, evidence=evidence, context_limit=self.config.context_limit_tokens
@@ -265,36 +266,27 @@ class RegisterRuntime:
 
     def node_answer(self, state: AgentState) -> AgentState:
         self.guards.check_branch()
-        state = {**state, "register_answer_policy": self.config.answer_policy}
+        state = {
+            **state,
+            "register_runtime": replace(
+                state["register_runtime"], answer_policy=self.config.answer_policy
+            ),
+        }
         chain = answer_from_register(
             state,
             self.llm,
             allow_llm=self._llm(state) is not None and not self.guards.state.tripped,
             context_limit=self.config.context_limit_tokens,
         )
-        return {**state, "chain": chain.model_dump(), "done": True}
+        return {**state, "chain": chain, "done": True}
 
     def _stop_reason(self, state: AgentState, register: Register) -> str:
         if register.is_clear():
             return "clear"
         if state.get("hop", 0) >= self.round_limit:
             return "round_budget"
-        if context_size(state.get("register_context", [])) > self.config.context_limit_tokens:
+        if context_size(state["register_runtime"].context) > self.config.context_limit_tokens:
             return "context_limit"
         if not register.ready_items():
             return "dependency_blocked"
         return ""
-
-
-def _evidence(state: AgentState) -> list[Candidate]:
-    return [Candidate.model_validate(c) for c in state.get("evidence", [])]
-
-
-def _snapshot(state: AgentState) -> AgentState:
-    memory = MemoryState()
-    memory.add_evidence(_evidence(state))
-    register = Register.model_validate(state["requirement_register"])
-    for item in register.items.values():
-        if item.status == RequirementStatus.RESOLVED:
-            memory.mark_subquestion_done(item.req_id, item.notes)
-    return {**state, "memory_snapshot": memory.to_snapshot()}

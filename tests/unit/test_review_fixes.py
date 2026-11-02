@@ -13,6 +13,7 @@ from agentic_graphrag.agent.critic_offline import extract_entity_conclusion
 from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
 from agentic_graphrag.agent.loop_handlers import CriticApplyCtx, apply_critic_result
 from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.eval.cases import CaseCategory, EvalCase
 from agentic_graphrag.eval.gold_templates.context import EmitContext
 from agentic_graphrag.generation.trace import ReasoningChain
@@ -94,14 +95,14 @@ def test_apply_critic_advances_when_remaining() -> None:
     chain = ReasoningChain(question="q")
     state = {
         "question": "q",
-        "chain": chain.model_dump(),
+        "chain": chain,
         "sub_questions": [
-            {"id": "sq1", "text": "a", "depends_on": []},
-            {"id": "sq2", "text": "b", "depends_on": []},
+            SubQuestion(id="sq1", text="a"),
+            SubQuestion(id="sq2", text="b"),
         ],
         "current_index": 0,
         "hop": 1,
-        "evidence": [],
+        "evidence": {},
         "done": False,
         "allow_llm": False,
     }
@@ -136,14 +137,14 @@ def test_apply_critic_give_up_stops_despite_remaining() -> None:
     chain = ReasoningChain(question="q")
     state = {
         "question": "q",
-        "chain": chain.model_dump(),
+        "chain": chain,
         "sub_questions": [
-            {"id": "sq1", "text": "a", "depends_on": []},
-            {"id": "sq2", "text": "b", "depends_on": []},
+            SubQuestion(id="sq1", text="a"),
+            SubQuestion(id="sq2", text="b"),
         ],
         "current_index": 0,
         "hop": 1,
-        "evidence": [],
+        "evidence": {},
         "done": False,
         "allow_llm": False,
     }

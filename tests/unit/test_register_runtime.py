@@ -212,12 +212,12 @@ def test_checkpoint_state_keeps_register_cache_and_can_resume(monkeypatch):
         monkeypatch, [initialization(), {"requirement_register": {}}]
     )
     runtime = AgentRuntime(executor, llm, guards)
-    state = initial_state(QUESTION, ReasoningChain(question=QUESTION).model_dump(), allow_llm=True)
+    state = initial_state(QUESTION, ReasoningChain(question=QUESTION), allow_llm=True)
     state = runtime.node_critic(runtime.node_executor(runtime.node_planner(state)))
     resumed = AgentRuntime(executor, llm, guards)
     state = resumed.node_executor(state)
     assert state["hop"] == 2 and len(fulltext.calls) == 1
-    assert state["register_seen"] == ["c18", "seed"]
+    assert state["register_runtime"].seen == ["c18", "seed"]
 
 
 def test_budget_during_verification_keeps_previous_open_state(monkeypatch):

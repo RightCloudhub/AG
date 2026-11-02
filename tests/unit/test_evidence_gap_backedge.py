@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agentic_graphrag.agent.memory import MemoryState
+from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
 from agentic_graphrag.generation import answer as ans
@@ -79,12 +81,12 @@ def test_runtime_loops_back_with_new_subquestions() -> None:
     rt = AgentRuntime.__new__(AgentRuntime)
     rt.guard_cfg = GuardrailConfig(max_hops=4)
     rt.guards = SimpleNamespace(state=SimpleNamespace(tripped=False))
-    rt.memory = SimpleNamespace(to_snapshot=lambda: {})
-    state = {"hop": 1, "sub_questions": [{"id": "sq0", "text": "a"}], "answer_retries": 0}
+    rt.memory = MemoryState()
+    state = {"hop": 1, "sub_questions": [SubQuestion(id="sq0", text="a")], "answer_retries": 0}
     assert rt._can_retrieve_again(state)
     chain = ReasoningChain(question="Q?", route="agentic")
     out = rt._loop_back_for_gap(state, chain, ["Who owns Acme?"])
-    assert out["current_index"] == 1 and out["sub_questions"][1]["text"] == "Who owns Acme?"
+    assert out["current_index"] == 1 and out["sub_questions"][1].text == "Who owns Acme?"
     assert rt.route_after_answer(out) == "executor"
     assert not rt._can_retrieve_again(out)  # one back-edge per run
     assert rt.route_after_answer({"done": True}) == "end"

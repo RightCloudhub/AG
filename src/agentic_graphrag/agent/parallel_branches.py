@@ -13,15 +13,14 @@ measures dependency depth. Critic and answer semantics are unchanged.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner import SubQuestion
-from agentic_graphrag.core.evidence import Candidate
-from agentic_graphrag.core.reasoning import ToolCallTrace
+from agentic_graphrag.agent.state import AgentState, Retrieved
 from agentic_graphrag.observability.context import submit_with_context
 
 if TYPE_CHECKING:
@@ -30,8 +29,6 @@ if TYPE_CHECKING:
 
 PREFETCH_KEY: Final = "prefetched"
 PARALLEL_GROUPS_KEY: Final = "parallel_branches"
-
-Retrieved = tuple[list[Candidate], list[ToolCallTrace]]
 
 
 @dataclass
@@ -43,20 +40,19 @@ class BranchRun:
     tenant_id: str | None
 
 
-def is_prefetched(state: Mapping[str, Any], sq_id: str) -> bool:
+def is_prefetched(state: AgentState, sq_id: str) -> bool:
     return sq_id in (state.get(PREFETCH_KEY) or {})
 
 
 def ready_siblings(
-    sqs: list[dict[str, Any]], idx: int, *, done_ids: set[str], limit: int
+    sqs: list[SubQuestion], idx: int, *, done_ids: set[str], limit: int
 ) -> list[SubQuestion]:
     """Later plan nodes that can run now, independently of node ``idx``."""
     if limit <= 0 or idx >= len(sqs):
         return []
-    current_id = str(sqs[idx].get("id"))
+    current_id = sqs[idx].id
     out: list[SubQuestion] = []
-    for raw in sqs[idx + 1 :]:
-        sq = SubQuestion.model_validate(raw)
+    for sq in sqs[idx + 1 :]:
         if _runnable_now(sq, current_id, done_ids):
             out.append(sq)
         if len(out) >= limit:
@@ -95,29 +91,18 @@ def _run_one(executor: Executor, text: str, run: BranchRun) -> Retrieved:
     )
 
 
-def park(store: dict[str, Any], results: dict[str, Retrieved]) -> dict[str, Any]:
-    """Serialize sibling results into the (checkpointable) prefetch store."""
-    out = dict(store)
-    for sq_id, (cands, traces) in results.items():
-        out[sq_id] = {
-            "candidates": [c.model_dump() for c in cands],
-            "traces": [t.model_dump() for t in traces],
-        }
-    return out
+def park(store: dict[str, Retrieved], results: dict[str, Retrieved]) -> dict[str, Retrieved]:
+    """Keep sibling candidates and tool traces as objects until checkpointing."""
+    return store | results
 
 
-def take(store: dict[str, Any], sq_id: str) -> tuple[Retrieved | None, dict[str, Any]]:
+def take(store: dict[str, Retrieved], sq_id: str) -> tuple[Retrieved | None, dict[str, Retrieved]]:
     """Pop a parked result; returns ``(result_or_None, remaining_store)``."""
     remaining = dict(store)
-    raw = remaining.pop(sq_id, None)
-    if raw is None:
-        return None, remaining
-    cands = [Candidate.model_validate(c) for c in raw.get("candidates") or []]
-    traces = [ToolCallTrace.model_validate(t) for t in raw.get("traces") or []]
-    return (cands, traces), remaining
+    return remaining.pop(sq_id, None), remaining
 
 
-def retrieve_for_node(ctx: ExecutorNodeCtx) -> tuple[Retrieved, dict[str, Any], list[str]]:
+def retrieve_for_node(ctx: ExecutorNodeCtx) -> tuple[Retrieved, dict[str, Retrieved], list[str]]:
     """Parked branch result, or this node plus its ready siblings concurrently (BL-12)."""
     parked, store = take(dict(ctx.state.get(PREFETCH_KEY) or {}), ctx.sq.id)
     if parked is not None:

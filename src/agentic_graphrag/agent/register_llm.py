@@ -7,6 +7,7 @@ import json
 from pydantic import BaseModel, ConfigDict
 
 from agentic_graphrag.agent.register_invariants import apply_invariants
+from agentic_graphrag.agent.register_state import InitializationAudit, VerificationEvent
 from agentic_graphrag.agent.requirements import Register, RegisterPayload, Requirement
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.config_register import RequirementRegisterConfig
@@ -37,7 +38,7 @@ def initialize(
     llm: LLMClient | None,
     *,
     config: RequirementRegisterConfig,
-    audit: JsonObject | None = None,
+    audit: InitializationAudit | None = None,
 ) -> Register:
     empty = Register(question=question)
     if llm is None:
@@ -48,9 +49,8 @@ def initialize(
             llm, _messages(user), RegisterPayload, temperature=0, max_retries=0
         )
         if audit is not None:
-            audit.update(
-                evidence_summary=payload.evidence_summary, reasoning_note=payload.reasoning_note
-            )
+            audit["evidence_summary"] = payload.evidence_summary
+            audit["reasoning_note"] = payload.reasoning_note
         proposed = Register(question=question, items=payload.requirement_register)
     if not proposed.items or len(proposed.items) > config.max_requirements:
         raise ValueError("invalid initial requirement count")
@@ -90,7 +90,7 @@ def update(
     context: list[dict[str, str]],
     evidence: dict[str, Candidate],
     config: RequirementRegisterConfig,
-    proposals: list[JsonObject] | None = None,
+    proposals: list[VerificationEvent] | None = None,
 ) -> Register:
     user = update_prompt(register.question, fresh)
     messages = [Message(role=MessageRole(m["role"]), content=m["content"]) for m in context]

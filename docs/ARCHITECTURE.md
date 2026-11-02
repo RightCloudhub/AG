@@ -157,7 +157,19 @@ stateDiagram-v2
 | critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
 | answer | `generation/answer.py` `generation/verdict.py` | 引用绑定生成答案。校验失败按 Verdict 分类：**表述类**（无 claim、引用 id 缺失或越界）在生成层内定向重生成一次；**缺证类**（claim 不被证据支持、不蕴含）在仍有 hop 时输出 `evidence_gap`，经 answer → executor 回边补充检索（每次运行最多 1 次），否则重生成后走保守回答 |
 
-`AgentState` 只在 `agent/state.py` 定义一次并带 `state_version`，初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；`state_version` 记录状态 schema 版本。
+`AgentState` 只在 `agent/state.py` 定义一次，是 LangGraph 兼容的 `TypedDict`，当前 `state_version=3`。初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；节点之间传递领域对象，不再把状态反复 `model_dump()` / `model_validate()`。
+
+| 状态通道 | 运行时类型 | 更新语义 |
+|---|---|---|
+| `chain` | `ReasoningChain` | 修改前 `model_copy(deep=True)`，保留先前 checkpoint 的推理步骤 |
+| `sub_questions` | `list[SubQuestion]` | 直接访问 DAG 对象，修改时复制列表 |
+| `evidence` | `dict[str, Candidate]`，以 id 为键 | 显式 reducer 合并追加，重复 id 保留首次证据；executor 返回完整证据池时经 `Overwrite` 保持原替换语义 |
+| `register` | `Register \| None` | 登记表 planner 初始化，critic 复制后更新 |
+| `register_runtime` | `RegisterRuntimeState` | 汇集原九个 `register_*` 辅助通道，与 `register` 一起替代十个旧通道；事件 reducer 按 `(type, round)` 追加去重，其余字段采用最新更新 |
+| `memory` | `MemoryState` | 复制可变容器，共享只读 `Candidate`，保留去重、排除假设、路径与结论语义 |
+| `prefetched` | `dict[str, tuple[list[Candidate], list[ToolCallTrace]]]` | 并行预取结果直接停放 / 取出，不经过 JSON |
+
+节点采用先复制再修改的方式，避免修改已产出的状态或早期 checkpoint。普通流程仍在首次 executor 检索后用共享记忆中的证据池替换 Fast Path 种子证据，空检索与重复 id 的处理也保持原行为。新查询通过 `Overwrite` 重置两个追加通道，复用 `thread_id` 时不会继承上一查询的证据或登记表事件。
 
 ### 2.3 运行时支撑
 
@@ -165,7 +177,7 @@ stateDiagram-v2
 flowchart LR
     RT["AgentRuntime<br/>loop_runtime.py"] --> MEM["MemoryState<br/>证据去重 · 排除假设 · 路径防环"]
     RT --> GR["Guardrails<br/>hop · 广度 · LLM 调用 · token · 超时"]
-    RT --> CP["Checkpointer<br/>内存 / SQLite"]
+    RT --> CP["StateCheckpointer<br/>内存 / SQLite · v1/v2 → v3"]
     RT --> REC["loop_recover.py<br/>GraphRecursionError 恢复"]
     RT --> STR["pipeline.py<br/>stream(updates) → 事件"]
     GR --> BUD["governance/BudgetTracker<br/>（唯一资源计量）"]
@@ -173,6 +185,12 @@ flowchart LR
 ```
 
 Guardrails 只负责控制流（hop、广度、截止时间），资源计量（LLM 调用、token、embedding 调用）统一由 `governance/budget.py` 的 `BudgetTracker` 负责，Guardrails 通过 `check()` 查询余量。hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
+
+`checkpointer.py` 工厂与 `build_graph()` 统一包裹 `StateCheckpointer`（`state_checkpointer.py`）。默认 `AgentStateSerializer`（`state_serde.py`）在写入字节时用批量 `TypeAdapter` codec 序列化模型及容器，读取时恢复原类型；调用方提供的自定义 serializer 保留。内存与 SQLite 后端及同步 / 异步接口使用同一迁移入口。
+
+`state_migration.py` 在加载边界升级无版本、v1、v2 快照：将 `memory_snapshot`、`requirement_register`、`register_*` 和旧预取 payload 转成 v3 对象，同步迁移通道版本、`versions_seen` 与待提交写入，保留 `Overwrite` 命令。未知未来版本拒绝加载。节点内不执行迁移。
+
+状态只在 checkpoint、`loop_stream` / SSE 事件和 API 输出边界序列化：`loop_stream_events.py` 从类型化步骤生成事件，最终链的登记表审计 metadata 在 pipeline 出口转成 JSON，普通响应继续使用 API envelope。LLM 消息仍按提示契约生成 JSON 文本，不将文本回灌为 AgentState。四跳离线基准脚本为 `scripts/benchmark_agent_state.py`，同时报告公共 Pydantic 方法耗时和包含 checkpoint 的完整查询耗时。
 
 ---
 

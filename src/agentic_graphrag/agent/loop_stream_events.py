@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
+from typing import cast
 
+from pydantic import TypeAdapter
+
+from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.enums import AgentNode, StreamEvent
-from agentic_graphrag.core.reasoning import ReasoningStep
+from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
+
+_METADATA_ADAPTER = TypeAdapter(dict[str, object])
 
 EVENT_FINAL_CHAIN = StreamEvent.FINAL_CHAIN
 EVENT_SUB_QUESTION = StreamEvent.SUB_QUESTION
@@ -15,7 +20,7 @@ EVENT_TRIAGE = StreamEvent.TRIAGE
 EVENT_THINKING = StreamEvent.THINKING
 
 
-def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
+def events_for_node(node_name: str, delta: AgentState) -> Iterator[tuple[str, dict[str, object]]]:
     """Map one LangGraph node update to zero-or-more SSE (event, payload) pairs."""
     if node_name == AgentNode.PLANNER:
         yield from _events_for_planner(delta)
@@ -23,23 +28,24 @@ def events_for_node(node_name: str, delta: dict[str, Any]) -> Iterator[tuple[str
     last = last_step(delta.get("chain"))
     if last is None:
         return
-    hop = last.get("hop", 0)
+    hop = last.hop
     if node_name == AgentNode.EXECUTOR:
         yield from _events_for_executor(hop, last)
     elif node_name == AgentNode.CRITIC:
-        if delta.get("register_progress"):
-            yield EVENT_THINKING, {"stage": "progress", "text": delta["register_progress"]}
+        runtime = delta.get("register_runtime")
+        if runtime is not None and runtime.progress:
+            yield EVENT_THINKING, {"stage": "progress", "text": runtime.progress}
         yield (
             EVENT_HOP_DONE,
             {
                 "hop": hop,
-                "conclusion": last.get("conclusion") or "",
-                "critic_action": last.get("critic_action") or "",
+                "conclusion": last.conclusion or "",
+                "critic_action": last.critic_action or "",
             },
         )
 
 
-def fast_path_step_events(steps: list[ReasoningStep]) -> Iterator[tuple[str, Any]]:
+def fast_path_step_events(steps: list[ReasoningStep]) -> Iterator[tuple[str, dict[str, object]]]:
     """Replay a finished Fast Path chain's steps as progress events.
 
     Fast Path runs to completion before yielding, so unlike the agentic graph
@@ -70,18 +76,13 @@ def fast_path_step_events(steps: list[ReasoningStep]) -> Iterator[tuple[str, Any
         )
 
 
-def last_step(chain_data: Any) -> dict[str, Any] | None:
-    if not isinstance(chain_data, dict):
-        return None
-    steps = chain_data.get("steps") or []
-    if not steps or not isinstance(steps[-1], dict):
-        return None
-    return steps[-1]
+def last_step(chain_data: ReasoningChain | None) -> ReasoningStep | None:
+    return chain_data.steps[-1] if chain_data is not None and chain_data.steps else None
 
 
-def _events_for_planner(delta: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
+def _events_for_planner(delta: AgentState) -> Iterator[tuple[str, dict[str, object]]]:
     sqs = delta.get("sub_questions") or []
-    texts = [str(s.get("text") or "") for s in sqs if isinstance(s, dict)]
+    texts = [s.text for s in sqs]
     texts = [t for t in texts if t]
     lines = [f"{i}. {t}" for i, t in enumerate(texts, 1)]
     yield (
@@ -94,14 +95,10 @@ def _events_for_planner(delta: dict[str, Any]) -> Iterator[tuple[str, dict[str, 
     )
 
 
-def _events_for_executor(hop: Any, last: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
-    sub_q = last.get("sub_question") or ""
+def _events_for_executor(hop: int, last: ReasoningStep) -> Iterator[tuple[str, dict[str, object]]]:
+    sub_q = last.sub_question or ""
     yield EVENT_SUB_QUESTION, {"hop": hop, "sub_question": sub_q}
-    tools = [
-        str(t.get("tool") or "")
-        for t in (last.get("tool_calls") or [])
-        if isinstance(t, dict) and t.get("tool")
-    ]
+    tools = [str(t.tool) for t in last.tool_calls if t.tool]
     if not tools:
         return
     yield (
@@ -112,3 +109,8 @@ def _events_for_executor(hop: Any, last: dict[str, Any]) -> Iterator[tuple[str, 
             "detail": sub_q,
         },
     )
+
+
+def serialize_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    """Serialize register audit models when the pipeline returns its API chain."""
+    return cast(dict[str, object], _METADATA_ADAPTER.dump_python(metadata, mode="json"))

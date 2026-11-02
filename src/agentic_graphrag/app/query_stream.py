@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+import typing
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -212,7 +213,7 @@ def _consume_progress(
         req.question, executor, llm if svc.allow_llm else None, options=opts
     ):
         if etype != EVENT_FINAL_CHAIN:
-            yield etype, payload
+            yield etype, typing.cast(dict[str, object], payload)
             continue
         chain = _final_chain(payload)
         # O-9: fold the run's channel health into the chain, then tell the client

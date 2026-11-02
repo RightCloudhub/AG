@@ -9,6 +9,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
 from agentic_graphrag.agent.checkpointer import make_checkpointer
+from agentic_graphrag.agent.state_checkpointer import StateCheckpointer
 
 SQLITE_MODULE = "langgraph.checkpoint.sqlite"
 
@@ -27,12 +28,14 @@ def test_sqlite_factory_passes_an_open_connection(
     module.SqliteSaver = ConnectionSaver
     monkeypatch.setitem(sys.modules, SQLITE_MODULE, module)
     saver = make_checkpointer("sqlite", path=tmp_path / "nested/checkpoints.sqlite")
-    assert isinstance(saver, ConnectionSaver)
+    assert isinstance(saver, StateCheckpointer)
+    backend = saver.backend
+    assert isinstance(backend, ConnectionSaver)
     try:
-        assert saver.connection.execute("SELECT 1").fetchone() == (1,)
+        assert backend.connection.execute("SELECT 1").fetchone() == (1,)
         assert (tmp_path / "nested/checkpoints.sqlite").is_file()
     finally:
-        saver.connection.close()
+        backend.connection.close()
 
 
 def test_sqlite_factory_closes_connection_if_saver_creation_fails(

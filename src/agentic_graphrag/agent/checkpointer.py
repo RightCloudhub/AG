@@ -17,6 +17,7 @@ from pathlib import Path
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agentic_graphrag.agent.graph_types import AgentCheckpointer
+from agentic_graphrag.agent.state_checkpointer import typed_checkpointer
 
 
 class CheckpointerBackend(StrEnum):
@@ -71,9 +72,9 @@ def make_checkpointer(
     if choice is CheckpointerBackend.MEMORY:
         from langgraph.checkpoint.memory import MemorySaver
 
-        return MemorySaver()
+        return typed_checkpointer(MemorySaver())
 
-    return _make_sqlite_checkpointer(path)
+    return typed_checkpointer(_make_sqlite_checkpointer(path))
 
 
 def default_checkpointer() -> AgentCheckpointer:
