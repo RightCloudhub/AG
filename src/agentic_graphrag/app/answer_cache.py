@@ -46,7 +46,7 @@ def _is_cacheable_answer(chain: ReasoningChain) -> bool:
     if not (chain.answer or "").strip():
         return False
     meta = chain.metadata or {}
-    if meta.get("llm_degraded"):
+    if meta.get("llm_degraded") or meta.get("rerank_degraded"):
         return False
     return True
 

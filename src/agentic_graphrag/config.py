@@ -15,6 +15,7 @@ from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConf
 from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
+from agentic_graphrag.config_rerank import RerankConfig as RerankConfig
 from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, DEFAULT_RRF_K
 from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, RerankKind
 
@@ -53,16 +54,6 @@ class GraphRetrievalConfig(BaseModel):
     beam_width: int = 20
     high_degree_threshold: int = 30
     relation_relevance_threshold: float = 0.12
-
-
-class RerankConfig(BaseModel):
-    """Two-stage retrieval (ARCH_OPTIMIZATION_V2 O-5). ``none`` keeps V1 behaviour."""
-
-    kind: RerankKind = RerankKind.NONE
-    candidate_pool: int = 30  # per-channel recall when a re-ranker is on
-    top_n: int = 10  # fused hits kept after re-ranking
-    endpoint: str = ""  # http: TEI / Infinity compatible POST /rerank
-    timeout_seconds: float = 2.0
 
 
 class RetrievalConfig(BaseModel):

@@ -36,6 +36,8 @@ from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.prompts import prompt_versions, reset_prompt_versions
+from agentic_graphrag.retrieval.fusion import Reranker
+from agentic_graphrag.retrieval.rerank_base import CrossEncoderReranker
 
 # Re-export SSE event names for callers that import from this module.
 __all__ = [
@@ -79,7 +81,8 @@ def iter_query_progress(
     The final chain carries ``metadata.prompt_versions`` (refactor §5.4).
     """
     reset_prompt_versions()
-    for etype, payload in _route(question, executor, llm, options=options):
+    events = _route(question, executor, llm, options=options)
+    for etype, payload in _with_rerank_telemetry(events, executor.reranker):
         if etype == EVENT_FINAL_CHAIN and isinstance(payload, ReasoningChain):
             used = prompt_versions()
             if used:
@@ -174,7 +177,19 @@ def iter_agentic(
         opts=QueryOptions(),
         run_opts=run_opts,
     )
-    yield from _iter_agentic(ctx)
+    yield from _with_rerank_telemetry(_iter_agentic(ctx), executor.reranker)
+
+
+def _with_rerank_telemetry(
+    events: Iterator[tuple[str, Any]], reranker: Reranker | None
+) -> Iterator[tuple[str, Any]]:
+    if isinstance(reranker, CrossEncoderReranker):
+        reranker.reset_run()
+    for etype, payload in events:
+        if etype == EVENT_FINAL_CHAIN and isinstance(reranker, CrossEncoderReranker):
+            payload.metadata["rerank"] = reranker.telemetry()
+            payload.metadata["rerank_degraded"] = bool(reranker.fallbacks)
+        yield etype, payload
 
 
 def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, Any]]:

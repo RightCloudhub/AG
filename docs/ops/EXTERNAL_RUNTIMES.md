@@ -61,8 +61,71 @@ rm -rf /tmp/jdk-17 /tmp/jdk17.tar.gz /tmp/neo4j-home /tmp/neo4j.tgz /tmp/binshim
 |------|------|------|------|
 | `neo4j` | `neo4j:5.26-community` | `7474`（HTTP）、`7687`（Bolt） | 图存储 / C3 回归 / 生产候选 GraphStore |
 | `qdrant` | `qdrant/qdrant:v1.12.5` | `6333`、`6334` | 向量库（FR-RT-01）；离线 POC 可用内存向量 |
+| `reranker`（`rerank` profile） | `ghcr.io/huggingface/text-embeddings-inference:cpu-1.8` | `127.0.0.1:8081` | 可选 TEI cross-encoder，模型 `BAAI/bge-reranker-v2-m3` |
 
 卷名：`neo4j_data`、`qdrant_data`（Docker volume，非 git）。
+
+### 2.1 可选 TEI 重排服务
+
+```bash
+docker compose --profile rerank up -d reranker
+curl --fail http://127.0.0.1:8081/health
+curl --fail http://127.0.0.1:8081/rerank \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Who leads Acme?","texts":["Alice is CEO of Acme.","The weather is mild."],"truncate":true}'
+```
+
+首次启动需要网络下载模型；权重保存在 `reranker_data` 卷中。CPU 镜像不需要 GPU，
+但不能据此推断生产延迟；本次环境没有 Docker/TEI，容器启动及真实模型性能尚未验证。
+应用在宿主机上使用 `http://127.0.0.1:8081/rerank`；若应用也在同一 Compose 网络，
+改为 `http://reranker:80/rerank`。普通 `docker compose up -d` 不启动该服务。
+
+`configs/default.yaml` 的 `retrieval.rerank.kind` **仍为 `none`**，live/hybrid 不自动开启。
+显式试验可使用 `AGR_RERANK=http`，沿用已配置的 live/hybrid 和真实 LLM 设置；
+`--no-llm` / `allow_llm=False` 总是关闭重排（包括 lexical/local），不会加载模型或请求 TEI。
+重排配置如下：
+
+| 配置 | 默认值 | 行为 |
+|---|---|---|
+| `candidate_pool` | 30 | vector、BM25、每个 graph 工具的召回上限；图搜索内部 beam/path 上限相应扩大 |
+| `top_n` | null | RRF → 重排后保留 `retrieval.top_k`（默认 10）；旧配置可用 `top_n` 覆盖 |
+| `model` | `BAAI/bge-reranker-v2-m3` | HTTP 服务的模型标识，作为缓存命名空间；应与实际模型及 revision 一致 |
+| `timeout_seconds` | 2.0 | HTTP 每次请求的超时；仅 HTTP 5xx 重试一次，超时/4xx 不重试 |
+| `batch_size` | 16 | 每次最多 16 对；需与 TEI 的 `--max-client-batch-size` 协调 |
+| `max_chars` / `max_query_chars` | 2000 / 1000 | 只截断模型输入，原始证据和引用完整保留；TEI 另带 `truncate=true` |
+| `graph_policy` | exempt | 图候选保留原 RRF 位置，仅重排其它候选；不额外把图候选提到 top_k |
+| `graph_policy=score` / `floor` | — | 正常打分 / 将图分数下限设为 `graph_floor`（默认 0.0，按模型输出标度调整） |
+| `failure_threshold` / `cooldown_seconds` | 2 / 20 | 连续两次重排失败打开熔断，20 秒后允许探测；上游健康状态跨请求共享 |
+
+图邻居与路径均按**真实边方向**渲染成 `Alice ceo of Acme.` 这样的句子，路径按边顺序连接。
+重排异常、缺失/重复/非法分数均使整次融合保留 RRF 顺序；成功的部分批次不会改变该次排序。
+`metadata.rerank_fallback` 标记候选，最终 chain 带 `metadata.rerank_degraded` 和 `metadata.rerank`
+（耗时、请求数、评分对数、缓存命中、降级次数），并记录不含问题/响应正文的 WARNING。
+当前分支和 `origin/main` 未含 WT2 helper，按任务约定使用 WARNING。
+降级答案不写入答案缓存；重排启用时跳过最终检索结果缓存，防止其隐藏恢复或配置变化。
+
+分数缓存仅在一次 query 的 executor 中共享，键为 `(query, chunk_id, model)`；
+图候选使用独立 candidate id，且校验文本变化，防止图路径/来源 chunk 混用。
+register seed、后续搜索及并行分支共用分数；新 query 清空分数，跨租户请求不共享。
+总时延受批次数影响，2 秒是每次请求的边界，不是整个多轮 query 的边界；仍受 query 总超时约束。
+
+无 TEI 的环境可以显式安装本地适配器：
+
+```bash
+./scripts/setup.sh --extras dev,webapp,rerank-local --locked
+# 设置 retrieval.rerank.model 为模型名或已经下载的模型目录，再使用 AGR_RERANK=local
+```
+
+`sentence-transformers`/PyTorch 是可选依赖，默认安装和离线 CI 不导入它们。
+本地适配器懒加载并共享权重，复用批处理、字符截断、图策略、缓存和降级逻辑，
+`max_length=512` 约束 tokenizer 的 query/document 对长度；模型加载/推理失败可降级。
+进程内推理不能由 HTTP 超时中断，冷启动下载和推理耗时需要单独评估。
+
+评测入口为 `PYTHONPATH=src .venv/bin/python scripts/rerank_eval.py`，显式 `--endpoint` 才测 HTTP。
+它复用现有 case runner、gold scorer 和 McNemar 比较，以相同语料扫描 10/20/30 池。
+该脚本的 mock embedding/answer 实验不等于 live 验收；当前结果和开启条件见
+[`reports/rerank_eval.md`](../../reports/rerank_eval.md)。生产开启前应固定模型 revision 和相同 LLM 缓存，
+在真实 live 栈重跑，要求准确率提升（McNemar p < 0.05）且 P95 增量满足事先约定的预算。
 
 > 与 §1 的关系：Docker 可用时 **不要** 依赖 `/tmp` 的 JDK/Neo4j；C3 脚本 `scripts/neo4j_regression.sh` 优先探测本机 Bolt，并在 Docker 可用时尝试 `docker compose up -d neo4j`。
 
@@ -208,3 +271,4 @@ rm -f "$NEO4J_HOME/.password_set"
 | 2026-07-21 | P5-UI-01 / ADR-006：§3 增加 Vue 3.5.13 运行时（浏览器 ESM / vendor，**非 npm**）与 §3.1 vendor 小节 |
 | 2026-10-31 | Web 图标：§3.2 记录 Lucide 1.65.0（ISC）vendored 子集与生成器 `scripts/build_lucide_icons.mjs`，对齐 `Prompt.md` §3.3 |
 | 2026-11-02 | 文档同步：§3.1 改为记录当前加载方式（静态 ESM import，无 CDN 兜底与 `VUE_VERSION`），修正 vendor 说明文档相对链接 |
+| 2026-11-03 | 增加可选 TEI rerank profile、CPU 镜像与模型卷，记录重排故障回退、本地适配器及未通过 live 验收的默认关闭策略 |

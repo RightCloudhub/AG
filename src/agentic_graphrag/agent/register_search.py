@@ -61,7 +61,11 @@ def seed_search(
     trace = traces[0]
     if "(degraded:" not in trace.reason:
         cache[query_key(spec.tool, spec.args)] = list(trace.hits)
-    return groups[0], trace
+    if executor.reranker is None:
+        return groups[0], trace
+    return fuse_candidates(
+        *groups, query=question, k=executor.fusion_k, limit=top_k, reranker=executor.reranker
+    ), trace
 
 
 def _uncached(

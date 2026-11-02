@@ -53,6 +53,8 @@ reports/*
 !reports/g2_dev_eval.md
 !reports/g2_dev_eval.json
 !reports/g2_dev_badcase.json
+!reports/rerank_eval.md
+!reports/rerank_eval_summary.json
 !reports/pilot_build_graph_neo4j.log
 *.log
 

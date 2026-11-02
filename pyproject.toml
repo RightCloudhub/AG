@@ -25,6 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rerank-local = ["sentence-transformers>=3.4,<6"]
 webapp = [
     "SQLAlchemy>=2.0.36,<3",
     "alembic>=1.14,<2",
