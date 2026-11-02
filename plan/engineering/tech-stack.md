@@ -96,6 +96,26 @@
   不引入身份表外键或 Web 依赖。实现与验证记录见
   [多租户实施记录](../workstreams/multitenant-webapp.md)。
 
+### ADR-008：依赖解析与安装统一到 uv（已采纳，2026-11-02）
+
+- **背景**：`uv.lock` 已入库，但本地文档一律用 `uv pip install -e ".[...]"`、CI 用
+  `pip install -e ".[...]"`——两者都不读锁文件；`uv lock --check` 显示锁文件已落后于
+  `pyproject.toml`。结果是"锁定文件"既不约束开发环境也不约束 CI，同一提交在不同机器上
+  可能解析出不同依赖集合（设计与缺陷清单见 [SETUP_DESIGN.md](../../docs/design/SETUP_DESIGN.md) §1.2 S-01/S-02）。
+- **决策**：依赖解析、环境同步与脚本执行统一走 uv。本地入口为 `./scripts/setup.sh`
+  （内部执行 `uv sync --extra …`），CI 为 `uv sync --locked` 与 `uv run --locked …`；
+  新增 `.python-version`（`3.12`）并入库，作为解释器版本事实源；`uv.lock` 为唯一版本
+  事实源并保持 `uv lock --check` 通过。
+- **理由**：不引入新工具——uv 已是本仓库文档中的既有工具，且当前系统未安装 `python3.12`，
+  uv 可按 `.python-version` 自动获取解释器（本机系统 Python 为 3.14，与 CI 的 3.12 不一致）。
+  一次 `uv sync` 同时完成解释器选择、虚拟环境创建、本包 editable 安装与锁文件校验；
+  `--locked` 把"锁文件过期"变成 CI 可见的失败，而不是静默漂移（uv 的 `--frozen` 只表示"不更新锁文件"，实测不校验时效性，故不用于门禁）。
+- **影响**：CI 三个 job 改用 `astral-sh/setup-uv`（钉版本）并缓存 `uv.lock`；文档中
+  `uv pip install -e ".[...]"` 的写法统一替换为 `./scripts/setup.sh --extras …`（[README](../../README.md)
+  快速开始为唯一权威入口）。`dev` 仍是可选依赖组，不迁移到 `[dependency-groups]`
+  （取舍见设计文档 §4）。pip 仍是构建后端的互操作目标，第三方环境仍可用
+  `pip install -e ".[otel]"`，但它不再是仓库推荐的安装路径。
+
 ## 3. 待决策清单（评审会）
 
 - [x] ADR-001~004 在 POC 启动时按默认采纳（仍可在评审会改选）

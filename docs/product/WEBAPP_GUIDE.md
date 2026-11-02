@@ -5,12 +5,11 @@
 
 ## 启动应用
 
-需要 Python 3.12+ 和 `uv`。在仓库根目录执行；已有 `.venv` 时跳过创建环境这一步：
+需要 Python 3.12+ 和 `uv`（解释器版本由 `.python-version` 固定）。在仓库根目录执行：
 
 ```bash
-uv venv .venv
+./scripts/setup.sh --extras dev,webapp      # 幂等：可重复执行，不会覆盖已有 .env
 source .venv/bin/activate
-uv pip install -e ".[dev,webapp]"
 AGR_WEB_ORIGIN=http://localhost:8000 \
 AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
 ```
@@ -186,7 +185,7 @@ curl -sS http://localhost:8000/v1/me \
 
 | 现象 | 处理方式 |
 | --- | --- |
-| `agr-webapp: command not found` 或缺少 SQLAlchemy | 激活 `.venv`，执行 `uv pip install -e ".[dev,webapp]"` |
+| `agr-webapp: command not found` 或缺少 SQLAlchemy | 激活 `.venv`，执行 `./scripts/setup.sh --extras dev,webapp`；`python scripts/doctor.py` 会指出缺哪个包 |
 | 8000 端口已被占用 | 停止此前启动的服务，或更换端口并同步修改 `AGR_WEB_ORIGIN` |
 | 登录提示页面验证失败 / `CSRF_FAILED` | 核对浏览器地址与 `AGR_WEB_ORIGIN` 的协议、主机和端口，修改后刷新页面 |
 | 收不到邀请 / 重置邮件 | 默认仅写开发邮件日志；开启日志输出或配置 SMTP |

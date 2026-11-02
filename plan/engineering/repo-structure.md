@@ -60,7 +60,7 @@ agentic-graphrag/
 │   └── run.py                    # 一键评测入口（FR-OP-04）
 ├── web/                          # Vue 3 零构建工作台（index.html + static/{js,css,vendor}；无 npm）
 ├── tests/                        # 镜像 src 结构；unit / integration / e2e
-├── scripts/                      # 建图、索引重建、演练脚本
+├── scripts/                      # setup.sh（环境初始化）· doctor.py（环境体检）· 建图、索引重建、门禁与演练脚本
 └── docs/                         # 运维手册、API 文档、标注规范
 ```
 

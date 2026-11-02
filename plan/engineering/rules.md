@@ -68,6 +68,7 @@
 - 节点实现为"状态入→状态出"，单测不依赖 LangGraph 运行时。
 - 新配置项进 `AppConfig`（`configs/default.yaml`）或 `Settings`（环境变量），经 `config.py` 读取；不散落 `os.environ` 直读（现存 `AGR_*` 开关除外）。
 - 路径解析一律 `resolve_path()`（相对仓库根），不依赖 cwd。
+- **依赖与解释器**：安装一律走 `./scripts/setup.sh`（内部 `uv sync`，锁文件为准，ADR-008）；CI 用 `uv sync --locked` / `uv run --locked`（**不得用 `--frozen`**：它不校验锁文件时效，实测见 [SETUP_DESIGN](../../docs/design/SETUP_DESIGN.md) §7.1）。解释器版本由入库的 `.python-version` 固定。文档与脚本中不得再出现 `uv pip install -e`（不读锁文件）；该约定由 `tests/unit/test_setup_consistency.py` 在 CI 中守卫。
 - **离线路径是默认**：新功能必须在 `--no-llm` + 内存后端下可运行或显式声明仅在线；不得把在线依赖引入 CI 路径。
 - 离线启发式（`generation/offline_heuristics/`）只服务演示语料的确定性评测：不得为通过评测往里加规则来"修复"生产（live LLM）问题，反之亦然。
 

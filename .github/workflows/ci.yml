@@ -1,5 +1,9 @@
 # CI: lint + architecture metrics + unit tests/coverage + offline eval floor.
 # Gates mirror docs/design/REFACTOR_PLAN.md ("每阶段门禁"); keep them in sync.
+# Every install goes through `uv sync --locked` (ADR-008): the committed uv.lock
+# is the single version source, so a stale lock fails the build instead of
+# silently drifting, and the interpreter follows .python-version.
+# Use `--locked`, not `--frozen`: only `--locked` asserts the lockfile is current.
 name: CI
 
 on:
@@ -15,12 +19,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Everything runs fully offline: no Neo4j/Qdrant services, no LLM key, no network.
+# Everything runs fully offline: no Neo4j/Qdrant services, no LLM key, no network
+# beyond dependency download.
 # AGR_PROFILE is deliberately unset: unit tests pick their own profile, and
 # agr-run-cases always uses the `eval` profile.
 env:
-  PYTHON_VERSION: "3.12"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  UV_VERSION: "0.13.6"
 
 jobs:
   lint:
@@ -30,25 +34,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - name: Install ruff
-        run: python -m pip install "ruff>=0.8.0"
+      - name: Sync locked development environment
+        run: uv sync --locked --extra dev
 
       - name: Ruff lint
-        run: ruff check --output-format=github src tests scripts
+        run: uv run --locked ruff check --output-format=github src tests scripts
 
       - name: Ruff format check
-        run: ruff format --check src tests scripts
+        run: uv run --locked ruff format --check src tests scripts
 
       # Files <=300 lines, functions <=50 lines, <=3 positional params,
       # nesting <=3, cyclomatic complexity <=10.
       - name: Code metrics gate
-        run: python scripts/check_code_metrics.py
+        run: uv run --locked python scripts/check_code_metrics.py
 
   test:
     name: Unit tests + coverage
@@ -57,19 +62,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - name: Install package (dev and optional Web application)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,webapp]"
+      - name: Sync locked environment (dev and optional Web application)
+        run: uv sync --locked --extra dev --extra webapp
 
       - name: Strict Python types
-        run: mypy
+        run: uv run --locked mypy
 
       - uses: actions/setup-node@v4
         with:
@@ -82,7 +86,7 @@ jobs:
       # The core/ dependency-boundary check runs as part of this suite.
       - name: Unit tests + coverage gate
         run: |
-          pytest tests/unit \
+          uv run --locked pytest tests/unit \
             --cov=agentic_graphrag \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml \
@@ -112,40 +116,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - name: Install package
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+      # Core package only: the offline eval job must not need the Web extras.
+      - name: Sync locked core environment
+        run: uv sync --locked
 
       # Production path: QueryApp with the eval profile (memory graph, cache off).
       - name: Eval — agentic path
         run: |
-          agr-run-cases --no-llm --memory-graph --cases "$POC_CASES" --run-name ci_poc
+          uv run --locked agr-run-cases --no-llm --memory-graph --cases "$POC_CASES" --run-name ci_poc
           cp reports/poc_accuracy.json reports/ci_poc_accuracy.json
-          python scripts/check_eval_floor.py reports/ci_poc_accuracy.json \
+          uv run --locked python scripts/check_eval_floor.py reports/ci_poc_accuracy.json \
             --min-correct "$POC_MIN_CORRECT" --total "$POC_TOTAL" --label "agentic"
 
       - name: Eval — with triage (fast/deep routing)
         run: |
-          agr-run-cases --no-llm --memory-graph --enable-triage \
+          uv run --locked agr-run-cases --no-llm --memory-graph --enable-triage \
             --cases "$POC_CASES" --run-name ci_poc_triage
           cp reports/poc_accuracy.json reports/ci_poc_triage_accuracy.json
-          python scripts/check_eval_floor.py reports/ci_poc_triage_accuracy.json \
+          uv run --locked python scripts/check_eval_floor.py reports/ci_poc_triage_accuracy.json \
             --min-correct "$POC_MIN_CORRECT" --total "$POC_TOTAL" --label "triage"
 
       # 200 cases: Wilson CI ±5pp vs ±16pp on the 31-case POC (ARCH_OPTIMIZATION_V2 O-1).
       - name: Eval — G2 (200 cases, pilot triples)
         run: |
-          agr-run-cases --no-llm --memory-graph --cases "$G2_CASES" \
+          uv run --locked agr-run-cases --no-llm --memory-graph --cases "$G2_CASES" \
             --seed-triples "$G2_TRIPLES" --run-name ci_g2
           cp reports/poc_accuracy.json reports/ci_g2_accuracy.json
-          python scripts/check_eval_floor.py reports/ci_g2_accuracy.json \
+          uv run --locked python scripts/check_eval_floor.py reports/ci_g2_accuracy.json \
             --min-correct "$G2_MIN_CORRECT" --total "$G2_TOTAL" --label "g2"
 
       # Unseen compositional forms (4-hop, relative clauses, possessive-free
@@ -153,20 +157,20 @@ jobs:
       # breaks / phantom entities) — guards against template overfitting.
       - name: Eval — compositional + negative probes
         run: |
-          agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_compositional.jsonl \
+          uv run --locked agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_compositional.jsonl \
             --seed-triples "$G2_TRIPLES" --run-name ci_probe
-          python scripts/check_eval_floor.py reports/ci_probe_accuracy.json \
+          uv run --locked python scripts/check_eval_floor.py reports/ci_probe_accuracy.json \
             --min-correct 52 --total 54 --label "probe"
-          agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_negative.jsonl \
+          uv run --locked agr-run-cases --no-llm --memory-graph --cases evals/datasets/probe_negative.jsonl \
             --seed-triples "$G2_TRIPLES" --run-name ci_probe_neg
-          python scripts/check_eval_floor.py reports/ci_probe_neg_accuracy.json \
+          uv run --locked python scripts/check_eval_floor.py reports/ci_probe_neg_accuracy.json \
             --min-correct 19 --total 20 --label "probe-negative"
 
       # Gold labels were regenerated with correct directions and full answer
       # sets; keep them clean (inverse labels / ambiguous gold now block).
       - name: Gold audit
         run: |
-          python scripts/audit_gold.py "$G2_CASES" --triples "$G2_TRIPLES" \
+          uv run --locked python scripts/audit_gold.py "$G2_CASES" --triples "$G2_TRIPLES" \
             --json reports/ci_gold_audit.json --max-flagged 0
 
       - name: Upload eval reports

@@ -20,8 +20,8 @@
 ## 快速开始
 
 ```bash
-uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
+./scripts/setup.sh              # 解释器 + 锁定依赖（dev,webapp）+ .env + 环境体检
+source .venv/bin/activate
 
 agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
 agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl   # 样例评测（走生产路径 QueryApp，eval Profile）
@@ -29,10 +29,15 @@ agr-api                                                          # http://127.0.
 AGR_INGEST_INLINE=1 agr-api   # 上传的文档自动抽取入图（冲突进复核队列）
 ```
 
+`setup.sh` 幂等：重复执行只做增量同步，已存在的 `.env` 不会被覆盖；体检不通过会直接失败并列出修复命令。
+随时用 `python scripts/doctor.py` 复查环境（`--json` 机器可读，`--strict` 把警告也判为失败）。
+只装核心依赖（离线评测 / CI）用 `./scripts/setup.sh --extras dev`，严格按锁文件复现用 `--locked`。
+设计与取舍见 [docs/design/SETUP_DESIGN.md](docs/design/SETUP_DESIGN.md)。
+
 运行带账号与工作空间管理的 Web 应用，在上述虚拟环境中执行：
 
 ```bash
-uv pip install -e ".[dev,webapp]"
+./scripts/setup.sh --extras dev,webapp      # 默认已包含；仅补装 Web 依赖时使用
 AGR_WEB_ORIGIN=http://localhost:8000 \
 AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
 ```

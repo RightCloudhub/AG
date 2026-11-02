@@ -8,12 +8,13 @@ Preserve the deterministic, offline-default path when changing stores or LLM int
 
 ## Build, Test, and Development Commands
 
-- `uv pip install -e ".[dev]"` installs the package and development tools into the active environment.
+- `./scripts/setup.sh` creates or updates `.venv` from the locked dependency set (uv `sync`), seeds `.env` from `.env.example` and runs `scripts/doctor.py`; add `--extras dev` for a core-only environment, `--locked` to require the committed `uv.lock` (uv's `--frozen` does not check freshness).
 - `ruff check src tests scripts` runs lint checks; `ruff format --check src tests scripts` checks formatting.
 - `mypy` strictly checks all Python source modules, including Pydantic constructors.
 - `npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json` checks owned JavaScript with strict JSDoc types; this is validation tooling only, with no frontend build or npm manifest.
 - `pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q` runs the unit suite and coverage gate. For a focused loop, use `pytest tests/unit/test_scoring.py -q`.
 - `python scripts/check_code_metrics.py` checks repository code-size and complexity limits.
+- `python scripts/doctor.py` reports environment health (interpreter, locked dependencies, `.env`, seed data).
 - `agr-api` starts the local API and UI at `/web`; the README documents offline queries and optional service setup.
 
 ## Coding Style & Naming Conventions

@@ -9,10 +9,10 @@ AgenticGraphRAG — a graph-augmented multi-hop reasoning QA system: knowledge g
 ## Commands
 
 ```bash
-# Setup (uv; editable install with dev extras)
-uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
-cp .env.example .env          # LLM_API_KEY optional — offline path needs none
+# Setup (single entry point; uv-locked deps + .env + health check; idempotent)
+./scripts/setup.sh            # deps default to dev,webapp; --extras dev for core only
+source .venv/bin/activate
+python scripts/doctor.py      # env health check (--json / --strict); CI uses uv sync --locked
 
 # Lint / format (CI-enforced)
 ruff check src tests scripts

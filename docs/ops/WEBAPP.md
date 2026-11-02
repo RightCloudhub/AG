@@ -7,7 +7,7 @@ Web 应用默认使用相同的离线业务后端；在线服务仍由既有 Pro
 ## 开发启动
 
 ```bash
-uv pip install -e ".[dev,webapp]"
+./scripts/setup.sh --extras dev,webapp      # 默认已包含 Web 依赖
 AGR_WEB_ORIGIN=http://localhost:8000 \
 AGR_PROFILE=offline AGR_ALLOW_LLM=0 AGR_INGEST_INLINE=1 agr-webapp
 ```

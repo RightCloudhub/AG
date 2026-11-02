@@ -9,7 +9,6 @@ build/
 .venv/
 venv/
 .env
-.python-version
 
 # IDE / OS
 .idea/

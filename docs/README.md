@@ -10,6 +10,7 @@
 | | [PROPOSAL.md](./product/PROPOSAL.md) | 项目立项建议书 |
 | | [PITCH.md](./product/PITCH.md) | 项目一句话定位与讲述要点 |
 | `design/` | [ARCHITECTURE_DESIGN.md](./design/ARCHITECTURE_DESIGN.md) | 目标架构设计 |
+| | [SETUP_DESIGN.md](./design/SETUP_DESIGN.md) | 项目初始化（setup）设计与优化：单一入口、锁文件、Python 版本、体检与文档同步 |
 | | [BUSINESS_LOGIC.md](./design/BUSINESS_LOGIC.md) | 业务逻辑与完整性审查（BL-xx） |
 | | [DESIGN_VS_IMPLEMENTATION.md](./design/DESIGN_VS_IMPLEMENTATION.md) | 设计与实现差异 |
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |

@@ -2,6 +2,9 @@
 
 ## 服务启动
 
+环境准备（解释器 + 锁定依赖 + `.env`）见 [README 快速开始](../../README.md) 或直接运行
+`./scripts/setup.sh`；环境体检运行 `python scripts/doctor.py`。
+
 ```bash
 source .venv/bin/activate
 # 离线默认（seed + MockLLM）
@@ -52,7 +55,7 @@ Web 工作台：<http://localhost:8000/web>
 | `AGR_LOG_FILE` | JSON 日志落盘路径（RotatingFileHandler；未设仅 stdout） |
 | `AGR_REDACTION_ENABLED=1` | PII 脱敏管道（默认关）（ENT-06） |
 | `AGR_REDACTION_PATTERNS` | 脱敏模式选择，逗号分隔或 `all`（内置：email / phone_cn / phone_intl / id_cn） |
-| `AGR_OTEL_ENABLED=1` | 启用 OTel OTLP 导出（需 `pip install -e ".[otel]"`）（ENT-08） |
+| `AGR_OTEL_ENABLED=1` | 启用 OTel OTLP 导出（需 `./scripts/setup.sh --extras dev,otel`）（ENT-08） |
 | `AGR_OTEL_ENDPOINT` / `AGR_OTEL_SAMPLE_RATE` | OTLP collector 地址 / 采样率（默认 0.1） |
 | `AGR_API_HOST` / `AGR_API_PORT` / `AGR_API_RELOAD` | `agr-api` 服务参数（默认 0.0.0.0 / 8000） |
 | `AGR_RERANK` | 实验开关（V2 O-5）：`none`（默认）/ `lexical` / `http`；`http` 需在 `retrieval.rerank.endpoint` 配置 TEI / Infinity 的 `/rerank`。此项走 pydantic-settings，`.env` 中也生效 |
@@ -231,7 +234,7 @@ groups:
         labels: {severity: medium}
 ```
 
-OTel：`pip install -e ".[otel]"` + `AGR_OTEL_ENABLED=1 AGR_OTEL_ENDPOINT=<collector>`；
+OTel：`./scripts/setup.sh --extras dev,otel` + `AGR_OTEL_ENABLED=1 AGR_OTEL_ENDPOINT=<collector>`；
 进程内 trace span 桥接为 OTel span 并重键为公开 `query_id`；入向解析 W3C `traceparent`，
 出向可用 `inject_trace_context()` 注入。无 SDK 时优雅退化为进程内 trace。
 **collector / Jaeger / Tempo 实际导出与告警规则部署仍待环境验证。**

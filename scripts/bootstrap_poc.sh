@@ -1,17 +1,44 @@
 #!/usr/bin/env bash
-# Bootstrap offline POC: ingest → seed graph → BM25 index
+# 离线演示数据引导：ingest → seed 图 → BM25 索引（不调用 LLM，不需要 Docker）。
+# 由 ./scripts/setup.sh --with-demo-data 调用，也可单独执行（可重复运行）。
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-echo "==> Ingest documents"
-python -c "from agentic_graphrag.cli import ingest_main; ingest_main([])"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
-echo "==> Load seed triples (Neo4j if up, else in-memory dry-run; no LLM)"
-python -c "from agentic_graphrag.cli import build_graph_main; build_graph_main(['--triples','data/processed/seed_triples.jsonl','--no-llm'])"
-echo "    (Force memory: add --memory-graph; force Neo4j: docker compose up -d first)"
+VENV_PY="$ROOT/.venv/bin/python"
+if [[ -x "$VENV_PY" ]]; then
+  PY="$VENV_PY"
+else
+  PY="$(command -v python3)"
+  echo "提示: 未发现 .venv，使用 $PY；建议先运行 ./scripts/setup.sh" >&2
+fi
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
-echo "==> Build BM25 index"
-python -c "from agentic_graphrag.cli import index_main; index_main(['--no-embed'])"
+# 优先用已安装的控制台入口，缺失时回退到模块调用。
+agr() {
+  local cmd="$1"
+  shift
+  if [[ -x "$ROOT/.venv/bin/agr-$cmd" ]]; then
+    "$ROOT/.venv/bin/agr-$cmd" "$@"
+  else
+    "$PY" -m agentic_graphrag "$cmd" "$@"
+  fi
+}
 
-echo "Done. Run: pytest -q"
-echo "Then: python -c \"from agentic_graphrag.cli import run_cases_main; run_cases_main(['--no-llm'])\""
+echo "==> 切分语料（ingest）"
+agr ingest
+
+echo "==> 载入 seed 三元组（内存图，无 LLM）"
+agr build-graph --triples data/processed/seed_triples.jsonl --no-llm
+echo "    （需要 Neo4j：先 docker compose up -d；强制内存图：加 --memory-graph）"
+
+echo "==> 构建 BM25 索引（不调用 embedding）"
+agr index --no-embed
+
+cat <<'MSG'
+
+完成。下一步
+  agr-query --no-llm "Who is the CEO of the parent company of NovaTech Industries?"
+  agr-run-cases --no-llm --cases evals/datasets/poc_cases.jsonl
+MSG
