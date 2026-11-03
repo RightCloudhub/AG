@@ -166,6 +166,21 @@ def test_incomplete_batch_resumes_without_reembedding_finished_chunks(tmp_path):
     assert len(calls) == 3 and calls[2] == calls[1]
 
 
+def test_duplicate_of_an_unindexed_document_is_indexed_not_skipped(tmp_path):
+    lifecycle, worker, tasks, _ = setup_pipeline(tmp_path)
+    stranded = upload(lifecycle)  # accepted, but the request died before creating its task
+    retry = upload(lifecycle)
+    assert retry["status"] == "duplicate" and retry["doc_id"] == stranded["doc_id"]
+    task = tasks.create("alpha", [retry])
+    assert worker.run_once()[0].chunks_created == 4
+    assert tasks.get(task.id).status == "done"
+    assert worker.fulltext_store.search("evidence", tenant_id="alpha")
+    # A duplicate of a finished document stays a no-op.
+    finished = tasks.create("alpha", [upload(lifecycle)])
+    assert worker.run_once() == []
+    assert tasks.get(finished.id).status == "done"
+
+
 def test_reindex_preserves_old_vectors_on_failure_and_changes_only_target_tenant(tmp_path):
     lifecycle, worker, tasks, _ = setup_pipeline(tmp_path)
     first = upload(lifecycle)

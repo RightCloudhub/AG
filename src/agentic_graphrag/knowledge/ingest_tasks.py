@@ -16,6 +16,11 @@ from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
 from agentic_graphrag.core.enums import IngestStatus as IngestStatus
 from agentic_graphrag.stores.file_lock import FileMutex
 
+
+class LeaseLost(RuntimeError):
+    """Another worker took this task over; stop without reporting a failure."""
+
+
 _ALLOWED_TRANSITIONS = {
     IngestStatus.PARTIAL: {IngestStatus.QUEUED},
     IngestStatus.FAILED: {IngestStatus.QUEUED},

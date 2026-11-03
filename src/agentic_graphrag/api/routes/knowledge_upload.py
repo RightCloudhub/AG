@@ -28,7 +28,7 @@ from agentic_graphrag.knowledge.parsers.mineru import MINERU_REQUIRED_MESSAGE, m
 from agentic_graphrag.knowledge.parsers.sniff import MINERU_MIMES, validate_filename
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
-    REASON_DOC_WRITE_FAILED,
+    REASON_UNEXPECTED,
     ChannelStatus,
     record_degradation,
 )
@@ -63,9 +63,14 @@ async def save_uploads(
             f"Too many files: max {max_files}",
             status_code=UPLOAD_REJECT_STATUS,
         )
-    saved: list[dict[str, str]] = []
+    # Reject before accepting anything: accepting can replace a document and clear its
+    # indexes, while a failed request creates no task that would index the replacement.
     for file in files:
-        saved.append(await _save_upload(svc, file, tenant_id=tenant_id, task_id=task_id))
+        validate_upload(file, svc)
+    records = [
+        await _prepare_upload(svc, file, tenant_id=tenant_id, task_id=task_id) for file in files
+    ]
+    saved: list[dict[str, str]] = [await _accept_upload(svc, record) for record in records]
     return saved
 
 
@@ -108,16 +113,14 @@ def parse_upload_content(svc: QueryService, filename: str, content: bytes) -> Pa
         raise ApiError(INVALID_INPUT, str(exc), status_code=422) from exc
 
 
-async def _save_upload(
+async def _prepare_upload(
     svc: QueryService, file: UploadFile, *, tenant_id: str, task_id: str
-) -> dict[str, str]:
-    validate_upload(file, svc)
+) -> DocumentRecord:
     content = await _read_capped(file, svc.cfg.indexing.max_file_bytes)
     parsed = await _parse_upload(svc, file, content)
-    doc_id = ""
-    record = DocumentRecord(
-        doc_id=doc_id,
-        title=file.filename or doc_id,
+    return DocumentRecord(
+        doc_id="",
+        title=file.filename or "",
         content=parsed.markdown,
         metadata={
             "task_id": task_id,
@@ -129,19 +132,23 @@ async def _save_upload(
         tenant_id=tenant_id,
         source_uri=f"upload://{file.filename}",
     )
-    row = {"doc_id": doc_id, "bytes": str(len(content)), "name": file.filename or ""}
+
+
+async def _accept_upload(svc: QueryService, record: DocumentRecord) -> dict[str, str]:
+    row = {"doc_id": "", "bytes": str(record.metadata["bytes"]), "name": record.title}
     try:
         row = await run_in_threadpool(lifecycle_for(svc).accept, record)
         await run_in_threadpool(index_changed, svc)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
         # task still listed it as queued (docs/design/BUSINESS_LOGIC.md BL-10).
+        # ``accept`` writes the doc store and clears indexes, so either can be the cause.
         record_degradation(
-            "doc_store",
-            REASON_DOC_WRITE_FAILED,
+            "document_lifecycle",
+            REASON_UNEXPECTED,
             exc,
             severity=ChannelStatus.FAILED,
-            upload_name=file.filename or "",
+            upload_name=record.title,
         )
         row["error"] = f"save_failed: {type(exc).__name__}"
     return row

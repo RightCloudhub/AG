@@ -382,13 +382,19 @@ resumable 单会话 500 MiB，part 5 MiB，过期 86400 秒。`embedding_batch_s
 `embedding_max_attempts=4`、`retry_base_seconds=0.5`、`retry_max_seconds=30` 可调。
 同时调整反向代理的请求体上限；应用按片读取，但代理负责网络请求体的整体限制。
 
+`POST /v1/docs` 先校验并解析整批文件，全部通过后才接受；任一文件被拒绝时整批不生效，
+已有文档和索引保持不变。解析结果在接受前保留在内存中，峰值约等于整批大小；大批量导入请
+调低 `indexing.max_batch_files` / `max_file_bytes` 或改用下面的 resumable 上传。
+
 1. `POST /v1/uploads/init`，JSON：`{"filename":"report.txt","size":12345,"source_uri":"...","content_sha256":"..."}`。
    source/hash 可省略；返回 `id`、`part_bytes`、`parts`、`expires_at`。
 2. `PUT /v1/uploads/{id}/parts/{number}`，原始二进制请求体，part 从 0 开始；除末片外长度
    必须等于返回的 part_bytes。可乱序重传相同内容；同 part 不同内容返回 409。
 3. `GET /v1/uploads/{id}` 获取 received 列表，进程重启后仍可续传。
-4. `POST /v1/uploads/{id}/complete` 校验总量、全部 parts、可选 SHA-256 与 UTF-8，生成摄取任务。
-   重复 complete 返回同一任务；跨租户任何操作均为 404。仅支持既有 md/txt，不改变解析约定。
+4. `POST /v1/uploads/{id}/complete` 校验总量、全部 parts 与可选 SHA-256，再用与直接上传相同的
+   解析器解析（在会话锁之外进行），生成摄取任务；解析失败返回 415/422/503，可修正后重试。
+   重复 complete 返回同一任务；跨租户任何操作均为 404。支持类型见 §6.1；MinerU 未启用时，
+   PDF 等 MinerU 专属类型在 `init` 时即返回 415。
 
 定期运行 `python -m agentic_graphrag.cli.ingest_maintenance prune-uploads --tenant acme`
 清理过期会话。完成后立即删除 part 内容；任务与文档保留各自 journal。

@@ -18,6 +18,8 @@ class IngestResult:
     graph: dict[str, Any] | None = None
     counts: dict[str, int] = field(default_factory=dict)
     fatal: bool = False
+    # The document cannot fit the token budget, so it never had chunks or vectors.
+    unchunkable: bool = False
 
     @property
     def review_items(self) -> int:

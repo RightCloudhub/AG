@@ -23,9 +23,12 @@ from agentic_graphrag.knowledge.index_graph_stage import run_graph_stage
 from agentic_graphrag.knowledge.index_recovery import invalidate_stages, stale_stages
 from agentic_graphrag.knowledge.index_result import IngestResult
 from agentic_graphrag.knowledge.ingest import chunk_document
+from agentic_graphrag.knowledge.ingest_tasks import LeaseLost
 from agentic_graphrag.observability.degradation import (
+    REASON_DOC_WRITE_FAILED,
     REASON_EMBEDDING_UNAVAILABLE,
     REASON_INDEX_WRITE_FAILED,
+    degradation_guard,
     record_degradation,
 )
 
@@ -86,7 +89,7 @@ class IndexPipeline:
                 self.docs.save(doc)
             chunk_error = self._ensure_chunks(doc)
             if chunk_error:
-                return IngestResult(doc_id, error=chunk_error, fatal=True)
+                return IngestResult(doc_id, error=chunk_error, fatal=True, unchunkable=True)
             result = IngestResult(doc_id, chunks_created=len(doc.chunks))
             self._vectors(doc, result, heartbeat=heartbeat, reindex=reindex)
             if not reindex:
@@ -152,6 +155,8 @@ class IndexPipeline:
             batch = pending[offset : offset + size]
             try:
                 self._vector_batch(doc, batch, heartbeat=heartbeat, reindex=reindex)
+            except LeaseLost:
+                raise
             except Exception as exc:
                 code = status_code(exc)
                 result.error = f"embedding_failed: {code or type(exc).__name__}"
@@ -195,6 +200,8 @@ class IndexPipeline:
                 embed_with_retry(self.embed_many, texts, config=self.config, heartbeat=heartbeat),
                 count=len(missing),
             )
+        except LeaseLost:
+            raise
         except Exception as exc:
             record_degradation(
                 RetrievalChannel.EMBEDDING,
@@ -232,17 +239,15 @@ class IndexPipeline:
             for c in batch
         ]
         # Upsert replaces a logical chunk atomically: old vectors remain on failure.
-        try:
+        with degradation_guard("vector_index", REASON_INDEX_WRITE_FAILED, doc_id=doc.doc_id):
             if self.vector.upsert(staged) != len(staged):
                 raise RuntimeError("Incomplete vector write")
-        except Exception as exc:
-            record_degradation("vector_index", REASON_INDEX_WRITE_FAILED, exc, doc_id=doc.doc_id)
-            raise
         for chunk, written in zip(batch, staged, strict=True):
             chunk.embedding = written.embedding
             chunk.embedded = True
             chunk.embedding_model = written.embedding_model
-        self.docs.save_chunks(doc, batch)
+        with degradation_guard("doc_store", REASON_DOC_WRITE_FAILED, doc_id=doc.doc_id):
+            self.docs.save_chunks(doc, batch)
 
     def _fulltext(self, doc: DocumentRecord, result: IngestResult) -> None:
         pending = [c for c in doc.chunks if not c.fulltext_indexed]

@@ -10,6 +10,7 @@ from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngest
 from agentic_graphrag.knowledge.index_config import IngestWorkerConfig
 from agentic_graphrag.knowledge.ingest_worker import IngestWorker
 from agentic_graphrag.observability.degradation import (
+    REASON_DOC_WRITE_FAILED,
     REASON_EMBEDDING_UNAVAILABLE,
     REASON_EXTRACT_FAILED,
     REASON_INDEX_WRITE_FAILED,
@@ -159,3 +160,70 @@ def test_graph_extraction_failure_is_recorded_per_chunk(tmp_path, caplog, monkey
     assert {r.reason for r in records} == {REASON_EXTRACT_FAILED}
     assert {r.severity for r in records} == {ChannelStatus.FAILED}
     assert result.error == "graph_failed: RuntimeError"
+
+
+def test_checkpoint_write_failure_is_recorded_as_the_doc_store(tmp_path, caplog, monkeypatch):
+    lifecycle, worker, _, _ = setup_pipeline(tmp_path)
+    row = upload(lifecycle)
+
+    def down(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(worker.doc_store, "save_chunks", down)
+    with caplog.at_level(logging.WARNING):
+        result = worker.process_doc(row["doc_id"], tenant_id="alpha")
+    assert result.error and not result.fatal
+    records = degradations(caplog, "doc_store")
+    assert records and {r.reason for r in records} == {REASON_DOC_WRITE_FAILED}
+    assert degradations(caplog, "embedding") == []
+    assert degradations(caplog, "vector_index") == []
+
+
+def test_lost_lease_stops_the_task_without_reporting_an_outage(tmp_path, caplog, monkeypatch):
+    lifecycle, worker, tasks, _ = setup_pipeline(tmp_path)
+    tasks.create("alpha", [upload(lifecycle)])
+    monkeypatch.setattr(tasks, "touch", lambda *args, **kwargs: False)
+    with caplog.at_level(logging.WARNING):
+        assert worker.run_once() == []
+    assert [r for r in caplog.records if hasattr(r, "component")] == []
+    assert "Lost the lease" in caplog.text
+    assert worker.fulltext_store.search("evidence", tenant_id="alpha") == []
+
+
+class CountingRebuildStore(InMemoryVectorStore):
+    def __init__(self):
+        super().__init__()
+        self.commits = 0
+
+    def begin_reindex(self, model, *, tenant_id):
+        pass
+
+    def commit_reindex(self):
+        self.commits += 1
+
+    def end_reindex(self):
+        pass
+
+
+def test_unchunkable_document_does_not_block_the_reindex_cutover(tmp_path):
+    store = CountingRebuildStore()
+    worker = IngestWorker(
+        doc_store=FileDocStore(tmp_path),
+        vector_store=store,
+        embed_many=lambda texts: [[1.0, 0.0] for _ in texts],
+        config=IngestWorkerConfig(
+            chunk_size_tokens=8, chunk_overlap_tokens=0, retry_base_seconds=0
+        ),
+    )
+    upload(worker.pipeline.lifecycle)
+    code = "```\n" + "token " * 40 + "\n```"
+    upload(worker.pipeline.lifecycle, code, source="upload://code.md")
+    worker.config.embedding_model = "new-model"
+    results = worker.reindex(tenant_id="alpha")
+    assert sorted(r.unchunkable for r in results) == [False, True]
+    assert store.commits == 1
+    # A real failure still holds the cutover back.
+    worker.config.embedding_model = "newer-model"
+    worker.pipeline.embed_many = lambda _: (_ for _ in ()).throw(ValueError("bad model"))
+    worker.reindex(tenant_id="alpha")
+    assert store.commits == 1

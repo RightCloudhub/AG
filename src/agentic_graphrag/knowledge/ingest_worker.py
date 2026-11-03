@@ -15,12 +15,12 @@ import threading
 import uuid
 from collections.abc import Callable
 
-from agentic_graphrag.core.ports.capabilities import VectorModelRebuild
-from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, VectorStore
+from agentic_graphrag.core.ports.stores import DocStore, DocumentRecord, FulltextStore, VectorStore
 from agentic_graphrag.knowledge.embedding_batch import BatchEmbedder, single_adapter
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.index_config import IngestWorkerConfig as IngestWorkerConfig
 from agentic_graphrag.knowledge.index_pipeline import IndexPipeline
+from agentic_graphrag.knowledge.index_reindex import reindex_tenant
 from agentic_graphrag.knowledge.index_result import (
     IngestResult as IngestResult,
 )
@@ -34,6 +34,7 @@ from agentic_graphrag.knowledge.ingest_tasks import (
     IngestStatus,
     IngestTask,
     IngestTaskStore,
+    LeaseLost,
 )
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
@@ -98,7 +99,7 @@ class IngestWorker:
         def heartbeat() -> None:
             if batch_id and self.task_store:
                 if not self.task_store.touch(batch_id, owner=self.worker_id):
-                    raise RuntimeError("Task lease lost")
+                    raise LeaseLost("Task lease lost")
 
         return self.pipeline.process(
             doc_id, tenant_id=tenant_id, batch_id=batch_id, heartbeat=heartbeat
@@ -142,25 +143,13 @@ class IngestWorker:
         return results
 
     def reindex(self, *, tenant_id: str) -> list[IngestResult]:
-        if self.pipeline.embed_many is None:
-            raise ValueError("Reindex requires an embedder")
-        with self.doc_store.lock():
-            rebuild = (
-                self.vector_store if isinstance(self.vector_store, VectorModelRebuild) else None
-            )
-            if rebuild:
-                rebuild.begin_reindex(self.config.embedding_model, tenant_id=tenant_id)
-            try:
-                results = [
-                    self.pipeline.process(did, tenant_id=tenant_id, reindex=True)
-                    for did in self.doc_store.list_ids(tenant_id=tenant_id)
-                ]
-                if rebuild and not any(r.error for r in results):
-                    rebuild.commit_reindex()
-                return results
-            finally:
-                if rebuild:
-                    rebuild.end_reindex()
+        return reindex_tenant(
+            self.pipeline,
+            docs=self.doc_store,
+            vector=self.vector_store,
+            model=self.config.embedding_model,
+            tenant_id=tenant_id,
+        )
 
     def _run_task_batch(self) -> list[IngestResult]:
         requeued = self._queue.requeue_stale(
@@ -194,6 +183,10 @@ class IngestWorker:
         """Index one claimed task's documents, then record its terminal status."""
         try:
             results = self._process_task_docs(task)
+        except LeaseLost:
+            # A stale requeue gave the task to another worker, which now owns its outcome.
+            logger.warning("Lost the lease on task %s; leaving it to its new owner", task.id)
+            return []
         except Exception as exc:  # noqa: BLE001
             record_degradation(
                 "ingest",
@@ -226,19 +219,23 @@ class IngestWorker:
         """Index every document, refreshing the lease between documents."""
         results: list[IngestResult] = []
         for row in task.docs:
-            if row.get("status") == "duplicate":
-                continue
             if row.get("error"):
                 results.append(IngestResult(row.get("doc_id", ""), error=row["error"], fatal=True))
                 continue
             current = self.doc_store.get(row["doc_id"], tenant_id=task.tenant_id)
-            if current and row.get("version") and str(current.version) != row["version"]:
+            if self._nothing_to_do(row, current):
                 continue
             results.append(
                 self.process_doc(row["doc_id"], batch_id=task.id, tenant_id=task.tenant_id)
             )
             self._queue.touch(task.id, owner=self.worker_id)
         return results
+
+    def _nothing_to_do(self, row: dict[str, str], current: DocumentRecord | None) -> bool:
+        """A duplicate still indexes whatever an earlier upload left unfinished."""
+        if row.get("status") == "duplicate":
+            return current is None or not self.pipeline.needs_processing(current)
+        return bool(current and row.get("version") and str(current.version) != row["version"])
 
     def _finalize(
         self,

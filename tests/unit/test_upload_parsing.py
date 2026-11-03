@@ -101,7 +101,7 @@ def test_mineru_upload_persists_markdown_and_worker_context(upload_context, monk
     assert doc.metadata["parser_name"] == "mineru"
     assert doc.metadata["source_mime_type"] == "application/pdf"
     worker = build_inline_worker(svc)
-    worker.graph_ingestor = None
+    worker.pipeline.graph = None  # the pipeline owns the stage; this test covers parsing
     assert worker.run_once()[0].chunks_created == 1
     hits = svc.bundle.fulltext.search("Revenue", tenant_id="default")
     assert any(chunk.metadata["heading_path"] == ["Annual Report", "Revenue"] for chunk, _ in hits)

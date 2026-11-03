@@ -6,10 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentic_graphrag.api.app import create_app
+from agentic_graphrag.api.routes import document_routes
 from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.app.write_path import build_inline_worker
 from agentic_graphrag.governance import audit_events
 from agentic_graphrag.governance.audit_events import AuditEventStore
+from agentic_graphrag.knowledge.resumable_upload import UploadSessions
 
 A = {"Authorization": "Bearer alpha-key"}
 B = {"Authorization": "Bearer beta-key"}
@@ -35,6 +37,16 @@ def client_service(monkeypatch, tmp_path):
     with TestClient(create_app(query_service=svc)) as client:
         yield client, svc, audit
     svc.close()
+
+
+def open_session(client, body, name="x.md"):
+    uid = client.post(
+        "/v1/uploads/init", headers=A, json={"filename": name, "size": len(body)}
+    ).json()["data"]["id"]
+    for number, start in enumerate(range(0, len(body), 4)):
+        part = body[start : start + 4]
+        assert client.put(f"/v1/uploads/{uid}/parts/{number}", headers=A, content=part).is_success
+    return uid
 
 
 def test_upload_identity_duplicate_delete_isolation_and_audit(client_service):
@@ -130,17 +142,117 @@ def test_complete_rejects_hash_mismatch_and_undecodable_text(client_service):
 def test_resumable_completion_parses_like_a_direct_upload(client_service):
     client, svc, _ = client_service
     body = "\ufeffhi".encode()  # a UTF-8 BOM plus text, sent as two parts
-    uid = client.post(
-        "/v1/uploads/init", headers=A, json={"filename": "bom.txt", "size": len(body)}
-    ).json()["data"]["id"]
-    for number, start in enumerate(range(0, len(body), 4)):
-        part = body[start : start + 4]
-        assert client.put(f"/v1/uploads/{uid}/parts/{number}", headers=A, content=part).is_success
+    uid = open_session(client, body, name="bom.txt")
     complete = client.post(f"/v1/uploads/{uid}/complete", headers=A)
     assert complete.status_code == 200
     doc = svc.bundle.docs.get(complete.json()["data"]["docs"][0]["doc_id"], tenant_id="alpha")
     assert doc.content == "hi" and doc.metadata["parser_name"] == "text"
     assert doc.metadata["source_encoding"] == "utf-8-sig"
+
+
+def test_completion_parses_outside_the_session_mutex(client_service, monkeypatch, tmp_path):
+    import fcntl
+
+    client, _, _ = client_service
+    uid = open_session(client, b"abc")
+    parse = document_routes.parse_upload_content
+    mutex_free = []
+
+    def spy(svc, filename, content):
+        with (tmp_path / "uploads" / ".uploads.lock").open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                mutex_free.append(False)
+            else:
+                mutex_free.append(True)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        return parse(svc, filename, content)
+
+    monkeypatch.setattr(document_routes, "parse_upload_content", spy)
+    assert client.post(f"/v1/uploads/{uid}/complete", headers=A).status_code == 200
+    assert mutex_free == [True]
+
+
+def test_part_writes_wait_for_the_mutex_off_the_event_loop(client_service, monkeypatch):
+    import asyncio
+
+    client, _, _ = client_service
+    put = UploadSessions.put
+    on_loop = []
+
+    def spy(self, *args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(True)
+        except RuntimeError:
+            on_loop.append(False)
+        return put(self, *args, **kwargs)
+
+    monkeypatch.setattr(UploadSessions, "put", spy)
+    open_session(client, b"abc")
+    assert on_loop == [False]
+
+
+def test_completion_retry_after_a_crash_reuses_the_task_without_parsing(
+    client_service, monkeypatch
+):
+    client, svc, _ = client_service
+    uid = open_session(client, b"abc")
+    finish = UploadSessions.finish
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("crash before the result was recorded")
+
+    monkeypatch.setattr(UploadSessions, "finish", crash)
+    with pytest.raises(RuntimeError):
+        client.post(f"/v1/uploads/{uid}/complete", headers=A)
+    assert svc.ingest_tasks.get(uid, tenant_id="alpha") is not None
+    monkeypatch.setattr(UploadSessions, "finish", finish)
+    monkeypatch.setattr(
+        document_routes, "parse_upload_content", lambda *args: pytest.fail("parsed again")
+    )
+    retried = client.post(f"/v1/uploads/{uid}/complete", headers=A)
+    assert retried.status_code == 200 and retried.json()["data"]["id"] == uid
+
+
+@pytest.mark.parametrize(
+    "name,body,status", [("bad.txt", b"\xff\xfe\x00", 422), ("evil.exe", b"MZ", 415)]
+)
+def test_rejected_file_leaves_the_whole_batch_unaccepted(client_service, name, body, status):
+    client, svc, _ = client_service
+    first = client.post("/v1/docs", headers=A, files={"files": ("a.txt", b"evidence")})
+    did = first.json()["data"]["docs"][0]["doc_id"]
+    build_inline_worker(svc).run_once()
+    batch = [("files", ("a.txt", b"replacement")), ("files", (name, body))]
+    assert client.post("/v1/docs", headers=A, files=batch).status_code == status
+    doc = svc.bundle.docs.get(did, tenant_id="alpha")
+    assert doc.content == "evidence" and doc.version == 1
+    assert svc.bundle.fulltext.search("evidence", tenant_id="alpha")
+    # Resending the good file is a normal replacement, not a stranded duplicate.
+    assert client.post("/v1/docs", headers=A, files={"files": ("a.txt", b"replacement")}).is_success
+    build_inline_worker(svc).run_once()
+    assert svc.bundle.docs.get(did, tenant_id="alpha").version == 2
+    assert svc.bundle.fulltext.search("replacement", tenant_id="alpha")
+
+
+def test_failed_delete_is_recorded_and_left_pending(client_service, monkeypatch, caplog):
+    import logging
+
+    client, svc, audit = client_service
+    uploaded = client.post("/v1/docs", headers=A, files={"files": ("x.txt", b"evidence")})
+    did = uploaded.json()["data"]["docs"][0]["doc_id"]
+
+    def down(*args, **kwargs):
+        raise OSError("index backend down")
+
+    monkeypatch.setattr(svc.bundle.fulltext, "delete_by_doc", down)
+    with caplog.at_level(logging.WARNING):
+        assert client.delete(f"/v1/documents/{did}", headers=A).status_code == 503
+    records = [r for r in caplog.records if getattr(r, "component", None) == "document_lifecycle"]
+    assert len(records) == 1 and records[0].doc_id == did and records[0].error_type == "OSError"
+    assert audit.list_events(action="doc_delete", tenant_id="alpha")[0].outcome == "partial"
+    assert svc.bundle.docs.get(did, tenant_id="alpha").metadata["lifecycle"] == "deleting"
 
 
 def test_mineru_types_open_a_session_only_when_mineru_is_configured(client_service):

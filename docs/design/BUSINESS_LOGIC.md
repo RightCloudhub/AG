@@ -191,7 +191,8 @@ stateDiagram-v2
 
 - API 与 CLI 写入使用 UUID；`source_uri` 标识来源，`content_sha256` 标识 UTF-8 文本内容，
   `version` 从 1 递增，保留 `created_at` 并刷新 `updated_at`。同租户同 hash 返回
-  `duplicate`，不重复入队处理；同来源新内容沿用 UUID、递增版本。
+  `duplicate`：已完成索引的文档不再处理，尚未完成的文档由该任务补齐（重试可恢复中断的上传）；
+  同来源新内容沿用 UUID、递增版本。`POST /v1/docs` 整批校验并解析通过后才接受任何文件。
 - 替换与 `DELETE /v1/documents/{doc_id}` 共用 `DocumentLifecycle`：先记录替换/删除意图，
   再依次清理 vector、fulltext、graph，最后提交新版本或删除源文档。任一步失败保留意图，
   reconcile 可重入；图谱只移除该文档的来源，仍有其它来源支持的关系保留。
@@ -210,7 +211,8 @@ stateDiagram-v2
   collection 的模型编码；在途 alias 切换会重新编码，防止旧 encoder 查询新空间。
 - 上传容量见 `indexing` 配置。`/uploads/init`、`/uploads/{id}/parts/{number}`、
   `/uploads/{id}/complete` 支持持久化、乱序和幂等重传，GET 返回已接收 part；校验每片和总量，
-  complete 校验完整性、可选 hash 与 UTF-8。所有路径由当前 Principal 限定租户；删除、完成上传有审计。
+  complete 校验完整性与可选 hash，并在会话锁之外走统一解析端口。所有路径由当前 Principal
+  限定租户；删除、完成上传有审计。
 
 ### 3.2 复核队列状态机与执行
 
