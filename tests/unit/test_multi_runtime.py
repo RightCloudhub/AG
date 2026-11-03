@@ -229,7 +229,8 @@ def test_explicit_stop_reasons(monkeypatch):
     assert stop_reason(state, guards=deps.guard_cfg) == "dependency_blocked"
 
 
-def test_failed_branch_resumes_alone_with_a_new_runtime(monkeypatch):
+@pytest.mark.parametrize("max_parallel", [1, 3])
+def test_failed_branch_resumes_alone_with_a_new_runtime(monkeypatch, max_parallel):
     class FailsOnce(ResearchLLM):
         def __init__(self):
             super().__init__(
@@ -246,7 +247,9 @@ def test_failed_branch_resumes_alone_with_a_new_runtime(monkeypatch):
                     raise RuntimeError("temporary model failure")
             return super().complete(messages, **kwargs)
 
-    deps, config, state, calls = setup_run(monkeypatch, llm=FailsOnce())
+    deps, config, state, calls = setup_run(
+        monkeypatch, llm=FailsOnce(), config=AgentConfig(mode="multi", max_parallel=max_parallel)
+    )
     backend = MemorySaver()
     invocation = invoke_config("resume", recursion_limit=40)
     graph = build_multi_graph(deps, config, checkpointer=backend)

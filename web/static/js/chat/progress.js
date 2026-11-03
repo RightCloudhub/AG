@@ -37,6 +37,8 @@ export function applyThinking(model, payload) {
   }
   if (stage === ThinkingStage.RETRIEVE) {
     const tools = body.split(':').pop()?.replace(/检索/, '').split(',').map(t => t.trim()).filter(Boolean) ?? [];
+    const branchId = text(data.branch_id);
+    if (branchId) return { ...model, hops: model.hops.map(hop => hop.branchId === branchId ? { ...hop, tools } : hop) };
     return patchLastHop(model, hop => ({ ...hop, tools }));
   }
   return { ...model, note: body };
@@ -46,13 +48,14 @@ export function applyThinking(model, payload) {
 export function applySubQuestion(model, payload, now) {
   const data = record(payload);
   const hop = number(data.hop) || model.hops.length + 1;
+  const branchId = text(data.branch_id);
   const subQuestion = text(data.sub_question) || text(data.question) || text(data.text);
   /** @type {HopProgress} */
   const fresh = {
     hop, subQuestion, startedAt: now, elapsedMs: 0, tools: [], hits: 0, conclusion: '',
-    criticAction: '', state: StepState.ACTIVE,
+    criticAction: '', state: StepState.ACTIVE, branchId, branchCount: number(data.branch_count) || 1,
   };
-  const existing = model.hops.findIndex(h => h.hop === hop);
+  const existing = model.hops.findIndex(h => h.hop === hop && (h.branchId || '') === branchId);
   const hops = existing === -1
     ? [...model.hops, fresh]
     : model.hops.map((h, i) => (i === existing ? { ...h, subQuestion: subQuestion || h.subQuestion, state: StepState.ACTIVE } : h));
@@ -63,11 +66,16 @@ export function applySubQuestion(model, payload, now) {
 export function applyHopDone(model, payload, now) {
   const data = record(payload);
   const hop = number(data.hop);
-  const done = { conclusion: text(data.conclusion), criticAction: text(data.critic_action), state: StepState.DONE };
-  const known = model.hops.some(h => h.hop === hop);
+  const branchId = text(data.branch_id);
+  /** @param {HopProgress} h */
+  const matches = h => h.hop === hop && (h.branchId || '') === branchId;
+  const outcome = text(data.outcome);
+  const state = ['error', 'rejected'].includes(outcome) ? StepState.FAILED : StepState.DONE;
+  const done = { conclusion: text(data.conclusion), criticAction: text(data.critic_action), state };
+  const known = model.hops.some(matches);
   const hops = known
-    ? model.hops.map(h => (h.hop === hop ? { ...h, ...done, elapsedMs: Math.max(0, now - h.startedAt) } : h))
-    : [...model.hops, { hop, subQuestion: '', startedAt: now, elapsedMs: 0, tools: [], hits: 0, ...done }];
+    ? model.hops.map(h => (matches(h) ? { ...h, ...done, elapsedMs: Math.max(0, now - h.startedAt) } : h))
+    : [...model.hops, { hop, branchId, subQuestion: '', startedAt: now, elapsedMs: 0, tools: [], hits: 0, ...done }];
   return { ...model, phase: StepPhase.EVALUATE, hops };
 }
 
@@ -89,11 +97,11 @@ export function applyDegraded(model, payload) {
 /** Attach the final chain: hit counts per hop and the answer phase. @param {ProgressModel} model @param {Answer} answer */
 export function finishProgress(model, answer) {
   const hops = model.hops.map(hop => {
-    const step = answer.steps.find(s => s.hop === hop.hop);
+    const step = answer.steps.find(s => s.hop === hop.hop && (!hop.branchId || s.sub_question === hop.subQuestion));
     const hits = step ? new Set([...step.evidence_ids, ...step.tool_calls.flatMap(c => c.hits)]).size : hop.hits;
     return { ...hop, hits, state: StepState.DONE, subQuestion: hop.subQuestion || (step?.sub_question ?? '') };
   });
-  const missing = answer.steps.filter(s => !hops.some(h => h.hop === s.hop)).map(s => ({
+  const missing = answer.steps.filter(s => !hops.some(h => h.hop === s.hop && (!h.branchId || h.subQuestion === s.sub_question))).map(s => ({
     hop: s.hop, subQuestion: s.sub_question, startedAt: model.startedAt, elapsedMs: 0,
     tools: s.tool_calls.map(c => c.tool), hits: new Set(s.evidence_ids).size, conclusion: s.conclusion,
     criticAction: s.critic_action, state: StepState.DONE,
@@ -111,7 +119,8 @@ export function stopProgress(model) {
 
 /** @param {ProgressModel} model */
 export function failProgress(model) {
-  return { ...model, state: StepState.FAILED };
+  return { ...model, state: StepState.FAILED,
+    hops: model.hops.map(h => h.state === StepState.ACTIVE ? { ...h, state: StepState.FAILED } : h) };
 }
 
 /** @param {ProgressModel} model @param {(hop: HopProgress) => HopProgress} update */
@@ -128,7 +137,7 @@ export function stepBar(model) {
   /** @type {StepBarItem[]} */
   const items = [{ key: 'plan', phase: StepPhase.PLAN, hop: 0, state: planState }];
   for (const hop of model.hops) {
-    items.push({ key: `hop-${hop.hop}`, phase: StepPhase.RETRIEVE, hop: hop.hop, state: hop.state });
+    items.push({ key: hop.branchId || `hop-${hop.hop}`, phase: StepPhase.RETRIEVE, hop: hop.hop, state: hop.state });
   }
   const evaluating = model.phase === StepPhase.EVALUATE && !finished;
   items.push({

@@ -19,7 +19,11 @@ from agentic_graphrag.core.enums import GraphStreamMode, QueryRoute
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain
 
-_STREAM_MODES: list[StreamMode] = [GraphStreamMode.UPDATES.value, GraphStreamMode.VALUES.value]
+_STREAM_MODES: list[StreamMode] = [
+    GraphStreamMode.UPDATES.value,
+    GraphStreamMode.VALUES.value,
+    "custom",
+]
 
 
 def _initial_state(
@@ -66,6 +70,9 @@ def _stream_graph_updates(
     )
     for item in graph.stream(graph_input, config=config, stream_mode=_STREAM_MODES):
         mode, chunk = _unpack_stream_item(item)
+        if mode == "custom":
+            yield from _custom_event(chunk)
+            continue
         if mode == GraphStreamMode.VALUES and isinstance(chunk, dict):
             final_state = cast(AgentState, chunk)
             continue
@@ -75,6 +82,11 @@ def _stream_graph_updates(
             if isinstance(delta, dict):
                 yield from events_for_node(node_name, delta)
     return final_state
+
+
+def _custom_event(chunk: object) -> Iterator[tuple[str, object]]:
+    if isinstance(chunk, tuple) and len(chunk) == 2:
+        yield str(chunk[0]), chunk[1]
 
 
 def _unpack_stream_item(item: object) -> tuple[str, object]:

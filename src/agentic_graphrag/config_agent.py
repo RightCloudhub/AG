@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class AgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["single", "multi"] = "single"
-    max_parallel: int = Field(default=1, ge=1, le=1)
+    max_parallel: int = Field(default=1, ge=1, le=16)
     max_tool_calls: int = Field(default=3, ge=1, le=12)
     max_research_calls: int = Field(default=2, ge=1, le=6)
     branch_tokens: int = Field(default=12000, ge=1)

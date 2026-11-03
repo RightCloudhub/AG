@@ -22,6 +22,11 @@ EVENT_THINKING = StreamEvent.THINKING
 
 def events_for_node(node_name: str, delta: AgentState) -> Iterator[tuple[str, dict[str, object]]]:
     """Map one LangGraph node update to zero-or-more SSE (event, payload) pairs."""
+    if node_name in {"bootstrap", "researcher", "verify"}:
+        from agentic_graphrag.agent.multi_events import multi_events
+
+        yield from multi_events(node_name, delta)
+        return
     if node_name == AgentNode.PLANNER:
         yield from _events_for_planner(delta)
         return

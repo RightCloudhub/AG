@@ -5,6 +5,7 @@
  * backend fields from fields that do exist (steps[].evidence_ids, evidence ids). Nothing here invents data.
  */
 import { CriticAction, EvidenceIdPrefix, QueryStatus, StepPhase, StepState, UiPolicy } from '../contracts.js';
+import { text as T, fmt } from '../i18n.js';
 
 /** @typedef {import('./types.js').ProgressModel} ProgressModel */
 /** @typedef {import('../responses.js').Answer} Answer */
@@ -20,12 +21,17 @@ import { CriticAction, EvidenceIdPrefix, QueryStatus, StepPhase, StepState, UiPo
  * @property {number} elapsedMs client-measured while streaming; 0 when unknown
  * @property {StepStateName} state
  * @property {string} criticAction
+ * @property {string} [branchId]
+ * @property {number} [branchCount]
+ * @property {string} [parallelLabel]
+ * @property {boolean} [parallelNext]
  */
 
 export const UNKNOWN_COUNT = -1;
 
 const CHUNK_ID = /^([0-9a-f]{8,})[:#](\d+)$/i;
 const HOP_SHORT_ID = 8;
+const MAX_VISIBLE_BRANCHES = 3;
 const QUESTION_WORDS = /^(?:what|who|which|where|when|how many|how)\s+(?:is|are|was|were|did|does|do)?\s*(?:the\s+)?|^(?:谁是|什么是|哪个|哪些|请问)/i;
 const CJK = /[　-鿿豈-﫿＀-￯]/;
 /** A CJK character is as wide as two Latin ones; the brief's 12 字 cap is 24 of these units. */
@@ -68,18 +74,19 @@ function stateOfStep(hop, criticAction) {
 
 /** Rail items for a finished chain. @param {Answer} answer @param {ProgressModel | null} [progress] measured timings, if any */
 export function railFromAnswer(answer, progress = null) {
-  const items = answer.steps.map(step => {
-    const measured = progress?.hops.find(h => h.hop === step.hop);
+  const items = answer.steps.map((step, index) => {
+    const measured = progress?.hops.find(h => h.hop === step.hop && h.subQuestion === step.sub_question);
+    const branchId = measured?.branchId || (answer.agentMode === 'multi' ? `step-${index}` : '');
     /** @type {RailItem} */
     const item = {
-      key: `hop-${step.hop}`, kind: 'hop', hop: step.hop, subQuestion: step.sub_question, conclusion: step.conclusion,
+      key: branchId || `hop-${step.hop}`, branchId, kind: 'hop', hop: step.hop, subQuestion: step.sub_question, conclusion: step.conclusion,
       evidenceCount: new Set(step.evidence_ids).size, elapsedMs: measured?.elapsedMs ?? 0,
       state: stateOfStep(step.hop, step.critic_action), criticAction: step.critic_action,
     };
     return item;
   });
   const failed = items.some(i => i.state === StepState.FAILED) || answer.status === QueryStatus.NO_ANSWER;
-  return [...items, answerNode(failed ? StepState.FAILED : StepState.DONE, answer.answer)];
+  return [...groupBranches(items), answerNode(failed ? StepState.FAILED : StepState.DONE, answer.answer)];
 }
 
 /** Rail items while a run streams: plan → hops as they arrive → the answer node. Counts are unknown (-1) until the chain lands. @param {ProgressModel} model */
@@ -94,12 +101,47 @@ export function railFromProgress(model) {
     return [first, answerNode(StepState.PENDING, '')];
   }
   const items = model.hops.map(h => /** @type {RailItem} */ ({
-    key: `hop-${h.hop}`, kind: 'hop', hop: h.hop, subQuestion: h.subQuestion, conclusion: h.conclusion,
+    key: h.branchId || `hop-${h.hop}`, branchId: h.branchId, branchCount: h.branchCount,
+    kind: 'hop', hop: h.hop, subQuestion: h.subQuestion, conclusion: h.conclusion,
     evidenceCount: h.hits > 0 ? h.hits : UNKNOWN_COUNT, elapsedMs: h.elapsedMs, state: h.state, criticAction: h.criticAction,
   }));
   const terminal = model.state === StepState.STOPPED || model.state === StepState.FAILED;
   const answerState = model.state === StepState.DONE ? StepState.DONE : terminal ? model.state : StepState.PENDING;
-  return [...items, answerNode(answerState, '')];
+  return [...groupBranches(items), answerNode(answerState, '')];
+}
+
+/** Keep small waves visible; large waves occupy one rail node. @param {RailItem[]} items */
+function groupBranches(items) {
+  /** @type {RailItem[]} */
+  const result = [];
+  const visited = new Set();
+  for (const item of items) {
+    if (!item.branchId) { result.push(item); continue; }
+    if (visited.has(item.hop)) continue;
+    visited.add(item.hop);
+    const group = items.filter(other => other.hop === item.hop && other.branchId);
+    const count = Math.max(group.length, ...group.map(other => other.branchCount || 1));
+    if (count > MAX_VISIBLE_BRANCHES) {
+      result.push({ ...item, key: `wave-${item.hop}`, branchId: '',
+        subQuestion: fmt(T.hoprail.parallel, { n: count }), conclusion: '',
+        evidenceCount: UNKNOWN_COUNT, elapsedMs: Math.max(...group.map(other => other.elapsedMs)),
+        state: groupState(group, count) });
+    } else {
+      result.push(...group.map((other, index) => ({ ...other,
+        parallelLabel: count > 1 ? fmt(T.hoprail.parallelBranch, { n: index + 1, total: count }) : '',
+        parallelNext: index < group.length - 1,
+      })));
+    }
+  }
+  return result;
+}
+
+/** @param {RailItem[]} group @param {number} count @returns {StepStateName} */
+function groupState(group, count) {
+  if (group.some(item => item.state === StepState.ACTIVE)) return StepState.ACTIVE;
+  if (group.some(item => item.state === StepState.FAILED)) return StepState.FAILED;
+  if (group.some(item => item.state === StepState.STOPPED)) return StepState.STOPPED;
+  return group.length < count ? StepState.ACTIVE : StepState.DONE;
 }
 
 /** @param {StepStateName} state @param {string} conclusion @returns {RailItem} */

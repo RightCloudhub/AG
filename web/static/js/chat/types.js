@@ -12,6 +12,8 @@
 /**
  * @typedef {object} HopProgress
  * @property {number} hop
+ * @property {string} [branchId]
+ * @property {number} [branchCount]
  * @property {string} subQuestion
  * @property {number} startedAt
  * @property {number} elapsedMs

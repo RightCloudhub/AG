@@ -205,6 +205,7 @@ export function parseAnswer(value) {
     missing_info: strings(data.missing_info), explored_paths: strings(data.explored_paths),
     cost: { latency_ms: number(cost.latency_ms), tokens: number(cost.tokens), llm_calls: number(cost.llm_calls) },
     confidence: parseConfidence(metadata.confidence), triage: parseTriage(metadata.triage),
+    agentMode: text(metadata.agent_mode),
     // Streamed answers carry these in metadata; /v1/query and cached answers
     // promote them to the top level (app/wiring.py).
     degraded: parseDegradedChannels(data.degraded_channels ?? metadata.degraded_channels),

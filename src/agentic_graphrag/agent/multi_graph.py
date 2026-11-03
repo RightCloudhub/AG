@@ -3,6 +3,7 @@
 from threading import BoundedSemaphore
 from typing import cast
 
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
@@ -20,6 +21,9 @@ from agentic_graphrag.agent.state import STATE_SCHEMA_VERSION, AgentState
 from agentic_graphrag.agent.state_checkpointer import typed_checkpointer
 from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.llm.verifier import build_verifier
+from agentic_graphrag.observability.branch import branch_span
+from agentic_graphrag.observability.context import query_context
+from agentic_graphrag.observability.logging_setup import user_id_var
 
 
 class MultiRuntime:
@@ -73,7 +77,37 @@ class MultiRuntime:
 
     def research(self, state: ResearchState, config: RunnableConfig) -> ResearchOutput:
         with self.slots:
-            return cast(ResearchOutput, self.subgraph.invoke(state, config))
+            return self._research(state, config)
+
+    def _research(self, state: ResearchState, config: RunnableConfig) -> ResearchOutput:
+        task = state["task"]
+        with query_context(
+            query_id=task.run_id, tenant_id=task.tenant_id, user_id=user_id_var.get()
+        ):
+            with branch_span(
+                branch_id=task.branch_id,
+                req_id=task.requirement.req_id,
+                role="researcher",
+                model=str(getattr(self.llm, "strong_model", "unknown")),
+                tenant_id=task.tenant_id,
+                run_id=task.run_id,
+            ) as attributes:
+                get_stream_writer()(
+                    (
+                        "sub_question",
+                        {
+                            "branch_id": task.branch_id,
+                            "branch_count": task.branch_count,
+                            "req_id": task.requirement.req_id,
+                            "hop": task.round,
+                            "sub_question": task.requirement.text,
+                        },
+                    )
+                )
+                result = cast(ResearchOutput, self.subgraph.invoke(state, config))
+                attributes["tokens"] = sum(e.tokens for e in result.get("budget_ledger", []))
+                attributes["outcome"] = result["events"][-1].outcome
+                return result
 
     def verify(self, state: AgentState) -> AgentState:
         return verify_batch(state, self.verifier, config=self.config)

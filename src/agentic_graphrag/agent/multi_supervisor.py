@@ -128,6 +128,7 @@ def supervise(state: AgentState, *, config: AgentConfig, guards: GuardrailConfig
             question=state["question"],
             requirement=register.search_target(r).model_copy(deep=True),
             round=state["hop"] + 1,
+            branch_count=len(ready),
             known_evidence_ids=sorted(state["evidence"]),
             token_limit=min(config.branch_tokens, tokens // len(ready)),
             call_limit=min(config.max_research_calls, calls // len(ready)),

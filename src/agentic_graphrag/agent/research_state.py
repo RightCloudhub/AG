@@ -19,6 +19,7 @@ class ResearchTask(BaseModel):
     question: str
     requirement: Requirement
     round: int
+    branch_count: int = 1
     known_evidence_ids: list[str] = Field(default_factory=list)
     token_limit: int
     call_limit: int

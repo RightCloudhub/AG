@@ -27,6 +27,7 @@ export const zh = Object.freeze({
     editHint: '改写后生成新的一页，原页保留。',
   },
   hoprail: {
+    parallel: '{n} 个并行分支', parallelBranch: '并行分支 {n} / {total}',
     label: '推理路径', plan: '规划', planning: '规划子问题…', hop: '第 {n} 跳', answer: '作答',
     evidence: '{n} 条证据', elapsed: '{ms} ms', retry: '从此跳重跑', focus: '在第 {n} 跳的证据中筛选',
     aria: '第 {hop} 跳，{state}，{n} 条证据', ariaAnswer: '{label}，{state}', summary: '{n} 跳', live: '推理进行中', path: '路径',
