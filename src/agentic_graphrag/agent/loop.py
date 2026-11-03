@@ -8,6 +8,7 @@ and exposes :func:`run_agentic_query` / :func:`run_query` (with triage).
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.agent.checkpointer import default_checkpointer
@@ -65,6 +66,7 @@ def build_graph(
 
     if deps is None:
         deps = AgentDeps(executor, llm, guard_cfg, budget=budget)
+    deps = _live_register_deps(deps)
     rt = AgentRuntime(deps.executor, deps.llm, deps.guard_cfg, budget=deps.budget)
     cp = typed_checkpointer(checkpointer if checkpointer is not None else default_checkpointer())
     g: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
@@ -93,6 +95,18 @@ def build_graph(
         {AgentNode.EXECUTOR: AgentNode.EXECUTOR, AgentNode.END: END},
     )
     return g.compile(checkpointer=cp)
+
+
+def _live_register_deps(deps: AgentDeps) -> AgentDeps:
+    if deps.llm is None or deps.guard_cfg.requirement_register.enabled:
+        return deps
+    guards = replace(
+        deps.guard_cfg,
+        requirement_register=deps.guard_cfg.requirement_register.model_copy(
+            update={"enabled": True}
+        ),
+    )
+    return replace(deps, guard_cfg=guards)
 
 
 def _executor_updates(runtime: AgentRuntime) -> GraphNodeUpdate:

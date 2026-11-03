@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator, Iterator
-from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
@@ -109,7 +108,10 @@ def _iter_agentic(
 
     opts = ctx.run_opts
     agent_config = opts.agent_config or get_config().agent
-    if agent_config.mode == "multi" and opts.allow_llm and ctx.llm is not None:
+    multi = agent_config.mode == "multi" and opts.allow_llm and ctx.llm is not None
+    if opts.resume and not multi:
+        raise ValueError("checkpoint resume requires multi mode and an enabled LLM")
+    if multi:
         from agentic_graphrag.agent.pipeline_multi import iter_multi
 
         yield from iter_multi(ctx, agent_config, seed_evidence=seed_evidence)
@@ -123,7 +125,7 @@ def _iter_single_agentic(
     from agentic_graphrag.agent.pipeline import AgentStreamEmptyError
 
     opts = ctx.run_opts
-    guard_cfg = _single_guards(ctx)
+    guard_cfg = opts.guard_cfg or GuardrailConfig.from_app_config()
     budget = opts.budget or guard_cfg.budget_tracker()
     rec_limit = (
         opts.recursion_limit if opts.recursion_limit is not None else guard_cfg.recursion_limit
@@ -165,13 +167,3 @@ def _iter_single_agentic(
     if final_state is None:
         raise AgentStreamEmptyError("agent graph stream produced no state")
     yield EVENT_FINAL_CHAIN, finalize_agentic_chain(final_state, budget=budget, tid=tid, t0=t0)
-
-
-def _single_guards(ctx: _StreamCtx) -> GuardrailConfig:
-    config = ctx.run_opts.guard_cfg or GuardrailConfig.from_app_config()
-    if ctx.run_opts.allow_llm and ctx.llm is not None:
-        return replace(
-            config,
-            requirement_register=config.requirement_register.model_copy(update={"enabled": True}),
-        )
-    return config

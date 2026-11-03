@@ -29,6 +29,24 @@ def entry_client(ctx: _StreamCtx, role: Role) -> LLMClient | None:
 
 
 @contextmanager
+def fast_limit(ctx: _StreamCtx) -> Iterator[None]:
+    """Apply the small tier for fast work; restore run ceilings before escalation."""
+    budget = ctx.run_opts.budget
+    if not ctx.run_opts.allow_llm or budget is None:
+        yield
+        return
+    from agentic_graphrag.config import get_config
+
+    limits = (ctx.run_opts.agent_config or get_config().agent).budget_tiers.small
+    tokens, calls = budget.max_tokens, budget.max_llm_calls
+    budget.max_tokens, budget.max_llm_calls = min(tokens, limits.tokens), min(calls, limits.calls)
+    try:
+        yield
+    finally:
+        budget.max_tokens, budget.max_llm_calls = tokens, calls
+
+
+@contextmanager
 def entry_meter(ctx: _StreamCtx, role: Role, llm: LLMClient | None) -> Iterator[None]:
     budget = ctx.run_opts.budget
     before = budget.snapshot() if budget else {}

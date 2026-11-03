@@ -51,3 +51,10 @@ def test_public_resume_skips_fast_route_and_checks_identity(monkeypatch):
         run_pipeline(
             "Who leads Acme?", deps.executor, deps.llm, options=replace(resume, tenant_id="other")
         )
+    with pytest.raises(ValueError, match="resume requires multi"):
+        run_pipeline(
+            "Who leads Acme?",
+            deps.executor,
+            deps.llm,
+            options=replace(resume, agent_config=AgentConfig(mode="single")),
+        )

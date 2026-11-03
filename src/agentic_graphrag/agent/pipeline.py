@@ -32,7 +32,7 @@ from agentic_graphrag.agent.loop_stream_events import (
 from agentic_graphrag.agent.options import AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.pipeline_graph import _initial_state as _initial_state
 from agentic_graphrag.agent.pipeline_graph import _iter_agentic
-from agentic_graphrag.agent.pipeline_usage import entry_client, entry_meter
+from agentic_graphrag.agent.pipeline_usage import entry_client, entry_meter, fast_limit
 from agentic_graphrag.agent.triage import Route, TriageResult, triage
 from agentic_graphrag.agent.triage_multi import forced_route as _entry_triage
 from agentic_graphrag.agent.triage_multi import live_metadata, summary_route
@@ -270,7 +270,7 @@ def _iter_fast_or_escalate(
     ctx: _StreamCtx, triage_meta: dict[str, object]
 ) -> Iterator[tuple[str, object]]:
     client = entry_client(ctx, "writer")
-    with entry_meter(ctx, "writer", client):
+    with entry_meter(ctx, "writer", client), fast_limit(ctx):
         chain, candidates = run_fast_path_with_evidence(
             ctx.question,
             ctx.executor,
