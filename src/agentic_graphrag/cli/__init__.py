@@ -12,6 +12,7 @@ from agentic_graphrag.cli.eval_cmd import badcase_main, gen_cases_main, pilot_tr
 from agentic_graphrag.cli.graph_cmd import build_graph_main
 from agentic_graphrag.cli.index_cmd import index_main
 from agentic_graphrag.cli.ingest import ingest_main
+from agentic_graphrag.cli.paraphrase import paraphrase_main
 from agentic_graphrag.cli.query import query_main
 from agentic_graphrag.cli.schema_cmd import export_reasoning_schema_main
 from agentic_graphrag.cli.spotcheck import score_spotcheck_main, spotcheck_main
@@ -32,4 +33,5 @@ __all__ = [
     "gen_cases_main",
     "badcase_main",
     "pilot_triples_main",
+    "paraphrase_main",
 ]

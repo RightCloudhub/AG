@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner_chain import parse_chain
+from agentic_graphrag.agent.question_normalization import normalize_question
 from agentic_graphrag.core.enums import MessageRole, RetrievalChannel
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
@@ -99,7 +100,7 @@ def triage(
     health: ChannelHealth | None = None,
 ) -> TriageResult:
     """Classify question complexity and choose Fast Path or Agentic."""
-    q = (question or "").strip()
+    q = normalize_question(question or "", known_entities)
     if not q:
         return _agentic("empty question", hops=1, rule="empty")
     if force_agentic:

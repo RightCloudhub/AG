@@ -18,6 +18,7 @@ class Command(StrEnum):
     RUN_BASELINE = "run-baseline"
     SCORE = "score"
     EVAL = "eval"
+    PARAPHRASE = "eval-paraphrase"
     GEN_CASES = "gen-cases"
     PILOT_TRIPLES = "pilot-triples"
     BADCASE = "badcase"
@@ -42,6 +43,7 @@ def _commands() -> dict[Command, Callable[[list[str]], None]]:
         Command.RUN_BASELINE: cli.run_baseline_main,
         Command.SCORE: cli.score_main,
         Command.EVAL: cli.eval_main,
+        Command.PARAPHRASE: cli.paraphrase_main,
         Command.GEN_CASES: cli.gen_cases_main,
         Command.PILOT_TRIPLES: cli.pilot_triples_main,
         Command.BADCASE: cli.badcase_main,
@@ -70,7 +72,8 @@ def _print_help() -> None:
         "Usage: python -m agentic_graphrag <command> ...\n"
         "Commands: ingest, build-graph, index, run-cases, run-baseline, score, eval,\n"
         "          gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck,\n"
-        "          export-reasoning-schema, query, reconcile, reindex, migrate-doc-ids"
+        "          export-reasoning-schema, query, reconcile, reindex, migrate-doc-ids,\n"
+        "          eval-paraphrase"
     )
 
 

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.agent.plan_dag import SubQuestion
+from agentic_graphrag.agent.planner_chinese import chinese_chain_text
 from agentic_graphrag.agent.relation_frames import (
     CLAUSE_REWRITES,
     FRAMES,
@@ -24,13 +25,14 @@ from agentic_graphrag.agent.relation_frames import (
     RelationFrame,
     frame,
 )
+from agentic_graphrag.core.text_normalization import normalize_text
 
 if TYPE_CHECKING:
     from agentic_graphrag.agent.planner_patterns import PlanContext
 
 _MIN_CHAIN = 2
 _MAX_CHAIN = 5
-_LEAD = re.compile(r"^(?:who|what|which(?: \w+)?) (?:is|are|was|were) (?:the )?")
+_LEAD = re.compile(r"^(?:who|what|which(?: \w+)?) (?:is|are|was|were) (?:(?:the|an?) )?")
 _OF = re.compile(r"^ of (?:the )?")
 # Trailing verb frames wrapping an inner chain: (pattern, frame key).
 _OUTER: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -74,7 +76,7 @@ class ParsedChain:
 
 def normalize_chain(question: str) -> str:
     """Lower-case and rewrite verb/clause forms into ``<noun> of`` form."""
-    text = re.sub(r"\s+", " ", question.strip().lower()).rstrip("?.! ")
+    text = normalize_text(question).casefold().rstrip("?.! ")
     for pat, repl in LEAD_REWRITES:
         text = pat.sub(repl, text, count=1)
     for pat, repl in CLAUSE_REWRITES:
@@ -95,7 +97,7 @@ def parse_any_chain(question: str, entities: list[str]) -> ParsedChain | None:
 def _parse(question: str, entities: list[str], *, min_frames: int) -> ParsedChain | None:
     if not entities:
         return None
-    text = _expand_possessives(normalize_chain(question), entities)
+    text = _normalized_input(question, entities)
     outer: RelationFrame | None = None
     for pat, key in _OUTER:
         m = pat.match(text)
@@ -114,6 +116,11 @@ def _parse(question: str, entities: list[str], *, min_frames: int) -> ParsedChai
         return None
     quals = inner.qualifiers + (("",) if outer else ())
     return ParsedChain(frames=frames, anchor=inner.anchor, qualifiers=quals)
+
+
+def _normalized_input(question: str, entities: list[str]) -> str:
+    question = chinese_chain_text(question, entities) or question
+    return _expand_possessives(normalize_chain(question), entities)
 
 
 def _expand_possessives(text: str, entities: list[str]) -> str:

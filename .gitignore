@@ -55,6 +55,18 @@ reports/*
 !reports/g2_dev_badcase.json
 !reports/rerank_eval.md
 !reports/rerank_eval_summary.json
+!reports/paraphrase_robustness.md
+!reports/paraphrase_baseline.jsonl
+!reports/paraphrase_baseline_summary.json
+!reports/paraphrase_candidate.jsonl
+!reports/paraphrase_candidate_summary.json
+!reports/paraphrase_4hop_baseline.jsonl
+!reports/paraphrase_4hop_baseline_summary.json
+!reports/paraphrase_4hop_candidate.jsonl
+!reports/paraphrase_4hop_candidate_summary.json
+!reports/paraphrase_paired.json
+!reports/paraphrase_g2_paired.json
+!reports/paraphrase_by_variant_paired.json
 !reports/pilot_build_graph_neo4j.log
 *.log
 

@@ -70,7 +70,7 @@ docker compose up -d                          # Neo4j 7474/7687 (neo4j/agentic-g
 PYTHONPATH=src .venv/bin/python scripts/p3_ev_offline.py
 ```
 
-All subcommands are also reachable as `python -m agentic_graphrag <command>` (ingest, build-graph, index, run-cases, run-baseline, score, eval, gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck, export-reasoning-schema, query). Only some have `agr-*` console scripts — `score`, `spotcheck`, `score-spotcheck` and `export-reasoning-schema` are `python -m` only. `pyproject.toml` sets `pythonpath = ["src"]` for pytest, so tests run without install; scripts use `PYTHONPATH=src`.
+All subcommands are also reachable as `python -m agentic_graphrag <command>` (ingest, reconcile, reindex, migrate-doc-ids, build-graph, index, run-cases, run-baseline, score, eval, eval-paraphrase, gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck, export-reasoning-schema, query). Only some have `agr-*` console scripts — `score`, `spotcheck`, `score-spotcheck`, `export-reasoning-schema`, `reconcile`, `reindex`, `migrate-doc-ids` and `eval-paraphrase` are `python -m` only. `pyproject.toml` sets `pythonpath = ["src"]` for pytest, so tests run without install; scripts use `PYTHONPATH=src`.
 
 ## Architecture
 

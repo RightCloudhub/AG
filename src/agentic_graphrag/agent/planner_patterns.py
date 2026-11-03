@@ -10,6 +10,7 @@ from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.planner_chain import match_relation_chain
 from agentic_graphrag.agent.planner_compound import match_compound
 from agentic_graphrag.agent.planner_constraints import match_constraint_intersection
+from agentic_graphrag.config_matching import question_matching_config
 
 # Relation / multi-hop cue constants (no magic strings scattered in matchers)
 _CEO = "ceo"
@@ -194,7 +195,7 @@ def match_shared_connections(ctx: PlanContext) -> list[SubQuestion] | None:
 def match_path_between(ctx: PlanContext) -> list[SubQuestion] | None:
     if len(ctx.entities) < 2:
         return None
-    if not any(k in ctx.ql for k in _PATH_CUES):
+    if not any(k in ctx.ql for k in (*_PATH_CUES, *question_matching_config().path_cues)):
         return None
     a, b = ctx.entities[0], ctx.entities[1]
     return [

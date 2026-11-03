@@ -1,0 +1,482 @@
+{
+  "base": {
+    "correct": 124,
+    "total": 240,
+    "accuracy": 0.5167,
+    "ci95": [
+      0.4537,
+      0.5791
+    ],
+    "latency_p50_ms": 31.0,
+    "latency_p95_ms": 66.0,
+    "llm_calls_mean": 0.0,
+    "by_category": {
+      "2hop": {
+        "correct": 38,
+        "total": 96,
+        "accuracy": 0.3958,
+        "ci95": [
+          0.3038,
+          0.4958
+        ]
+      },
+      "3hop": {
+        "correct": 45,
+        "total": 96,
+        "accuracy": 0.4688,
+        "ci95": [
+          0.3721,
+          0.5678
+        ]
+      },
+      "open": {
+        "correct": 41,
+        "total": 48,
+        "accuracy": 0.8542,
+        "ci95": [
+          0.7283,
+          0.9275
+        ]
+      }
+    },
+    "by_template": {
+      "ceo_competitor_producer": {
+        "correct": 32,
+        "total": 60,
+        "accuracy": 0.5333,
+        "ci95": [
+          0.4089,
+          0.6537
+        ]
+      },
+      "ceo_of_parent": {
+        "correct": 19,
+        "total": 48,
+        "accuracy": 0.3958,
+        "ci95": [
+          0.2702,
+          0.5369
+        ]
+      },
+      "ceo_parent_producer": {
+        "correct": 13,
+        "total": 36,
+        "accuracy": 0.3611,
+        "ci95": [
+          0.2248,
+          0.5242
+        ]
+      },
+      "ceo_prior_employers": {
+        "correct": 14,
+        "total": 30,
+        "accuracy": 0.4667,
+        "ci95": [
+          0.3023,
+          0.6386
+        ]
+      },
+      "competes_path": {
+        "correct": 41,
+        "total": 48,
+        "accuracy": 0.8542,
+        "ci95": [
+          0.7283,
+          0.9275
+        ]
+      },
+      "competitor_of_producer": {
+        "correct": 5,
+        "total": 18,
+        "accuracy": 0.2778,
+        "ci95": [
+          0.125,
+          0.5087
+        ]
+      }
+    }
+  },
+  "candidate": {
+    "correct": 193,
+    "total": 240,
+    "accuracy": 0.8042,
+    "ci95": [
+      0.7493,
+      0.8494
+    ],
+    "latency_p50_ms": 43.0,
+    "latency_p95_ms": 70.0,
+    "llm_calls_mean": 0.0,
+    "by_category": {
+      "2hop": {
+        "correct": 68,
+        "total": 96,
+        "accuracy": 0.7083,
+        "ci95": [
+          0.6108,
+          0.7898
+        ]
+      },
+      "3hop": {
+        "correct": 77,
+        "total": 96,
+        "accuracy": 0.8021,
+        "ci95": [
+          0.7114,
+          0.8695
+        ]
+      },
+      "open": {
+        "correct": 48,
+        "total": 48,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9259,
+          1.0
+        ]
+      }
+    },
+    "by_template": {
+      "ceo_competitor_producer": {
+        "correct": 52,
+        "total": 60,
+        "accuracy": 0.8667,
+        "ci95": [
+          0.7583,
+          0.9309
+        ]
+      },
+      "ceo_of_parent": {
+        "correct": 35,
+        "total": 48,
+        "accuracy": 0.7292,
+        "ci95": [
+          0.59,
+          0.8343
+        ]
+      },
+      "ceo_parent_producer": {
+        "correct": 25,
+        "total": 36,
+        "accuracy": 0.6944,
+        "ci95": [
+          0.5314,
+          0.82
+        ]
+      },
+      "ceo_prior_employers": {
+        "correct": 24,
+        "total": 30,
+        "accuracy": 0.8,
+        "ci95": [
+          0.6269,
+          0.9049
+        ]
+      },
+      "competes_path": {
+        "correct": 48,
+        "total": 48,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9259,
+          1.0
+        ]
+      },
+      "competitor_of_producer": {
+        "correct": 9,
+        "total": 18,
+        "accuracy": 0.5,
+        "ci95": [
+          0.2903,
+          0.7097
+        ]
+      }
+    }
+  },
+  "paired": {
+    "a_only": 0,
+    "b_only": 69,
+    "both": 124,
+    "neither": 47,
+    "p_value": 0.0
+  },
+  "verdict": "better",
+  "flipped_cases": [
+    {
+      "case_id": "g2-2hop-0001::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0001::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0004::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0004::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0005::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0005::synonym",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0006::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0006::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0011::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0011::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0015::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0015::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0017::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0017::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0030::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0030::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0041::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0041::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0043::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0043::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0045::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0045::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0046::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0046::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0057::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0057::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0088::synonym",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0088::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0089::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-2hop-0089::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0001::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0001::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0004::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0004::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0006::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0007::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0007::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0009::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0009::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0011::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0011::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0018::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0018::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0024::casual",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0024::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0024::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0034::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0034::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0044::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0044::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0047::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0047::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0048::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0048::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0049::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0049::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0051::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0051::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0055::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0055::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0059::chinese",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-3hop-0059::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0001::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0002::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0003::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0005::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0007::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0010::typo",
+      "candidate_correct": true
+    },
+    {
+      "case_id": "g2-open-0014::typo",
+      "candidate_correct": true
+    }
+  ]
+}

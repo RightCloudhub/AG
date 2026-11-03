@@ -1,0 +1,34 @@
+# Schema-level language aliases only. No entities, gold answers, or dataset IDs.
+entity_similarity_threshold: 0.90
+entity_similarity_margin: 0.05
+entity_min_chars: 8
+aliases:
+  ceo: [chief executive officer, chief executive]
+  parent company: [parent firm, holding company, controlling firm]
+  producer: [manufacturer, maker]
+  competitor: [rival]
+  suppliers: [vendors]
+  supplier: [vendor]
+  previous employers: [former employers, prior employers]
+  previous employer: [former employer, prior employer]
+  subsidiaries: [child companies]
+  subsidiary: [child company]
+  acquirer: [buyer]
+  headquarters: [head office]
+  relationship: [connection, connected, link, association]
+chinese_frames:
+  parent: [母公司, 控股公司]
+  subsidiary: [子公司]
+  ceo: [首席执行官]
+  producer: [生产商, 制造商]
+  competitor: [竞争对手]
+  supplier: [供应商]
+  acquisition: [收购的公司]
+  acquirer: [收购方, 买方]
+  founder: [创始人]
+  employer: [前雇主, 以前在哪些公司工作过, 之前在哪些公司任职, 过去在哪些公司工作, 曾在哪些公司任职, 以前在什么公司工作过]
+  alumni: [前员工]
+  participant: [参与方]
+  hq: [总部, 总部城市]
+  event: [参加的活动]
+path_cues: [关系, 联系]

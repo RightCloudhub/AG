@@ -75,6 +75,8 @@ retrieval:
     high_degree_threshold: 30
     relation_relevance_threshold: 0.12
 
+question_matching_path: configs/question_matching.yaml
+
 triage:
   enabled: true        # P3-PERF-01 — keep on for Fast Path P95 ≤3s simple facts
   escalate_fast_path: true

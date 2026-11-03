@@ -129,3 +129,48 @@ python -m agentic_graphrag gen-cases
 - [x] dev/heldout/guardrail 三分文件存在且 summary 可审计  
 - [x] 本规范文档入库  
 - [ ] 人工抽检比例达标（发布 G2 前由评测负责人签字）
+
+## 8. Paraphrase robustness dev suite
+
+`paraphrase.jsonl` contains 40 unchanged source questions from `g2_dev.jsonl`, each
+with five fixed, individually authored variants: `synonym`, `reordered`, `chinese`,
+`typo`, and `casual`. The original is included as `original` (240 rows total).
+IDs are `<g2 source id>::<variant>`; `metadata.original_id` and `metadata.variant`
+identify the six-form group. All six forms retain the source answer, hop count,
+category, path, and evidence. Chinese questions retain canonical proper names;
+typo variants contain one or two character errors in entity or relation words.
+No LLM generates variants at test time. Authorship is recorded as
+`agent_authored_semantic_review`, not human annotation sign-off.
+
+The selection includes eight 1-hop paths, sixteen 2-hop questions (eight parent/CEO,
+five CEO/prior-employer, three producer/competitor), and sixteen 3-hop questions
+(ten producer/competitor/CEO, six producer/parent/CEO). These are deliberately
+diverse development examples, not a random sample or heldout acceptance set.
+
+The source dev file has no 4-hop examples. The separately reported
+`paraphrase_4hop.jsonl` adds two six-form groups, approved as a supplement rather
+than altering dev golds. Their producer → parent → parent → CEO paths are checked
+edge by edge against `pilot_triples.jsonl`, including uniqueness at each step.
+
+Run the offline-default evaluator with:
+
+```bash
+PYTHONPATH=src python -m agentic_graphrag eval-paraphrase --no-llm
+PYTHONPATH=src python -m agentic_graphrag eval-paraphrase --no-llm \
+  --cases evals/datasets/paraphrase_4hop.jsonl --run-name paraphrase_4hop_offline
+```
+
+It uses the same QueryApp runner as `run-cases`, with triage enabled, memory stores,
+pilot triples, and answer/retrieval caches disabled. `--live` explicitly opts into
+the configured LLM while retaining the same graph; missing credentials fail
+instead of silently reporting an offline run as live. `--limit-groups N` selects
+whole groups for smoke tests. Each run writes predictions and a summary with
+dataset/graph hashes, per-variant accuracy and strict entity-set accuracy.
+
+Consistency is the fraction of complete six-form groups with the same correct
+answer: exact gold entity sets for entity-valued answers; otherwise identical
+normalized answer text containing every gold token (including relation labels).
+All six must also pass the existing `score_pair`. Missing or errored predictions
+count as incorrect. Duplicate/incomplete groups and changed gold labels are rejected.
+See [the measured results](../../reports/paraphrase_robustness.md) for scorer limits,
+remaining expected planner failures, and reproduction commands.
