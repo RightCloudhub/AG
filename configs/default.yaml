@@ -31,7 +31,7 @@ guardrails:
   # Opt in after paired evaluation on your retrieval stack. Disabled = same-stack
   # agentic baseline. All existing hop/call/token/time ceilings still apply.
   requirement_register:
-    enabled: false
+    enabled: false     # Legacy direct-graph switch; live single mode always uses the register.
     seed_enabled: true
     updates_enabled: true
     delta_enabled: true

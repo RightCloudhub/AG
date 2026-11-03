@@ -74,7 +74,7 @@ def test_verifier_uses_configured_model_and_isolated_prompt(monkeypatch):
     runtime = AgentRuntime(executor, llm, guards, budget=budget)
     state = runtime.node_critic(runtime.node_executor(start(runtime)))
     assert state["done"]
-    assert [c["model"] for c in calls] == ["proposer", "proposer"] + ["independent-judge"] * 2
+    assert [c["model"] for c in calls] == [llm.light_model, "proposer"] + ["independent-judge"] * 2
     assert all(c["temperature"] == 0.3 for c in calls[2:])
     assert llm.strong_model == "proposer" and llm.light_model == "gpt-4.1-mini"
     assert budget.llm_calls == 4

@@ -3,10 +3,19 @@
 from dataclasses import replace
 
 from agentic_graphrag.agent.memory import MemoryState
-from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.agent.requirements import Register, Requirement
 from agentic_graphrag.agent.state import AgentState, active_register
 from agentic_graphrag.core.enums import CriticAction, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
+
+
+def fallback_register(question: str) -> Register:
+    return Register(
+        question=question,
+        items={
+            "req_0": Requirement(req_id="req_0", text=question, status=RequirementStatus.ACTIVE)
+        },
+    )
 
 
 def with_register_memory(state: AgentState) -> AgentState:

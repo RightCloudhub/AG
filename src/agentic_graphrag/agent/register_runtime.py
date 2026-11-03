@@ -9,6 +9,7 @@ from agentic_graphrag.agent.options import AgentDeps
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_answer import answer_from_register
 from agentic_graphrag.agent.register_helpers import (
+    fallback_register,
     finish_register_round,
     stopped_state,
     with_register_memory,
@@ -35,15 +36,17 @@ from agentic_graphrag.agent.register_state import (
     RegisterRuntimeState,
     VerificationEvent,
 )
-from agentic_graphrag.agent.requirements import Register, Requirement, compose
+from agentic_graphrag.agent.requirements import Register, compose
 from agentic_graphrag.agent.state import AgentState, active_register
 from agentic_graphrag.config import load_prompt
+from agentic_graphrag.config_roles import ModelRole
 from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep
 from agentic_graphrag.governance.budget import BudgetExceeded
-from agentic_graphrag.llm.verifier import build_verifier
+from agentic_graphrag.llm.roles import role_client
+from agentic_graphrag.llm.verifier import build_role_verifier
 from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 
@@ -56,15 +59,15 @@ class RegisterRuntime:
         self.round_limit = min(self.config.max_rounds, deps.guard_cfg.max_hops)
         self.verifier: LLMClient | None = None
 
-    def _llm(self, state: AgentState) -> LLMClient | None:
-        return self.llm if state.get("allow_llm", True) else None
+    def _llm(self, state: AgentState, role: ModelRole = "researcher") -> LLMClient | None:
+        return role_client(self.llm, role) if self.llm and state.get("allow_llm", True) else None
 
     def enabled(self, state: AgentState) -> bool:
         llm = self._llm(state)
         if not self.config.enabled or llm is None:
             return False
         if self.config.verifier_enabled and self.verifier is None:
-            self.verifier = build_verifier(llm, self.config.verifier)
+            self.verifier = build_role_verifier(self.llm or llm, self.config.verifier)
         return True
 
     def node_planner(self, state: AgentState) -> AgentState:
@@ -137,20 +140,13 @@ class RegisterRuntime:
             if context_size(messages) > self.config.context_limit_tokens:
                 raise ValueError("seed context limit")
             register = initialize(
-                state["question"], seed, self._llm(state), config=self.config, audit=audit
+                state["question"], seed, self._llm(state, "triage"), config=self.config, audit=audit
             )
             return register, "", audit
         except Exception as exc:
             # Fall back to a single-requirement register, loudly (O-9).
             record_degradation("requirement_register", REASON_LLM_UNAVAILABLE, exc)
-            register = Register(
-                question=state["question"],
-                items={
-                    "req_0": Requirement(
-                        req_id="req_0", text=state["question"], status=RequirementStatus.ACTIVE
-                    )
-                },
-            )
+            register = fallback_register(state["question"])
             return register, type(exc).__name__, audit
 
     def node_executor(self, state: AgentState) -> AgentState:
@@ -282,7 +278,7 @@ class RegisterRuntime:
         }
         chain = answer_from_register(
             state,
-            self.llm,
+            self._llm(state, "writer"),
             allow_llm=self._llm(state) is not None and not self.guards.state.tripped,
             context_limit=self.config.context_limit_tokens,
         )
