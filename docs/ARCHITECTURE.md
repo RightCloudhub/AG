@@ -119,78 +119,76 @@ flowchart LR
 
 ## 2. Agent 编排 agent
 
-### 2.1 QueryPipeline：路由与策略
+### 2.1 QueryPipeline：路由、模式和预算
+
+`agent/pipeline.py` 是所有入口的共同执行路径。`iter_query_progress()` 产出进度事件，终止事件固定为 `(__final_chain__, chain)`；非流式入口仅消费同一个迭代器。问候 / 能力询问直接回答；单跳事实走 Fast Path，证据不足时携带已取证据升级；多跳与总结问题进入 Deep。线上 triage 使用 `roles.triage`，总结规则优先于普通单实体规则，并标记 `question_kind` 和 `budget_tier`。
+
+`agent.mode` 默认为 `single`：线上 Deep 使用原 requirement register runtime，旧 `requirement_register.enabled` 不再关闭该线上路径。`multi` 显式启用下图的黑板调度器。`--no-llm` 始终使用原确定性 planner → executor → critic → answer 路径，忽略 multi 模式；不改变离线启发式或检索后端。
 
 ```mermaid
 flowchart TD
-    Q["问题"] --> CC{"Router: chitchat.py<br/>问候 / 能力询问?"}
-    CC -->|是| DIRECT["Direct：直接回答，不检索"]
-    CC -->|否| TR{"triage.py<br/>规则前端 + 可选轻量 LLM"}
-    TR -->|简单单实体事实| FP["Fast：fast_path.py<br/>单轮检索 + 生成"]
-    TR -->|多跳 / 复杂| AG["Deep：LangGraph 循环"]
-    FP --> ESC{"loop_policy.py<br/>证据不足?"}
-    ESC -->|是，升级一次<br/>携带 Fast 已取证据| AG
-    ESC -->|否| OUT["ReasoningChain<br/>+ prompt_versions"]
-    AG --> OUT
+    Q[问题] --> T{Triage：规则 + 可选模型}
+    T -->|chitchat / small| D[直接回答]
+    T -->|single_hop / small| F[Fast：检索 + writer]
+    T -->|multi_hop / standard；summary| M{agent.mode / allow_llm}
+    F -->|证据不足；带入 evidence| M
+    M -->|no-llm| O[原确定性 planner / executor / critic / answer]
+    M -->|single + live| S[原 register runtime]
+    M -->|multi + live| B[Seed retrieval + 初始化 proposals]
+    B --> G[Merge：apply_invariants 唯一发布 register]
+    G --> U{Supervisor：依赖、预算、停止规则}
+    U -->|所有可负担的 ready requirements| SEND[LangGraph Send；max_parallel 限流]
+    SEND --> R1[Researcher A：局部 retrieve / reason 循环]
+    SEND --> R2[Researcher B：局部 retrieve / reason 循环]
+    SEND --> RN[Researcher N：局部 retrieve / reason 循环]
+    R1 --> BB[Reducers：evidence + proposals + events + ledger]
+    R2 --> BB
+    RN --> BB
+    BB --> V[独立 verifier：每轮批量、仅 requirement + passages]
+    V --> G
+    U -->|clear / budget / blocked / rejected / timeout| W[Writer：引用、partial / abstain]
 ```
 
-`agent/pipeline.py` 是**唯一**的执行实现：`iter_query_progress()` 逐步产出事件，终止事件固定为 `(__final_chain__, chain)`。SSE 直接消费事件；非流式的 `loop.run_query()` / `run_agentic_query()` 只是把同一个迭代器消费到结束（`run_pipeline` / `drain`），不再维护第二套代码。Fast 升级到 Deep 时，Fast 已检索到的证据作为初始 `evidence` 进入 Agent 状态（`metadata.inherited_evidence` 记录条数）。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
+`configs/default.yaml` 的 `roles.triage / researcher / verifier / writer` 支持独立模型和输入 / 输出每百万 token 的美元价格；未指定模型时分别继承 light / strong / light / strong。客户端经 `llm/provider.py::for_role()` 与 `for_budget()` 复制，分支不共享可变预算计数。multi 要求 researcher 与 verifier 模型不同；价格未配置或 embedding 费用无法归属时 `cost_usd=null`，不推算美元成本。
 
-### 2.2 LangGraph 状态机
+### 2.2 黑板与局部研究子图
 
-```mermaid
-stateDiagram-v2
-    [*] --> planner
-    planner --> executor: 子问题 DAG<br/>cap_plan_breadth
-    executor --> critic: 执行就绪子问题
-    executor --> answer: 护栏触发 / 计划耗尽
-    critic --> executor: next_hop / rewrite
-    critic --> answer: sufficient / give_up
-    answer --> executor: evidence_gap（缺证，≤1 次且 hop 未耗尽）
-    answer --> [*]
-```
-
-| 节点 | 实现 | 说明 |
+| 职责 | 实现 | 约束 |
 |---|---|---|
-| planner | `planner.py` `plan_dag.py` `planner_patterns.py` | 问题 → 带依赖的子问题 DAG，`{from:sqN}` 占位由上游结论物化；广度受 `max_sub_questions` 限制，被裁剪项写入 metadata |
-| executor | `executor.py` `executor_plan.py` `executor_dispatch.py` `parallel_branches.py` `tools/registry.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），**所有工具调用都经 `ToolRegistry.invoke()`**（ToolSpec 含 schema、成本、超时、权限；护栏 / 预算 / trace 以中间件挂在注册表上），并行执行后 RRF 融合；就绪且互不依赖的 DAG 节点并发检索、共享同一 hop |
-| critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
-| answer | `generation/answer.py` `generation/verdict.py` | 引用绑定生成答案。校验失败按 Verdict 分类：**表述类**（无 claim、引用 id 缺失或越界）在生成层内定向重生成一次；**缺证类**（claim 不被证据支持、不蕴含）在仍有 hop 时输出 `evidence_gap`，经 answer → executor 回边补充检索（每次运行最多 1 次），否则重生成后走保守回答 |
+| Bootstrap / Supervisor | `multi_bootstrap.py` / `multi_supervisor.py` | Seed、初始化建议；只选择依赖已满足的需求；分配互不重叠的分支预算并预留 verifier / writer；按尝试次数公平调度 |
+| Researcher | `researcher.py` / `research_state.py` / `research_tools.py` | 每个实例只读问题、自己的 requirement（含 anchors / notes）、已知 evidence ids 与局部 passages；最多 `max_tool_calls` 次工具和 `max_research_calls` 次模型调用；只输出 proposals / evidence / events / receipts |
+| Query dedup | `research_cache.py` | tenant + run + normalized tool arguments 的 single-flight cache；成功的空结果也复用，失败可重试；结果随 checkpoint 保存 |
+| Merge | `multi_merge.py` / `register_invariants.py` | 唯一发布 `register`；校验 tenant / run / chunk 身份，合并批量判断后调用 `apply_invariants` |
+| Conflicts | `multi_conflicts.py` | 同一实体 / 关系 / scope 的有出处事实出现不同值时，创建稳定 id 的 `Resolve conflict` 需求，重新打开并阻塞争议需求；不静默选择事实 |
+| Verifier | `multi_verifier.py` | 每轮一次独立模型判断；不接收 researcher 对话或整个 register；缺证、漏判、重复 verdict 或模型失败按拒绝处理 |
+| Writer | `multi_writer.py` / `register_answer.py` / `generation/` | 使用已有引用校验；未解决需求保留在 `missing_info`；遵守 partial / abstain；multi 预算或模型失败不退回演示语料启发式 |
 
-`AgentState` 只在 `agent/state.py` 定义一次，是 LangGraph 兼容的 `TypedDict`，当前 `state_version=3`。初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；节点之间传递领域对象，不再把状态反复 `model_dump()` / `model_validate()`。
+当前 `AgentState.state_version=4`，仍由 `agent/state.py::initial_state()` 唯一构造。领域对象只在 checkpoint / SSE / API 边界序列化。
 
-| 状态通道 | 运行时类型 | 更新语义 |
+| 状态通道 | 类型 | 更新语义 |
 |---|---|---|
-| `chain` | `ReasoningChain` | 修改前 `model_copy(deep=True)`，保留先前 checkpoint 的推理步骤 |
-| `sub_questions` | `list[SubQuestion]` | 直接访问 DAG 对象，修改时复制列表 |
-| `evidence` | `dict[str, Candidate]`，以 id 为键 | 显式 reducer 合并追加，重复 id 保留首次证据；executor 返回完整证据池时经 `Overwrite` 保持原替换语义 |
-| `register` | `Register \| None` | 登记表 planner 初始化，critic 复制后更新 |
-| `register_runtime` | `RegisterRuntimeState` | 汇集原九个 `register_*` 辅助通道，与 `register` 一起替代十个旧通道；事件 reducer 按 `(type, round)` 追加去重，其余字段采用最新更新 |
-| `memory` | `MemoryState` | 复制可变容器，共享只读 `Candidate`，保留去重、排除假设、路径与结论语义 |
-| `prefetched` | `dict[str, tuple[list[Candidate], list[ToolCallTrace]]]` | 并行预取结果直接停放 / 取出，不经过 JSON |
+| `register` | `Register \| None` | multi 中仅 merge 写入；模型输出均为建议 |
+| `evidence` | `dict[str, Candidate]` | chunk id reducer 去重，保留首次证据；旧离线 executor 通过 `Overwrite` 保持原行为 |
+| `proposals` / `events` | `list[Proposal]` / `list[BranchEvent]` | append reducer；稳定 entry id 去重，不一致重放报错 |
+| `budget_ledger` | `list[BudgetEntry]` | append reducer；run / tenant / requirement / role 的 allocation 和 usage；按 usage 求和，批量 verifier token 等分且余数归前项，调用只计一次 |
+| `tasks` / `verifications` | `list[ResearchTask]` / `list[VerificationResult]` | 每轮替换；任务预算写入 checkpoint |
+| `query_cache` | scoped key → candidates | reducer 合并；重试恢复已完成检索 |
+| `register_runtime` | `RegisterRuntimeState` | 保留尝试、拒绝次数、停止原因与原登记表审计事件 |
+| `chain` / `memory` | `ReasoningChain` / `MemoryState` | 修改前复制，保持以前 checkpoint 的快照 |
 
-节点采用先复制再修改的方式，避免修改已产出的状态或早期 checkpoint。普通流程仍在首次 executor 检索后用共享记忆中的证据池替换 Fast Path 种子证据，空检索与重复 id 的处理也保持原行为。新查询通过 `Overwrite` 重置两个追加通道，复用 `thread_id` 时不会继承上一查询的证据或登记表事件。
+新查询以 `Overwrite` 清空追加通道，复用 thread 不带入以前的证据 / 事件；resume 使用 `graph.stream(None, config)`，保留 LangGraph 已完成任务的 pending writes。checkpoint thread key 对 tenant + thread 做哈希，恢复时再次核对 tenant 和原问题。调用方需保留同一个 checkpointer，或配置持久化 SQLite；默认内存 saver 不跨进程持久化。实际子图失败恢复测试分别覆盖 `max_parallel=1` 和 `3`：成功兄弟不重跑，失败分支复用已保存检索。
 
-### 2.3 运行时支撑
+### 2.3 护栏、观测和迁移
 
-```mermaid
-flowchart LR
-    RT["AgentRuntime<br/>loop_runtime.py"] --> MEM["MemoryState<br/>证据去重 · 排除假设 · 路径防环"]
-    RT --> GR["Guardrails<br/>hop · 广度 · LLM 调用 · token · 超时"]
-    RT --> CP["StateCheckpointer<br/>内存 / SQLite · v1/v2 → v3"]
-    RT --> REC["loop_recover.py<br/>GraphRecursionError 恢复"]
-    RT --> STR["pipeline.py<br/>stream(updates) → 事件"]
-    GR --> BUD["governance/BudgetTracker<br/>（唯一资源计量）"]
-    RT --> REG["tools/registry.py<br/>ToolRegistry + 中间件"]
-```
+`agent.max_parallel` 默认 **1**，支持显式设置 **3**（上限 16）。这限制同时运行的 researcher，而不是仅预取检索；依赖链仍逐轮执行，纯链问题不会因增加并行数而加速。`budget_tiers` 配置 small / standard / summary；Fast Path 使用 small 上限，升级前恢复全查询上限并保留已用量；multi 按 tier 和请求 / tenant 护栏的较小值执行。分支输出上限与 prompt 的保守字节界共同限制模型请求；初始化扣除已有用量并为 verifier / writer 留预算。
 
-Guardrails 只负责控制流（hop、广度、截止时间），资源计量（LLM 调用、token、embedding 调用）统一由 `governance/budget.py` 的 `BudgetTracker` 负责，Guardrails 通过 `check()` 查询余量。hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
+停止原因包括 `clear`、`round_budget`、`token_budget`、`call_budget`、`dependency_blocked`、`verifier_rejection_cap`、`timeout`。清空 register 不等同于回答完整：被 verifier 拒绝至上限而退休的需求仍进入缺失信息。冲突需求同样受这些预算约束。
 
-`checkpointer.py` 工厂与 `build_graph()` 统一包裹 `StateCheckpointer`（`state_checkpointer.py`）。默认 `AgentStateSerializer`（`state_serde.py`）在写入字节时用批量 `TypeAdapter` codec 序列化模型及容器，读取时恢复原类型；调用方提供的自定义 serializer 保留。内存与 SQLite 后端及同步 / 异步接口使用同一迁移入口。
+每个 researcher 调用有一个 `agent.researcher` OTel span，含 branch_id、req_id、role、model、tenant_id、run_id、tokens、outcome；异常保留 error outcome。SSE 沿用 `sub_question / thinking / hop_done`，增加 `branch_id` 等字段。HopRail 按 branch 区分交错事件，同轮最多展开 3 个分支；更大的组折叠成一个状态节点，移动端沿用纵向轨道。
 
-`state_migration.py` 在加载边界升级无版本、v1、v2 快照：将 `memory_snapshot`、`requirement_register`、`register_*` 和旧预取 payload 转成 v3 对象，同步迁移通道版本、`versions_seen` 与待提交写入，保留 `Overwrite` 命令。未知未来版本拒绝加载。节点内不执行迁移。
+`state_migration.py` 把无版本 / v1 / v2 / v3 快照升级到 v4；未知未来版本拒绝加载。typed serializer 和 `StateCheckpointer` 同时支持内存与可选 SQLite。旧 offline graph 的 recursion recovery 保留；multi 的节点失败向调用方报告，由保存的 checkpoint 显式恢复。
 
-状态只在 checkpoint、`loop_stream` / SSE 事件和 API 输出边界序列化：`loop_stream_events.py` 从类型化步骤生成事件，最终链的登记表审计 metadata 在 pipeline 出口转成 JSON，普通响应继续使用 API envelope。LLM 消息仍按提示契约生成 JSON 文本，不将文本回灌为 AgentState。四跳离线基准脚本为 `scripts/benchmark_agent_state.py`，同时报告公共 Pydantic 方法耗时和包含 checkpoint 的完整查询耗时。
+迁移分五个提交：黑板兼容层 → 串行 researcher → 并行 3 → 角色模型 → 线上 single 使用 register。评估命令、实际结果和上线限制见 [multi_agent_eval.md](../../reports/multi_agent_eval.md)。在真实模型对比证明无准确率回退之前，配置默认值保持 `agent.mode: single`。
 
 ---
 

@@ -28,8 +28,8 @@ agent:
   max_output_tokens: 1500
 
 guardrails:
-  # Opt in after paired evaluation on your retrieval stack. Disabled = same-stack
-  # agentic baseline. All existing hop/call/token/time ceilings still apply.
+  # Live single mode uses the register; multi is controlled by agent.mode.
+  # The enabled field remains for configuration compatibility and offline runs.
   requirement_register:
     enabled: false     # Compatibility field; live graphs always use the register.
     seed_enabled: true
@@ -37,7 +37,7 @@ guardrails:
     delta_enabled: true
     verifier_enabled: true
     verifier:
-      model: null  # Use llm.light_model; set a distinct judge model on the chat endpoint.
+      model: null  # Legacy override; otherwise select roles.verifier.
       temperature: 0.0
       max_rejections: 2
     answer_policy: partial  # partial | abstain; factual claims still require citations

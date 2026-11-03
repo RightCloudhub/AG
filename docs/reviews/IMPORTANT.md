@@ -358,3 +358,5 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 ---
 
 *关闭某项时：更新当前状态与阶段清单，过程和验证结果写入 CHANGELOG；门禁 JSON / 风险状态尽量同一变更集更新。*
+
+- 2026-11-04：multi-agent 黑板 / Send researcher 迁移已分步落地；默认 single；退化检索 live P95 约 45s，8s 目标未达，准确率上线门槛尚未证实；验证结果与后续工作见 [reports/multi_agent_eval.md](../../reports/multi_agent_eval.md)。
