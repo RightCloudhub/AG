@@ -204,7 +204,7 @@ ADR-007 的独立 Web 应用使用本地 `web/static/vendor/vue-router.esm-brows
 1. **正式开发机**：只用 `docker compose`，不要把 JDK/Neo4j 解压进仓库。  
 2. 若必须 vendoring 本地二进制，放到 **`.tools/`**（已建议 gitignore，见下），并在本文件追加版本与校验和。  
 3. 门禁 C3 通过判据仍是：**Bolt 上真实 Neo4j**（`backend=neo4j`），内存图不算 C3 通过。  
-4. 变更镜像 tag（如升级 Neo4j 5.26 → 更新）时：改 `docker-compose.yml` + 本文件 + 简短 changelog。
+4. 变更镜像 tag（如升级 Neo4j 5.26 → 更新）时：改 `docker-compose.yml` + 本文件 + [CHANGELOG.md](../../CHANGELOG.md)。
 
 ### `.gitignore` 建议条目（若使用项目内 `.tools/`）
 
@@ -262,13 +262,6 @@ rm -f "$NEO4J_HOME/.password_set"
 
 ---
 
-## 8. 变更记录
+## 8. 变更追踪
 
-| 日期 | 变更 |
-|------|------|
-| 2026-07-20 | 首次记录：`/tmp` Temurin 17.0.19 + Neo4j 5.26.0 tarball；对照 `docker-compose.yml` 的 neo4j/qdrant 镜像 |
-| 2026-07-20 | 补充：tarball Neo4j 已能 start，但初始密码/已有 data 导致认证失败；增加重置步骤 |
-| 2026-07-21 | P5-UI-01 / ADR-006：§3 增加 Vue 3.5.13 运行时（浏览器 ESM / vendor，**非 npm**）与 §3.1 vendor 小节 |
-| 2026-10-31 | Web 图标：§3.2 记录 Lucide 1.65.0（ISC）vendored 子集与生成器 `scripts/build_lucide_icons.mjs`，对齐 `Prompt.md` §3.3 |
-| 2026-11-02 | 文档同步：§3.1 改为记录当前加载方式（静态 ESM import，无 CDN 兜底与 `VUE_VERSION`），修正 vendor 说明文档相对链接 |
-| 2026-11-03 | 增加可选 TEI rerank profile、CPU 镜像与模型卷，记录重排故障回退、本地适配器及未通过 live 验收的默认关闭策略 |
+运行时版本与配置变更统一记录在 [CHANGELOG.md](../../CHANGELOG.md)。

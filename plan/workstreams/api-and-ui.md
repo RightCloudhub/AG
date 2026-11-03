@@ -142,7 +142,7 @@
 
 - **技术形态不变**：ADR-006 零构建、Vue 3.5.13 钉版、无新运行时依赖（视图切换自研 hash，不引入 vue-router）——**无需新 ADR**。
 - **API 前置两项**（M0，已交付）：`GET /v1/me` 身份回显（导航按角色显隐，避免 403 试探污染 ENT-03 审计流）；`GET /v1/ingest-tasks` 列表分页。
-- **视觉基准（2026-08-08）**：「制图室」方向——宋体展示层 + 图纸纸面网格 + 墨青/朱砂令牌 + 印章状态语言；唯一权威 [docs/design/UI_DESIGN.md](../../docs/design/UI_DESIGN.md)。**2026-10-31 更新**：v2 已按 `Prompt.md` 重做为「推理笔记本」（§10）；「制图室」方向不再执行，保留备案（见 IMPORTANT §6）。
+- **视觉基准**：「推理笔记本」靛夜 / 晨纸双主题，当前规范见 [UI_DESIGN.md](../../docs/design/UI_DESIGN.md) §10；早期「制图室」方向见 [CHANGELOG](../../CHANGELOG.md#ui-drafting-room)。
 - 权威计划（模块行数预算 / 里程碑 U-01…U-15 / 验证清单）：[phases/p5-ui-02-console-replan.md](../phases/p5-ui-02-console-replan.md)。
 
 ### 2.8 前端已声明、后端尚未实现的接口契约（2026-10-31）

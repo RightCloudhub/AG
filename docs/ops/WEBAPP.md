@@ -203,9 +203,8 @@ admin 服务 key 可以管理身份库中对应的租户，但不能执行用户
 - CLI 评测使用自己的隔离 StoreBundle 和显式无租户路径，仍可读取演示语料。
   检索缓存将无租户与 default 分开；缓存 key 使用结构化编码，避免分隔符碰撞。
 
-## 验证记录
+## 验证边界
 
-分步提交和实测结果记录在 [多租户实施记录](../../plan/workstreams/multitenant-webapp.md)。
-使用指南的离线流程已用临时 SQLite 和运行目录验证：注册、空间切换、导入两份样例、
-开发邮件链接和服务密钥均通过；`doc_01` / `doc_02` 入图后，快速与多跳问答均返回 Elena Varga。
-SQLite 单测不代表 PostgreSQL 或真实图／向量后端已完成部署验证。
+离线流程验证见 [CHANGELOG](../../CHANGELOG.md#webapp-validation)。
+PostgreSQL、真实图／向量后端与 SMTP 送达仍需部署验证；当前待办见
+[IMPORTANT.md](../reviews/IMPORTANT.md) §6。

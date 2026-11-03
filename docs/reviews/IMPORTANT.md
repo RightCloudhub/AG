@@ -16,21 +16,21 @@
 | ⚪ | 排在后续阶段（未逾期） |
 | ⬛ | V1 明确不做 / 仅规模化立项 |
 
-门禁翻转、任务关闭或评审接受新延期时，请同步更新本文件。
+门禁翻转、任务关闭或评审接受新延期时，更新本文件的当前状态，并将变更过程写入 [CHANGELOG](../../CHANGELOG.md)。
 
 ---
 
 ## 0. 当前态势（快照）
 
-需求登记表（2026-10-23）：[x] 状态/不变量、实体锚与依赖调度、独立 Verifier
-提示、checkpoint/SSE 审计、部分答案与弃答配置、同配置关闭开关、对齐与归因
-分析工具；[ ] 真实 LLM 下 HotpotQA / 2Wiki / MuSiQue 各 1000 题、多种子方差
-及费用评估；[ ] 关闭不变量的研究消融（产品运行路径始终校验不变量）；
-[ ] 四跳覆盖率与 Verifier 误判的真实检索栈评估；[ ] 无证据“最可能答案”策略
-需另行确定引用与置信度约束。默认不启用登记表，`--no-llm` 保留原流程。
-本次改动前 G2 离线基线 157/200，低于 CI 下限 167/200，属于既有待修复缺口；
-不要据此降低门槛。设计与验证记录见
+需求登记表默认关闭，`--no-llm` 保留确定性流程。状态不变量、实体锚与依赖调度、
+独立 Verifier 配置、checkpoint/SSE 审计、部分答案与弃答配置、累计否决退休及
+跨跳收敛提醒已实现。仍需真实 LLM 配对评估：HotpotQA / 2Wiki / MuSiQue 各 1000 题、
+多种子方差与费用、四跳覆盖率及 Verifier 误判；关闭不变量的研究消融与无证据
+“最可能答案”的引用/置信度约束仍待确定。设计见
 [REQUIREMENT_REGISTER.md](../design/REQUIREMENT_REGISTER.md)。
+
+本页只维护当前状态；历次变更、验证数字和关闭原因见
+[CHANGELOG.md](../../CHANGELOG.md)。
 
 | 项 | 状态 |
 |----|------|
@@ -39,22 +39,11 @@
 | P2-ENTRY-01 | **工程入场允许**（合成语料 + C2 live 配额 caveat） |
 | 阶段二 MVP 代码 | **P0 代码 + 金标 ≥200 + dev offline 评测** 已齐；**正式 G2 效果**仍 Conditional |
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
+| 离线 CI | POC ≥30/31、G2 ≥196/200，probe ≥52/54 与 ≥19/20；金标审计 `--max-flagged 0` 阻塞合并 |
+| AgentState | v3 对象状态、追加 reducer、复制后修改、v1/v2 checkpoint 迁移及边界序列化已实现；见 [类型重构验证](TYPED_AGENT_STATE_PR.md) |
+| 解析与摄取 | 统一解析端口、签名/编码校验、MinerU、token 分块、UUID/版本/hash 去重、chunk checkpoint、partial/reconcile、租户隔离删除与 reindex 已实现；线上迁移和模型切换见 [RUNBOOK](../ops/RUNBOOK.md) |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
-| 2026-07-22 | badcase：no_answer 评分 + critic 续跳；真域剧本 `docs/ops/REAL_DOMAIN_PLAYBOOK.md`；P95 脚手架 `p3_load_http.py` |
-| 本环境 | SenseNova chat OK；embedding 易 401（需 `LLM_EMBEDDING_*`）；Qdrant 常未起 |
-| 2026-07-23 | 审计修复：租户缓存/审计隔离、全局锁/SSE、计划状态机、RRF 合并、引用门禁收紧、UI API Key；**3-hop heldout 仍须重跑** |
-| 2026-07-23 | 静态架构审计通过（边界/分层/密钥无违规）；新增 `docs/ARCHITECTURE.md`（模块地图 + 优化建议 P-A1…A5 **仅记录未实施** + 验证清单）；本环境 `.venv` 缺失，门禁未跑 |
-| 2026-07-24 | 企业级管控审计：排障/权限/并发/数据安全/审计 🟡 部分、日志集成/RPA 集成 ❌ 缺失（**全 src 零应用日志**）；规划 P5-ENT-01…08 见 `docs/reviews/ENTERPRISE_READINESS.md`（**仅规划未实施**；ENT-01/03/06 标 G4 前置） |
-| 2026-07-25 | ENT 实施完成（RPA 除外）：ENT-01/02/03/04/05/06/08 代码 + 单测已交付，ENT-07/RPA 按范围不实施。`pytest tests/unit --cov` 287 passed / 83.3%，ruff/format PASS；仍需 check_code_metrics 拆分收口及 Redis/Neo4j/Qdrant/OTLP 部署验证。 |
-| 2026-07-25 | **文档同步（ENT 收口）**：runbook 全量增补（RBAC/错误码对照/日志字段/四点回查/worker/保留清理/告警规则）；ENTERPRISE_READINESS 内部矛盾清理（§4/§5 状态与 §3.5 对齐）；README / ARCHITECTURE / phase-4/5 / cicd-observability / api-and-ui / CLAUDE.md 对齐实现。静态复核：全部 src 文件 `wc -l` ≤300（最大 `config.py` 298）；`check_code_metrics`（函数级）与全套门禁**复跑仍待运行环境** |
-| 2026-10-31 | **Web 聊天界面三栏 + 分步向导改版（已实施）**：左侧会话历史 / 中间对话流 / 右侧「推理链 · 证据 · 子图」工作区；提问向导、澄清卡片、分步进度条、引用角标定位、追问与反馈原因、知识导入向导；文案集中 `web/static/js/i18n.js`。后端缺失的 5 个接口以 `FeatureFlag` 关闭并降级，契约见 [`plan/workstreams/api-and-ui.md`](../../plan/workstreams/api-and-ui.md) §2.8；差异与挂账见 §6「前端向导改版」 |
-| 2026-10-31 | **Web「推理笔记本」v2 重设计（已实施，同日）**：按 `Prompt.md` 放弃左导航 + 单栏聊天，改为 顶栏 + 笔记本栏 + 问题页（标题 → HopRail → 结论与引用 → 元信息）+ 检查器（证据 / 子图 / 日志）；靛夜 / 晨纸双主题与六跳色令牌；命令面板、`@` / `/` 菜单、快捷键；管理视图迁入 `js/admin/`。按 `design-taste-frontend` app-screen 流程实施并在 headless Chromium 中实测 0 FAIL；视觉规范 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md) §10 |
-| 2026-10-31 | **Web 图标与动效对齐参考 demo（已实施，同日）**：图标改用 Lucide 几何（vendored 子集 `web/static/vendor/lucide-icons.js`，由 `scripts/build_lucide_icons.mjs` 从 `lucide-static` 1.65.0 生成，ISC，名称表为唯一来源），品牌标记 `mark` 为唯一自绘字形；动效采用 demo 词表 `enter-note` / `enter-node`（跳节点 55ms 级联）/ `panel-in` / `breathe` / `spin`，`prefers-reduced-motion` 下只留透明度。22 个状态在 headless Chromium 实测 0 FAIL（对话/抽屉快照按 `--allow covered-text`）；规范同步 `docs/design/UI_DESIGN.md` §10 与 `docs/EXTERNAL_RUNTIMES.md` |
-| 2026-09-07 | **P5-UI-02 角色感知控制台交付**：壳 + hash 路由 + 五视图（问答 / 知识 / 审核 / 可观测 / 图谱浏览）；M0 前置两项（`GET /v1/me`、`GET /v1/ingest-tasks` 分页）随批落地（`api/routes/workspace.py`）；2026-10-31 v2 重设计后管理视图位于 `js/admin/` |
-| 2026-08-08 | **P5-UI-02 前端重规划立项**（已于 2026-09-07 交付）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向；2026-10-31 起由 v2「推理笔记本」取代，见 UI_DESIGN §10） |
-| 2026-11-02 | **文档同步（代码复核）**：BL-01/03/12/13/14 状态由「挂账」改为已解挂（对齐 `BUSINESS_LOGIC.md` §5）；`ARCH_OPTIMIZATION_V2.md` 标注当时的离线基线与现 CI 门禁差异；`DESIGN_VS_IMPLEMENTATION.md` 增补 D1–D5 复核；`EXTERNAL_RUNTIMES.md` §3.1 改为记录静态 ESM 加载；`evaluation.md` / `repo-structure.md` / `cicd-observability.md` / `testing-strategy.md` / `ARCHITECTURE.md` / `RUNBOOK.md` / `README.md` / `CLAUDE.md` 按当前代码校正 |
-| 2026-11-03 | **AgentState v3 类型重构（已实施）**：chain / evidence / register / memory 直接传递对象，`RegisterRuntimeState` 汇集旧登记表通道，追加 reducer、先复制再修改、v1/v2 checkpoint 迁移及边界序列化已交付；651 单测通过 / 覆盖率 89.74%，336 条离线报告与基线一致；四跳基准与完整验证记录见 [`TYPED_AGENT_STATE_PR.md`](./TYPED_AGENT_STATE_PR.md)，架构同步 §2。 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -158,9 +147,9 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 
 | ID | 状态 |
 |----|------|
-| P4-UI-01/02 | **代码 [x]** — Claude 风格 `/web` 对话 UI + auth/rate-limit |
+| P4-UI-01/02 | **代码 [x]** — 「推理笔记本」`/web` 工作台 + auth/rate-limit |
 | P4-UI 增强 | **代码 [x]** — 内联引用角标 + 论断列表、子问题分解树、图路径 chips（P5-UI-01 后见 `web/static/js/`；非路径编辑器） |
-| P4-REL-02…04 | **部分 [x]** — ops-runbook（**ENT 增补 2026-07-25**：RBAC/错误码对照/审计事件回查/告警规则示例）+ `/v1/metrics` + `/metrics-prom`；生产部署/告警落地接部署侧 |
+| P4-REL-02…04 | **部分 [x]** — ops-runbook（RBAC/错误码对照/审计事件回查/告警规则示例）+ `/v1/metrics` + `/metrics-prom`；生产部署/告警落地接部署侧 |
 | P4-OPS-02/03 | **代码 [x]** — feedback → review queue |
 | P4-OPS-01/04、P4-AC-* | **流程/验收仍开** |
 
@@ -170,7 +159,7 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 |----|------|
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../../plan/phases/p5-ui-01-vue-refactor.md) |
-| **P5-UI-02** | **🟢 已交付（2026-09-07）** — 角色感知控制台（壳 + hash 路由 + 问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图）；M0 API 前置（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）已落地；2026-10-31 v2 重设计：管理视图迁入 `js/admin/`，视觉见 UI_DESIGN §10；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
+| **P5-UI-02** | **🟢 已交付** — 角色感知控制台（壳 + hash 路由 + 问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图）；M0 API 前置（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）已落地；管理视图位于 `js/admin/`，视觉见 UI_DESIGN §10；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
 | P5-EXT-01/02、GOV-* | **立项后** |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
@@ -185,7 +174,6 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | `dev` 依赖组迁 `[dependency-groups]` | `[ ]` | 保留 `.[dev]` 可选依赖组以兼容既有文档与 `pip install -e ".[dev]"` 用法；迁移需一次性同步 README / AGENTS / CLAUDE / CI | 单独变更集，改完全部安装语句与 CI |
 | 删除 `scripts/bootstrap_poc.sh` | `[ ]` | 已由 `setup.sh --with-demo-data` 调用并修复为使用 `.venv` 解释器与控制台入口，不再是死代码；职责可被 `setup.sh --with-demo-data` 完全覆盖 | 确认无人单独调用后删除 |
 | devcontainer / 容器化开发环境 | `[-]` | 与「离线默认、宿主机零额外依赖」的基调冲突（见设计文档 §4） | 出现明确的「宿主机无 Python/uv」需求时重议 |
-| CI 改用 uv 的远端验证 | `[x]` | 2026-11-02 推送后 GitHub Actions run [41475678852](https://github.com/RightCloudhub/AG/actions/runs/41475678852) 三个 job（lint / 单测+覆盖率 / 离线评测）全绿；本地此前已用等价命令验证（`uv sync --locked --extra dev --extra webapp`）| — |
 
 ### 覆盖率 omit（`pyproject.toml` — 扩测后再移除）
 
@@ -215,16 +203,23 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | 独立多租户 Web 身份库（2026-11-02） | SQLite 迁移、Cookie、邀请、Key、最后 admin 并发保护；业务端到端跨租户回归；浏览器双标签切换 / 退出、前置身份与历史隔离，详见 [五步实施记录](../../plan/workstreams/multitenant-webapp.md) | PostgreSQL 真实并发与连接生命周期；SMTP 部署送达 |
 | 多租户索引升级（2026-11-01） | 文档 v2 原子写、BM25 分区统计、Qdrant 复合 point ID 与 Neo4j 复合 MERGE 离线契约 | 在线索引备份与按租户重建，检查旧单 ID 唯一约束；步骤见 [WEBAPP.md](../ops/WEBAPP.md) |
 
+### 模型与检索验收
+
+| 项 | 当前状态 | 仍需验证 |
+|---|---|---|
+| Cross-encoder 重排 | 池扩展、批处理/截断/重试/熔断、图策略与 run 内缓存已实现；默认 `none` | TEI / live 准确率、成本与 P95 配对验收，见 [rerank_eval.md](../../reports/rerank_eval.md) |
+| Paraphrase robustness | 40 个 dev 组及 2 个图验证四跳补充组；离线结果见 [报告](../../reports/paraphrase_robustness.md) | 四个 planner xfail、重排语序/口语缺口；真实 LLM 评估 |
+| 摄取与索引 | 离线 adapter 回归已覆盖恢复和租户边界 | Neo4j/Qdrant 线上验收、旧 ID 迁移和 live embedding 模型切换 |
+
 ### 产品面部分完成
 
 | 面 | 当前状态 | 延期 |
 |----|----------|------|
 | `POST /v1/query` | 已有 + 鉴权/限流/SSE + RBAC 三角色（ENT-04）；答案缓存按 tenant/user/params；审计按 tenant 隔离；**数据级** tenant_id 已贯穿 stores/检索/agent（ENT-06；检索缓存键含租户，不再绕过缓存 —— BL-04） | 真实 Neo4j/Qdrant 跨租户回归 + 物理分库（P4-REL-01 运维侧） |
 | 推理链 | Schema + 响应内 chain + audit store API + evidence 正文目录 | 生产抽样审计（P4-AC-02） |
-| 引用/Recall | 门禁含词法支撑 + **图证据对象锚定**（neighbor 命中 tail / path 命中 ≥2 节点，BL-13）；Recall 不含 prediction 文本；`fabrication_rate` 已与运行期门禁同口径，历史口径保留为 `unbound_claim_rate` | 真 NLI 支撑判定；评测侧无法复现对象锚定（持久化目录只留 id/content）；live heldout 重跑 |
+| 引用/Recall | 门禁含词法支撑 + **图证据对象锚定**（neighbor 命中 tail / path 命中 ≥2 节点，BL-13）；Recall 不含 prediction 文本；`fabrication_rate` 已与运行期门禁同口径，未绑定引用另计为 `unbound_claim_rate`，在线接入批量蕴含判定 | live 蕴含模型质量验收；评测侧对象锚定复现边界；live heldout 重跑 |
 | 3-hop 效果 | 计划动态 SQ 不再跳过后续节点 | **须重跑 heldout**；历史 g2_dev 3-hop 2.44% 不可作门禁证据 |
 | CI | unit + coverage≥80%；omit 仍有 live 适配器 | integration/Neo4j/Qdrant job；勿用 omit 路径冒充覆盖 |
-
 | BudgetTracker | 单次 + 租户/用户三级（`MultiLevelBudget`） | 生产告警接部署侧 |
 | 图关系打分 | 词法 cue + `BeamConfig.relation_embed_sim` 接线（`layer_edges`/`GraphRetriever` 调用；无 scorer 时退回词法） | 生产 cosine embedder 实现（API 钩子已通） |
 | SSE 流式 | **真·增量** — LangGraph `stream([updates,values])` → hops；`force_agentic` 仍发 triage；空 stream 失败不二次 invoke | — |
@@ -241,19 +236,11 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | ZH 问 EN 答 | `rules_ma` format helpers | 中文多跳问句答案仍是英文专名串；parity 是事实级非语言级（单测期望如此） | 需要产品化 i18n 时再做语言对齐 |
 | agent 层 CJK/前缀消歧 | `entity_stopwords` / `entity_mentions` | 共享 live 路径；已收紧（禁单字「何」姓误杀；前缀扩展须唯一） | 真域实体消歧 UI / 更强 NER 在阶段三+ |
 
-### 业务逻辑断链（BL-01…14，2026-07-27）
+### 业务逻辑完整性（BL-01…14）
 
-来源：[`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) §4 + §7。**这 14 条已于 2026-10-16 全部解挂**（状态与实现位置以 BUSINESS_LOGIC.md §5 为准），下表保留原始挂账原因供追溯：
-
-| # | 状态 | 挂账原因 | 解挂需要 |
-|---|------|----------|----------|
-| BL-01 上传 → 知识图谱无运行期通路 | `[x]` | 属功能新建而非缺陷修复：需要「抽取 → 消解 → 冲突 → 入图」的运行期编排与幂等/回滚语义；且入图前须先定 BL-14 的时间维度，否则建成后要回填全量图谱 | 立项 + ADR；先决 BL-14 |
-| BL-03 人工复核决策无执行器 | `[x]` | 决策只改队列状态，不产生图谱副作用。本次仅补齐决策自身的正确性（终态保护 409、租户校验 404） | 与 BL-01 同批立项（共用写图通路） |
-| BL-12 DAG 并发执行 | `[x]` | 广度预算与丢弃可见性已修（`max_sub_questions` + `plan_coverage`）；**并发分支执行未做** —— 需要仓库尚不具备的并发编排（当前 executor 线性推进 `current_index`） | V-17 量化收益后再决定是否引入并发 |
-| BL-13 真 NLI 支撑判定 | `[x]` | 已加对象锚定，但仍非蕴含判定；评测侧**无法复现**该层（`_attach_evidence_catalog` 只持久化 id/content，丢弃 `structured`） | 引入 NLI 模型（live-only）；或在目录中补 `structured` 后同步评测口径 |
-| BL-14 图谱无时间维度 | `[x]` | schema + 抽取 prompt + 冲突打分三处联动的数据模型变更；当前冲突按置信度而非时间裁决（`incremental_conflicts.decide_action`） | 产品决策 + 新 ADR（`plan/engineering/tech-stack.md`），**须早于 BL-01** |
-
-> **解挂记录（2026-10-16）**：BL-01 `knowledge/graph_ingest.py` + `api/service_ingest.py`；BL-03 `knowledge/review/executor.py`；BL-12 `agent/parallel_branches.py`；BL-13 `generation/entailment.py` + `generation/relation_consistency.py`；BL-14 `knowledge/temporal.py`。全部经 `test_bl_write_path.py` / `test_bl_reasoning_gates.py` 覆盖。
+BL-01…BL-14 均已实现，当前行为与边界见
+[BUSINESS_LOGIC.md](../design/BUSINESS_LOGIC.md) §3–§5。
+原始挂账原因与关闭记录见 [CHANGELOG](../../CHANGELOG.md#bl-ledger-closeout)。
 
 ### 前端向导改版挂账（2026-10-31，`web/`）
 
@@ -265,13 +252,12 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | 邻域子图 `GET /v1/graph/entities/{id}/neighbors` | `[ ]` | 子图标签页仅解析答案证据目录中的 `nbr:` / `path:` 行（持久化目录不含 `structured`，与 BL-13 同源） | 实现契约 → `GRAPH_NEIGHBORS` |
 | 关系目录 `GET /v1/graph/relations` | `[ ]` | 向导关系链使用 `js/chat/wizard.js` 内镜像自 `configs/schema/domain_v0.yaml` 的静态目录，schema 变更需手工同步（漂移风险） | 实现契约 → `RELATION_CATALOG` |
 | 移动端 / 响应式 | `⚠ 差异` | rules §8 与 PRD 仍列「移动端适配 V1 不做」，本次应需求落地了 <1024px 工作区抽屉与 <768px 侧栏抽屉；未做触控专项与真机验证 | 修订 PRD / rules §8（评审），或回退响应式规则 |
-| 视觉令牌 | `[x]` | 2026-10-31 v2：按 `Prompt.md`（界面重设计规范 v2）重做为「推理笔记本」，令牌在 `web/static/css/tokens.css`（靛夜 / 晨纸双主题，六跳色）；`docs/design/UI_DESIGN.md` §10 已同步，§1–§8 的「制图室」方向保留为备案 | — |
+| 视觉令牌 | `[x]` | 「推理笔记本」靛夜 / 晨纸双主题与六跳色；令牌在 `web/static/css/tokens.css`，当前规范见 [UI_DESIGN.md](../design/UI_DESIGN.md) §10 | — |
 | 向导生成问题为英文 | 诚实项 | 演示语料与离线启发式均为英文，向导按关系模板生成英文问句（可在预览步修改）；界面文案为中文 | 真域中文语料接入后再做问句语言对齐 |
-| 浏览器端验证 | `[x]` | 2026-10-31 v2：`.taste-skill/drive.mjs` 在 headless Chromium 中走查全部交互状态并留存截图（`.taste-skill/v2-*`、`r2-*`）；`design-taste-frontend/inspect.mjs --app` 对实时首屏与状态快照 0 FAIL；仍未做真机触控验证 | 真机触控专项（随移动端 PRD 决议） |
+| 浏览器端验证 | `[~]` | 桌面浏览器交互已验证；真机触控尚未验收 | 真机触控专项（随移动端 PRD 决议） |
 
 ### 规范 / 结构备注
 
-- 超大文件合规拆分（2026-07-20）**已完成**；新模块保持约 200–400 行（`plan/engineering/repo-structure.md`）。  
 - 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。  
 - **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。  
 - **offline/live 边界：** `configs/prompts/*` 仅服务 live LLM；demo 语料假设只应落在 `generation/offline_heuristics/`（omit + 上表诚实项）。
@@ -363,7 +349,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 | 架构地图 / 优化挂账 | [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) |
 | 企业级管控审计 / ENT 规划 | [`docs/reviews/ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md) |
 | 业务逻辑断链（BL-01…14） | [`docs/design/BUSINESS_LOGIC.md`](../design/BUSINESS_LOGIC.md) |
-| BL 修复变更集待验证清单 | [`docs/reviews/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
+| BL 修复验证状态 | [`docs/reviews/IMPORTANT_DOCUMENTATION.md`](./IMPORTANT_DOCUMENTATION.md) |
 | 门禁 JSON | [`reports/G1_to_G2_status.json`](../../reports/G1_to_G2_status.json) |
 | 外部运行时（JDK/Neo4j/镜像，非 pip/npm） | [`docs/ops/EXTERNAL_RUNTIMES.md`](../ops/EXTERNAL_RUNTIMES.md) |
 | 前端视觉校验（headless Chromium） | [`docs/EXTERNAL_RUNTIMES.md`](../EXTERNAL_RUNTIMES.md) |
@@ -371,9 +357,4 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 
 ---
 
-*关闭某项时：在此勾记，并同步阶段清单；门禁 JSON / 风险状态尽量同一变更集更新。*
-- [x] 2026-11-03 需求登记表边界修复：旧支撑引用永不删除、Verifier 独立模型配置与并发校验、累计否决退休及审计、跨跳收敛提醒与异常 WARNING；默认关闭及 `--no-llm` 不变；696 单测通过、覆盖率 89.53%、Ruff/mypy/代码指标通过，离线 G2 基线/候选均 200/200（McNemar p=1）；真实模型效果仍待配对评估。
-- [~] 2026-11-03 cross-encoder 重排：已补齐池扩展、批处理/截断/重试/熔断、图策略与 run 内缓存；无 TEI/live 预算，保持默认 none，待真实准确率与 P95 验收，见 [rerank_eval.md](../../reports/rerank_eval.md)。
-- [x] 2026-11-03 BL-08：统一解析端口、签名/编码校验、MinerU 适配器及含 breadcrumb 的 token 分块已完成；714 单测、89.82% 覆盖率，五组离线评测均无分数变化（0 pp），CI 下限未改；见 [验证记录](INGEST_PARSE_CHUNK.md)。
-- 2026-11-03：摄取新增 UUID/版本/hash 去重、SQLite chunk checkpoint、partial/reconcile、租户隔离删除、批量 embedding 重试、模型 reindex 与断点续传；旧 ID 迁移和 live 模型切换操作见 RUNBOOK，离线 adapter 回归不替代 Neo4j/Qdrant 线上验收。
-- 2026-11-03 [~] Paraphrase robustness: 40 dev groups + 2 graph-verified 4-hop supplement groups; Chinese 20%→95%, typos 7.5%→97.5%, strict consistency 0%→7.5%; four planner xfails and reordered/casual gaps remain; live skipped (no key). [Results and validation](../../reports/paraphrase_robustness.md).
+*关闭某项时：更新当前状态与阶段清单，过程和验证结果写入 CHANGELOG；门禁 JSON / 风险状态尽量同一变更集更新。*

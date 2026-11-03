@@ -1,5 +1,8 @@
 # 文档索引
 
+本文档目录维护当前设计、实现与待验收项；历史变更、旧快照和验证记录集中在
+[CHANGELOG.md](../CHANGELOG.md)。更新状态时替换旧结论，将过程记录写入 CHANGELOG。
+
 | 目录 | 文档 | 内容 |
 |---|---|---|
 | `./` | [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前实现的模块架构图与运行路径 |
@@ -17,14 +20,14 @@
 | | [DESIGN_VS_IMPLEMENTATION.md](./design/DESIGN_VS_IMPLEMENTATION.md) | 设计与实现差异 |
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
-| | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 外部架构优化评估的逐条核对、修订优先级、第一批设计与 A/B 验证记录 |
+| | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 架构优化当前实现、后续设计与验收标准 |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
 | | [WEBAPP.md](./ops/WEBAPP.md) | 独立 Web 应用配置、开发邮件、数据库、会话与租户隔离 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |
 | `reviews/` | [IMPORTANT.md](./reviews/IMPORTANT.md) | 延期工作总账 |
 | | [TYPE_SAFETY_AUDIT.md](./reviews/TYPE_SAFETY_AUDIT.md) | 全项目类型安全与常量化检查计划、问题台账和修复验证 |
-| | [IMPORTANT_DOCUMENTATION.md](./reviews/IMPORTANT_DOCUMENTATION.md) | BL 修复变更集的历史验证清单（2026-07-27 编写，2026-11-02 复核） |
+| | [IMPORTANT_DOCUMENTATION.md](./reviews/IMPORTANT_DOCUMENTATION.md) | BL 修复验证状态与当前验证入口 |
 | | [ENTERPRISE_READINESS.md](./reviews/ENTERPRISE_READINESS.md) | 企业级能力审计 |
 | | [PRODUCT_READINESS_GAP_ANALYSIS.md](./reviews/PRODUCT_READINESS_GAP_ANALYSIS.md) | 产品交付差距 |
 | | [CONTEXT_ENGINEERING_AND_OBSERVABILITY_GAPS.md](./reviews/CONTEXT_ENGINEERING_AND_OBSERVABILITY_GAPS.md) | 上下文工程与可观测性差距 |

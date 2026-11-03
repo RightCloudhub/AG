@@ -94,73 +94,12 @@
     在 setup 内执行。自有 JS 函数用 TypeScript AST 复核，长度 ≤50、复杂度 ≤7、
     嵌套 ≤3、参数 ≤3；复杂度按各函数独立作用域计算。
 
-## 最终验证结果
+## 验证入口
 
-| 验证 | 命令或证据 | 结果 |
-| --- | --- | --- |
-| Python 类型 | `.venv/bin/python -m mypy` | 247 个源文件通过 |
-| JS 类型 | `node /tmp/ag-type-audit-tools/node_modules/typescript/bin/tsc -p web/jsconfig.json`（5.9.3） | 全部自有 JS 通过 |
-| Lint | `.venv/bin/ruff check src tests scripts` | 通过 |
-| 格式 | `.venv/bin/ruff format --check src tests scripts` | 335 个文件通过 |
-| 代码指标 | `.venv/bin/python scripts/check_code_metrics.py` | 文件/函数/复杂度等全部通过 |
-| 单测与覆盖率 | `.venv/bin/pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q` | 457 通过，88.04%；1 项第三方弃用提示 |
-| 收尾回归 | `test_graph_recursion_fallback.py` 与 `test_static_contracts.py` | 合计 5 项通过 |
-| 锁文件 | `uv lock --check` | 通过 |
-| 包类型标记 | `uv build --wheel --out-dir /tmp/ag-type-audit-dist`，检查 wheel | 构建通过，包含 py.typed |
-| 模型 Schema | 导出 schema 与 `reasoning_chain_json_schema()` 对比 | 一致 |
-| 补丁空白 | `git diff --check` | 通过 |
-| 浏览器运行 | Chromium 156.0.8078.4 与真实离线 API | 五个视图通过，无页面异常，无外部资源请求；问答证据、任务徽标、审核与运维可用 |
-
-浏览器使用临时工具与运行库、隔离的任务/审核数据和测试身份；应用保持离线，
-未连接 LLM/Neo4j/Qdrant。截图：
-[聊天与证据](./assets/type-safety-chat.png)、[任务状态与创建时间](./assets/type-safety-knowledge.png)。
-
-## 离线评测与配对比较
-
-基线版本：`4860b619607132c04151723feb3ef8c2a0398aa1`，归档于
-`/tmp/ag-audit-baseline`。G2 两侧使用相同数据集和 pilot 种子图，均无在线 LLM，
-没有 LLM 缓存；基线无历史检索索引，候选 eval 显式隔离历史检索索引。
-
-| 指标 | 基线 | 候选 |
-| --- | --- | --- |
-| G2 正确数 | 167/200 | 167/200 |
-| G2 准确率 | 83.5% | 83.5% |
-| P95（单次采样） | 101 ms | 82 ms |
-| LLM 调用均值 | 0 | 0 |
-| POC agentic | 仓库下限 21/31 | 21/31 |
-| POC triage | 仓库下限 21/31 | 21/31 |
-
-> **门禁复核（2026-11-02）**：表中「仓库下限」为当时值；当前 CI 门禁为 POC 30/31（agentic 与 triage）、G2 196/200，另加 probe 52/54 与 19/20，金标审计阻塞合并（`.github/workflows/ci.yml`）。
-
-配对：基线独对 0、候选独对 0、同时正确 167、同时错误 33；McNemar p=1，
-无翻转案例。结论为 no_significant_difference，不据单次 P95 声称性能提升。
-合成离线结果是工程回归证据，不能代替生产/live 或真实试点域验收。
-
-首次候选 157/200 的调查发现工作区旧 bm25.json 与归档基线输入不同；原始代码
-加载同一索引，也仅过 10/20 无答案题。隔离索引后重新比较，不将首次输入不一致
-的数字作为类型重构退化结论。
-
-本地报告：`reports/type_audit_candidate.jsonl`、`reports/type_audit_poc.jsonl`、
-`reports/type_audit_triage.jsonl`、`reports/type_audit_comparison.json`。
-reports 目录被仓库忽略，关键结果已在本文件保留。
-
-复现命令（在仓库根目录，激活开发环境）：
-
-```bash
-agr-run-cases --no-llm --memory-graph --cases evals/datasets/g2_all.jsonl \
-  --seed-triples data/processed/pilot_triples.jsonl --run-name type_audit_candidate
-agr-run-cases --no-llm --memory-graph --cases evals/datasets/poc_cases.jsonl \
-  --run-name type_audit_poc
-agr-run-cases --no-llm --memory-graph --enable-triage \
-  --cases evals/datasets/poc_cases.jsonl --run-name type_audit_triage
-python scripts/eval_compare.py \
-  /tmp/ag-audit-baseline/reports/type_audit_baseline.jsonl \
-  reports/type_audit_candidate.jsonl --cases evals/datasets/g2_all.jsonl \
-  --json reports/type_audit_comparison.json --fail-on-worse
-```
-
-SHA-256：G2 数据集 e3068b45ddcfc486dccc4569e59cc40b0cc12de81bc5745916439835f582dcb0；
-pilot 图 d1f5717fa99e51daf48e6f4633089573bda24eb413ede3683793fdc248a34efe。
+历史测试数量、浏览器截图、数据摘要与离线配对比较见
+[CHANGELOG](../../CHANGELOG.md#type-audit-validation)。
+当前门禁使用 [CLAUDE.md](../../CLAUDE.md) 的验证命令与
+[CI 工作流](../../.github/workflows/ci.yml)，不再使用旧评测下限。
 
 ## 验证边界与迁移影响
 
@@ -177,14 +116,9 @@ Neo4j 重连、Qdrant 接口通过离线 mock/参数验证，未连接真实服�
 挂账于 [IMPORTANT.md](./IMPORTANT.md#类型审查后的部署验证)。跨 Python/JS wire
 一致性还依赖运行回归。内部 Python 调用应引用枚举和具体端口；扩展工具显式构造
 ExternalToolName。有限配置值拒绝非法输入，reasoning schema 已同步；eval 有意
-不读本地旧索引，其他 profile 保留原行为。修改留在工作区，未创建提交或 PR。
+不读本地旧索引，其他 profile 保留原行为。
 
-## 最终验收
+## 当前验收状态
 
-- [x] 静态类型检查通过并接入 CI。
-- [x] lint、格式、代码指标与补丁空白检查通过。
-- [x] 全量离线单测通过，覆盖率不低于 80%。
-- [x] POC agentic/triage 各不低于 21/31；G2 不低于 167/200。（当时门禁；现为 30/31 与 196/200）
-- [x] 对效果相关变更完成配对回归，准确率与 McNemar 结果已记录。
-- [x] 前端零构建与注入安全断言通过。
-- [x] 浏览器验收与截图完成，P0–P7 状态和问题台账已同步。
+静态类型、格式、代码指标、单测覆盖率、前端结构与注入安全检查均纳入 CI。
+部署验证仍以本页边界和 [IMPORTANT.md](IMPORTANT.md) 为准。

@@ -1,25 +1,13 @@
-# Clean-Room Design vs. Actual Implementation
+# Clean-Room Design vs. Current Implementation
 
-Diff of [`ARCHITECTURE_DESIGN.md`](ARCHITECTURE_DESIGN.md) (written blind, from the project name
-only) against the code on `feat/all-phases-complete` as of 2026-07-26.
+Current comparison with [ARCHITECTURE_DESIGN.md](ARCHITECTURE_DESIGN.md).
+The original review, historical scorecard and subsequent review notes are in
+[CHANGELOG.md](../../CHANGELOG.md#design-original-comparison).
 
-**Headline: the design and the implementation agree on essentially the whole skeleton.** Of 26
-designed capabilities, 20 are present and structurally equivalent, 2 are present as interface seams
-without an implementation, and 4 are absent. Three places where the code deliberately does something
-the design did not anticipate are, on inspection, better than the design.
-
-> **复核（2026-11-02）**：下列差异是 2026-07-26 对 `feat/all-phases-complete` 的快照。此后 D1、D2、D3、D4、D5 相关能力陆续落地，原「4 项缺失 / 2 个空接口」的结论已不成立；§2 的 D1–D5 正文与 §5 记分卡保留原始判断，以下为当前实现位置：
-> - **D1 并行分支已真正执行**：`agent/parallel_branches.py`（`ready_siblings` / `retrieve_group`）经 `agent/executor_dispatch.py` 的 `ThreadPoolExecutor` 并发，`agent/loop_handlers.py` 调用 `retrieve_for_node`；跳数预算不再按宽度计费。
-> - **D2 蕴含校验已接入**：`generation/entailment.py` 的 `judge_claims` 在 `generation/answer.py` 调用；词项支持改为 CJK 感知（`generation/claim_support.py`）。`unbound_claim_rate` 保留为历史口径，`fabrication_rate` 改用严格关系一致规则。
-> - **D3 时效字段已存在**：`knowledge/temporal.py`、`knowledge/incremental_conflicts.py`、`knowledge/extract_rules.py` 使用 `valid_from` / `valid_to` / `as_of`（另见 `BUSINESS_LOGIC.md` V-19）。
-> - **D4 重排器已实现**：`retrieval/rerankers.py` 的 `LexicalReranker` 与 `HttpCrossEncoderReranker`（默认关闭，离线 A/B 无显著收益，见 `ARCH_OPTIMIZATION_V2.md` §7）。
-> - **D5 审核回写已闭环**：`knowledge/review/executor.py` 的 `ReviewExecutor` 由 `api/routes/knowledge.py` 的决策端点驱动。
-> - 仍然成立：**D6**（固定窗口分块）与 **D8 / D9 / D10**（符号化路径渲染、消融数量、人工签署）。
-
-These findings are **not** ledgered in `docs/reviews/IMPORTANT.md`. They are an external design's opinion,
-not project-sanctioned debt. Promote individual items there only if you agree they are debt.
-
----
+The architecture shares the design's main structure. The table below records implemented
+capabilities and remaining differences; live effectiveness and human sign-off remain separate
+acceptance requirements. Design observations become project debt only when accepted into
+[IMPORTANT.md](../reviews/IMPORTANT.md).
 
 ## 1. Convergent (design ≡ code)
 
@@ -56,101 +44,16 @@ problem. These matched without qualification:
 
 ---
 
-## 2. Divergences — design specifies, code lacks
+## 2. Current status of the identified differences
 
-Ordered by how much they matter.
-
-### D1 · The DAG is built but never executed as a DAG ⚠ highest impact
-
-`plan_dag.py:124 ready_subquestions()` — which returns *all* pending nodes whose dependencies are
-satisfied, i.e. the parallel-branch API — is defined, re-exported from `planner.py:16,32`, and
-unit-tested (`tests/unit/test_planner_dag.py:44`), **but has no runtime caller.** The agent loop
-instead walks `current_index` linearly (`loop_handlers.py:70,81,151,213`), one sub-question per
-executor node visit.
-
-Confirming evidence: the codebase is synchronous — 11 `async def` total, all in the API layer. There
-is no `asyncio.gather` / `TaskGroup` / `to_thread` anywhere in `agent/` or `retrieval/`.
-
-**Consequence.** The DAG buys dependency-correct ordering and placeholder binding — both real — but
-not latency. For the doc's own worked example, `q2` (CEO) and `q3` (HQ) are independent and both
-depend only on `q1`; they run back-to-back instead of together. On an *n*-branch question, latency is
-Σ(branches) where it could be max(branches). Given `query_timeout_seconds: 45` and an unmet 8s AC-4
-target, this is the largest unexploited latency win in the system, and most of the work — the graph
-model, readiness predicate, and its tests — is already done.
-
-**Worse than latency.** `loop_runtime.py:110` calls `guards.on_hop_start()` (`guardrails.py:128`,
-`hop += 1`) on *every* executor visit, and each visit handles exactly one sub-question. So **the hop
-counter is a count of executed sub-questions, not of reasoning depth** — breadth is billed to the
-depth budget. With `max_hops: 4`, a plan of 6 sub-questions silently drops the last two
-(`loop_handlers.py:64` sets `done` at `hop >= max_hops`), and the guardrail reports
-`max_hops exceeded (5/4)`, which reads as "too deep" when the cause was "too wide". Nothing caps
-`result.sub_questions` at `planner.py:58-60`, and `loop_handlers.py:249` can insert more mid-run.
-
-### D2 · The citation gate stops at lexical overlap; *entailment* is not checked
-
-The runtime gate (`citations.py:100-108`) is three tiers, not one: every claim must (1) carry
-`evidence_ids`, (2) cite an id present in the retrieved set, and (3) share **≥1 content token** with
-the cited evidence (`claims_lexically_supported`, `min_overlap=1`). The function is self-aware —
-*"not a full NLI check — still better than ID-only fabrication=0"*.
-
-Tier 3 is satisfiable by the **subject entity alone**, independent of the relation asserted. Evidence
-`Apex Holdings -[FOUNDED_BY]-> X` and claim *"Apex Holdings' CEO is Y"* share `{apex, holdings}` and
-pass. The gate cannot tell which relation the evidence states.
-
-Evaluation is weaker still: `metrics_evidence.py:145 fabrication_rate()` uses `_claims_unbound()`
-(:175), which checks **only that `evidence_ids` is non-empty** — not tier 2, not tier 3. Its docstring
-says "AC-7 proxy"; its name reads as "fabrication rate".
-
-**Failure mode.** A claim citing a real, retrieved, but relationally-wrong evidence id passes the
-gate, is never regenerated, never triggers `honest_fallback`, and scores as non-fabricated. Note this
-is the mirror of the project's own BL-02 (pure-Chinese claims fail tier 3 unconditionally, because
-`_content_tokens` splits on whitespace): tier 3 is simultaneously too strict for CJK and too loose
-for Latin text. **Fixing BL-02 with CJK segmentation makes this worse** — unigrams make the ≥1
-overlap easier to satisfy. The two must be designed together.
-
-### D3 · No temporal validity on edges
-
-Zero occurrences of `valid_from` / `valid_to` / `valid_at` / `as_of` / `temporal` anywhere in `src`.
-The graph carries `confidence` and provenance but no time scope.
-
-**Consequence.** Time-scoped relations — `ceo`, `headquartered_in`, ownership, pricing — are stored
-as timeless. Re-ingesting a corpus that contains both the 2019 and 2025 CEO produces two `ceo` edges
-with no way to prefer the current one; `graph_builder.py:53` resolves the collision by **higher
-confidence**, which is uncorrelated with recency. The design's staleness mitigation (validity fields
-+ recency term in path scoring) has no counterpart in code. Low urgency on a static demo corpus,
-blocking for any real deployment with an update cadence.
-
-### D4 · Reranker is a seam, not an implementation
-
-`fusion.py:28,34` defines a `Reranker` Protocol and an `IdentityReranker` that returns its input
-unchanged; `executor.py:76` threads an optional `reranker` through. No cross-encoder exists.
-
-This is **correct engineering** — the interface is defined at the right place and nothing premature
-was built behind it — but the design's F-11 should read "rerank seam present, unimplemented" rather
-than "optional rerank."
-
-### D5 · The correction loop does not close
-
-`review/queue.py:150 decide()` sets `status`, `reviewer`, `decision_note`, `decided_at` and persists.
-Nothing reads approved items back into a `GraphStore`. The API route
-(`api/routes/knowledge.py:133`) records a `review_decision` audit event and returns.
-
-**Consequence.** In the design's Figure 2, `feedback → review queue → curator → graph` is a closed
-cycle; in code the last arrow is missing. A curator can approve a correction, and the graph is
-unchanged. Feedback is currently an *audit* mechanism, not a *repair* mechanism. This is the one
-divergence where the design's diagram is actively misleading about the code, and it is a small piece
-of work relative to what it unlocks (the KG becoming an asset that improves).
-
-**Already known.** `docs/design/BUSINESS_LOGIC.md` records this independently as **BL-03**, with one detail
-this diff missed: `IncrementalUpdater._append_review` (`incremental.py:269`) writes pending conflicts
-to a *separate* JSONL that `ReviewQueue` never reads, so `GET /v1/review-queue` cannot surface them
-at all. Treat BL-03 as the authority for this finding.
-
-### D6 · Chunking is fixed-size, not structure-aware
-
-`knowledge/ingest.py:49 chunk_text(chunk_size=1200, overlap=150)` — a sliding window that prefers a
-break at `\n\n`, `。`, or `. ` past ⅓ of the window. No heading, list, or table handling; nothing
-propagates document structure into chunk metadata. Tables in particular will be split mid-row.
+| ID | Capability | Current implementation / boundary |
+|---|---|---|
+| D1 | Parallel DAG branches | Ready independent branches retrieve concurrently through `agent/parallel_branches.py` and `agent/executor_dispatch.py`; critic evaluation remains ordered. |
+| D2 | Entailment and citation support | `generation/entailment.py` performs a batched LIGHT check on the live path; CJK-aware lexical support and relation consistency also apply. Offline and mock paths skip the model call. |
+| D3 | Temporal validity | `valid_from` / `valid_to` support dated succession and historical facts through `knowledge/temporal.py`. Both conflicting facts need dates for temporal arbitration. |
+| D4 | Reranking | Lexical and HTTP cross-encoder implementations are available. Default is `none`; real-model accuracy and P95 acceptance remain open. See [rerank evaluation](../../reports/rerank_eval.md). |
+| D5 | Review write-back | `knowledge/review/executor.py` applies approved decisions to the graph through the review API. |
+| D6 | Structure-aware chunking | API/CLI share document parsing and heading-aware Markdown token chunks, including breadcrumbs, tables and code boundaries. MinerU requires explicit configuration. See [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md) §3.1.2. |
 
 ### D7 · Anchor linking is closed-vocabulary, with no embedding fallback
 
@@ -171,10 +74,10 @@ generator sees one uniform evidence format. Minor, and arguably better for a mac
 means graph evidence and text evidence reach the LLM in visibly different formats, which is a known
 source of uneven attention across evidence types.
 
-### D9 · Only one ablation exists
+### D9 · Component-level evidence remains incomplete
 
 `scripts/p3_ev_offline.py:91 _run_triage_ablation()` → `triage_ablation.json` (P3-EV-02, marked `[~]`
-in `plan/phases/phase-3-optimization.md:44`). There is no `−graph`, `−fusion`, or `−critic` ablation.
+in `plan/phases/phase-3-optimization.md:44`). The full `−graph`, `−fusion`, and `−critic` attribution suite remains an acceptance item; requirement-register alignment and search-drift tooling are documented separately in [REQUIREMENT_REGISTER.md](REQUIREMENT_REGISTER.md).
 
 **Consequence.** The vector-RAG baseline (`eval/baseline_rag.py`) establishes that *the system* beats
 *plain RAG*. It cannot attribute that delta to the graph specifically, nor tell you whether the
@@ -235,8 +138,7 @@ design named as a risk but offered no mechanism against.
 
 ## 4. Unanticipated in the design
 
-**The offline heuristic answer layer.** `generation/offline_heuristics/rules_*.py` — 7 rule modules
-(~940 lines) hardcoded to the demo corpus, coverage-omitted, driving `--no-llm` determinism. The
+**The offline heuristic answer layer.** `generation/offline_heuristics/rules_*.py` — demo-specific rule modules hardcoded to the demo corpus, coverage-omitted, driving `--no-llm` determinism. The
 design assumed a mock LLM would suffice for offline determinism; the reality is a rule engine large
 enough to be its own maintenance surface. It is honestly labelled in `CLAUDE.md` as not the
 production path, and quarantined behind the omit list. Still: it is the single largest divergence in
@@ -248,7 +150,7 @@ production path, and quarantined behind the omit list. Still: it is the single l
 
 | # | Capability | Status |
 |---|---|---|
-| F-01 | Structure-aware chunking | ◐ fixed-size + boundary preference (**D6**) |
+| F-01 | Structure-aware chunking | ● heading-aware token chunks (**D6**) |
 | F-02 | Extraction w/ journal, retry, quarantine | ● |
 | F-03 | Ontology gate, reject-and-record | ● |
 | F-04 | Three-tier entity resolution | ● |
@@ -272,12 +174,7 @@ production path, and quarantined behind the omit list. Still: it is the single l
 | F-22 | Logs, metrics, traces, audit | ● |
 | F-23 | Feedback → curator → graph | ● 审核决策回写图谱（**D5** 已落地） |
 | F-24 | Gold generation | ◐ graph-walk yes, human sign-off pending (**D10**) |
-| F-25 | Accuracy/recall/fabrication/latency/cost | ◐ fabrication measures binding (**D2**) |
+| F-25 | Accuracy/recall/fabrication/latency/cost | ● relation-consistency scoring; live entailment remains a separate check (**D2**) |
 | F-26 | Baseline + ablations | ◐ baseline yes, 1 of 4 ablations (**D9**) |
 
 ● present · ◐ partial · ○ absent
-
-**If you act on three things:** close the review→graph write-back (**D5**, small, unlocks the
-knowledge flywheel), execute ready DAG branches concurrently (**D1**, the parallel API and its tests
-already exist), and either add an entailment check or rename `fabrication_rate` to match what it
-measures (**D2**).

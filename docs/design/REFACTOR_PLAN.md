@@ -3,13 +3,7 @@
 > 分支：`refactor/arch-v2`。原始评审意见来自架构文档，每一项都已对照代码核实；本页记录核实结论和落地状态。
 > 状态：✅ 已完成 · 🟡 部分完成 · ⏳ 待做 · ➖ 核实后不成立 / 不需要
 
-## 核实中额外发现、已修复的问题
-
-| 问题 | 位置 | 处理 |
-|---|---|---|
-| live 模式会静默降级：Qdrant 初始化失败无条件回退内存向量；`QueryService.create_live` 默认 `allow_memory_graph_fallback=True`，Neo4j 不可达时 API 带空内存图启动 | `stores/factory.py`、`api/service.py` | ✅ 移除隐式回退；Neo4j 和 Qdrant 都会 ping；混合部署须声明 `AGR_PROFILE=hybrid` |
-| Neo4j 下运行期实体对齐、图谱浏览、词表刷新全部空转（`getattr(graph, "list_entities")` 只有内存图实现） | `knowledge/graph_ingest.py` 等 | ✅ 实现 `Neo4jGraphStore.list_entities()` 并加入 `GraphStore` 协议 |
-| 工具注册表与调度表命名不一致（`graph_paths` vs `graph_path`），注册表从未被使用 | `agent/tools/registry.py` | ✅ 统一命名，调度全部改走注册表 |
+历史问题与修复记录见 [CHANGELOG](../../CHANGELOG.md#refactor-fixes)。
 
 ## 逐项状态
 
@@ -61,12 +55,12 @@
 | ID | 项 | 状态 | 说明 |
 |---|---|---|---|
 | O-1 | 评测统计 + 配对对比 | ✅ | `eval/stats.py`、`eval/compare.py` |
-| O-2 | 金标审计 | ✅ | `eval/gold_audit.py`；g2 中 29/200 题被标记 |
+| O-2 | 金标审计 | ✅ | `eval/gold_audit.py`；CI 使用 `--max-flagged 0` 阻塞合并 |
 | O-3 | BM25 租户泄漏 + 跨进程共享 | ✅ | 快照写入 `tenant_id`；live / hybrid 用 `SharedFileBM25Store` |
 | O-4 | 事件可靠投递 | ✅ | critical 订阅者支持重试 + fail-safe；缓存失效失败时清空缓存并计数 |
 | O-5 | 两阶段召回 + 重排 | ✅（默认关闭） | lexical / HTTP cross-encoder；离线 A/B 没有显著收益 |
 | O-6 | 边到 chunk 溯源透出 | ✅ | `structured.source_chunk_ids` + Citation |
-| O-7 | 分层 critic | ✅（默认 llm） | 离线统计：可省 83–89% 的 LLM critic 调用 |
+| O-7 | 分层 critic | ✅（默认 llm） | 确定性闸门可减少调用，实际收益待 live 配对验收 |
 | O-8 | 熔断按路由拆分 + 滑窗 + 降级 | ✅（默认等价 V1） | `llm/circuit.py`、`config_llm.py` |
 | P-1、E-3/E-4、R-2~R-5、S-2/S-3、K-2~K-4、G-1/G-2、L-2、X-1/X-2 | 后续批次 | ⏳ | 见 V2 §5 |
 
@@ -92,10 +86,10 @@
 | `test` | `mypy` + `tsc`（`web/jsconfig.json`）+ `pytest tests/unit` + 覆盖率 ≥80%（含前端测试 `test_web_claude_ui.py` / `test_web_wizard_ui.py`） |
 | `eval-offline` | `agr-run-cases --no-llm --memory-graph`：poc 的 agentic 与 `--enable-triage` 两条路径各须 ≥30/31；g2_all（pilot 三元组）须 ≥196/200；probe_compositional ≥52/54、probe_negative ≥19/20；金标审计 `--max-flagged 0` 阻断。报告都作为 artifact 上传 |
 
-全程离线：不启动 Neo4j/Qdrant，不需要 LLM key。`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` 等变量，避免外部环境覆盖用例自己设定的 Profile（此前在 `AGR_PROFILE` 已导出的 shell 里 `test_live_credentials_fail_fast` 会失败）。
+全程离线：不启动 Neo4j/Qdrant，不需要 LLM key。`tests/unit/conftest.py` 在会话开始时清除 `AGR_PROFILE` 等变量，避免外部环境覆盖用例自己设定的 Profile（保证用例自行设置的 Profile 生效）。
 
 ## 兼容性
 
 - 旧导入路径全部保留为模块别名（`sys.modules` 指向同一模块对象），monkeypatch 任意一侧效果相同。
 - 行为变化：live 模式不再静默降级；`create_live_bundle(allow_memory_graph_fallback=True)` 直接报错；`agr-run-cases` 默认走 QueryApp（`--direct` 恢复旧行为）。
-- 前端结构测试的既有失败已解决：`test_web_claude_ui.py` 的 7 个用例曾因期望的文件随 P5-UI-01 变更而失败；该文件已在类型审查（TS-006，2026-10-24）重写并恢复进 CI，2026-10-31 v2 结构断言（`test_web_claude_ui.py` + `test_web_wizard_ui.py`）全绿。
+- 前端结构与向导测试纳入 CI，覆盖资源、安全和界面结构约束。

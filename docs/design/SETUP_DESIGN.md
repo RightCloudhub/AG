@@ -1,43 +1,20 @@
 # 项目初始化（Setup）设计与优化
 
-**状态**：已实施（设计先行，实施记录见 §7）
+**状态**：已实施；当前实现与验证边界见 §7
 **日期**：2026-11-02
 **范围**：开发者环境初始化（解释器、依赖、`.env`、体检、文档入口）、锁文件与 CI 安装路径
 **关联**：[tech-stack.md ADR-008](../../plan/engineering/tech-stack.md)、[rules.md §7](../../plan/engineering/rules.md)、[RUNBOOK](../ops/RUNBOOK.md)、[repo-structure.md](../../plan/engineering/repo-structure.md)
 
 ---
 
-## 1. 背景与现状
+## 1. 当前入口
 
-仓库当前的「初始化」没有单一入口，步骤以命令片段形式散落在多份文档中；依赖安装一律走 `uv pip install -e`（pip 兼容接口），**不读取已入库的 `uv.lock`**，因此"锁定文件"对开发与 CI 都不生效。
+`./scripts/setup.sh` 是统一初始化入口：按 `.python-version` 与 `uv.lock` 创建或更新
+`.venv`，默认安装 `dev,webapp`，仅在缺失时播种 `.env`，然后运行 `scripts/doctor.py`。
+`--extras dev` 用于核心开发，`--locked` 要求锁文件保持最新；CI 同样使用 uv 的锁定安装。
+`scripts/bootstrap_poc.sh` 由 `--with-demo-data` 调用，使用 `.venv` 解释器与控制台入口。
 
-### 1.1 现有入口盘点
-
-| 位置 | 现有做法 | 问题 |
-|---|---|---|
-| `README.md` 快速开始 | `uv venv .venv && source .venv/bin/activate` → `uv pip install -e ".[dev]"` | 不含 webapp/otel；与 AGENTS.md 写法不同 |
-| `CLAUDE.md` 命令段 | `uv pip install -e ".[dev]"` | 缺 venv 创建步骤 |
-| `AGENTS.md` | `uv pip install -e ".[dev]"` | 同上 |
-| `docs/product/WEBAPP_GUIDE.md`、`docs/ops/WEBAPP.md` | `uv venv .venv` → `uv pip install -e ".[dev,webapp]"` | 第三套写法 |
-| `docs/ops/RUNBOOK.md` | 「服务启动」直接从 `source .venv/bin/activate` 起 | 未覆盖环境创建 |
-| `.github/workflows/ci.yml` | `pip install -e ".[dev,webapp]"` / `pip install -e .` | 不使用锁文件，CI 版本集与本地可不同 |
-| `scripts/verify_all.sh` | 门禁包（lint/测试/评测/报告），非体检 | 重、写 `reports/`，不是"环境是否就绪"的正确工具 |
-| `scripts/bootstrap_poc.sh` | ingest → seed 图 → BM25 索引 | 全仓无任何引用；使用裸 `python`（不保证是 `.venv`） |
-
-### 1.2 缺陷清单
-
-| 编号 | 缺陷 | 证据 |
-|---|---|---|
-| S-01 | 锁文件形同虚设：安装语句全走 `uv pip install -e` / `pip install -e`，均不读 `uv.lock` | `grep -rn 'uv pip install -e'` 命中 README、CLAUDE.md、AGENTS.md、WEBAPP_GUIDE.md、WEBAPP.md；CI 两处 `pip install -e` |
-| S-02 | 锁文件已过期：`uv.lock` 落后于 `pyproject.toml` | `uv lock --check` → `The lockfile at uv.lock needs to be updated`（lock 2026-10-24，pyproject 2026-11-01） |
-| S-03 | Python 版本未钉住，且被显式忽略：无 `.python-version`，`.gitignore` 中含 `.python-version` | 本机系统 Python 3.14.9，`.venv` 是 uv 托管的 3.12.13；新机器 `uv venv` 会造出 3.14 环境 |
-| S-04 | 可选依赖组无统一入口：`.[dev]` / `.[dev,webapp]` / `.[otel]` 三种组合散落 9 处 | `grep -rn 'pip install -e "'` |
-| S-05 | 无环境体检：解释器版本、依赖、`.env`、seed 数据、在线后端可达性全靠报错反推 | 无 `doctor` 类脚本 |
-| S-06 | `.env` 靠手工复制，且 `AGR_*` 的"写进 `.env` 不生效"是常见坑 | `.env.example` 头部注释要求手工 `set -a; . ./.env; set +a` |
-| S-07 | `scripts/bootstrap_poc.sh` 为死代码：无引用、裸 `python`、绕过 `agr-*` 入口、结尾提示 `Run: pytest -q` | `grep -rn bootstrap_poc` 仅命中自身 |
-| S-08 | 文档分散导致漂移：同一件事 6 份文档、3 种写法 | §1.1 |
-
----
+原始入口盘点与 S-01…S-08 缺陷记录见 [CHANGELOG](../../CHANGELOG.md#setup-original-audit)。
 
 ## 2. 目标与非目标
 
@@ -73,14 +50,14 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 
 体检层刻意与安装层分离：装坏了也要能跑体检（`doctor.py` 只用标准库，不 import `agentic_graphrag` 之外的第三方运行时）。
 
-### 3.2 `scripts/setup.sh`（新增，单一入口）
+### 3.2 `scripts/setup.sh`（单一入口）
 
 | 参数 | 作用 | 默认 |
 |---|---|---|
 | `--extras LIST` | 逗号分隔的可选依赖组 | `dev,webapp`（完整单测与 Web 应用所需，见 CLAUDE.md） |
 | `--all-extras` | 安装全部可选依赖 | 关 |
 | `--python VERSION` | 覆盖解释器版本 | 读 `.python-version` |
-| `--locked` | 严格使用已提交锁文件，锁文件过期即失败（uv 的 `--frozen` 不做此校验，见 §7.1） | 关（开发默认允许顺带刷新锁文件） |
+| `--locked` | 严格使用已提交锁文件，锁文件过期即失败（uv 的 `--frozen` 不做此校验，见 §7） | 关（开发默认允许顺带刷新锁文件） |
 | `--inexact` | 保留环境里不在锁文件中的额外包 | 关（默认精确同步，保证可复现） |
 | `--offline` | 不访问网络（`uv --offline`） | 关 |
 | `--with-demo-data` | 追加执行 `bootstrap_poc.sh` 建演示数据 | 关 |
@@ -101,7 +78,7 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 
 退出码：0 成功；1 前置条件缺失（无 uv / 版本过低 / 同步失败 / 体检有 error）；2 参数错误。
 
-### 3.3 `scripts/doctor.py`（新增，体检）
+### 3.3 `scripts/doctor.py`（体检）
 
 结构与可测性：纯函数 `collect_report(root, env) -> report`、`render_text()`、`render_json()`；只有 `main()` 做 IO（打印、探测网络端口）。默认零网络：仅在 `AGR_PROFILE` 为 `live`/`hybrid` 时才做 TCP 探活。
 
@@ -128,40 +105,38 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 
 输出：人类可读分组（`环境 / 依赖 / 配置 / 数据 / 在线后端 / 前端工具`）+ `--json`（机器可读）、`--strict`（warn 也返回 1）、`--root PATH`（测试用）。退出码 0（无 error）/ 1（有 error）。
 
-### 3.4 Python 版本与锁文件
+### 3.4 Python 与锁文件
 
-- 新增 `.python-version` = `3.12`，并**从 `.gitignore` 移除**该行（当前被忽略，无法入库）。`requires-python = ">=3.12"` 保持；`uv` 据此选择解释器，`doctor` ENV-02 校验二者一致。
-- `uv.lock` 用 `uv lock` 刷新（保留已锁定版本，只补齐 `pyproject` 变更），入库。实测刷新前锁文件缺少整个 `webapp` 组（`uv lock` 新增 sqlalchemy / pyjwt / psycopg 等 5 项），即 S-02 已实际造成 CI 与本地版本漂移。此后开发默认 `uv sync`（锁文件过期时顺带刷新并提示），CI 用 `--locked`（过期即失败，缺陷 S-02 不会再现；uv 的 `--frozen` 实测不校验时效，见 §7.1）。
+`.python-version` 已入库，值为 `3.12`；`requires-python = ">=3.12"`，体检 ENV-02
+检查二者一致。开发默认 `uv sync`，锁文件过期时允许刷新；CI 用 `--locked`，
+锁文件过期即失败。`--frozen` 不校验锁文件新鲜度。
 
-### 3.5 CI 对齐（需 ADR-008）
+### 3.5 CI 安装路径（ADR-008）
 
-| Job | 现状 | 改为 |
-|---|---|---|
-| `lint` | `pip install ruff` | `uv sync --locked --extra dev` + `uv run --locked ruff ...` |
-| `test` | `pip install -e ".[dev,webapp]"` | `uv sync --locked --extra dev --extra webapp` + `uv run --locked mypy/pytest` |
-| `eval-offline` | `pip install -e .` | `uv sync --locked` + `uv run --locked agr-run-cases ...` |
+| Job | 安装与执行 |
+|---|---|
+| `lint` | `uv sync --locked --extra dev` + `uv run --locked ruff ...` |
+| `test` | `uv sync --locked --extra dev --extra webapp` + `uv run --locked mypy/pytest` |
+| `eval-offline` | `uv sync --locked` + `uv run --locked agr-run-cases ...` |
 
-`astral-sh/setup-uv` 钉版本（`0.13.6`，与本地一致），缓存键为 `uv.lock`。Node 侧不变（仍是临时钉版 `npx tsc`，无 npm 工程）。理由是 rules.md §7「改技术选型先写 ADR」：把"依赖解析与安装工具"从 pip 明确收敛到 uv，属于技术选型变更，故先落 ADR-008 再改 CI。
+`astral-sh/setup-uv` 钉版本 `0.13.6`，缓存键为 `uv.lock`。
+Node 仅用于钉版 TypeScript 校验；前端无 npm 工程。
 
 ### 3.6 文档单一事实源
 
-| 文档 | 改法 |
-|---|---|
-| `README.md` 快速开始 | 改为 `./scripts/setup.sh` 两行 + 后续命令；保留 Web 应用变体（`./scripts/setup.sh --extras dev,webapp`） |
-| `CLAUDE.md` `AGENTS.md` | 安装语句替换为 `./scripts/setup.sh` / `uv sync --extra dev`，并注明可跑 `python scripts/doctor.py` |
-| `docs/ops/RUNBOOK.md` | 「服务启动」前补"环境准备见 README 快速开始 / `scripts/setup.sh`"；`.[otel]` 写法改成 `./scripts/setup.sh --extras dev,otel` |
-| `docs/ops/WEBAPP.md`、`docs/product/WEBAPP_GUIDE.md` | 安装段收敛为 `./scripts/setup.sh --extras dev,webapp` |
-| `docs/README.md` | 索引新增本文件 |
-| `plan/engineering/repo-structure.md` | `scripts/` 说明补 `setup.sh`（环境）/`doctor.py`（体检） |
+[README](../../README.md) 提供快速开始，AGENTS / CLAUDE / RUNBOOK / Web 指南
+统一引用 `scripts/setup.sh` 与 `scripts/doctor.py`。历史安装方案见
+[CHANGELOG](../../CHANGELOG.md#setup-ci-doc-migration)。
 
-### 3.7 既有脚本处置
+### 3.7 既有脚本职责
 
-- `scripts/bootstrap_poc.sh`：保留并修复——改用 `.venv/bin/python`（存在时）或 `python3`、改用 `agr-ingest` / `agr-build-graph` / `agr-index` 控制台入口、结尾提示改为 `agr-run-cases --no-llm`；由 `setup.sh --with-demo-data` 调用，从而不再是死代码。（删除是可选后续项，见 §8。）
-- `scripts/verify_all.sh`：不动（它是门禁包，职责不同）。已在设计上避免与 `doctor.py` 重叠：门禁跑测试并写报告，体检只读环境。
+- `scripts/bootstrap_poc.sh` 由 `setup.sh --with-demo-data` 调用，使用 `.venv`
+  解释器和 `agr-*` 入口生成演示数据；是否删除见 §8。
+- `scripts/verify_all.sh` 运行门禁并写报告，`doctor.py` 负责环境体检。
 
 ### 3.8 测试与门禁
 
-新增 `tests/unit/test_setup_consistency.py`（离线、不依赖外部环境变量），断言：
+`tests/unit/test_setup_consistency.py`（离线、不依赖外部环境变量），断言：
 
 - `.python-version` 存在，且其主次版本满足 `requires-python`；
 - `scripts/setup.sh` 存在、可执行、`bash -n` 语法通过；
@@ -193,7 +168,6 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 | `uv lock` 刷新可能顺带改动版本 | 使用不带 `--upgrade` 的 `uv lock`（保留已锁定版本）；刷新后跑全量单测 + 离线评测下限确认无回归 |
 | `uv sync` 默认精确同步会删掉环境里手工装的包 | 提供 `--inexact`；文档说明默认行为 |
 | 体检脚本被误当作门禁 | 命名 `doctor`（诊断）而非 `check`；`--strict` 才升级 warn；门禁仍是 `verify_all.sh` + CI |
-| CI 改用 uv 后无法本地验证 GitHub 运行 | 本地验证等价命令（`uv sync --locked --extra dev --extra webapp`）与 YAML 语法；在实施记录中如实标注"CI 侧未经远端运行验证" |
 | `.python-version` 入库后 CI/开发强制 3.12 | 与 CI 既有的 `PYTHON_VERSION: "3.12"` 一致，属对齐而非变更 |
 
 ---
@@ -212,46 +186,18 @@ README.md 快速开始        文档层：唯一权威写法，其余文档指�
 
 ---
 
-## 7. 实施记录（2026-11-02）
+## 7. 当前实现与验证边界
 
-**新增**：`scripts/setup.sh`（单一入口）· `scripts/doctor.py`（体检，17 项检查）· `.python-version`（`3.12`）·
-`tests/unit/test_setup_consistency.py`（12 条守卫）· 本设计文档。
-**修改**：`uv.lock`（刷新，补入整个 `webapp` 组）· `.gitignore`（不再忽略 `.python-version`）·
-`scripts/bootstrap_poc.sh`（改用 `.venv` 解释器与控制台入口）· `.github/workflows/ci.yml`（三个 job 改 uv + 锁文件）·
-`.env.example`、`README.md`、`AGENTS.md`、`CLAUDE.md`、`docs/README.md`、`docs/ops/{RUNBOOK,WEBAPP}.md`、
-`docs/product/WEBAPP_GUIDE.md`、`plan/engineering/{rules,repo-structure,tech-stack}.md`、`docs/reviews/IMPORTANT.md`。
+依赖体检优先使用 `importlib.metadata`，再以 `find_spec` 兜底，以支持只有类型存根的包。
+CI 解释器由 `.python-version` 和 uv 决定。体检分别报告可选 `otel` 与
+`sqlite-checkpoint` 依赖；安装后的导入与运行仍需在对应环境验证。
 
-### 7.1 验证结果
+`uv sync --locked` 会在锁文件过期时失败；`--frozen` 不校验锁文件的新鲜度。
+本地初始化、幂等性、锁定安装与远端 CI 的验证结果见
+[CHANGELOG](../../CHANGELOG.md#setup-implementation)。
 
-| 验证 | 命令 | 结果 |
-|---|---|---|
-| 锁文件生效 | `uv lock --check` | 通过（刷新前为 `needs to be updated`） |
-| 一键初始化 | `./scripts/setup.sh --locked` | 通过；随后 `doctor` 报 `error=0 warn=0` |
-| 幂等性 | 连续两次运行，比对 `.env` 摘要 | `.env` 摘要不变；第二次输出「已存在 .env，未改动」 |
-| 环境体检 | `.venv/bin/python scripts/doctor.py` | 全部 ok/info；`--json` 输出可解析（见测试） |
-| 锁文件过期即失败 | 临时目录副本中新增一条依赖后 `uv lock --check` / `uv sync --locked` | 两者均退出 1 并提示 `The lockfile … needs to be updated` |
-| 反例（重要） | 同一副本执行 `uv sync --frozen` | **不报错**，反而按新依赖解析并开始安装 → CI/脚本改用 `--locked`（见 §7.2） |
-| 数据引导 | `bash scripts/bootstrap_poc.sh` | 通过；`git status data/` 无跟踪文件变更 |
-| 单测 + 覆盖率 | `pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80` | 627 passed，覆盖率 89.56% |
-| 新增守卫测试 | `pytest tests/unit/test_setup_consistency.py -q` | 14 passed（含 CI 必须使用 `--locked` 的守卫） |
-| 类型 / Lint / 指标 | `mypy` · `ruff check` · `ruff format --check` · `check_code_metrics.py` | 全部通过（293 文件 / 407 文件 / src 全量） |
-| 离线评测下限 | `agr-run-cases --no-llm --memory-graph`（poc 31 / g2 200） | poc 31/31、g2 200/200，均高于下限 30/196 |
-
-### 7.2 与设计的偏差（实现后回填）
-
-| 项 | 设计 | 实现 | 原因 |
-|---|---|---|---|
-| 依赖检查方式 | 「逐个 `find_spec`」 | `importlib.metadata` 优先，`find_spec` 兜底 | `types-PyYAML` 一类「只装类型存根」的包没有同名可导入模块，`find_spec` 会误报缺失（实测误报 2 项） |
-| `setup.sh` 默认可选组 | `dev` | `dev,webapp` | 完整单测与 Web 应用都需要 webapp 组；只装核心依赖改用 `--extras dev`（README 已注明） |
-| CI 解释器来源 | 保留 `actions/setup-python` + `PYTHON_VERSION` | 移除 `setup-python`，解释器由 `.python-version` + uv 决定 | 本地与 CI 同源，避免两处版本声明漂移 |
-| 体检检查项编号 | DEP-04 含 otel 与 sqlite-checkpoint | 拆为 DEP-04（otel）/ DEP-05（sqlite-checkpoint） | 分组报告更清晰 |
-| 锁校验标志 | CI / `setup.sh` 用 `uv sync --frozen` | 一律改 `--locked`（`setup.sh` 参数名同步改为 `--locked`） | 对照实验发现 `uv sync --frozen` 在锁文件过期时**不会**失败（退出 0 并继续安装），只有 `--locked` 报错；按原设计与 CI 意图（过期即失败）必须用 `--locked` |
-
-### 7.3 未验证项（如实记录）
-
-- ~~**CI 远端运行**~~ **已关闭**：2026-11-02 推送后 run [41475678852](https://github.com/RightCloudhub/AG/actions/runs/41475678852) 三个 job 全绿（lint / 单测+覆盖率 / 离线评测），`uv sync --locked` 与 `uv run --locked` 在 GitHub 托管 runner 上均正常。此前本地只验证过等价命令与 YAML 解析。
-- **在线后端探活**：`AGR_PROFILE=offline` 下 `LIVE-01` 走跳过分支；Neo4j / Qdrant 的失败分支未在本机验证（本机无 Docker 服务）。
-- **`otel` / `sqlite-checkpoint` 组**：未安装，体检按 design 输出 info，未验证安装后的导入。
+仍需部署验证：Neo4j / Qdrant 在线探活与失败分支，以及可选 OTel / SQLite saver
+安装后的导入和连接生命周期。
 
 ## 8. 后续可选事项（不在本轮）
 

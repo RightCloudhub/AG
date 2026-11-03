@@ -126,6 +126,7 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 
 | 文档 | 内容 |
 |---|---|
+| [CHANGELOG.md](./CHANGELOG.md) | 历史变更、旧状态快照与验证记录 |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 模块架构图与运行路径 |
 | [docs/product/PRD.md](./docs/product/PRD.md) | 产品需求与验收标准 |
 | [docs/product/WEBAPP_GUIDE.md](./docs/product/WEBAPP_GUIDE.md) | 多租户 Web 应用：启动、注册、邀请、导入知识与问答 |
@@ -133,7 +134,7 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 | [docs/ops/WEBAPP.md](./docs/ops/WEBAPP.md) | Web 配置、开发邮件、数据库与部署 |
 | [docs/ops/RUNBOOK.md](./docs/ops/RUNBOOK.md) | 部署、环境变量、运维 |
 | [docs/design/REFACTOR_PLAN.md](./docs/design/REFACTOR_PLAN.md) | 架构重构进度 |
-| [docs/design/ARCH_OPTIMIZATION_V2.md](./docs/design/ARCH_OPTIMIZATION_V2.md) | 架构优化评估的逐条核对、精细化设计与验证记录 |
+| [docs/design/ARCH_OPTIMIZATION_V2.md](./docs/design/ARCH_OPTIMIZATION_V2.md) | 架构优化当前实现、后续设计与验收标准 |
 | [docs/README.md](./docs/README.md) | 全部文档索引 |
 
 ## License
