@@ -54,6 +54,9 @@ def _stream_graph_updates(
             **initial,
             "evidence": Overwrite(initial["evidence"]),
             "register_runtime": Overwrite(initial["register_runtime"]),
+            "proposals": Overwrite(initial["proposals"]),
+            "events": Overwrite(initial["events"]),
+            "budget_ledger": Overwrite(initial["budget_ledger"]),
         },
     )
     for item in graph.stream(graph_input, config=config, stream_mode=_STREAM_MODES):

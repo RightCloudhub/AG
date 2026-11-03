@@ -51,8 +51,9 @@ def migrate_state(payload: Mapping[str, object]) -> AgentState:
     if not isinstance(version, int) or not 1 <= version <= STATE_SCHEMA_VERSION:
         raise ValueError(f"Unsupported agent state_version: {version!r}")
     data = dict(payload)
-    if version < STATE_SCHEMA_VERSION:
+    if version < 3:
         data = _upgrade_legacy(data)
+    data["state_version"] = STATE_SCHEMA_VERSION
     return _STATE_ADAPTER.validate_python(data)
 
 
@@ -132,7 +133,7 @@ def _migrate_channels(values: Mapping[str, object], *, version: int = 1) -> dict
         key: value.value if isinstance(value, Overwrite) else value for key, value in values.items()
     }
     state = migrate_state({"state_version": version, **payload})
-    if version == STATE_SCHEMA_VERSION and "state_version" not in values:
+    if version >= 3 and "state_version" not in values:
         state.pop("state_version", None)
     for key in _RENAMED_CHANNELS:
         result.pop(key, None)

@@ -8,6 +8,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.types import Overwrite
 from pydantic import TypeAdapter
 
+from agentic_graphrag.agent.blackboard import BranchEvent, BudgetEntry, Proposal
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_state import RegisterRuntimeState
@@ -26,6 +27,9 @@ _CODECS = {
     "register_runtime": TypeAdapter[object](RegisterRuntimeState),
     "sub_questions": TypeAdapter[object](list[SubQuestion]),
     "prefetched": TypeAdapter[object](dict[str, Retrieved]),
+    "proposals": TypeAdapter[object](list[Proposal]),
+    "events": TypeAdapter[object](list[BranchEvent]),
+    "budget_ledger": TypeAdapter[object](list[BudgetEntry]),
 }
 _MODEL_TAGS = {
     ReasoningChain: "chain",
@@ -60,9 +64,21 @@ def _tag(value: object) -> str | None:
     if tag is not None:
         return tag
     if isinstance(value, list):
-        return "sub_questions" if value and all(isinstance(v, SubQuestion) for v in value) else None
+        return _list_tag(value)
     if isinstance(value, dict) and value:
         return _mapping_tag(value)
+    return None
+
+
+def _list_tag(value: list[object]) -> str | None:
+    for model, tag in (
+        (SubQuestion, "sub_questions"),
+        (Proposal, "proposals"),
+        (BranchEvent, "events"),
+        (BudgetEntry, "budget_ledger"),
+    ):
+        if value and all(isinstance(item, model) for item in value):
+            return tag
     return None
 
 

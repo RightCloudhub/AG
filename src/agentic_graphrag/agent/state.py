@@ -9,6 +9,13 @@ from __future__ import annotations
 
 from typing import Annotated, TypedDict
 
+from agentic_graphrag.agent.blackboard import (
+    BranchEvent,
+    BudgetEntry,
+    BudgetTier,
+    Proposal,
+    append_records,
+)
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_state import RegisterRuntimeState, merge_register_runtime
@@ -16,7 +23,7 @@ from agentic_graphrag.agent.requirements import Register
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain, ToolCallTrace
 
-STATE_SCHEMA_VERSION = 3
+STATE_SCHEMA_VERSION = 4
 
 type Retrieved = tuple[list[Candidate], list[ToolCallTrace]]
 
@@ -58,6 +65,11 @@ class AgentState(TypedDict, total=False):
     answer_retries: int
     register: Register | None
     register_runtime: Annotated[RegisterRuntimeState, merge_register_runtime]
+    proposals: Annotated[list[Proposal], append_records]
+    events: Annotated[list[BranchEvent], append_records]
+    budget_ledger: Annotated[list[BudgetEntry], append_records]
+    run_id: str
+    budget_tier: BudgetTier
 
 
 def active_register(state: AgentState) -> Register:
@@ -89,6 +101,11 @@ def initial_state(
         memory=MemoryState(),
         register=None,
         register_runtime=RegisterRuntimeState(),
+        proposals=[],
+        events=[],
+        budget_ledger=[],
+        run_id=chain.query_id,
+        budget_tier="standard",
         done=False,
         allow_llm=allow_llm,
         tenant_id=tenant_id,
