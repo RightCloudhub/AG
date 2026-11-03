@@ -5,9 +5,10 @@ from __future__ import annotations
 import builtins
 import json
 import logging
-import threading
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from agentic_graphrag.core.enums import ReviewDecision as ReviewDecision
 from agentic_graphrag.core.enums import ReviewStatus as ReviewStatus
 from agentic_graphrag.core.enums import ReviewType as ReviewType
 from agentic_graphrag.knowledge.review.filters import filter_items, tenant_allows
+from agentic_graphrag.stores.file_lock import FileMutex
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +76,32 @@ class ReviewItem:
 
 
 class ReviewQueue:
-    """Thread-safe review queue with optional JSONL persistence."""
+    """Review queue serialized across threads/processes sharing its JSONL journal."""
 
     def __init__(self, path: Path | str | None = None) -> None:
         self.path = Path(path) if path else None
         self._items: dict[str, ReviewItem] = {}
-        self._lock = threading.Lock()
-        if self.path and self.path.exists():
-            self._load()
+        self._mutex = FileMutex(self.path.with_suffix(".lock") if self.path else None)
+        self._stamp: tuple[int, int] | None = None
+        with self._locked():
+            pass
+
+    def _file_stamp(self) -> tuple[int, int] | None:
+        if self.path is None or not self.path.exists():
+            return None
+        stat = self.path.stat()
+        return stat.st_mtime_ns, stat.st_size
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        with self._mutex.hold():
+            stamp = self._file_stamp()
+            if stamp != self._stamp:
+                self._items.clear()
+                if stamp is not None:
+                    self._load()
+                self._stamp = stamp
+            yield
 
     def _load(self) -> None:
         """Load persisted items, skipping corrupt lines.
@@ -107,6 +127,7 @@ class ReviewQueue:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(item.to_dict(), ensure_ascii=False) + "\n")
+        self._stamp = self._file_stamp()
 
     def enqueue(
         self,
@@ -126,13 +147,13 @@ class ReviewQueue:
             batch_id=batch_id,
             tenant_id=tenant_id,
         )
-        with self._lock:
+        with self._locked():
             self._items[item.id] = item
             self._persist(item)
         return item
 
     def get(self, item_id: str) -> ReviewItem | None:
-        with self._lock:
+        with self._locked():
             return self._items.get(item_id)
 
     def list(
@@ -168,7 +189,7 @@ class ReviewQueue:
         offset: int = 0,
     ) -> tuple[builtins.list[ReviewItem], int]:
         """Return one filtered page and its tenant-scoped total."""
-        with self._lock:
+        with self._locked():
             items = list(self._items.values())
         items = filter_items(
             items,
@@ -200,7 +221,7 @@ class ReviewQueue:
         decidable by any tenant. Re-deciding a decided item raises
         ``ReviewAlreadyDecided`` instead of silently overwriting it (BL-11).
         """
-        with self._lock:
+        with self._locked():
             item = self._items.get(item_id)
             if item is None or not tenant_allows(item, tenant_id):
                 raise KeyError(item_id)
@@ -215,7 +236,7 @@ class ReviewQueue:
 
     def record_execution(self, item_id: str, outcome: dict[str, Any]) -> None:
         """Attach the executor's outcome to a decided item (persisted, last write wins)."""
-        with self._lock:
+        with self._locked():
             item = self._items.get(item_id)
             if item is None:
                 return
@@ -223,7 +244,7 @@ class ReviewQueue:
             self._persist(item)
 
     def counts(self) -> dict[str, int]:
-        with self._lock:
+        with self._locked():
             out: dict[str, int] = {}
             for item in self._items.values():
                 out[item.status] = out.get(item.status, 0) + 1
@@ -237,9 +258,13 @@ class ReviewQueue:
         type: str | None = None,
         tenant_id: str | None = None,
         batch_id: str | None = None,
+        doc_id: str | None = None,
+        doc_version: int | None = None,
     ) -> int:
-        with self._lock:
+        with self._locked():
             items = list(self._items.values())
+        if doc_id is not None:
+            items = [i for i in items if _matches_document(i, doc_id, doc_version)]
         return len(
             filter_items(
                 items,
@@ -251,3 +276,11 @@ class ReviewQueue:
                 batch_id=batch_id,
             )
         )
+
+
+def _matches_document(item: ReviewItem, doc_id: str, version: int | None) -> bool:
+    raw = item.payload.get("incoming") or item.payload.get("triple") or {}
+    return bool(
+        raw.get("source_doc_id") == doc_id
+        and (version is None or (raw.get("source_doc_version") or 1) == version)
+    )

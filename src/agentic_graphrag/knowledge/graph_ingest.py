@@ -102,7 +102,12 @@ class GraphIngestor:
     def _extract(self, chunks: list[ChunkRecord], result: GraphIngestResult) -> list[Triple]:
         triples: list[Triple] = []
         for chunk in chunks:
-            triples.extend(self._extract_chunk(chunk, result))
+            extracted = self._extract_chunk(chunk, result)
+            for triple in extracted:
+                triple.source_doc_id = chunk.doc_id
+                triple.source_chunk_id = chunk.chunk_id
+                triple.source_doc_version = chunk.metadata.get("document_version")
+            triples.extend(extracted)
         return triples
 
     def _extract_chunk(self, chunk: ChunkRecord, result: GraphIngestResult) -> list[Triple]:
@@ -121,6 +126,9 @@ class GraphIngestor:
             result.error = f"llm_extract_failed: {type(exc).__name__}"
             return extract_rules_from_chunk(chunk)
         result.rejected += len(rejected)
+        for triple in accepted:
+            triple.source_doc_id = chunk.doc_id
+            triple.source_chunk_id = chunk.chunk_id
         return accepted
 
     def _canonicalize(self, triples: list[Triple], tenant_id: str) -> None:
@@ -133,5 +141,5 @@ class GraphIngestor:
     def _known_names(self, tenant_id: str) -> dict[str, str]:
         if not isinstance(self.graph, EntityLister):
             return {}
-        entities = self.graph.list_entities(limit=_ENTITY_SCAN_LIMIT, tenant_id=tenant_id or None)
+        entities = self.graph.list_entities(limit=_ENTITY_SCAN_LIMIT, tenant_id=tenant_id)
         return {normalize_key(e.name): e.name for e in entities}

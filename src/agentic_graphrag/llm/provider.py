@@ -12,6 +12,7 @@ import httpx
 
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.llm import response_cache
 from agentic_graphrag.llm.circuit import (
     ROUTE_EMBED,
     ROUTE_LIGHT,
@@ -114,8 +115,8 @@ class LLMProvider:
         if response_format:
             payload["response_format"] = response_format
 
-        cache_key = self._cache_key("chat", payload)
-        cached = self._read_cache(cache_key)
+        cache_key = response_cache.cache_key("chat", payload)
+        cached = response_cache.read_cache(self.cache_dir, cache_key)
         if cached is not None:
             if self.budget:
                 usage = cached.get("usage") or {}
@@ -141,20 +142,24 @@ class LLMProvider:
                 int(usage.get("prompt_tokens", 0)),
                 int(usage.get("completion_tokens", 0)),
             )
-        self._write_cache(
+        response_cache.write_cache(
+            self.cache_dir,
             cache_key,
             {"content": content, "usage": usage},
         )
         return content
 
     def embed(self, text: str) -> list[float]:
-        payload = {"model": self.embedding_model, "input": text}
+        return self.embed_for_model(text, self.embedding_model)
+
+    def embed_for_model(self, text: str, model: str) -> list[float]:
+        payload = {"model": model or self.embedding_model, "input": text}
         # Include endpoint in cache key so multi-provider caches do not collide.
-        cache_key = self._cache_key(
+        cache_key = response_cache.cache_key(
             "embed",
             {"base_url": self.embedding_base_url, "payload": payload},
         )
-        cached = self._read_cache(cache_key)
+        cached = response_cache.read_cache(self.cache_dir, cache_key)
         if cached is not None:
             return list(cached["embedding"])
 
@@ -174,11 +179,26 @@ class LLMProvider:
             self.budget.record_embedding(
                 int(usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0))
             )
-        self._write_cache(cache_key, {"embedding": embedding})
+        response_cache.write_cache(self.cache_dir, cache_key, {"embedding": embedding})
         return list(embedding)
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed(t) for t in texts]
+        if not texts:
+            return []
+        payload = {"model": self.embedding_model, "input": texts}
+        data = self._post(
+            "/embeddings",
+            payload,
+            base_url=self.embedding_base_url,
+            api_key=self.embedding_api_key,
+            route=ROUTE_EMBED,
+        )
+        rows = sorted(data["data"], key=lambda row: row["index"])
+        if [row["index"] for row in rows] != list(range(len(texts))):
+            raise ValueError("Embedding response indexes do not match the input batch")
+        if self.budget:
+            self.budget.record_embedding(int((data.get("usage") or {}).get("total_tokens", 0)))
+        return [list(row["embedding"]) for row in rows]
 
     def _post(
         self,
@@ -219,24 +239,6 @@ class LLMProvider:
             raise
         breaker.record_success()
         return data
-
-    def _cache_key(self, kind: str, payload: dict[str, Any]) -> str:
-        raw = json.dumps({"kind": kind, "payload": payload}, sort_keys=True, ensure_ascii=False)
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    def _read_cache(self, key: str) -> dict[str, Any] | None:
-        if not self.cache_dir:
-            return None
-        path = self.cache_dir / f"{key}.json"
-        if not path.exists():
-            return None
-        return JSON_OBJECT.validate_json(path.read_text(encoding="utf-8"))
-
-    def _write_cache(self, key: str, value: dict[str, Any]) -> None:
-        if not self.cache_dir:
-            return
-        path = self.cache_dir / f"{key}.json"
-        path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
 class MockLLMProvider(LLMProvider):
@@ -279,3 +281,9 @@ class MockLLMProvider(LLMProvider):
         h = hashlib.sha256(text.encode("utf-8")).digest()
         vals = [((h[i % len(h)] / 255.0) * 2 - 1) for i in range(self.embedding_dim)]
         return vals
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
+    def embed_for_model(self, text: str, model: str) -> list[float]:
+        return self.embed(text)

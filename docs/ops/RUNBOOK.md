@@ -308,7 +308,7 @@ span 创建、进入和退出失败均不影响业务结果；业务异常保持
 - [ ] 无硬编码密钥；生产 `AGR_REQUIRE_AUTH=1` 且 key 带角色段（reader 缺省）
 - [ ] Cypher 参数化（Neo4j 适配器）
 - [ ] 错误 envelope 不泄露内部路径 / 栈（栈只入服务端 JSON 日志）
-- [x] 上传治理已在应用层兜底：单文件 ≤5 MiB（分片读取，超限立即中断）、单批 ≤20；扩展名 + 签名校验、编码检测、可选 MinerU（§6.1）；类型 415、解码 422、超限 413
+- [x] 上传治理已在应用层兜底：单文件默认 ≤50 MiB（分片读取，超限立即中断）、单批默认 ≤100（均可配置）；扩展名 + 签名校验、编码检测、可选 MinerU（§6.1）；类型 415、解码 422、超限 413
       （反向代理限制仍建议作为外层）
 - [ ] 租户隔离：应用层 `tenant_id` 已贯穿 stores / 检索 / agent / 审计 / 复核（ENT-06）；
       生产仍需物理分库或标签隔离核查 + 真实 Neo4j/Qdrant 跨租户回归（P4-REL-01 运维侧）
@@ -321,3 +321,74 @@ span 创建、进入和退出失败均不影响业务结果；业务异常保持
 - OTLP collector 联调 + 告警规则实际部署（ENT-08）
 - SQLite checkpointer（`.[sqlite-checkpoint]` extra，`make_checkpointer("sqlite")`）中断恢复演练
 - 压测下日志开销复核（目标 P95 增幅 <3%，`scripts/p3_load_http.py`）
+
+## 摄取索引恢复、版本替换与容量（2026-11-03）
+
+文档 UUID 在版本间稳定；同租户相同内容返回 `docs[].status=duplicate`，同 `source_uri`
+新内容返回相同 UUID 与递增 `version`。普通上传的 source 为 `upload://<filename>`；
+CLI 为绝对 `file://` URI；需要自定义 source 的客户端使用 resumable init。
+替换首先清理旧版本索引，因此普通内容替换期间该文档暂时不可检索。
+
+任务 `done` 表示全部必需阶段完成；`partial` 附每阶段 chunk 计数和脱敏错误。
+`failed` 中的 401 先修复 embedding 凭据，再显式 reconcile，避免重复认证请求。
+worker 在每批向量和每个图抽取后仅更新对应 chunk 行，不再逐 chunk 重写正文和全部 embedding。
+已有 SQLite 文档首次打开时自动迁移到独立 chunk 表；升级前备份 `documents.sqlite3`，
+升级后不要混用旧版 writer。进程中断的 `extracting` 任务在租约过期后重投；
+持久 adapter 的成功阶段可直接跳过。内存 adapter 重建或清空后，reconcile 会恢复已保存的向量、
+重建 fulltext 并重新抽取图，完成后才更新 checkpoint；已完成文档也会检查内存索引代次。
+恢复已有向量不调用 embedding 服务。服务与 worker 必须共享 runtime
+目录；live profile 同时共享 Neo4j、Qdrant 和 BM25 snapshot。SQLite/文件锁适用于同机或支持
+可靠 POSIX 锁的共享卷；offline 的图和向量仍是进程本地，使用 API inline worker。
+
+```bash
+# 读取同一配置、同一 runtime 目录；租户参数必须显式提供。
+python -m agentic_graphrag reconcile --tenant acme
+python -m agentic_graphrag reindex --tenant acme
+python -m agentic_graphrag.knowledge.ingest_worker --once
+```
+
+reconcile 同时恢复失败的版本替换/删除意图。DELETE 返回 503 `Delete pending reconciliation`
+时不要当成成功：修复存储后执行 reconcile，意图完成后源文档和 chunk journal 才删除。
+`DELETE /v1/documents/{UUID}` 仅 admin/operator 可用；跨租户与不存在均为 404，成功写审计。
+其它文档支持的图关系会保留，但删去已删除文档的 provenance。
+审核写入携带文档版本，并在文档锁内校验：来源已删除、已替换或尚在清理时，决策记录
+`execution.effect=stale_document`，不修改图。旧审核优先从任务记录读取版本；无版本时仅允许
+未替换的第一版文档。任务终态使用当前队列的 pending 数量；共享 JSONL 的 API/worker 会刷新
+其它进程的决策，已处理的审核不会令修复后的任务再次卡在 `review`。
+
+模型升级：先验证新模型服务，再让维护进程使用目标 `llm.embedding_model` 运行 reindex；
+查询会读取当前 collection 的 embedding_model 来选择 encoder；alias 在 embedding 请求期间变化时重新编码，
+避免配置更新或在途请求使用错误的向量维度。上传 worker 配置应与发布后的模型一致。Qdrant 会在租户独立的 collection
+中构建新模型（允许不同维度），全部成功才切换 alias，然后删除旧空间内该租户的向量；
+发布前失败时旧 alias 不变；发布后的清理失败保留新 alias，重试可完成清理。
+修复后再次运行可复用已完成的 chunk。内存 adapter 使用原子 upsert。
+升级会保存新的 `embedding_model`；reconcile 不自动触发模型升级，必须运行 reindex。
+
+### 旧 filename / sha1(path) 身份迁移
+
+1. 暂停该租户上传、worker 和待复核写入；备份 doc 目录、tasks/review JSONL、BM25、Qdrant、Neo4j。
+2. 新 FileDocStore 首次打开自动将旧根目录及 `v2/*.json` 导入 `documents.sqlite3`。
+   后续读取使用 SQLite；请勿再用旧版本程序写 JSON。原 JSON 留作迁移备份，不再是事实来源。
+3. 运行 `python -m agentic_graphrag migrate-doc-ids --tenant acme > migration-acme.json`。
+   输出 old_id → UUID 映射；迁移保留正文，不改变 parser/chunk text，重建索引前按旧 doc_id
+   清理三种索引，并修正持久任务引用。清理失败保留意图；重复运行可恢复且不会再次换 UUID。
+4. 核查 partial/failed、抽样检索与图来源；处理迁移前的 pending review，确认其旧文档引用
+   不会被直接批准写回，然后恢复 worker/上传。保留映射用于历史审计；备份按既定保留策略清理。
+
+### 容量与断点续传
+
+`configs/default.yaml` 的 `indexing` 配置：默认普通文件 50 MiB、100 files/batch，
+resumable 单会话 500 MiB，part 5 MiB，过期 86400 秒。`embedding_batch_size=32`、
+`embedding_max_attempts=4`、`retry_base_seconds=0.5`、`retry_max_seconds=30` 可调。
+同时调整反向代理的请求体上限；应用按片读取，但代理负责网络请求体的整体限制。
+
+1. `POST /v1/uploads/init`，JSON：`{"filename":"report.txt","size":12345,"source_uri":"...","content_sha256":"..."}`。
+   source/hash 可省略；返回 `id`、`part_bytes`、`parts`、`expires_at`。
+2. `PUT /v1/uploads/{id}/parts/{number}`，原始二进制请求体，part 从 0 开始；除末片外长度
+   必须等于返回的 part_bytes。可乱序重传相同内容；同 part 不同内容返回 409。
+3. `GET /v1/uploads/{id}` 获取 received 列表，进程重启后仍可续传。
+4. `POST /v1/uploads/{id}/complete` 校验总量、全部 parts、可选 SHA-256 与 UTF-8，生成摄取任务。
+   重复 complete 返回同一任务；跨租户任何操作均为 404。仅支持既有 md/txt，不改变解析约定。
+
+定期运行 `python -m agentic_graphrag.cli.ingest_maintenance prune-uploads --tenant acme`
+清理过期会话。完成后立即删除 part 内容；任务与文档保留各自 journal。

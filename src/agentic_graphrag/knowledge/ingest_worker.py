@@ -14,20 +14,27 @@ import os
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
 
+from agentic_graphrag.core.ports.capabilities import VectorModelRebuild
 from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, VectorStore
-from agentic_graphrag.knowledge.chunk_splitting import ChunkingError
+from agentic_graphrag.knowledge.embedding_batch import BatchEmbedder, single_adapter
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
-from agentic_graphrag.knowledge.ingest import chunk_document
-from agentic_graphrag.knowledge.ingest_stages import embed_chunks, index_chunks, ingest_graph
+from agentic_graphrag.knowledge.index_config import IngestWorkerConfig as IngestWorkerConfig
+from agentic_graphrag.knowledge.index_pipeline import IndexPipeline
+from agentic_graphrag.knowledge.index_result import (
+    IngestResult as IngestResult,
+)
+from agentic_graphrag.knowledge.index_result import (
+    task_outcome as task_outcome,
+)
+from agentic_graphrag.knowledge.index_result import (
+    total_counts,
+)
 from agentic_graphrag.knowledge.ingest_tasks import (
     IngestStatus,
     IngestTask,
     IngestTaskStore,
 )
-from agentic_graphrag.knowledge.ingest_worker_config import IngestWorkerConfig as IngestWorkerConfig
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
     ChannelStatus,
@@ -36,55 +43,16 @@ from agentic_graphrag.observability.degradation import (
 
 logger = logging.getLogger(__name__)
 
-INDEXED_MESSAGE = "Indexed successfully"
-REVIEW_MESSAGE_PREFIX = "Indexed; "
-
 
 def _new_worker_id() -> str:
     """Lease token identifying this worker instance (see ``IngestTaskStore``)."""
     return f"worker-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
-@dataclass
-class IngestResult:
-    doc_id: str
-    chunks_created: int = 0
-    chunks_indexed: int = 0
-    error: str | None = None
-    # BL-01: what the document contributed to the knowledge graph, when the
-    # worker runs a graph stage.
-    graph: dict[str, Any] | None = None
-
-    @property
-    def review_items(self) -> int:
-        return int((self.graph or {}).get("conflicts_review", 0))
-
-
-def task_outcome(results: list[IngestResult]) -> tuple[IngestStatus, str]:
-    """Terminal status of a task: FAILED on any error, REVIEW while conflicts await
-    a human (the review executor moves it on to DONE), else DONE."""
-    failed = [r for r in results if r.error or (r.graph or {}).get("error")]
-    if failed:
-        first = failed[0]
-        return IngestStatus.FAILED, first.error or str((first.graph or {}).get("error"))
-    pending = sum(r.review_items for r in results)
-    if pending:
-        return IngestStatus.REVIEW, f"{REVIEW_MESSAGE_PREFIX}{pending} conflict(s) await review"
-    return IngestStatus.DONE, _done_message(results)
-
-
-def _done_message(results: list[IngestResult]) -> str:
-    facts = sum(int((r.graph or {}).get("accepted", 0)) for r in results)
-    if any(r.graph is not None for r in results):
-        return f"{INDEXED_MESSAGE}; {facts} graph fact(s) written"
-    return INDEXED_MESSAGE
-
-
 class IngestWorker:
     """Process unindexed documents from the doc store into vector/fulltext indexes.
 
-    Tracks which doc_ids have been processed via an in-memory set (sufficient
-    for single-process deployments; upgrade to persistent journal for multi-node).
+    Chunk progress is persisted in DocStore after every successful stage.
     """
 
     def __init__(
@@ -94,6 +62,8 @@ class IngestWorker:
         vector_store: VectorStore,
         fulltext_store: FulltextStore | None = None,
         embed_fn: Callable[[str], list[float]] | None = None,
+        embed_many: BatchEmbedder | None = None,
+        on_commit: Callable[[], None] | None = None,
         task_store: IngestTaskStore | None = None,
         config: IngestWorkerConfig | None = None,
         worker_id: str | None = None,
@@ -107,58 +77,90 @@ class IngestWorker:
         self.config = config or IngestWorkerConfig()
         self.task_store = task_store
         self.worker_id = worker_id or _new_worker_id()
-        self._processed: set[str] = set()
+        batch_embedder = embed_many
+        if batch_embedder is None and embed_fn is not None:
+            batch_embedder = single_adapter(embed_fn)
+        self.pipeline = IndexPipeline(
+            doc_store,
+            vector=vector_store,
+            fulltext=fulltext_store,
+            graph=graph_ingestor,
+            embed_many=batch_embedder,
+            config=self.config,
+            on_commit=on_commit,
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def process_doc(
         self, doc_id: str, *, batch_id: str = "", tenant_id: str | None = None
     ) -> IngestResult:
-        """Process a single document: chunk → embed → upsert → graph (when wired)."""
-        doc = self.doc_store.get(doc_id, tenant_id=tenant_id)
-        if doc is None:
-            return IngestResult(doc_id=doc_id, error="not_found")
-        try:
-            chunks = chunk_document(
-                doc,
-                chunk_size=self.config.chunk_size_tokens,
-                overlap=self.config.chunk_overlap_tokens,
-                tokenizer=self.config.tokenizer,
-            )
-        except ChunkingError as exc:
-            return IngestResult(doc_id=doc_id, error=str(exc))
-        if not chunks:
-            self._processed.add(doc_id)
-            return IngestResult(doc_id=doc_id)
-        embed_error = embed_chunks(self.embed_fn, chunks)
-        indexed = index_chunks(
-            chunks,
-            doc_id=doc_id,
-            vector_store=self.vector_store,
-            fulltext_store=self.fulltext_store,
-        )
-        self._processed.add(doc_id)
-        return IngestResult(
-            doc_id=doc_id,
-            chunks_created=len(chunks),
-            chunks_indexed=indexed,
-            error=embed_error,
-            graph=ingest_graph(
-                self.graph_ingestor, chunks, tenant_id=doc.tenant_id, batch_id=batch_id
-            ),
+        def heartbeat() -> None:
+            if batch_id and self.task_store:
+                if not self.task_store.touch(batch_id, owner=self.worker_id):
+                    raise RuntimeError("Task lease lost")
+
+        return self.pipeline.process(
+            doc_id, tenant_id=tenant_id, batch_id=batch_id, heartbeat=heartbeat
         )
 
     def run_once(self) -> list[IngestResult]:
-        """Poll queued tasks first, then legacy unprocessed documents."""
         if self.task_store is not None:
             return self._run_task_batch()
-        all_ids = self.doc_store.list_ids()
-        pending = [did for did in all_ids if did not in self._processed]
-        batch = pending[: self.config.batch_size]
-        results: list[IngestResult] = []
-        for doc_id in batch:
-            results.append(self.process_doc(doc_id))
+        results = []
+        for doc_id, tenant in self.doc_store.list_refs():
+            doc = self.doc_store.get(doc_id, tenant_id=tenant)
+            if doc and self.pipeline.needs_processing(doc):
+                results.append(self.process_doc(doc_id, tenant_id=tenant))
+            if len(results) >= self.config.batch_size:
+                break
         return results
+
+    def reconcile(self, *, tenant_id: str) -> list[IngestResult]:
+        results = self._reconcile_tasks(tenant_id)
+        attempted = {result.doc_id for result in results}
+        for did in self.doc_store.list_ids(tenant_id=tenant_id):
+            if did in attempted:
+                continue
+            doc = self.doc_store.get(did, tenant_id=tenant_id)
+            if doc and self.pipeline.needs_processing(doc):
+                results.append(self.process_doc(did, tenant_id=tenant_id))
+        return results
+
+    def _reconcile_tasks(self, tenant_id: str) -> list[IngestResult]:
+        results: list[IngestResult] = []
+        if self.task_store is None:
+            return results
+        _, total = self.task_store.list(tenant_id=tenant_id, limit=1)
+        tasks, _ = self.task_store.list(tenant_id=tenant_id, limit=max(total, 1))
+        for task in tasks:
+            if task.status not in {IngestStatus.PARTIAL, IngestStatus.FAILED}:
+                continue
+            self.task_store.transition(task.id, IngestStatus.QUEUED)
+            if self._claim(task.id):
+                results.extend(self._run_task(task))
+        return results
+
+    def reindex(self, *, tenant_id: str) -> list[IngestResult]:
+        if self.pipeline.embed_many is None:
+            raise ValueError("Reindex requires an embedder")
+        with self.doc_store.lock():
+            rebuild = (
+                self.vector_store if isinstance(self.vector_store, VectorModelRebuild) else None
+            )
+            if rebuild:
+                rebuild.begin_reindex(self.config.embedding_model, tenant_id=tenant_id)
+            try:
+                results = [
+                    self.pipeline.process(did, tenant_id=tenant_id, reindex=True)
+                    for did in self.doc_store.list_ids(tenant_id=tenant_id)
+                ]
+                if rebuild and not any(r.error for r in results):
+                    rebuild.commit_reindex()
+                return results
+            finally:
+                if rebuild:
+                    rebuild.end_reindex()
 
     def _run_task_batch(self) -> list[IngestResult]:
         requeued = self._queue.requeue_stale(
@@ -201,21 +203,51 @@ class IngestWorker:
                 task_id=task.id,
             )
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
-            return []
-        self._finalize(task.id, *task_outcome(results))
+            return [IngestResult("", error=type(exc).__name__, fatal=True)]
+        # Review execution uses the same lock, so a decision cannot miss settlement
+        # between counting pending items and publishing the terminal task state.
+        with self.doc_store.lock():
+            queue = self.graph_ingestor.review_queue if self.graph_ingestor else None
+            pending = (
+                queue.count(
+                    status="pending", type="conflict", tenant_id=task.tenant_id, batch_id=task.id
+                )
+                if queue is not None
+                else None
+            )
+            self._finalize(
+                task.id,
+                *task_outcome(results, pending_reviews=pending),
+                counts=total_counts(results),
+            )
         return results
 
     def _process_task_docs(self, task: IngestTask) -> list[IngestResult]:
         """Index every document, refreshing the lease between documents."""
         results: list[IngestResult] = []
         for row in task.docs:
+            if row.get("status") == "duplicate":
+                continue
+            if row.get("error"):
+                results.append(IngestResult(row.get("doc_id", ""), error=row["error"], fatal=True))
+                continue
+            current = self.doc_store.get(row["doc_id"], tenant_id=task.tenant_id)
+            if current and row.get("version") and str(current.version) != row["version"]:
+                continue
             results.append(
                 self.process_doc(row["doc_id"], batch_id=task.id, tenant_id=task.tenant_id)
             )
             self._queue.touch(task.id, owner=self.worker_id)
         return results
 
-    def _finalize(self, task_id: str, status: IngestStatus, message: str) -> None:
+    def _finalize(
+        self,
+        task_id: str,
+        status: IngestStatus,
+        message: str,
+        *,
+        counts: dict[str, int] | None = None,
+    ) -> None:
         """Record the terminal status — bookkeeping must never look like failure.
 
         A stale requeue racing this worker puts the task back in QUEUED, which
@@ -224,7 +256,9 @@ class IngestWorker:
         (docs/design/BUSINESS_LOGIC.md BL-06). Log it and leave the status alone.
         """
         try:
-            self._queue.transition(task_id, status, message=message, owner=self.worker_id)
+            self._queue.transition(
+                task_id, status, message=message, owner=self.worker_id, counts=counts
+            )
         except (KeyError, ValueError) as exc:
             logger.error("Cannot record %s for task %s: %s", status.value, task_id, exc)
 
@@ -254,8 +288,7 @@ class IngestWorker:
                         ", ".join(r.doc_id for r in results),
                     )
             except Exception as exc:  # noqa: BLE001
-                # The worker loop must survive, but a silent pass hid a worker
-                # that never ingested anything (O-9).
+                # The loop must survive, but never silently: that hid a dead worker (O-9).
                 record_degradation("ingest", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED)
             self._stop.wait(timeout=self.config.poll_interval_seconds)
         logger.info("IngestWorker stopped")

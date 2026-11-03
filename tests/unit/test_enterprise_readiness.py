@@ -425,7 +425,8 @@ class TestENT06UploadGovernance:
         assert r.status_code == 415
 
     def test_upload_too_many_files(self, client) -> None:
-        files = [("files", (f"f{i}.txt", b"x", "text/plain")) for i in range(25)]
+        limit = client.app.state.query_service.cfg.indexing.max_batch_files
+        files = [("files", (f"f{i}.txt", b"x", "text/plain")) for i in range(limit + 1)]
         r = client.post("/v1/docs", files=files)
         assert r.status_code == 413
 

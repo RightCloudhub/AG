@@ -94,8 +94,13 @@ def test_offline_bundle_close() -> None:
     bundle.close()
 
 
-def test_mock_llm_satisfies_client_protocol() -> None:
+def test_mock_llm_satisfies_client_protocol(monkeypatch) -> None:
     llm = MockLLMProvider()
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("Mock embeddings must never call the network")
+
+    monkeypatch.setattr(llm, "_post", no_network)
     assert isinstance(llm, LLMClient)
     vec = llm.embed("test")
     assert len(vec) == 8

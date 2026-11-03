@@ -375,3 +375,4 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 - [x] 2026-11-03 需求登记表边界修复：旧支撑引用永不删除、Verifier 独立模型配置与并发校验、累计否决退休及审计、跨跳收敛提醒与异常 WARNING；默认关闭及 `--no-llm` 不变；696 单测通过、覆盖率 89.53%、Ruff/mypy/代码指标通过，离线 G2 基线/候选均 200/200（McNemar p=1）；真实模型效果仍待配对评估。
 - [~] 2026-11-03 cross-encoder 重排：已补齐池扩展、批处理/截断/重试/熔断、图策略与 run 内缓存；无 TEI/live 预算，保持默认 none，待真实准确率与 P95 验收，见 [rerank_eval.md](../../reports/rerank_eval.md)。
 - [x] 2026-11-03 BL-08：统一解析端口、签名/编码校验、MinerU 适配器及含 breadcrumb 的 token 分块已完成；714 单测、89.82% 覆盖率，五组离线评测均无分数变化（0 pp），CI 下限未改；见 [验证记录](INGEST_PARSE_CHUNK.md)。
+- 2026-11-03：摄取新增 UUID/版本/hash 去重、SQLite chunk checkpoint、partial/reconcile、租户隔离删除、批量 embedding 重试、模型 reindex 与断点续传；旧 ID 迁移和 live 模型切换操作见 RUNBOOK，离线 adapter 回归不替代 Neo4j/Qdrant 线上验收。

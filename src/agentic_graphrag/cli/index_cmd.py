@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 
+from agentic_graphrag.cli.index_batches import embed_chunks, tenant_batches
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.knowledge.worker_wiring import worker_config
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 
 
@@ -53,15 +55,15 @@ def _index_vectors(
         settings=settings,
         cfg=cfg,
     )
-    for ch in chunks:
-        ch.embedding = llm.embed(ch.text)
+    config = worker_config(cfg, live=True)
+    embed_chunks(chunks, llm.embed_many, config=config)
     if memory:
         _persist_memory_vectors(chunks, cfg)
         return
     store = QdrantVectorStore(settings.qdrant_url, settings.qdrant_collection)
-    if chunks and chunks[0].embedding:
-        store.ensure_collection(len(chunks[0].embedding))
-    n_vec = store.upsert(chunks)
+    n_vec = sum(
+        store.upsert(batch) for batch in tenant_batches(chunks, config.embedding_batch_size)
+    )
     store.close()
     print(f"Qdrant upserted {n_vec} vectors")
 
@@ -84,6 +86,9 @@ def _persist_memory_vectors(chunks: list[ChunkRecord], cfg: AppConfig) -> None:
                         "text": ch.text,
                         "doc_id": ch.doc_id,
                         "index": ch.index,
+                        "tenant_id": ch.tenant_id,
+                        "metadata": ch.metadata,
+                        "embedding_model": ch.embedding_model,
                     },
                     ensure_ascii=False,
                 )

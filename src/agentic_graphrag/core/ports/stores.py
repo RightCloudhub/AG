@@ -9,6 +9,7 @@ adapters live in sibling modules (``memory_graph``, ``neo4j_store``, …).
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -58,6 +59,13 @@ class DocumentRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     tenant_id: str = ""
 
+    source_uri: str = ""
+    content_sha256: str = ""
+    version: int = 1
+    created_at: str = ""
+    updated_at: str = ""
+    chunks: list[ChunkRecord] = field(default_factory=list)
+
 
 @dataclass
 class ChunkRecord:
@@ -69,10 +77,17 @@ class ChunkRecord:
     embedding: list[float] | None = None
     tenant_id: str = ""
 
+    embedded: bool = False
+    fulltext_indexed: bool = False
+    graph_extracted: bool = False
+    embedding_model: str = ""
+
 
 @runtime_checkable
 class GraphStore(Protocol):
     """Graph repository: entities, relations, multi-hop neighbors / paths."""
+
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int: ...
 
     def clear(self) -> None: ...
 
@@ -129,6 +144,8 @@ class VectorStore(Protocol):
         tenant_id: str | None = None,
     ) -> list[tuple[ChunkRecord, float]]: ...
 
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int: ...
+
     def clear(self) -> None: ...
 
     def close(self) -> None: ...
@@ -144,6 +161,8 @@ class FulltextStore(Protocol):
         self, query: str, top_k: int = 10, *, tenant_id: str | None = None
     ) -> list[tuple[ChunkRecord, float]]: ...
 
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int: ...
+
     def clear(self) -> None: ...
 
 
@@ -157,6 +176,20 @@ class DocStore(Protocol):
 
     def save(self, doc: DocumentRecord) -> None: ...
 
+    def save_chunks(self, doc: DocumentRecord, chunks: list[ChunkRecord]) -> None:
+        """Checkpoint only these chunks; reject missing documents or obsolete versions."""
+        ...
+
     def get(self, doc_id: str, *, tenant_id: str | None = None) -> DocumentRecord | None: ...
 
     def list_ids(self, *, tenant_id: str | None = None) -> list[str]: ...
+
+    def list_refs(self, *, tenant_id: str | None = None) -> list[tuple[str, str]]: ...
+
+    def delete(self, doc_id: str, *, tenant_id: str) -> None: ...
+
+    def find(
+        self, value: str, *, tenant_id: str, by_hash: bool = False
+    ) -> DocumentRecord | None: ...
+
+    def lock(self) -> AbstractContextManager[None]: ...

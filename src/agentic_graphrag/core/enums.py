@@ -155,6 +155,7 @@ class SubQuestionStatus(StrEnum):
 
 
 class IngestStatus(StrEnum):
+    PARTIAL = "partial"
     QUEUED = "queued"
     EXTRACTING = "extracting"
     REVIEW = "review"

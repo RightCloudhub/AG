@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from uuid import uuid4
 
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
@@ -56,6 +57,7 @@ class _SimpleBM25:
 
 class BM25FulltextStore:
     def __init__(self) -> None:
+        self.index_generation = uuid4().hex
         self._chunks: list[ChunkRecord] = []
         self._corpus_tokens: list[list[str]] = []
         self._bm25: _SimpleBM25 | None = None
@@ -83,7 +85,18 @@ class BM25FulltextStore:
         ranked = sorted(scored, key=lambda row: row[1], reverse=True)[:top_k]
         return [(chunk, float(score)) for chunk, score in ranked if score > 0]
 
+    def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
+        before = len(self._chunks)
+        self._chunks = [
+            c
+            for c in self._chunks
+            if not (c.doc_id == doc_id and tenant_matches(c.tenant_id, tenant_id))
+        ]
+        self.index([])
+        return before - len(self._chunks)
+
     def clear(self) -> None:
+        self.index_generation = uuid4().hex
         self._chunks.clear()
         self._corpus_tokens.clear()
         self._bm25 = None

@@ -159,7 +159,8 @@ flowchart TB
     AU --> OUT
     RV --> OUT
     KO --> OUT
-    OUT -->|"有错误"| F["failed"]
+    OUT -->|"认证失败 / 文档缺失"| F["failed"]
+    OUT -->|"索引状态不完整"| P["partial + 分阶段计数"]
     OUT -->|"有待复核冲突"| R["review"]
     OUT -->|"否则"| D["done（含写入事实数）"]
 ```
@@ -175,13 +176,41 @@ stateDiagram-v2
     extracting --> queued: 租约过期重投
     extracting --> done: 无错误、无待复核冲突
     extracting --> review: 存在待复核冲突
-    extracting --> failed: 任一文档或图谱阶段出错
+    extracting --> failed: 401 或不可处理的文档错误
+    extracting --> partial: 任一必需 chunk 阶段未完成
+    partial --> queued: reconcile
+    failed --> queued: 修复原因后 reconcile
     review --> done: 批次最后一个冲突被决策（ReviewExecutor）
     review --> failed
     done --> [*]
     failed --> [*]
     empty --> [*]
 ```
+
+### 3.1.1 文档身份、索引一致性与恢复（BL-06 / BL-10，2026-11-03）
+
+- API 与 CLI 写入使用 UUID；`source_uri` 标识来源，`content_sha256` 标识 UTF-8 文本内容，
+  `version` 从 1 递增，保留 `created_at` 并刷新 `updated_at`。同租户同 hash 返回
+  `duplicate`，不重复入队处理；同来源新内容沿用 UUID、递增版本。
+- 替换与 `DELETE /v1/documents/{doc_id}` 共用 `DocumentLifecycle`：先记录替换/删除意图，
+  再依次清理 vector、fulltext、graph，最后提交新版本或删除源文档。任一步失败保留意图，
+  reconcile 可重入；图谱只移除该文档的来源，仍有其它来源支持的关系保留。
+- FileDocStore 的 `documents.sqlite3` 原子保存文档身份索引、正文及 chunk journal。
+  `(tenant, source)`、`(tenant, hash)`、`id` 均有索引；list 不解析正文，无租户 get
+  只解码唯一命中的文档，歧义返回空。旧 JSON 自动导入一次；UUID 迁移见 RUNBOOK。
+- chunk 的 `embedded`、`fulltext_indexed`、`graph_extracted`、`embedding_model`
+  只在对应存储确认成功后持久化。`done` 要求所有已配置阶段完成；未完成为 `partial`，
+  附 `total/embedded/fulltext_indexed/graph_extracted/incomplete` 计数。冲突继续使用 `review`。
+- embedding 按 `indexing.embedding_batch_size` 请求，429/5xx/timeout 使用有上限的指数退避
+  与 full jitter；401 不重试，任务为 `failed` 并显示 401（不回传供应商正文）。
+  任务 journal 使用进程共享锁和刷新读取，chunk checkpoint 消除旧 `_processed` 内存集合。
+- `reconcile --tenant` 重试缺失阶段并恢复中断的清理；`reindex --tenant` 仅重新生成与配置
+  模型不同的向量。内存 adapter 用相同逻辑 ID 原子 upsert；Qdrant 在租户独立的新 collection
+  构建完整向量空间，成功后原子切换 alias，再清理旧向量，支持维度变化。查询按 active
+  collection 的模型编码；在途 alias 切换会重新编码，防止旧 encoder 查询新空间。
+- 上传容量见 `indexing` 配置。`/uploads/init`、`/uploads/{id}/parts/{number}`、
+  `/uploads/{id}/complete` 支持持久化、乱序和幂等重传，GET 返回已接收 part；校验每片和总量，
+  complete 校验完整性、可选 hash 与 UTF-8。所有路径由当前 Principal 限定租户；删除、完成上传有审计。
 
 ### 3.2 复核队列状态机与执行
 
@@ -339,6 +368,8 @@ stateDiagram-v2
 
 #### 🟠 BL-06：`extracting` 态崩溃后任务永久卡死
 
+2026-11-03 更新：租约重投之外已增加持久化 chunk checkpoint、跨进程任务锁与 reconcile，见 §3.1.1。以下为原始问题证据。
+
 | 项 | 内容 |
 |----|------|
 | 证据 | `ingest_worker.py:124` 先 `transition(QUEUED→EXTRACTING)` 再处理；`IngestTaskStore.pending()`（`ingest_tasks.py:90`）**只返回 QUEUED**；`_ALLOWED_TRANSITIONS`（`:24-28`）无 `EXTRACTING→QUEUED` 重投路径，也无租约/心跳/超时字段。 |
@@ -402,6 +433,8 @@ stateDiagram-v2
 | 反向存在性泄漏 | `routes/knowledge.py:188-190`：他租户的 query_id → 404；**不存在**的 query_id → 200。与 `:177` 注释「404 for both missing and cross-tenant (no existence leak)」相反，可用作存在性探测。 |
 
 #### 🟡 BL-10：静默吞异常导致「成功」语义失真
+
+2026-11-03 更新：部分 embedding/fulltext/graph 失败统一为 partial + 计数，401 为 failed；不再只检测全部 embedding 失败。以下为原始问题证据。
 
 | 位置 | 行为 | 后果 |
 |------|------|------|

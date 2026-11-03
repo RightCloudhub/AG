@@ -220,6 +220,10 @@ def _try_load_embeddings(vector: VectorStore, cfg: AppConfig) -> None:
                 doc_id=item["doc_id"],
                 text=item["text"],
                 index=item.get("index", 0),
+                tenant_id=str(
+                    item.get("tenant_id") or (item.get("metadata") or {}).get("tenant_id") or ""
+                ),
+                embedding_model=str(item.get("embedding_model") or ""),
                 embedding=item.get("embedding"),
             )
         )

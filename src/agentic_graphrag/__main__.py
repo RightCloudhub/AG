@@ -9,6 +9,9 @@ from enum import StrEnum
 
 class Command(StrEnum):
     INGEST = "ingest"
+    RECONCILE = "reconcile"
+    REINDEX = "reindex"
+    MIGRATE_DOC_IDS = "migrate-doc-ids"
     BUILD_GRAPH = "build-graph"
     INDEX = "index"
     RUN_CASES = "run-cases"
@@ -26,9 +29,13 @@ class Command(StrEnum):
 
 def _commands() -> dict[Command, Callable[[list[str]], None]]:
     from agentic_graphrag import cli
+    from agentic_graphrag.cli.ingest_maintenance import migrate_main, reconcile_main, reindex_main
 
     return {
         Command.INGEST: cli.ingest_main,
+        Command.RECONCILE: reconcile_main,
+        Command.REINDEX: reindex_main,
+        Command.MIGRATE_DOC_IDS: migrate_main,
         Command.BUILD_GRAPH: cli.build_graph_main,
         Command.INDEX: cli.index_main,
         Command.RUN_CASES: cli.run_cases_main,
@@ -63,7 +70,7 @@ def _print_help() -> None:
         "Usage: python -m agentic_graphrag <command> ...\n"
         "Commands: ingest, build-graph, index, run-cases, run-baseline, score, eval,\n"
         "          gen-cases, pilot-triples, badcase, spotcheck, score-spotcheck,\n"
-        "          export-reasoning-schema, query"
+        "          export-reasoning-schema, query, reconcile, reindex, migrate-doc-ids"
     )
 
 

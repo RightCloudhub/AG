@@ -68,6 +68,7 @@ data/processed/audit_chains.jsonl.*
 data/processed/audit_events.jsonl
 data/processed/ingest_tasks.jsonl
 data/processed/review_queue.jsonl
+data/processed/review_queue.lock
 
 # Local non-Python runtimes (JDK / Neo4j tarball extracts, etc.)
 # See docs/EXTERNAL_RUNTIMES.md — prefer docker-compose, do not commit binaries.

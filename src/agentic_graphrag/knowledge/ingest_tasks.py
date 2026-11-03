@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import builtins
 import json
-import threading
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
 from agentic_graphrag.core.enums import IngestStatus as IngestStatus
+from agentic_graphrag.stores.file_lock import FileMutex
 
 _ALLOWED_TRANSITIONS = {
+    IngestStatus.PARTIAL: {IngestStatus.QUEUED},
+    IngestStatus.FAILED: {IngestStatus.QUEUED},
     IngestStatus.QUEUED: {IngestStatus.EXTRACTING, IngestStatus.FAILED},
     # EXTRACTING → QUEUED is the crash-recovery path: a worker killed mid-task
     # would otherwise leave it EXTRACTING forever, invisible to ``pending()``
     # and to any retry (docs/design/BUSINESS_LOGIC.md BL-06).
     IngestStatus.EXTRACTING: {
+        IngestStatus.PARTIAL,
         IngestStatus.REVIEW,
         IngestStatus.DONE,
         IngestStatus.FAILED,
@@ -45,6 +50,7 @@ class IngestTask:
     message: str = ""
     # Lease holder: the worker token that claimed this task. Empty when unclaimed.
     owner: str = ""
+    counts: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,18 +66,26 @@ class IngestTask:
             updated_at=float(value.get("updated_at") or time.time()),
             message=str(value.get("message") or ""),
             owner=str(value.get("owner") or ""),
+            counts=dict(value.get("counts") or {}),
         )
 
 
 class IngestTaskStore:
-    """Thread-safe last-write-wins JSONL task store."""
+    """JSONL task journal serialized across threads and processes."""
 
     def __init__(self, path: Path | str | None = None) -> None:
         self.path = Path(path) if path else None
         self._tasks: dict[str, IngestTask] = {}
-        self._lock = threading.Lock()
+        self._mutex = FileMutex(self.path.with_suffix(".lock") if self.path else None)
         if self.path and self.path.exists():
             self._load()
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        with self._mutex.hold():
+            if self.path and self.path.exists():
+                self._load()
+            yield
 
     def create(
         self, tenant_id: str, docs: list[dict[str, str]], *, task_id: str | None = None
@@ -84,13 +98,13 @@ class IngestTaskStore:
             status=status,
             message="Queued for background indexing" if docs else "No documents received",
         )
-        with self._lock:
+        with self._locked():
             self._tasks[task.id] = task
             self._persist(task)
         return task
 
     def get(self, task_id: str, *, tenant_id: str | None = None) -> IngestTask | None:
-        with self._lock:
+        with self._locked():
             task = self._tasks.get(task_id)
             if task is None or (tenant_id is not None and task.tenant_id != tenant_id):
                 return None
@@ -100,7 +114,7 @@ class IngestTaskStore:
         self, *, tenant_id: str | None = None, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0
     ) -> tuple[list[IngestTask], int]:
         """Return a tenant-scoped page, newest first, and its exact total."""
-        with self._lock:
+        with self._locked():
             tasks = [
                 task
                 for task in self._tasks.values()
@@ -112,7 +126,7 @@ class IngestTaskStore:
             return [IngestTask.from_dict(task.to_dict()) for task in page], total
 
     def pending(self, limit: int = 10) -> builtins.list[IngestTask]:
-        with self._lock:
+        with self._locked():
             tasks = [t for t in self._tasks.values() if t.status == IngestStatus.QUEUED]
         tasks.sort(key=lambda task: task.created_at)
         return [IngestTask.from_dict(task.to_dict()) for task in tasks[:limit]]
@@ -123,39 +137,21 @@ class IngestTaskStore:
         stale_seconds: float = DEFAULT_STALE_SECONDS,
         exclude_owner: str | None = None,
     ) -> builtins.list[str]:
-        """Return EXTRACTING tasks abandoned by a dead worker to QUEUED.
+        """Requeue abandoned tasks while holding the same lock as heartbeats.
 
-        Without this a worker crash strands the task in EXTRACTING permanently
-        — ``pending()`` only yields QUEUED, so nothing ever retries it (BL-06).
-
-        ``exclude_owner`` is the caller's own lease token. A live worker must
-        never reclaim its *own* in-flight task: the duplicate run would race the
-        original, and the original's terminal transition would then be invalid.
-        Workers keep the lease fresh through :meth:`touch`, so ``updated_at``
-        only falls behind the cutoff once the owner has genuinely stopped.
-
-        The lease is authoritative inside one process. Across processes this
-        store is last-write-wins with no shared lock, so a claim race remains
-        possible — hence :meth:`transition` refusing invalid moves rather than
-        trusting the lease alone.
-
-        Returns the ids that were requeued.
+        The age check and transition are one critical section. A heartbeat that
+        arrives after the scan cannot be overwritten by a stale lease decision.
         """
         cutoff = time.time() - max(0.0, stale_seconds)
-        with self._lock:
+        with self._locked():
             stale = [
                 task.id
                 for task in self._tasks.values()
                 if _is_abandoned(task, cutoff=cutoff, exclude_owner=exclude_owner)
             ]
-        requeued: list[str] = []
-        for task_id in stale:
-            try:
+            for task_id in stale:
                 self.transition(task_id, IngestStatus.QUEUED, message=_REQUEUE_MESSAGE, owner="")
-            except (KeyError, ValueError):
-                continue
-            requeued.append(task_id)
-        return requeued
+            return stale
 
     def touch(self, task_id: str, *, owner: str | None = None) -> bool:
         """Heartbeat: mark a task as still being worked on.
@@ -164,7 +160,7 @@ class IngestTaskStore:
         and would reclaim a task that is still in flight. Returns False when the
         task is gone or the lease belongs to a different worker.
         """
-        with self._lock:
+        with self._locked():
             task = self._tasks.get(task_id)
             if task is None:
                 return False
@@ -183,12 +179,17 @@ class IngestTaskStore:
         *,
         message: str = "",
         owner: str | None = None,
+        counts: dict[str, int] | None = None,
     ) -> IngestTask:
         """Move a task to ``status``. ``owner`` replaces the lease when given."""
-        with self._lock:
+        with self._locked():
             task = self._tasks.get(task_id)
             if task is None:
                 raise KeyError(task_id)
+            if task.status == IngestStatus.EXTRACTING and owner and task.owner != owner:
+                raise ValueError("Task lease lost")
+            if counts is not None:
+                task.counts = counts
             current = IngestStatus(task.status)
             allowed = _ALLOWED_TRANSITIONS.get(current, set())
             if status not in allowed:
@@ -200,6 +201,16 @@ class IngestTaskStore:
                 task.owner = owner
             self._persist(task)
             return IngestTask.from_dict(task.to_dict())
+
+    def remap_documents(self, mapping: dict[str, str], *, tenant_id: str) -> None:
+        """Keep queued tasks attached to UUID identities after the legacy migration."""
+        with self._locked():
+            for task in self._tasks.values():
+                if task.tenant_id != tenant_id:
+                    continue
+                for row in task.docs:
+                    row["doc_id"] = mapping.get(row["doc_id"], row["doc_id"])
+                self._persist(task)
 
     def _load(self) -> None:
         assert self.path is not None

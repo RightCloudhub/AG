@@ -1,12 +1,21 @@
 """Optional backend capabilities with compiler-checked method signatures."""
 
 from abc import abstractmethod
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from agentic_graphrag.core.constants import DEFAULT_PAGE_SIZE
-from agentic_graphrag.core.ports.stores import EntityRecord, RelationRecord
+from agentic_graphrag.core.ports.stores import ChunkRecord, EntityRecord, RelationRecord
 
 DEFAULT_RELATION_SCAN = 50_000
+
+
+@runtime_checkable
+class ProcessLocalIndex(Protocol):
+    """A new generation means persisted checkpoints must be restored or invalidated."""
+
+    @property
+    def index_generation(self) -> str: ...
 
 
 @runtime_checkable
@@ -56,3 +65,26 @@ class EntityMutation(Protocol):
 
     @abstractmethod
     def delete_entity(self, entity_id: str, *, tenant_id: str) -> None: ...
+
+
+@runtime_checkable
+class VectorModelRebuild(Protocol):
+    """Stage a tenant's new vector space and atomically publish it."""
+
+    def begin_reindex(self, model: str, *, tenant_id: str) -> None: ...
+
+    def commit_reindex(self) -> None: ...
+
+    def end_reindex(self) -> None: ...
+
+
+@runtime_checkable
+class ModelVectorSearch(Protocol):
+    def search_with_model(
+        self,
+        query: str,
+        embed: Callable[[str, str], list[float]],
+        *,
+        top_k: int,
+        tenant_id: str,
+    ) -> list[tuple[ChunkRecord, float]]: ...

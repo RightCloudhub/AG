@@ -1,5 +1,7 @@
 """API parsing status codes and persisted parser/chunk provenance."""
 
+import uuid
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +26,12 @@ def upload_context():
     svc.close()
 
 
+def stored(response, svc):
+    """The document the lifecycle stored for the first uploaded file."""
+    doc_id = response.json()["data"]["docs"][0]["doc_id"]
+    return svc.bundle.docs.get(doc_id, tenant_id="default")
+
+
 @pytest.mark.parametrize("encoding", ["gbk", "gb18030", "utf-8-sig"])
 def test_encoded_uploads_persist_normalized_text_and_metadata(upload_context, encoding) -> None:
     client, svc = upload_context
@@ -32,9 +40,11 @@ def test_encoded_uploads_persist_normalized_text_and_metadata(upload_context, en
         "/v1/docs", files={"files": ("report.txt", text.encode(encoding), "text/plain")}
     )
     assert response.status_code == 200
-    doc = svc.bundle.docs.get("report.txt", tenant_id="default")
+    doc = stored(response, svc)
     assert doc is not None and doc.content == text
-    assert doc.doc_id == "report.txt"
+    # The lifecycle assigns a stable UUID; the filename is the title and source.
+    uuid.UUID(doc.doc_id)
+    assert doc.title == "report.txt" and doc.source_uri == "upload://report.txt"
     assert doc.metadata["parser_name"] == "text"
     assert doc.metadata["source_mime_type"] == "text/plain"
     chunk = chunk_document(doc)[0]
@@ -86,7 +96,7 @@ def test_mineru_upload_persists_markdown_and_worker_context(upload_context, monk
         "/v1/docs", files={"files": ("report.pdf", b"%PDF-1.7", "application/octet-stream")}
     )
     assert response.status_code == 200
-    doc = svc.bundle.docs.get("report.pdf", tenant_id="default")
+    doc = stored(response, svc)
     assert doc is not None and doc.content == markdown
     assert doc.metadata["parser_name"] == "mineru"
     assert doc.metadata["source_mime_type"] == "application/pdf"
@@ -107,13 +117,13 @@ def test_html_upload_unescapes_entities_and_strips_noise(upload_context) -> None
         "/v1/docs", files={"files": ("page.html", html, "application/octet-stream")}
     )
     assert response.status_code == 200
-    doc = svc.bundle.docs.get("page.html", tenant_id="default")
+    doc = stored(response, svc)
     assert doc is not None and "# Sales & Research" in doc.content and "noise" not in doc.content
 
 
 def test_upload_byte_cap_still_returns_413(upload_context, monkeypatch) -> None:
     client, svc = upload_context
-    monkeypatch.setattr("agentic_graphrag.api.routes.knowledge_upload.MAX_FILE_SIZE_BYTES", 8)
+    svc.cfg.indexing.max_file_bytes = 8  # the cap is configuration, not a module constant
     response = client.post("/v1/docs", files={"files": ("too-large.txt", b"a" * 9, "text/plain")})
     assert response.status_code == 413 and svc.bundle.docs.list_ids() == []
 

@@ -89,6 +89,10 @@ def _offline_vector(cfg: AppConfig) -> VectorRetriever | None:
                 doc_id=item["doc_id"],
                 text=item["text"],
                 index=item.get("index", 0),
+                tenant_id=str(
+                    item.get("tenant_id") or (item.get("metadata") or {}).get("tenant_id") or ""
+                ),
+                embedding_model=str(item.get("embedding_model") or ""),
                 embedding=item["embedding"],
             )
         )

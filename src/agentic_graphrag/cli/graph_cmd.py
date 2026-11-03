@@ -10,6 +10,7 @@ from pathlib import Path
 from agentic_graphrag.cli._common import _open_graph_store
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.knowledge.extract_types import PipelineResult
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import (
     SchemaDefinition,
@@ -100,6 +101,7 @@ def _extract_triples(
         quarantine_path=resolve_path(cfg.knowledge.extract_quarantine_path),
         doc_store=doc_store,
     )
+    _stamp_chunk_ownership(pipe, chunks)
     _write_rejected(pipe.rejected, cfg)
     print(
         f"Extracted accepted={len(pipe.accepted)} rejected={len(pipe.rejected)} "
@@ -166,3 +168,12 @@ def _write_graph(
             )
     finally:
         store.close()
+
+
+def _stamp_chunk_ownership(pipe: PipelineResult, chunks: list[ChunkRecord]) -> None:
+    owners = {chunk.chunk_id: chunk.tenant_id for chunk in chunks}
+    for result in pipe.chunk_results:
+        for triple in result.accepted:
+            triple.source_doc_id = result.doc_id
+            triple.source_chunk_id = result.chunk_id
+            triple.attributes["tenant_id"] = owners[result.chunk_id]

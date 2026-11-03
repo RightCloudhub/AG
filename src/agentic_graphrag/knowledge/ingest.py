@@ -85,6 +85,7 @@ def chunk_document(
             metadata={
                 "title": doc.title,
                 **doc.metadata,
+                "document_version": doc.version,
                 "breadcrumb": piece.breadcrumb,
                 "heading_path": list(piece.heading_path),
                 "token_count": piece.token_count,

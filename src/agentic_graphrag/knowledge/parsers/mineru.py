@@ -17,17 +17,23 @@ from agentic_graphrag.core.ports.parsing import (
 from agentic_graphrag.knowledge.parsers.encoding import normalize_text
 from agentic_graphrag.knowledge.parsers.sniff import MINERU_MIMES
 
+MINERU_REQUIRED_MESSAGE = (
+    "This file type requires MinerU; configure knowledge.parsing.mineru "
+    "with enabled=true and a /file_parse endpoint, or convert to Markdown"
+)
+
+
+def mineru_available(config: MinerUConfig) -> bool:
+    return config.enabled and bool(config.endpoint.strip())
+
 
 class MinerUParser:
     def __init__(self, config: MinerUConfig) -> None:
         self.config = config
 
     def parse(self, content: bytes, *, filename: str) -> ParsedDocument:
-        if not self.config.enabled or not self.config.endpoint.strip():
-            raise UnsupportedDocumentType(
-                "This file type requires MinerU; configure knowledge.parsing.mineru "
-                "with enabled=true and a /file_parse endpoint, or convert to Markdown"
-            )
+        if not mineru_available(self.config):
+            raise UnsupportedDocumentType(MINERU_REQUIRED_MESSAGE)
         mime = MINERU_MIMES[Path(filename).suffix.lower()]
         response = self._request(content, filename=filename, mime=mime)
         try:

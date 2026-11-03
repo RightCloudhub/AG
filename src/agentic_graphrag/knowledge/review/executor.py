@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.core.events import EventBus, GraphCommitted, ReviewDecided
-from agentic_graphrag.core.ports.stores import GraphStore
+from agentic_graphrag.core.ports.stores import DocStore, GraphStore
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
+from agentic_graphrag.knowledge.review.document_guard import stale_document
 from agentic_graphrag.knowledge.review.executor_ops import (
     delete_relations,
     relations_from_docs,
@@ -44,6 +46,7 @@ class ReviewExecutorDeps:
     task_store: Any | None = None
     on_commit: Callable[[], None] | None = None  # legacy hook; prefer ``events``
     events: EventBus | None = None
+    docs: DocStore | None = None
 
 
 class ReviewExecutor:
@@ -55,6 +58,7 @@ class ReviewExecutor:
         self.task_store = deps.task_store
         self.on_commit = deps.on_commit
         self.events = deps.events
+        self.docs = deps.docs
         self._handlers: dict[tuple[str, str], Handler] = {
             (ReviewType.CONFLICT.value, ReviewStatus.APPROVED.value): self._approve_conflict,
             (ReviewType.EXTRACTION.value, ReviewStatus.APPROVED.value): self._write_proposed,
@@ -65,10 +69,17 @@ class ReviewExecutor:
 
     def execute(self, item: ReviewItem) -> dict[str, Any]:
         """Run the handler for ``item``'s (type, status); record and return the outcome."""
+        with self.docs.lock() if self.docs is not None else nullcontext():
+            return self._execute_locked(item)
+
+    def _execute_locked(self, item: ReviewItem) -> dict[str, Any]:
         if item.execution.get("applied"):
             return item.execution  # idempotent: a replay never writes twice
         handler = self._handlers.get((item.type, item.status))
-        outcome = {"applied": False, "effect": "none"} if handler is None else handler(item)
+        if self.docs is not None and stale_document(item, self.docs, tasks=self.task_store):
+            outcome = {"applied": False, "effect": "stale_document"}
+        else:
+            outcome = {"applied": False, "effect": "none"} if handler is None else handler(item)
         applied = bool(outcome.get("applied"))
         if self.events is not None:
             tenant = str(item.tenant_id or "")
