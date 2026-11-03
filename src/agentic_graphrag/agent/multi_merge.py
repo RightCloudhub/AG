@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from agentic_graphrag.agent.blackboard import Proposal
+from agentic_graphrag.agent.multi_bootstrap import validate_evidence
 from agentic_graphrag.agent.multi_conflicts import add_conflicts
 from agentic_graphrag.agent.register_helpers import with_register_memory
 from agentic_graphrag.agent.register_invariants import apply_invariants
@@ -16,6 +17,7 @@ from agentic_graphrag.core.reasoning import ReasoningStep
 
 
 def merge(state: AgentState, *, rejection_cap: int) -> AgentState:
+    validate_evidence(state["evidence"], state["tenant_id"])
     old = state.get("register") or Register(question=state["question"])
     proposed = old.model_copy(deep=True)
     proposals = [p for p in state.get("proposals", []) if p.round == state.get("hop", 0)]

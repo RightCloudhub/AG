@@ -18,6 +18,7 @@ from agentic_graphrag.agent.multi_graph import build_multi_graph
 from agentic_graphrag.agent.options import AgentDeps
 from agentic_graphrag.agent.pipeline_graph import _stream_graph_updates
 from agentic_graphrag.agent.state import AgentState, initial_state
+from agentic_graphrag.agent.triage_multi import budget_tier, tier_guards
 from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain
@@ -36,6 +37,7 @@ def iter_multi(
 ) -> Iterator[tuple[str, object]]:
     opts = ctx.run_opts
     guards = opts.guard_cfg or GuardrailConfig.from_app_config()
+    guards = tier_guards(guards, agent_config, budget_tier(ctx.question))
     budget = opts.budget or guards.budget_tracker()
     guards = replace(
         guards,
@@ -79,10 +81,14 @@ def _initial(
     initial = initial_state(
         ctx.question, chain, allow_llm=True, tenant_id=opts.tenant_id, evidence=evidence
     )
+    initial["budget_tier"] = budget_tier(ctx.question)
     initial["deadline"] = (
         time.time() + guards.query_timeout_seconds if guards.query_timeout_seconds else 0
     )
+    metered = usage_totals(ctx.entry_usage)
     initial["budget_ledger"] = [
+        entry.model_copy(update={"run_id": chain.query_id}) for entry in ctx.entry_usage
+    ] + [
         BudgetEntry(
             entry_id=f"{chain.query_id}:entry",
             branch_id="entry",
@@ -90,9 +96,9 @@ def _initial(
             tenant_id=opts.tenant_id,
             req_id="triage",
             role="triage",
-            calls=budget.llm_calls,
-            prompt_tokens=budget.prompt_tokens,
-            completion_tokens=budget.completion_tokens,
+            calls=max(0, budget.llm_calls - metered["llm_calls"]),
+            prompt_tokens=max(0, budget.prompt_tokens - metered["prompt_tokens"]),
+            completion_tokens=max(0, budget.completion_tokens - metered["completion_tokens"]),
         )
     ]
     return initial

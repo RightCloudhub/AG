@@ -15,6 +15,7 @@ from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.ports.llm import LLMClient, Message
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.llm.roles import model_name
 from agentic_graphrag.llm.scoped import scoped_client
 from agentic_graphrag.llm.structured import complete_structured
 
@@ -75,7 +76,7 @@ class Researcher:
         except BudgetExceeded:
             return {
                 "outcome": "token_budget",
-                "receipts": [*receipts, receipt(task, budget, suffix=f"reason:{calls}")],
+                "receipts": [*receipts, receipt(task, budget, suffix=f"reason:{calls}", llm=llm)],
             }
         # The branch may propose only its assigned need; ids/text/dependencies are code-owned.
         item = decision.requirement.model_copy(
@@ -92,7 +93,7 @@ class Researcher:
             "decision": decision,
             "calls": calls + 1,
             "query": decision.next_query,
-            "receipts": [*receipts, receipt(task, budget, suffix=f"reason:{calls}")],
+            "receipts": [*receipts, receipt(task, budget, suffix=f"reason:{calls}", llm=llm)],
         }
 
     def _prompt(self, state: ResearchState) -> str:
@@ -153,6 +154,7 @@ class Researcher:
                     run_id=task.run_id,
                     req_id=task.requirement.req_id,
                     role="researcher",
+                    model=model_name(self.llm),
                     round=task.round,
                     outcome=outcome,
                     tokens=usage_totals(state.get("receipts", []))["total_tokens"],

@@ -1,6 +1,6 @@
 """One isolated batched judge call; verdicts are proposals for the merge node."""
 
-from agentic_graphrag.agent.blackboard import BranchEvent, Proposal
+from agentic_graphrag.agent.blackboard import BranchEvent, BudgetEntry, Proposal
 from agentic_graphrag.agent.register_llm import evidence_input, json_text
 from agentic_graphrag.agent.research_budget import receipt
 from agentic_graphrag.agent.research_state import (
@@ -14,6 +14,7 @@ from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.ports.llm import LLMClient, Message
 from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.llm.roles import model_name
 from agentic_graphrag.llm.scoped import scoped_client
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import (
@@ -55,11 +56,31 @@ def verify_batch(state: AgentState, llm: LLMClient, *, config: AgentConfig) -> A
         else v
         for v in verdicts
     ]
+    entries = _receipts(proposals, receipt(task, budget, suffix="usage", role="verifier", llm=llm))
     return {
         "verifications": verdicts,
-        "budget_ledger": [receipt(task, budget, suffix="usage", role="verifier")],
-        "events": _events(task, proposals, verdicts),
+        "budget_ledger": entries,
+        "events": _events(task, proposals, verdicts, model=model_name(llm), entries=entries),
     }
+
+
+def _receipts(proposals: list[Proposal], entry: BudgetEntry) -> list[BudgetEntry]:
+    """Split batch tokens equally (remainder first); count its single call once."""
+    count = len(proposals)
+    return [
+        entry.model_copy(
+            update={
+                "entry_id": f"{entry.entry_id}:{p.requirement.req_id}",
+                "req_id": p.requirement.req_id,
+                "calls": entry.calls if i == 0 else 0,
+                "prompt_tokens": entry.prompt_tokens // count + (i < entry.prompt_tokens % count),
+                "completion_tokens": entry.completion_tokens // count
+                + (i < entry.completion_tokens % count),
+                "cost_usd": entry.cost_usd / count if entry.cost_usd is not None else None,
+            }
+        )
+        for i, p in enumerate(proposals)
+    ]
 
 
 def _inputs(proposals: list[Proposal], state: AgentState) -> list[dict[str, object]]:
@@ -111,7 +132,12 @@ def _judge(
 
 
 def _events(
-    task: ResearchTask, proposals: list[Proposal], verdicts: list[VerificationResult]
+    task: ResearchTask,
+    proposals: list[Proposal],
+    verdicts: list[VerificationResult],
+    *,
+    model: str,
+    entries: list[BudgetEntry],
 ) -> list[BranchEvent]:
     by_id = {v.proposal_id: v for v in verdicts}
     return [
@@ -122,9 +148,11 @@ def _events(
             run_id=task.run_id,
             req_id=p.requirement.req_id,
             role="verifier",
+            model=model,
+            tokens=entries[i].tokens,
             round=task.round,
             outcome="accepted" if by_id[p.entry_id].entailed else "rejected",
             detail=by_id[p.entry_id].reason,
         )
-        for p in proposals
+        for i, p in enumerate(proposals)
     ]

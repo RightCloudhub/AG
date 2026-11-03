@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from agentic_graphrag.agent.blackboard import usage_totals
+from agentic_graphrag.agent.blackboard import BudgetEntry, usage_totals
 from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.agent.register_answer import annotate_register, answer_from_register
 from agentic_graphrag.agent.requirements import Requirement
@@ -41,7 +41,7 @@ def write_answer(
     if chain.metadata.get("llm_degraded"):
         chain.honest_fallback("writer unavailable")
         chain = annotate_register(chain, state)
-    entry = receipt(task, budget, suffix="usage", role="writer")
+    entry = receipt(task, budget, suffix="usage", role="writer", llm=llm)
     ledger = [*state["budget_ledger"], entry]
     chain.metadata.update(
         agent_mode="multi",
@@ -50,6 +50,7 @@ def write_answer(
         budget_ledger=ledger,
         conflicts=state.get("conflicts", {}),
         max_parallel=config.max_parallel,
+        cost_usd=_total_cost(ledger),
     )
     totals = usage_totals(ledger)
     chain.cost.llm_calls = totals["llm_calls"]
@@ -57,6 +58,13 @@ def write_answer(
     chain.cost.prompt_tokens = totals["prompt_tokens"]
     chain.cost.completion_tokens = totals["completion_tokens"]
     return {"chain": chain, "budget_ledger": [entry], "done": True}
+
+
+def _total_cost(ledger: list[BudgetEntry]) -> float | None:
+    usage = [entry for entry in ledger if entry.kind == "usage"]
+    if any(entry.cost_usd is None and entry.tokens for entry in usage):
+        return None
+    return sum(entry.cost_usd or 0 for entry in usage)
 
 
 def _writer_task(state: AgentState, config: AgentConfig, guards: GuardrailConfig) -> ResearchTask:

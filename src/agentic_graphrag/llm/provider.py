@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from copy import copy
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from agentic_graphrag.config_roles import ModelRole, RoleModelConfig, RolesConfig
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm import response_cache
@@ -21,7 +20,8 @@ from agentic_graphrag.llm.circuit import (
     CircuitBreakerSet,
 )
 from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
-from agentic_graphrag.llm.scoped import completion_payload
+from agentic_graphrag.llm.roles import select_role
+from agentic_graphrag.llm.scoped import check_embedding_budget, completion_payload
 from agentic_graphrag.llm.verifier import warn_same_model
 
 
@@ -42,6 +42,7 @@ class LLMProvider:
         cache_dir: str | Path | None = None,
         circuit: CircuitBreaker | None = None,
         fallback_to_light: bool = False,
+        roles: RolesConfig | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -57,6 +58,8 @@ class LLMProvider:
         self.timeout_seconds = timeout_seconds
         self.budget = budget
         self.max_output_tokens: int | None = None
+        self.roles = roles or RolesConfig()
+        self.role_config: RoleModelConfig | None = None
         self.cache_dir = Path(cache_dir) if cache_dir else None
         # One breaker per route (O-8); ``circuit`` is the template they clone.
         self.circuits = CircuitBreakerSet(circuit)
@@ -73,6 +76,9 @@ class LLMProvider:
         client.budget = budget
         client.max_output_tokens = max_output_tokens
         return client
+
+    def for_role(self, role: ModelRole) -> LLMProvider:
+        return select_role(self, role)
 
     def for_verifier(self, *, model: str | None = None) -> LLMProvider:
         """Select a judge without mutating the proposer or dropping its budget/stub."""
@@ -159,6 +165,8 @@ class LLMProvider:
         return self.embed_for_model(text, self.embedding_model)
 
     def embed_for_model(self, text: str, model: str) -> list[float]:
+        if self.max_output_tokens is not None:
+            check_embedding_budget(text, self.budget)
         payload = {"model": model or self.embedding_model, "input": text}
         # Include endpoint in cache key so multi-provider caches do not collide.
         cache_key = response_cache.cache_key(
@@ -247,49 +255,4 @@ class LLMProvider:
         return data
 
 
-class MockLLMProvider(LLMProvider):
-    """Deterministic stub for unit tests — no network."""
-
-    # A canned stub cannot judge entailment; the answer gate skips the judge.
-    supports_entailment = False
-
-    def __init__(
-        self,
-        responses: dict[str, str] | None = None,
-        embedding_dim: int = 8,
-        budget: BudgetTracker | None = None,
-    ) -> None:
-        super().__init__(api_key="mock", budget=budget)
-        self.responses = responses or {}
-        self.embedding_dim = embedding_dim
-        self.calls: list[list[Message]] = []
-
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        tier: Tier = Tier.STRONG,
-        temperature: float | None = None,
-        response_format: dict[str, Any] | None = None,
-    ) -> str:
-        del temperature, response_format
-        if self.budget:
-            self.budget.record_call(prompt_tokens=10, completion_tokens=5)
-        self.calls.append(messages)
-        blob = " ".join(m.content for m in messages)
-        for key, value in self.responses.items():
-            if key in blob:
-                return value
-        return json.dumps({"ok": True, "echo": blob[:200]})
-
-    def embed(self, text: str) -> list[float]:
-        # Stable pseudo-embedding from text hash.
-        h = hashlib.sha256(text.encode("utf-8")).digest()
-        vals = [((h[i % len(h)] / 255.0) * 2 - 1) for i in range(self.embedding_dim)]
-        return vals
-
-    def embed_many(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed(text) for text in texts]
-
-    def embed_for_model(self, text: str, model: str) -> list[float]:
-        return self.embed(text)
+from agentic_graphrag.llm.mock import MockLLMProvider as MockLLMProvider  # noqa: E402

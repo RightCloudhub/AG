@@ -8,6 +8,15 @@ from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 MESSAGE_TOKEN_ALLOWANCE = 128
 
 
+def check_embedding_budget(text: str, budget: BudgetTracker | None) -> None:
+    if (
+        budget
+        and len(text.encode("utf-8")) + MESSAGE_TOKEN_ALLOWANCE
+        > budget.max_tokens - budget.total_tokens
+    ):
+        raise BudgetExceeded("embedding exceeds scoped token allowance", budget)
+
+
 @runtime_checkable
 class ScopedFactory(Protocol):
     def for_budget(self, budget: BudgetTracker, *, max_output_tokens: int) -> LLMClient: ...

@@ -50,4 +50,5 @@ def build_llm_provider(
         cache_dir=cache_dir,
         circuit=c.llm.resilience.breaker_template(),
         fallback_to_light=c.llm.resilience.fallback_to_light,
+        roles=c.roles,
     )

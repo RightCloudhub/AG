@@ -4,7 +4,19 @@ app:
   name: agentic-graphrag
   env: local
 
+roles:
+  # Null models inherit light (triage/verifier) or strong (researcher/writer).
+  # Set both USD prices per million tokens to enable monetary cost reporting.
+  triage: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  researcher: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  verifier: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  writer: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+
 agent:
+  budget_tiers:
+    small: {tokens: 12000, calls: 4, rounds: 1}
+    standard: {tokens: 50000, calls: 20, rounds: 5}
+    summary: {tokens: 50000, calls: 20, rounds: 3}
   mode: single
   max_parallel: 1
   max_tool_calls: 3
