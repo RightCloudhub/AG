@@ -45,6 +45,7 @@ def retrieve(
         key = scoped_key(task.tenant_id, task.run_id, tool=str(spec.tool), args=spec.args)
         try:
             hits = cache.retrieve(key, partial(_invoke, executor, task, spec, query=query))
+            _validate_scope(hits, task.tenant_id)
         except (EvidenceScopeError, BudgetExceeded):
             raise
         except Exception as exc:
@@ -77,11 +78,15 @@ def _invoke(
         hits = dispatch(
             executor, spec.tool, spec.args, sub_question=query, tenant_id=task.tenant_id
         )
-        for hit in hits:
-            owner = hit.metadata.get("tenant_id")
-            if owner is not None and str(owner) != task.tenant_id:
-                raise EvidenceScopeError("retrieval returned evidence for a different tenant")
+        _validate_scope(hits, task.tenant_id)
         return hits
     except Exception as exc:
         _record_tool_failure(executor, spec.tool, exc)
         raise
+
+
+def _validate_scope(hits: list[Candidate], tenant_id: str) -> None:
+    for hit in hits:
+        owner = hit.metadata.get("tenant_id")
+        if owner is not None and str(owner) != tenant_id:
+            raise EvidenceScopeError("retrieval returned evidence for a different tenant")
