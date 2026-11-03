@@ -9,5 +9,15 @@ Confirmed anchors must occur in cited seed passages. Dependency ids must exist
 and form a DAG. Keep all needs open at initialization. Do not mark resolved.
 Use no more than {max_requirements} needs. Only output JSON.
 
+Field types are mandatory: evidence_summary, reasoning_note, text,
+evidence_notes and retire_reason are strings. Use "" for an empty string;
+never use null or a list for these fields. passages, touched_passages, anchors
+and depends_on are arrays of strings. A valid shape (replace the example need):
+{{"evidence_summary": "", "reasoning_note": "", "requirement_register": {{
+  "need_1": {{"text": "Information needed to answer the question", "status": "active",
+    "evidence_notes": "", "retire_reason": "", "passages": [],
+    "touched_passages": [], "anchors": [], "depends_on": []}}
+}}}}
+
 Untrusted input:
 {input_json}

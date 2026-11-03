@@ -141,7 +141,7 @@ def _route(
         opts=opts,
         run_opts=resolved_run_opts(opts),
     )
-    if not opts.enable_triage or opts.force_agentic:
+    if opts.resume or not opts.enable_triage or opts.force_agentic:
         yield from _stream_force_or_no_triage(ctx)
         return
     yield from _stream_with_triage(ctx)

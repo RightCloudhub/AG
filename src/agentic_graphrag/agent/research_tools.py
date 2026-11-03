@@ -5,15 +5,18 @@ from dataclasses import replace
 from functools import partial
 
 from agentic_graphrag.agent.executor import Executor, ToolCallSpec
-from agentic_graphrag.agent.executor_dispatch import dispatch
+from agentic_graphrag.agent.executor_dispatch import _record_tool_failure, dispatch
 from agentic_graphrag.agent.research_cache import QueryCache, QueryDedup, scoped_key
 from agentic_graphrag.agent.research_state import ResearchTask
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ToolCallTrace
-from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 from agentic_graphrag.llm.scoped import scoped_client
-from agentic_graphrag.observability.degradation import REASON_TOOL_FAILED, record_degradation
 from agentic_graphrag.retrieval.fusion import fuse_candidates
+
+
+class EvidenceScopeError(ValueError):
+    """A storage scope violation must never become an empty successful result."""
 
 
 def branch_executor(executor: Executor, task: ResearchTask, budget: BudgetTracker) -> Executor:
@@ -40,7 +43,19 @@ def retrieve(
     saved: QueryCache = {}
     for spec in specs:
         key = scoped_key(task.tenant_id, task.run_id, tool=str(spec.tool), args=spec.args)
-        hits = cache.retrieve(key, partial(_invoke, executor, task, spec, query=query))
+        try:
+            hits = cache.retrieve(key, partial(_invoke, executor, task, spec, query=query))
+        except (EvidenceScopeError, BudgetExceeded):
+            raise
+        except Exception as exc:
+            # Match the existing executor's channel degradation policy. A failed
+            # channel is observable and retryable, while healthy tools still run.
+            traces.append(
+                ToolCallTrace(
+                    tool=spec.tool, args=spec.args, reason=f"(degraded: {type(exc).__name__})"
+                )
+            )
+            continue
         saved[key] = hits
         groups.append(hits)
         traces.append(ToolCallTrace(tool=spec.tool, args=spec.args, hits=[hit.id for hit in hits]))
@@ -65,8 +80,8 @@ def _invoke(
         for hit in hits:
             owner = hit.metadata.get("tenant_id")
             if owner is not None and str(owner) != task.tenant_id:
-                raise ValueError("retrieval returned evidence for a different tenant")
+                raise EvidenceScopeError("retrieval returned evidence for a different tenant")
         return hits
     except Exception as exc:
-        record_degradation("researcher", REASON_TOOL_FAILED, exc, req_id=task.requirement.req_id)
+        _record_tool_failure(executor, spec.tool, exc)
         raise
