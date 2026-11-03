@@ -106,6 +106,7 @@ def run_agent(
                         enable_triage=svc.enable_triage and not req.force_agentic,
                         known_entities=executor.known_entities,
                         tenant_id=tenant_id,
+                        agent_config=svc.cfg.agent,
                     ),
                 )
         except BudgetExceeded as exc:

@@ -4,6 +4,17 @@ app:
   name: agentic-graphrag
   env: local
 
+agent:
+  mode: single
+  max_parallel: 1
+  max_tool_calls: 3
+  max_research_calls: 2
+  branch_tokens: 12000
+  writer_reserve_tokens: 8000
+  writer_reserve_calls: 4
+  verifier_reserve_tokens: 4000
+  max_output_tokens: 1500
+
 guardrails:
   # Opt in after paired evaluation on your retrieval stack. Disabled = same-stack
   # agentic baseline. All existing hop/call/token/time ceilings still apply.

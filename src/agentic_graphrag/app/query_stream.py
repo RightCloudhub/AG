@@ -186,6 +186,7 @@ def _build_stream_deps(
         allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
     )
     opts = QueryOptions(
+        agent_config=svc.cfg.agent,
         query_id=query_id,
         guard_cfg=guard_cfg,
         budget=budget,

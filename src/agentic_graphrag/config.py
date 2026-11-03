@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.config_degradation import DegradationConfig
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
 from agentic_graphrag.config_ingest import IndexingConfig
@@ -94,6 +95,7 @@ class EvalConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    agent: AgentConfig = Field(default_factory=AgentConfig)
     question_matching_path: str = "configs/question_matching.yaml"
     name: str = "agentic-graphrag"
     env: str = "local"

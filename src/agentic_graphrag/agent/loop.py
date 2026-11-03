@@ -230,4 +230,6 @@ def resolved_run_opts(opts: QueryOptions) -> AgentRunOptions:
         checkpointer=opts.checkpointer,
         thread_id=opts.thread_id,
         tenant_id=opts.tenant_id,
+        agent_config=opts.agent_config,
+        resume=opts.resume,
     )

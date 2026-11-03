@@ -124,6 +124,8 @@ class GraphStreamMode(StrEnum):
 
 
 class PromptName(StrEnum):
+    RESEARCHER = "researcher"
+    VERIFY_BATCH = "verify_batch"
     ANSWER = "answer"
     CRITIC = "critic"
     ENTAILMENT = "entailment"

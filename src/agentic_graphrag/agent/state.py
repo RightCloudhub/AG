@@ -20,6 +20,8 @@ from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_state import RegisterRuntimeState, merge_register_runtime
 from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.agent.research_cache import QueryCache, merge_cache
+from agentic_graphrag.agent.research_state import ResearchTask, VerificationResult
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain, ToolCallTrace
 
@@ -70,6 +72,11 @@ class AgentState(TypedDict, total=False):
     budget_ledger: Annotated[list[BudgetEntry], append_records]
     run_id: str
     budget_tier: BudgetTier
+    query_cache: Annotated[QueryCache, merge_cache]
+    tasks: list[ResearchTask]
+    verifications: list[VerificationResult]
+    conflicts: dict[str, list[str]]
+    deadline: float
 
 
 def active_register(state: AgentState) -> Register:
@@ -106,6 +113,10 @@ def initial_state(
         budget_ledger=[],
         run_id=chain.query_id,
         budget_tier="standard",
+        query_cache={},
+        tasks=[],
+        verifications=[],
+        conflicts={},
         done=False,
         allow_llm=allow_llm,
         tenant_id=tenant_id,

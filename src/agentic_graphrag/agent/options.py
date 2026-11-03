@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentic_graphrag.agent.graph_types import AgentCheckpointer
+from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.core.enums import CriticMode
 from agentic_graphrag.core.evidence import Candidate
 
@@ -37,6 +38,8 @@ class AgentRunOptions:
     checkpointer: AgentCheckpointer | None = None
     thread_id: str | None = None
     tenant_id: str = ""
+    agent_config: AgentConfig | None = None
+    resume: bool = False
 
 
 @dataclass(frozen=True)

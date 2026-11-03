@@ -21,6 +21,7 @@ from agentic_graphrag.llm.circuit import (
     CircuitBreakerSet,
 )
 from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
+from agentic_graphrag.llm.scoped import completion_payload
 from agentic_graphrag.llm.verifier import warn_same_model
 
 
@@ -55,6 +56,7 @@ class LLMProvider:
         self.temperature = temperature
         self.timeout_seconds = timeout_seconds
         self.budget = budget
+        self.max_output_tokens: int | None = None
         self.cache_dir = Path(cache_dir) if cache_dir else None
         # One breaker per route (O-8); ``circuit`` is the template they clone.
         self.circuits = CircuitBreakerSet(circuit)
@@ -65,6 +67,12 @@ class LLMProvider:
 
     def model_for(self, tier: Tier) -> str:
         return self.strong_model if tier == Tier.STRONG else self.light_model
+
+    def for_budget(self, budget: BudgetTracker, *, max_output_tokens: int) -> LLMProvider:
+        client = copy(self)
+        client.budget = budget
+        client.max_output_tokens = max_output_tokens
+        return client
 
     def for_verifier(self, *, model: str | None = None) -> LLMProvider:
         """Select a judge without mutating the proposer or dropping its budget/stub."""
@@ -107,23 +115,19 @@ class LLMProvider:
             self.budget.check()
 
         tier = self._effective_tier(tier)
-        payload: dict[str, Any] = {
-            "model": self.model_for(tier),
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": self.temperature if temperature is None else temperature,
-        }
-        if response_format:
-            payload["response_format"] = response_format
+        payload = completion_payload(
+            messages,
+            self.model_for(tier),
+            temperature=self.temperature if temperature is None else temperature,
+            response_format=response_format,
+            max_output_tokens=self.max_output_tokens,
+            budget=self.budget,
+        )
 
         cache_key = response_cache.cache_key("chat", payload)
         cached = response_cache.read_cache(self.cache_dir, cache_key)
         if cached is not None:
-            if self.budget:
-                usage = cached.get("usage") or {}
-                self.budget.record_call(
-                    int(usage.get("prompt_tokens", 0)),
-                    int(usage.get("completion_tokens", 0)),
-                )
+            self._record_usage(cached.get("usage") or {})
             return str(cached["content"])
 
         data = self._post(
@@ -137,17 +141,19 @@ class LLMProvider:
         response = CompletionResponse.model_validate(data)
         content = response.choices[0].message.content
         usage = (response.usage or CompletionUsage()).model_dump()
-        if self.budget:
-            self.budget.record_call(
-                int(usage.get("prompt_tokens", 0)),
-                int(usage.get("completion_tokens", 0)),
-            )
+        self._record_usage(usage)
         response_cache.write_cache(
             self.cache_dir,
             cache_key,
             {"content": content, "usage": usage},
         )
         return content
+
+    def _record_usage(self, usage: dict[str, Any]) -> None:
+        if self.budget:
+            self.budget.record_call(
+                int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
+            )
 
     def embed(self, text: str) -> list[float]:
         return self.embed_for_model(text, self.embedding_model)

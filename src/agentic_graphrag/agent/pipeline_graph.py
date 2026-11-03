@@ -42,22 +42,27 @@ def _initial_state(
 
 def _stream_graph_updates(
     graph: AgentGraph,
-    initial: AgentState,
+    initial: AgentState | None,
     config: RunnableConfig,
 ) -> Generator[tuple[str, object], None, AgentState | None]:
     """Yield hop events; return full accumulated state from ``values`` mode."""
     final_state: AgentState | None = None
     # Fresh queries reset append channels even when the caller reuses a thread.
-    graph_input = cast(
-        AgentState,
-        {
-            **initial,
-            "evidence": Overwrite(initial["evidence"]),
-            "register_runtime": Overwrite(initial["register_runtime"]),
-            "proposals": Overwrite(initial["proposals"]),
-            "events": Overwrite(initial["events"]),
-            "budget_ledger": Overwrite(initial["budget_ledger"]),
-        },
+    graph_input = (
+        None
+        if initial is None
+        else cast(
+            AgentState,
+            {
+                **initial,
+                "evidence": Overwrite(initial["evidence"]),
+                "register_runtime": Overwrite(initial["register_runtime"]),
+                "proposals": Overwrite(initial["proposals"]),
+                "events": Overwrite(initial["events"]),
+                "budget_ledger": Overwrite(initial["budget_ledger"]),
+                "query_cache": Overwrite(initial["query_cache"]),
+            },
+        )
     )
     for item in graph.stream(graph_input, config=config, stream_mode=_STREAM_MODES):
         mode, chunk = _unpack_stream_item(item)
@@ -85,6 +90,21 @@ if TYPE_CHECKING:
 
 
 def _iter_agentic(
+    ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
+) -> Iterator[tuple[str, object]]:
+    from agentic_graphrag.config import get_config
+
+    opts = ctx.run_opts
+    agent_config = opts.agent_config or get_config().agent
+    if agent_config.mode == "multi" and opts.allow_llm and ctx.llm is not None:
+        from agentic_graphrag.agent.pipeline_multi import iter_multi
+
+        yield from iter_multi(ctx, agent_config, seed_evidence=seed_evidence)
+        return
+    yield from _iter_single_agentic(ctx, seed_evidence=seed_evidence)
+
+
+def _iter_single_agentic(
     ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
 ) -> Iterator[tuple[str, object]]:
     from agentic_graphrag.agent.pipeline import AgentStreamEmptyError
