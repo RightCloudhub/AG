@@ -44,6 +44,7 @@
 | 解析与摄取 | 统一解析端口、签名/编码校验、MinerU、token 分块、UUID/版本/hash 去重、chunk checkpoint、partial/reconcile、租户隔离删除与 reindex 已实现；线上迁移和模型切换见 [RUNBOOK](../ops/RUNBOOK.md) |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
+| 2026-11-03 | **多 Agent 编排设计（黑板 + 监督者 + 并行研究者）评估完成，未实现**：提案经逐条对代码核对修订 6 处（register 无独立节点、研究者为有界检索-精化而非自由 ReAct、register 更新保持每轮一次单写者、冲突走需求机具、预算台账为归因而非第二计量、检查点语义诚实化）；修订后的设计、分步迁移（a–e）与评估协议（max_parallel 1 vs 3、配对 McNemar、`reports/multi_agent_eval.md`）见 [MULTI_AGENT.md](../design/MULTI_AGENT.md)。默认 `agent.mode=single`、`--no-llm` 路径不变；翻转默认前必须有评估报告 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm

@@ -149,3 +149,5 @@ HotpotQA、2WikiMultiHopQA、MuSiQue 各 1000 题与真实模型多种子结果�
 独立评估语料、对齐和配额；本次工程验证不能证明论文中的准确率收益。
 待验证项见 `docs/reviews/IMPORTANT.md` 的需求登记表条目。
 本次实测结果见 [工程验证记录](../reviews/REQUIREMENT_REGISTER_VALIDATION.md)。
+后续并行化演进（监督者 + 并行研究者，默认关闭、代码未实现）的设计与迁移计划见
+[MULTI_AGENT.md](MULTI_AGENT.md)。

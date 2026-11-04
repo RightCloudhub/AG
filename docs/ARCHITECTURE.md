@@ -171,7 +171,29 @@ stateDiagram-v2
 
 节点采用先复制再修改的方式，避免修改已产出的状态或早期 checkpoint。普通流程仍在首次 executor 检索后用共享记忆中的证据池替换 Fast Path 种子证据，空检索与重复 id 的处理也保持原行为。新查询通过 `Overwrite` 重置两个追加通道，复用 `thread_id` 时不会继承上一查询的证据或登记表事件。
 
-### 2.3 运行时支撑
+### 2.3 需求登记表模式（可选，默认关闭）
+
+```mermaid
+flowchart TD
+    SEED["种子向量检索（seed_top_k=5）"] --> INIT["LLM 初始化需求表（STRONG）"]
+    INIT --> SEL{"调度：恰一条 active<br/>（least-attempts，依赖已满足）"}
+    SEL --> SEARCH["确定性选具 + 检索<br/>（per-run 去重缓存）"]
+    SEARCH --> UPD["LLM 增量更新（STRONG）<br/>apply_invariants 单写者校验"]
+    UPD --> VER["Verifier（LIGHT，独立提示）<br/>否决 → 回 pending"]
+    VER --> SEL
+    SEL -->|clear / 停判据| ANS["生成（partial / abstain 策略）"]
+```
+
+`guardrails.requirement_register.enabled: true`（需配置 LLM）时，`AgentRuntime` 在同样的四个图上节点
+把处理器换成 `RegisterRuntime`（`agent/loop_runtime.py` 逐节点委托）：种子检索 → 需求表初始化 →
+每轮仅推进一条 active 需求（`schedule` 保证恰一条），更新经 `apply_invariants` 单写者校验
+（支撑证据闭包、实体锚必须落在所引证据文本中、依赖合法）→ Verifier 用独立提示与 LIGHT 档复核，
+否决的条目回到 pending；停止原因（`clear` / `round_budget` / `context_limit` / `dependency_blocked`）
+与 register 审计字段进入 `ReasoningChain.metadata`。**默认关闭**；`--no-llm` 或未配置 LLM 时保持 §2.2
+原流程。该模式的并行化演进（监督者 + 并行研究者）为设计稿，见
+[design/MULTI_AGENT.md](./design/MULTI_AGENT.md)（未实现，默认单线）。
+
+### 2.4 运行时支撑
 
 ```mermaid
 flowchart LR
