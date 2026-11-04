@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.deps import principal, service
 from agentic_graphrag.api.routes.document_routes import router as document_router
-from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
+from agentic_graphrag.api.routes.knowledge_upload import (
+    emit_audit,
+    save_uploads,
+    stage_uploads,
+    task_row,
+)
 from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
 from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
@@ -26,6 +32,9 @@ from agentic_graphrag.knowledge.review.queue import (
     ReviewDecision,
     ReviewType,
 )
+
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
@@ -54,39 +63,64 @@ class FeedbackBody(BaseModel):
     reason: str = ""
 
 
-@router.post("/docs", dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))])
+@router.post(
+    "/docs",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.OPERATOR))],
+    response_model=None,
+)
 async def upload_docs(
     request: Request,
     files: list[UploadFile] | None = None,
-) -> JsonObject:
-    """Batch document upload — persists content and creates an ingest task (FR-API-03)."""
+    parse_async: bool = False,
+) -> JsonObject | JSONResponse:
+    """Batch document upload — persists content and creates an ingest task (FR-API-03).
+
+    ``parse_async=true`` (K-02) stages originals durably and returns 202 with reserved
+    document IDs and a task; parsing and its failures happen on that task.
+    """
     svc = service(request)
     tenant_id, _user_id = principal(request)
     task_id = str(uuid.uuid4())
+    if parse_async:
+        return await _stage_async(request, files or [], task_id=task_id)
     saved = await save_uploads(svc, files or [], tenant_id=tenant_id, task_id=task_id)
     row = task_row(task_id, tenant_id, saved)
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
     remember_task(task_id, row)
-    review_docs = [r for r in saved if r.get("status") != "duplicate" and not r.get("error")]
-    if svc.review_queue is not None and review_docs:
-        svc.review_queue.enqueue(
-            ReviewType.SPOTCHECK,
-            {
-                "task_id": task_id,
-                "doc_count": len(saved),
-                # Rejecting the spot-check rolls back facts sourced from these docs (BL-03).
-                "doc_ids": [row["doc_id"] for row in review_docs if row.get("doc_id")],
-            },
-            confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
-            batch_id=task_id,
-            tenant_id=tenant_id,
-        )
+    _enqueue_spotcheck(svc, saved, tenant_id=tenant_id, task_id=task_id)
     emit_audit(
         request,
         {"action": "doc_upload", "target": task_id, "outcome": "success", "doc_count": len(saved)},
     )
     return ok(row, meta=MetaBody(request_id=task_id))
+
+
+def _enqueue_spotcheck(
+    svc: QueryService, saved: list[dict[str, str]], *, tenant_id: str, task_id: str
+) -> None:
+    review_docs = [r for r in saved if r.get("status") != "duplicate" and not r.get("error")]
+    if svc.review_queue is None or not review_docs:
+        return
+    svc.review_queue.enqueue(
+        ReviewType.SPOTCHECK,
+        {
+            "task_id": task_id,
+            "doc_count": len(saved),
+            # Rejecting the spot-check rolls back facts sourced from these docs (BL-03).
+            "doc_ids": [row["doc_id"] for row in review_docs if row.get("doc_id")],
+        },
+        confidence=UPLOAD_SPOTCHECK_CONFIDENCE,
+        batch_id=task_id,
+        tenant_id=tenant_id,
+    )
+
+
+async def _stage_async(request: Request, files: list[UploadFile], *, task_id: str) -> JSONResponse:
+    tenant_id, _user_id = principal(request)
+    staged = await stage_uploads(service(request), files, tenant_id=tenant_id, task_id=task_id)
+    emit_audit(request, {"action": "doc_upload", "target": task_id, "outcome": "accepted"})
+    return JSONResponse(ok(staged, meta=MetaBody(request_id=task_id)), status_code=202)
 
 
 @router.get(

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
 from agentic_graphrag.api.routes.deps import principal, service
+from agentic_graphrag.api.routes.document_mutations import document_capabilities
 from agentic_graphrag.api.routes.knowledge_graph_browse import (
     DEFAULT_ENTITY_PAGE,
     MAX_ENTITY_PAGE,
@@ -75,6 +76,10 @@ def get_current_user(request: Request) -> JsonObject:
         "knowledge": role in {Role.ADMIN.value, Role.OPERATOR.value},
         "review": role in {Role.ADMIN.value, Role.OPERATOR.value},
         "ops": role == Role.ADMIN.value,
+        **document_capabilities(
+            getattr(request.app.state, "query_service", None),
+            operator=role in {Role.ADMIN.value, Role.OPERATOR.value},
+        ),
     }
     return ok(
         {

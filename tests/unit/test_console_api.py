@@ -37,6 +37,10 @@ def test_identity_capabilities_follow_authenticated_role(monkeypatch):
         "knowledge": True,
         "review": True,
         "ops": False,
+        "documents": True,
+        "chunk_mutations": True,
+        "document_reparse": True,
+        "parse_async": True,
     }
     reader = {"Authorization": "Bearer reader-key"}
     assert client.get("/v1/graph/entities", headers=reader).status_code == 200

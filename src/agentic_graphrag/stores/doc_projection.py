@@ -11,8 +11,9 @@ import sqlite3
 from typing import Any
 
 from agentic_graphrag.core.ports.document_ops import DocumentQuery
-from agentic_graphrag.core.ports.stores import INDEX_STAGES
+from agentic_graphrag.core.ports.stores import INDEX_STAGES, ChunkRecord
 from agentic_graphrag.stores.doc_ops_sql import tenant_key
+from agentic_graphrag.stores.document_chunks import chunk_summary, text_sha256
 
 DOCUMENT_STATUSES = (
     "parsing",
@@ -57,7 +58,7 @@ _DOCS = (
 _ISO = "strftime('%Y-%m-%dT%H:%M:%f+00:00', {0}, 'unixepoch')"
 _RESERVED = (
     "SELECT r.doc_id, r.title, r.source, 0, "
-    f"{_ISO.format('r.created_at')}, {_ISO.format('r.updated_at')}, '', r.error, r.op_id, 1, "
+    f"{_ISO.format('r.created_at')}, {_ISO.format('r.updated_at')}, r.state, r.error, r.op_id, 1, "
     "CASE WHEN r.state='failed' THEN 'parse_failed' ELSE 'parsing' END "
     "FROM reservations r WHERE r.tenant=:tenant AND r.state IN ('queued','running','failed') "
     "AND NOT EXISTS(SELECT 1 FROM documents x WHERE x.tenant=r.tenant AND x.id=r.doc_id)"
@@ -192,3 +193,26 @@ def chunk_detail_row(
         (tenant, doc_id, chunk_id),
     ).fetchone()
     return (chunk_projection(row[:12]), str(row[12])) if row else None
+
+
+def record_projection(chunk: ChunkRecord) -> dict[str, Any]:
+    """Same shape as :func:`chunk_projection`, built from an in-memory chunk."""
+    summary = chunk_summary(chunk)
+    return {
+        "chunk_id": chunk.chunk_id,
+        "doc_id": chunk.doc_id,
+        "ordinal": chunk.index,
+        "revision": chunk.revision,
+        "enabled": chunk.enabled,
+        "token_count": int(chunk.metadata.get("token_count") or 0),
+        "text_sha256": text_sha256(chunk.text),
+        "flags": {
+            "vector": chunk.embedded,
+            "fulltext": chunk.fulltext_indexed,
+            "graph": chunk.graph_extracted,
+        },
+        "model": chunk.embedding_model,
+        "breadcrumb": summary["breadcrumb"],
+        "text_preview": summary["preview"],
+        "stages": summary["stages"],
+    }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,8 @@ from agentic_graphrag.app.errors import INVALID_INPUT, SERVICE_UNAVAILABLE, ApiE
 from agentic_graphrag.core.constants import BYTES_PER_MEBIBYTE
 from agentic_graphrag.core.enums import IngestStatus
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.ports.document_ops import SourceArtifact
+from agentic_graphrag.core.ports.document_ops_store import DocumentOpsStore
 from agentic_graphrag.core.ports.parsing import (
     DocumentParseError,
     ParsedDocument,
@@ -23,6 +26,7 @@ from agentic_graphrag.core.ports.parsing import (
     UnsupportedDocumentType,
 )
 from agentic_graphrag.core.ports.stores import DocumentRecord
+from agentic_graphrag.knowledge.document_commands import StagedFile
 from agentic_graphrag.knowledge.parsers import create_parser
 from agentic_graphrag.knowledge.parsers.mineru import MINERU_REQUIRED_MESSAGE, mineru_available
 from agentic_graphrag.knowledge.parsers.sniff import MINERU_MIMES, validate_filename
@@ -56,6 +60,76 @@ def validate_upload(file: UploadFile, svc: QueryService) -> None:
 async def save_uploads(
     svc: QueryService, files: list[UploadFile], *, tenant_id: str, task_id: str
 ) -> list[JsonObject]:
+    # Reject before accepting anything: accepting can replace a document and clear its
+    # indexes, while a failed request creates no task that would index the replacement.
+    _check_batch(svc, files)
+    prepared = [
+        await _prepare_upload(svc, file, tenant_id=tenant_id, task_id=task_id) for file in files
+    ]
+    saved: list[dict[str, str]] = [await _accept_upload(svc, item) for item in prepared]
+    return saved
+
+
+async def stage_uploads(
+    svc: QueryService, files: list[UploadFile], *, tenant_id: str, task_id: str
+) -> JsonObject:
+    """``parse_async``: validate and durably stage originals; a worker parses them."""
+    _check_batch(svc, files)
+    staged = [
+        StagedFile(
+            name=file.filename or "",
+            data=await _read_capped(file, svc.cfg.indexing.max_file_bytes),
+            source_uri=f"upload://{file.filename}",
+            media_type=mimetypes.guess_type(file.filename or "")[0] or "",
+        )
+        for file in files
+    ]
+    if not staged:
+        raise ApiError(INVALID_INPUT, "No documents received", status_code=422)
+    return await run_in_threadpool(stage_files, svc, staged, tenant_id=tenant_id, task_id=task_id)
+
+
+def stage_files(
+    svc: QueryService, staged: list[StagedFile], *, tenant_id: str, task_id: str
+) -> JsonObject:
+    from agentic_graphrag.api.routes.document_mutations import commands_for
+
+    op = commands_for(svc).stage_async_parse(tenant_id, staged, task_id=task_id)
+    task = svc.ingest_tasks.get(op.task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
+    row: JsonObject = (
+        task.to_dict() if task else {"id": op.task_id, "status": IngestStatus.QUEUED.value}
+    )
+    row["docs"] = op.task_rows()
+    row["parse_async"] = True
+    return row
+
+
+def retain_source(svc: QueryService, content: bytes, *, tenant_id: str) -> str | None:
+    """Store immutable original bytes before acceptance; ``None`` when unsupported."""
+    docs = svc.bundle.docs
+    if not isinstance(docs, DocumentOpsStore):
+        return None
+    try:
+        return docs.artifacts.put(tenant_id, content)
+    except OSError as exc:
+        record_degradation(
+            "source_artifacts", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED
+        )
+        return None
+
+
+def link_source(
+    svc: QueryService, row: dict[str, str], artifact: SourceArtifact | None, *, tenant_id: str
+) -> None:
+    """Attach a retained original to the version this upload created."""
+    docs = svc.bundle.docs
+    if artifact is None or row.get("status") != "queued" or not row.get("doc_id"):
+        return
+    if isinstance(docs, DocumentOpsStore):
+        docs.record_source((tenant_id, row["doc_id"], int(row["version"])), artifact)
+
+
+def _check_batch(svc: QueryService, files: list[UploadFile]) -> None:
     max_files = svc.cfg.indexing.max_batch_files
     if len(files) > max_files:
         raise ApiError(
@@ -63,15 +137,8 @@ async def save_uploads(
             f"Too many files: max {max_files}",
             status_code=UPLOAD_REJECT_STATUS,
         )
-    # Reject before accepting anything: accepting can replace a document and clear its
-    # indexes, while a failed request creates no task that would index the replacement.
     for file in files:
         validate_upload(file, svc)
-    records = [
-        await _prepare_upload(svc, file, tenant_id=tenant_id, task_id=task_id) for file in files
-    ]
-    saved: list[dict[str, str]] = [await _accept_upload(svc, record) for record in records]
-    return saved
 
 
 async def _read_capped(file: UploadFile, limit: int = MAX_FILE_SIZE_BYTES) -> bytes:
@@ -115,7 +182,7 @@ def parse_upload_content(svc: QueryService, filename: str, content: bytes) -> Pa
 
 async def _prepare_upload(
     svc: QueryService, file: UploadFile, *, tenant_id: str, task_id: str
-) -> DocumentRecord:
+) -> tuple[DocumentRecord, bytes]:
     content = await _read_capped(file, svc.cfg.indexing.max_file_bytes)
     parsed = await _parse_upload(svc, file, content)
     return DocumentRecord(
@@ -131,13 +198,19 @@ async def _prepare_upload(
         },
         tenant_id=tenant_id,
         source_uri=f"upload://{file.filename}",
-    )
+    ), content
 
 
-async def _accept_upload(svc: QueryService, record: DocumentRecord) -> dict[str, str]:
+async def _accept_upload(
+    svc: QueryService, prepared: tuple[DocumentRecord, bytes]
+) -> dict[str, str]:
+    record, content = prepared
     row = {"doc_id": "", "bytes": str(record.metadata["bytes"]), "name": record.title}
     try:
+        sha = await run_in_threadpool(retain_source, svc, content, tenant_id=record.tenant_id)
         row = await run_in_threadpool(lifecycle_for(svc).accept, record)
+        artifact = _artifact(record, sha, size=len(content))
+        await run_in_threadpool(link_source, svc, row, artifact, tenant_id=record.tenant_id)
         await run_in_threadpool(index_changed, svc)
     except Exception as exc:  # noqa: BLE001 — one bad doc must not fail the batch
         # Previously a bare ``pass``: the doc silently never landed while the
@@ -152,6 +225,13 @@ async def _accept_upload(svc: QueryService, record: DocumentRecord) -> dict[str,
         )
         row["error"] = f"save_failed: {type(exc).__name__}"
     return row
+
+
+def _artifact(record: DocumentRecord, sha: str | None, *, size: int) -> SourceArtifact | None:
+    if sha is None:
+        return None
+    media_type = str(record.metadata.get("source_mime_type") or "")
+    return SourceArtifact(sha, media_type, record.title, size)
 
 
 def task_row(task_id: str, tenant_id: str, saved: list[dict[str, str]]) -> dict[str, Any]:
