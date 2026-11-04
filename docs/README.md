@@ -36,3 +36,8 @@
 | `assets/` | [architecture.html](./assets/architecture.html) | 可视化架构总图（浏览器打开） |
 
 阶段计划在 [`../plan/`](../plan/README.md)，门禁报告在 [`../reports/`](../reports/)。
+
+本轮能力扩展见
+[图谱双模、概括问答与对外接入计划](../plan/workstreams/graph-platform-extension.md)：
+包含按当前源码核对的差距、知识库/版本基础、七角色用模、API/SDK/MCP、
+分期任务、迁移回滚与验收；当前为规划，尚未实施。
