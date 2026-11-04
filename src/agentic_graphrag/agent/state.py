@@ -77,7 +77,11 @@ def initial_state(
     evidence: list[Candidate] | None = None,
 ) -> AgentState:
     """Build the initial state. ``tenant_id`` MUST be set: omitting it made runs
-    retrieve with ``tenant_id=None`` ("no filter") → cross-tenant leak (BL-04)."""
+    retrieve with ``tenant_id=None`` ("no filter") → cross-tenant leak (BL-04).
+
+    Every channel is set: one left out keeps its value from the previous run when a
+    caller reuses a thread.
+    """
     return AgentState(
         state_version=STATE_SCHEMA_VERSION,
         question=question,
@@ -86,11 +90,16 @@ def initial_state(
         current_index=0,
         hop=0,
         evidence={candidate.id: candidate for candidate in evidence or []},
+        memory_summary="",
         memory=MemoryState(),
         register=None,
         register_runtime=RegisterRuntimeState(),
         done=False,
+        guardrail_status="",
         allow_llm=allow_llm,
         tenant_id=tenant_id,
+        dropped_sub_questions=[],
+        prefetched={},
+        evidence_gap=EvidenceGap(missing=[]),
         answer_retries=0,
     )

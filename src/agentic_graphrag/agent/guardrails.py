@@ -20,15 +20,24 @@ if TYPE_CHECKING:
     from agentic_graphrag.config import AppConfig, GuardrailsConfig
 
 
-def min_recursion_limit(max_hops: int) -> int:
-    """Minimum LangGraph ``recursion_limit`` for a given hop budget.
+# Answer → executor back-edges per run, and new sub-questions per back-edge.
+MAX_ANSWER_RETRIEVALS = 1
+MAX_GAP_SUB_QUESTIONS = 2
 
-    Worst-case node visits: planner + (max_hops+1)×(executor+critic) + answer.
-    LangGraph raises when the limit is reached without END, so the limit must be
-    strictly greater than that visit count → ``2 * max_hops + 5``.
+
+def min_recursion_limit(max_hops: int) -> int:
+    """Minimum LangGraph ``recursion_limit`` so the guards always stop a run first.
+
+    Worst-case supersteps: the planner, an executor+critic pair for every node, and
+    one terminal executor visit plus one answer for each pass (first pass and every
+    answer back-edge). Nodes are bounded by the breadth budget (``<= max_hops``) plus
+    the back-edge's gap nodes, not by hops: parallel siblings share a hop. LangGraph
+    raises when the limit is reached without END, so it must exceed the step count.
     """
     hops = max(1, int(max_hops))
-    return 2 * hops + 5
+    nodes = hops + MAX_GAP_SUB_QUESTIONS * MAX_ANSWER_RETRIEVALS
+    passes = 1 + MAX_ANSWER_RETRIEVALS
+    return 1 + 2 * nodes + 2 * passes + 1
 
 
 @dataclass(frozen=True)

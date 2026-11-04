@@ -10,7 +10,7 @@
 
 1. **上下文工程：** 已存下来的上下文不等于已被有效管理；当前压缩主要依赖条目数和字符截断，缺少统一的 token 预算分配、相关性/多样性选择、来源新鲜度策略和上下文快照。
 2. **可观测性：** 已有 query 级观测，但追踪颗粒度偏粗、状态多为进程内存、LLM/检索/摄取各阶段信号不完整；生产 Collector、告警和跨副本聚合仍需验证。
-3. **数据安全：** 查询文本预览会进入 OTel span 属性；脱敏默认关闭，现有脱敏接线主要面向日志和审计，OTel 属性需有独立的数据最小化策略。
+3. **数据安全：** 问题原文已不进 span，脱敏开关已接入日志和审计（2026-11-04）；OTel 属性仍缺 allowlist，默认关闭的脱敏也需要上线前确认。
 
 ## 1. 上下文工程
 
@@ -59,10 +59,10 @@ Context state、持久化 memory、模型提示输入应作为不同对象管理
 | 缺口 | 当前实现与影响 | 建议 |
 |---|---|---|
 | **Trace 粒度停留在请求级** | 当前业务代码创建的 OTel span 主要是 `run_query` / `stream_query` 两个外层 span；Planner、每次 LLM 调用、向量/BM25/图检索、RRF、Answer/citation gate、缓存及摄取步骤没有成体系的父子 span。ReasoningChain 是业务推理记录，不等于可跨服务关联的分布式 trace。 | 建立统一 trace contract：API → triage → planner → tool/retriever → fusion/rerank → LLM → citation validation；摄取则覆盖 parse/chunk/extract/embed/index/review。记录耗时、状态、重试和有限的计数/版本属性。 |
-| **Trace/metrics 以内存进程为边界** | Trace registry 默认最多保留 2,000 条；metrics 的近期 event 列表最多 5,000 条，但 `_latency`/`_hops` 样本列表会持续 append，长期运行时既有内存增长风险，汇总 percentile 也覆盖进程启动以来所有样本。服务重启会丢失，多个 worker 的 admin 查询和本地汇总不天然共享。见 [`trace.py`](../../src/agentic_graphrag/observability/trace.py)、[`metrics.py`](../../src/agentic_graphrag/observability/metrics.py)。 | 生产环境以外部 OTLP/Prometheus 后端作为长期查询与跨副本汇总面；进程内 registry 只保留开发/快速排障用途。若保留本地 percentile，使用有界 reservoir/histogram；明确保留期、采样、丢弃行为。 |
+| **Trace/metrics 以内存进程为边界** | Trace registry 默认最多保留 2,000 条；metrics 的近期 event 列表最多 5,000 条，本地百分位只看这个窗口。服务重启会丢失，多个 worker 的 admin 查询和本地汇总不天然共享；跨副本应使用 `agr_query_latency_ms` 直方图。见 [`trace.py`](../../src/agentic_graphrag/observability/trace.py)、[`metrics.py`](../../src/agentic_graphrag/observability/metrics.py)。 | 生产环境以外部 OTLP/Prometheus 后端作为长期查询与跨副本汇总面；进程内 registry 只保留开发/快速排障用途。若保留本地 percentile，使用有界 reservoir/histogram；明确保留期、采样、丢弃行为。 |
 | **LLM 与检索阶段指标不足** | Query metric 有总 token/cost/call 数，但缺少按模型/操作/阶段拆分的首 token/总延迟、输入输出 token、重试、限流、错误类型、embedding 用量、cache hit 和各检索通道耗时/命中数。 | 补齐低基数 stage/model 指标和 span 属性；把检索质量指标（候选数、融合后证据数、引用支持/拒答反馈）与延迟/成本并列看，便于判断慢在哪里、质量为何下降。 |
 | **摄取过程几乎不在统一遥测内** | 当前 query metrics 不覆盖解析失败率、队列等待、重试/隔离区、抽取置信度、embedding/index 时长、索引新鲜度和人工复核积压变化。 | 为 ingest worker 定义任务级指标和分布式 trace；关联 `task_id/doc_id/version`，但避免把原文或敏感元数据作为高基数标签。 |
-| **内容脱敏与 OTel 脱节** | Query span 在 [`app/query_agent.py`](../../src/agentic_graphrag/app/query_agent.py) / [`app/query_stream.py`](../../src/agentic_graphrag/app/query_stream.py) 将问题前 120 字符（`QUESTION_SPAN_PREVIEW`）写入 `question` 属性（原述的 `api/service_agent.py` / `api/service_stream.py` 现为兼容别名）；Redactor 默认关闭且当前脱敏接线主要面向日志/审计，未挂入 `otel_span` 属性处理。原始问题可能进入远端 Collector。 | 默认仅发 allowlist 属性、分类标签和内容哈希；将 OTel attribute 纳入同一脱敏/拒绝策略。确需内容采样时，必须显式开关、权限隔离、短保留期和脱敏审查。 |
+| **内容脱敏与 OTel 脱节** | Query span 已不写问题原文，只记 `question_chars`；`AGR_REDACTION_ENABLED` 已接入日志和审计链（[ARCH_OPTIMIZATION_V3](../design/ARCH_OPTIMIZATION_V3.md) §3）。`otel_span` 属性仍没有 allowlist，新增属性可能再次带入内容。 | 默认仅发 allowlist 属性、分类标签和内容哈希；将 OTel attribute 纳入同一脱敏/拒绝策略。确需内容采样时，必须显式开关、权限隔离、短保留期和脱敏审查。 |
 | **生产告警与 Collector 尚未闭环** | 仓库运维文档记录 OTLP Collector/Jaeger/Tempo 实际导出及告警规则部署仍待环境验证；有告警 YAML 示例不代表线上已告警。见 [`ops-runbook.md`](../ops/RUNBOOK.md)、[`ENTERPRISE_READINESS.md`](./ENTERPRISE_READINESS.md)。 | 用目标部署环境做端到端演练：从 API 请求到 Collector 到查询 UI；再验证断连、队列阻塞、LLM 失败、P95 超标、预算耗尽等告警是否触发、去重、带 runbook 并能恢复。 |
 | **GenAI 遥测字段缺少统一版本约定** | 自定义 `agr.*` 属性和 query metrics 可用于本项目，但跨 provider/后端比较及可视化需要统一模型调用名称、token、错误与 operation 语义；官方 GenAI conventions 仓库当前仍将 Schema URL 标为 TODO。 | 评估采用 OpenTelemetry GenAI semantic conventions；落地时锁定具体 revision/schema，核对属性稳定性，控制属性基数与敏感数据，而不是无版本地照搬。见[官方 GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai)。 |
 

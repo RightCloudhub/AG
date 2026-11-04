@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from agentic_graphrag.agent.critic import critique
 from agentic_graphrag.agent.executor import Executor
-from agentic_graphrag.agent.guardrails import GuardrailConfig, Guardrails
+from agentic_graphrag.agent.guardrails import (
+    MAX_ANSWER_RETRIEVALS,
+    MAX_GAP_SUB_QUESTIONS,
+    GuardrailConfig,
+    Guardrails,
+)
 from agentic_graphrag.agent.loop_handlers import (
     CriticApplyCtx,
     ExecutorNodeCtx,
+    advance_past_skipped,
     apply_critic_result,
     execute_subquestion,
     load_evidence,
     load_evidence_for_critic,
-    materialize_current,
-    skip_excluded_or_duplicate,
 )
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.options import AgentDeps, CritiqueContext
@@ -28,11 +32,7 @@ from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.generation.verdict import evidence_gap
-from agentic_graphrag.governance.budget import BudgetTracker
-
-# Answer → executor back-edges per run, and new sub-questions per back-edge.
-MAX_ANSWER_RETRIEVALS = 1
-MAX_GAP_SUB_QUESTIONS = 2
+from agentic_graphrag.governance.budget import BudgetTracker, apply_budget
 
 
 class AgentRuntime:
@@ -106,43 +106,33 @@ class AgentRuntime:
         self._hydrate_from_state(state)
         if self.register_runtime.enabled(state):
             return self.register_runtime.node_executor(state)
+        state, sq = advance_past_skipped(state, self.memory)
+        if sq is None:
+            return self._stop_executor(state)
         self._start_node(state)
-        hop = self.guards.state.hop
         if self.guards.state.tripped:
-            return {
-                **state,
-                "hop": hop,
-                "done": True,
-                "guardrail_status": self.guards.status_text(),
-                "memory": self.memory.copy(),
-            }
-
-        sqs = list(state.get("sub_questions") or [])
-        idx = int(state.get("current_index") or 0)
-        if idx >= len(sqs):
-            return {
-                **state,
-                "hop": hop,
-                "done": True,
-                "guardrail_status": self.guards.status_text(),
-                "memory": self.memory.copy(),
-            }
-
-        sq, sqs = materialize_current(sqs, idx, self.memory)
+            return self._stop_executor(state)
         ctx = ExecutorNodeCtx(
             state=state,
             sq=sq,
-            sqs=sqs,
-            idx=idx,
+            sqs=state["sub_questions"],
+            idx=state["current_index"],
             memory=self.memory,
             guards=self.guards,
             executor=self.executor,
             llm=self.llm,
         )
-        skipped = skip_excluded_or_duplicate(ctx)
-        if skipped is not None:
-            return skipped
         return execute_subquestion(ctx)
+
+    def _stop_executor(self, state: AgentState) -> AgentState:
+        self.guards.check_branch()
+        return {
+            **state,
+            "hop": self.guards.state.hop,
+            "done": True,
+            "guardrail_status": self.guards.status_text(),
+            "memory": self.memory.copy(),
+        }
 
     def _start_node(self, state: AgentState) -> None:
         """A node whose branch was retrieved concurrently stays on the current hop:
@@ -214,7 +204,7 @@ class AgentRuntime:
         chain = state["chain"].model_copy(deep=True)
         evidence = load_evidence(state)
         allow_llm = bool(state.get("allow_llm", True))
-        self._apply_budget_to_chain(chain)
+        apply_budget(chain, self.budget)
 
         can_retrieve = self._can_retrieve_again(state)
         if self.guards.state.tripped and not evidence:
@@ -277,15 +267,6 @@ class AgentRuntime:
 
     def route_after_answer(self, state: AgentState) -> AgentNode:
         return AgentNode.END if state.get("done") else AgentNode.EXECUTOR
-
-    def _apply_budget_to_chain(self, chain: ReasoningChain) -> None:
-        if not self.budget:
-            return
-        snap = self.budget.snapshot()
-        chain.cost.llm_calls = snap["llm_calls"]
-        chain.cost.tokens = snap["total_tokens"]
-        chain.cost.prompt_tokens = snap["prompt_tokens"]
-        chain.cost.completion_tokens = snap["completion_tokens"]
 
     def route_after_critic(self, state: AgentState) -> AgentNode:
         if state.get("done") or self.guards.state.tripped:

@@ -20,7 +20,13 @@ from agentic_graphrag.agent.critic_offline import (
 from agentic_graphrag.agent.options import CritiqueContext
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
-from agentic_graphrag.core.enums import CriticAction, CriticMode, MessageRole, PromptName
+from agentic_graphrag.core.enums import (
+    CriticAction,
+    CriticMode,
+    LLMRole,
+    MessageRole,
+    PromptName,
+)
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
@@ -238,6 +244,7 @@ def _llm_critique(ctx: CritiqueContext, llm: CompletionClient) -> CriticResult:
         ],
         CriticResult,
         tier=Tier.LIGHT,
+        role=LLMRole.CRITIC,
     )
     return _normalize_scope(raw, remaining_subquestions=ctx.remaining_subquestions)
 

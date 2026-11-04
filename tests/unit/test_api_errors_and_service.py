@@ -80,14 +80,16 @@ def test_create_app_without_service_uses_lifespan() -> None:
 def test_service_missing_raises(tmp_path: Path) -> None:
     # App without service on state and lifespan disabled via direct route call is hard;
     # instead verify ApiError path when service run raises BudgetExceeded is mapped.
+    # A copy: get_config() is the process-wide instance every later test reads.
+    cfg = get_config().model_copy(deep=True)
+    # Force tiny budget to trip
+    cfg.guardrails.max_llm_calls = 0
+    cfg.guardrails.max_tokens_per_query = 0
     svc = QueryService.create_offline(
         seed_triples="data/processed/seed_triples.jsonl",
-        cfg=get_config(),
+        cfg=cfg,
         settings=get_settings(),
     )
-    # Force tiny budget to trip
-    svc.cfg.guardrails.max_llm_calls = 0
-    svc.cfg.guardrails.max_tokens_per_query = 0
     try:
         # Offline mock still records tokens; may or may not trip depending on path.
         # Ensure service still returns something with default offline.

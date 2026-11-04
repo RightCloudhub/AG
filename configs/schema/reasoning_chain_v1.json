@@ -27,6 +27,11 @@
           "title": "Llm Calls",
           "type": "integer"
         },
+        "embed_calls": {
+          "default": 0,
+          "title": "Embed Calls",
+          "type": "integer"
+        },
         "tokens": {
           "default": 0,
           "title": "Tokens",

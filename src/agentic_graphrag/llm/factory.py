@@ -28,6 +28,7 @@ def build_llm_provider(
     cfg: AppConfig | None = None,
 ) -> LLMProvider:
     """Construct ``LLMProvider`` with chat vs embedding endpoint split."""
+    from agentic_graphrag.llm.circuit import shared_breakers
     from agentic_graphrag.llm.provider import LLMProvider
     from agentic_graphrag.llm.verifier import warn_same_model
 
@@ -36,18 +37,23 @@ def build_llm_provider(
     register = c.guardrails.requirement_register
     if register.enabled and register.verifier_enabled:
         warn_same_model(c.llm.strong_model, register.verifier.model or c.llm.light_model)
+    chat_url = resolve_chat_base_url(s)
+    embedding_url = resolve_embedding_base_url(s, c)
     return LLMProvider(
         api_key=s.llm_api_key,
-        base_url=resolve_chat_base_url(s),
+        base_url=chat_url,
         strong_model=c.llm.strong_model,
         light_model=c.llm.light_model,
         embedding_model=c.llm.embedding_model,
-        embedding_base_url=resolve_embedding_base_url(s, c),
+        embedding_base_url=embedding_url,
         embedding_api_key=resolve_embedding_api_key(s, c),
         temperature=c.llm.temperature,
         timeout_seconds=c.llm.timeout_seconds,
         budget=budget,
         cache_dir=cache_dir,
-        circuit=c.llm.resilience.breaker_template(),
+        circuits=shared_breakers(
+            (chat_url, embedding_url, c.llm.strong_model, c.llm.light_model),
+            c.llm.resilience.breaker_template(),
+        ),
         fallback_to_light=c.llm.resilience.fallback_to_light,
     )

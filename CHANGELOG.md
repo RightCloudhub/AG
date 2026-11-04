@@ -8,6 +8,62 @@
 
 更新约定：文档和状态表只维护最新结论；变更过程、旧指标与关闭记录写在这里。
 
+## 2026-11-04
+
+<a id="arch-v3-batch-1"></a>
+
+### 多智能体架构 V3 第一批与代码复核
+
+目标和后续验收见 [ARCH_OPTIMIZATION_V3.md](docs/design/ARCH_OPTIMIZATION_V3.md)。
+完成第一批九项：跳过节点不再触发 Critic 或重复 SSE 帧、结构化递归上界、完整新查询重置、
+预算单一来源、工具规划与 embedding 计量、逐角色用量、进程共享熔断、单调计数与分路由直方图、
+日志/审计脱敏和遥测数据最小化。后续 V3-01…15 的目标已记录，状态仍为未开始。
+
+交付前的复核另外修正了以下失败路径，新增回归先复现再修复：
+
+- embedding 在远程请求前检查 token 上限；独立于聊天调用上限，缓存命中仍不产生远程用量。
+- HTTP 成功但 completion/embedding 内容无效时保留已付调用和可解析的 token 用量；
+  无法解析的 usage 仍计调用，token 未知按 0 记录；取消的未完成请求释放预算预留。
+- 半开探测持有独占许可直到请求退出，取消立即释放；熔断前请求的迟到响应不能关闭新熔断，
+  半开探测失败会重新进入冷却，即使原失败窗口已经过期。
+- 所有剩余计划节点都跳过时仍检查预算/超时，hop 保持 0，不再误报护栏正常。
+
+**离线配对**：基线为 `1fc56898d215a814f024c568666a22600eb616bf` 的干净导出，候选为本次工作树。
+两侧使用相同 seed/pilot 图和关闭的 LLM/检索缓存；全部远程 LLM 调用均为 0。
+
+| 数据集 | 基线 → 候选 | McNemar p | P95（ms，基线 → 候选） |
+|---|---|---|---|
+| POC agentic | 31/31 → 31/31 | 1.0 | 84 → 90 |
+| POC triage | 31/31 → 31/31 | 1.0 | 77 → 77 |
+| G2 | 200/200 → 200/200 | 1.0 | 60 → 60 |
+| compositional probe | 54/54 → 54/54 | 1.0 | 76 → 86 |
+| negative probe | 20/20 → 20/20 | 1.0 | 47 → 39 |
+
+336 行报告中的 333 行在预测、状态、路由、步骤、证据 ID、工具序列和 Critic 动作上保持一致。
+以下 3 行仍为 `no_answer`，步骤数均从 2 降为 1，hop_count 从 3 降为 1；
+跳过未解析依赖后不再用上一跳证据触发虚假 Critic 跟进，答案中的探索路径摘要随之缩短：
+
+| case_id | 删除的无关跟进 |
+|---|---|
+| `neg-noparent3-Redwood_Energy` | `Who is the CEO of Harbor Wind?` |
+| `neg-noparent3-Apex_Holdings` | `Who is the CEO of BrightLink Logistics?` |
+| `neg-noparent3-Cascade_Bio` | `Who is the CEO of Coral Reef Bio?` |
+
+**验证命令与结果**：`ruff check src tests scripts`、`ruff format --check src tests scripts`、
+`mypy`、`python scripts/check_code_metrics.py`、TypeScript 5.9.3 的 `tsc --project web/jsconfig.json`
+均通过；`doctor.py` 为 0 error / 0 warn。离线评测使用 `agr-run-cases --no-llm --memory-graph`
+的上述五组配置，逐组通过 `check_eval_floor.py`；配对均由 `scripts/eval_compare.py --fail-on-worse`
+复核；`scripts/audit_gold.py --max-flagged 0` 为 200 题、0 flagged。
+
+`pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q`：**1105 passed、4 xfailed，
+覆盖率 91.76%**；4 个 xfail 是既有 planner 改写缺口。TestClient 在工具沙箱的事件循环唤醒处
+停滞，已在沙箱外用同一 `.venv` 完成全量验证。原始配对报告、覆盖率、JUnit 结果及源码哈希
+保存在本地 `reports/arch_v3_batch1/`（不入库）；本文保留可随变更审阅的汇总数字。
+
+P95 是单次本地离线回归记录，真实模型的准确率、费用与时延仍未验证。聊天上限改为配置的
+16 次、工具规划开始占调用预算、embedding 开始占 token 预算、进程级熔断都会改变 live 行为；
+上线前的配对评估及更大范围的诊断补验已在 [IMPORTANT.md](docs/reviews/IMPORTANT.md) 挂账。
+
 ## 2026-11-03
 
 <a id="important-snapshot-13"></a>

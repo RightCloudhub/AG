@@ -9,6 +9,7 @@ from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import (
     GRAPH_TOOLS,
+    LLMRole,
     MessageRole,
     PromptName,
     RetrievalChannel,
@@ -16,6 +17,7 @@ from agentic_graphrag.core.enums import (
     ToolArgument,
 )
 from agentic_graphrag.core.ports.llm import Message, Tier
+from agentic_graphrag.governance.budget import BudgetExceeded
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import (
     REASON_LLM_UNAVAILABLE,
@@ -239,9 +241,13 @@ def _try_llm_plan(
             ],
             ExecutorPlan,
             tier=Tier.LIGHT,
+            role=LLMRole.TOOL_PLAN,
         )
         if plan.tool_calls:
             return list(plan.tool_calls)
+    except BudgetExceeded:
+        # Spent, not broken: the heuristic plan runs and the next hop's guard stops the run.
+        return None
     except Exception as exc:
         # The heuristic plan takes over; tool choice is worse, not absent (O-9).
         record_degradation(

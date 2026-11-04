@@ -31,15 +31,14 @@ ANSWER = AnswerPayload(
 
 @pytest.fixture
 def service(monkeypatch) -> Iterator[QueryService]:
-    from agentic_graphrag.app import query_run, query_stream, wiring
+    from agentic_graphrag.app import query_run, wiring
     from agentic_graphrag.generation import answer, entailment
 
     svc = QueryService.create_offline()
     svc.allow_llm = True
     llm = MockLLMProvider()
     monkeypatch.setattr(wiring, "_embed_llm", lambda **kwargs: llm)
-    for module in (query_run, query_stream):
-        monkeypatch.setattr(module, "build_llm_for_service", lambda **kwargs: llm)
+    monkeypatch.setattr(query_run, "build_llm_for_service", lambda **kwargs: llm)
     monkeypatch.setattr(answer, "_llm_answer", Mock(return_value=ANSWER))
     monkeypatch.setattr(entailment, "entailment_enabled", lambda llm: True)
     monkeypatch.setattr(entailment, "_ask", Mock(return_value=entailment.VerdictPayload()))

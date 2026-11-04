@@ -23,6 +23,7 @@ from agentic_graphrag.app.query_service import QueryService, build_default_servi
 from agentic_graphrag.config import ROOT_DIR
 from agentic_graphrag.core.enums import ReviewStatus
 from agentic_graphrag.core.ports.capabilities import Pingable
+from agentic_graphrag.llm.circuit import CircuitState, shared_breaker_states
 from agentic_graphrag.observability.degradation import REASON_UNEXPECTED, record_degradation
 from agentic_graphrag.observability.logging_setup import get_logger, setup_logging
 
@@ -214,7 +215,20 @@ def _check_graph_ping(svc: QueryService, checks: dict[str, str]) -> bool:
         return False
 
 
+def _llm_circuit_status() -> str:
+    """``closed``, or the routes not fully closed, e.g. ``chat:strong=open``."""
+    unhealthy = {
+        route: state
+        for route, state in shared_breaker_states().items()
+        if state != CircuitState.CLOSED
+    }
+    if not unhealthy:
+        return CircuitState.CLOSED
+    return ",".join(f"{route}={state}" for route, state in sorted(unhealthy.items()))
+
+
 def _add_operational_checks(svc: QueryService, checks: dict[str, str]) -> None:
+    checks["llm_circuit"] = _llm_circuit_status()
     if svc.review_queue is None:
         return
     try:

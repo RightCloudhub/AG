@@ -22,7 +22,6 @@ from agentic_graphrag.observability.trace import TraceContext, span
 if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
-QUESTION_SPAN_PREVIEW = 120
 _AGENT_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="agr-query")
 
 _TRANSPORT_TYPES = frozenset(
@@ -92,7 +91,7 @@ def run_agent(
 ) -> ReasoningChain:
     with query_context(query_id=trace_ctx.query_id, tenant_id=tenant_id, user_id=trace_ctx.user_id):
         try:
-            with span(trace_ctx, "run_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
+            with span(trace_ctx, "run_query", question_chars=len(req.question)):
                 return agent_run_query(
                     req.question,
                     executor,

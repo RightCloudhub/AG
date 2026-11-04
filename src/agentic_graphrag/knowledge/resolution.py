@@ -15,7 +15,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agentic_graphrag.core.enums import MergeAction, MessageRole, ResolutionMethod, RetrievalChannel
+from agentic_graphrag.core.enums import (
+    LLMRole,
+    MergeAction,
+    MessageRole,
+    ResolutionMethod,
+    RetrievalChannel,
+)
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.core.ports.stores import EntityRecord, GraphStore
 from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
@@ -266,6 +272,7 @@ class EntityResolver:
                 ],
                 MergeDecision,
                 tier=Tier.LIGHT,
+                role=LLMRole.ENTITY_MERGE,
             )
         except Exception as exc:
             # Uncertain decisions go to human review; the outage must be visible.

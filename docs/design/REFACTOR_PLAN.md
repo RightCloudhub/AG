@@ -17,7 +17,7 @@
 | 0-F | 治理 / 遥测以装饰器注入 | 🟡 | 已拆出 `governance/`；以端口装饰器注入在阶段 3 |
 | 1.1 | 统一 QueryPipeline，非流式 = 流式消费到底 | ✅ | `agent/pipeline.py`；Fast 升级时继承证据；`poc_cases` 31/31 结果一致 |
 | 1.2 | 工具全部注册，调度只依赖注册表 | ✅ | ToolSpec 含成本、超时；中间件挂载点已具备，护栏 / trace 中间件在阶段 3 |
-| 1.3 | Guardrails 只管控制流，计量归 Budget | 🟡 | Guardrails 已通过 `BudgetTracker.check()` 查询余量；预算上限字段仍放在 GuardrailConfig |
+| 1.3 | Guardrails 只管控制流，计量归 Budget | 🟡 | Guardrails 已通过 `BudgetTracker.check()` 查询余量；API / SSE / eval 的查询预算已读取同一配置；预算上限字段仍放在 GuardrailConfig |
 | 1.4 | AgentState 显式契约 + 版本 | 🟡 | 单一定义、`state_version`、单一构造器已完成；checkpointer 走 StateStore 在阶段 5 |
 | 1.5 | answer → executor 回边 | ✅ | 结构化 `evidence_gap`；每次运行最多 1 次，受 hop 上限约束 |
 | 2.1 | 检索管线插件化 | ⏳ | 阶段 6 |
@@ -34,9 +34,9 @@
 | 4.2 | 跨存储写入协调 | ⏳ | 阶段 4（账本 + 投影器） |
 | 4.3 | TenantScope 一等参数 | ⏳ | 阶段 5 |
 | 4.4 | Profile 替代开关组合与隐式回退 | ✅ | |
-| 5.1 | LLM 中间件管道 | ⏳ | 阶段 6 |
-| 5.2 | 按任务路由模型 | ⏳ | 阶段 6 |
-| 5.3 | 所有模型调用经网关 | ✅ | 核实：embedding 和 NLI 原本就经过 provider；补上了 embedding 调用计量 |
+| 5.1 | LLM 中间件管道 | ⏳ | V3-11 |
+| 5.2 | 按任务路由模型 | 🟡 | 已按 `LLMRole` 记账；声明式路由见 V3-09 |
+| 5.3 | 所有模型调用经网关 | ✅ | embedding 和 NLI 经过 provider；查询路径的工具规划与 embedding 计量在 V3 第一批才真正接通 |
 | 5.4 | Prompt 注册表 + 版本 | ✅ | 蕴含判定 prompt 移入 `configs/prompts/`；`chain.metadata.prompt_versions` |
 | 5.5 | 保持库形态、可替换为独立网关 | ➖ | 现状即如此 |
 | 6.1 | Compose → Verify → Assess | 🟡 | 已有 Verdict 分类（表述 / 缺证）；Verifier 链插件化在阶段 6 |
@@ -63,6 +63,15 @@
 | O-7 | 分层 critic | ✅（默认 llm） | 确定性闸门可减少调用，实际收益待 live 配对验收 |
 | O-8 | 熔断按路由拆分 + 滑窗 + 降级 | ✅（默认等价 V1） | `llm/circuit.py`、`config_llm.py` |
 | P-1、E-3/E-4、R-2~R-5、S-2/S-3、K-2~K-4、G-1/G-2、L-2、X-1/X-2 | 后续批次 | ⏳ | 见 V2 §5 |
+
+## 多智能体编排优化 V3（详见 [ARCH_OPTIMIZATION_V3.md](ARCH_OPTIMIZATION_V3.md)）
+
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| 第一批 | 跳过语义、递归上界、新查询重置、预算单一来源、计量补全、逐角色记账、进程级熔断、指标语义、数据最小化 | ✅ 代码复核与离线配对通过；[验证记录](../../CHANGELOG.md#arch-v3-batch-1)；live 配对待做 |
+| V3-01…06 | LLM 替身 + CI、失败策略、截止时间、答案校验、计划权威、决策记录与归因 | ⏳ |
+| V3-07…10 | 确定性优先规划、真并行、角色注册表、ContextAssembler | ⏳ |
+| V3-11…15 | LLM 管道、控制状态、执行事件、登记表策略、运行状态持久化 | ⏳ |
 
 ## 演进阶段
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.redaction import redact_audit_payload
 
 DEFAULT_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_BACKUPS = 3
@@ -68,6 +69,7 @@ class AuditStore:
         qid = str(payload.get("query_id") or "")
         if not qid:
             raise ValueError("chain missing query_id")
+        payload = redact_audit_payload(payload)
         with self._lock:
             self._remember(qid, payload)
             if self.path:

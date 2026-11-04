@@ -14,6 +14,23 @@ class AgentNode(StrEnum):
     END = "end"
 
 
+class LLMRole(StrEnum):
+    """Who is calling the model: the unit cost, latency and failures are reported by."""
+
+    TRIAGE = "triage"
+    PLANNER = "planner"
+    TOOL_PLAN = "tool_plan"
+    CRITIC = "critic"
+    COMPOSER = "composer"
+    ENTAILMENT = "entailment"
+    REGISTER_UPDATE = "register_update"
+    REGISTER_VERIFY = "register_verify"
+    EXTRACTION = "extraction"
+    ENTITY_MERGE = "entity_merge"
+    EMBEDDING = "embedding"
+    UNKNOWN = "unknown"
+
+
 class RetrievalTool(StrEnum):
     GRAPH_NEIGHBORS = "graph_neighbors"
     GRAPH_PATH = "graph_path"

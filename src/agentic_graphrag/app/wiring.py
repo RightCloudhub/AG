@@ -80,6 +80,7 @@ def build_executor_for_service(
     retrieval_cache: RetrievalCache | None,
     enable_cache: bool,
     tenant_id: str | None = None,
+    llm: LLMClient | MockLLMProvider | None = None,
 ) -> Executor:
     ret = cfg.retrieval
     # One health object per query run, shared by every retriever and the executor
@@ -95,7 +96,10 @@ def build_executor_for_service(
         graph_cfg.beam_width = max(pool, graph_cfg.beam_width)
     graph_ret = GraphRetriever.from_config(bundle.graph, graph_cfg, health=health)
     fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k, health=health)
-    llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
+    # A query passes its metered client, so tool plans and embeddings hit its budget.
+    llm_for_embed = (
+        llm if llm is not None else _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
+    )
     vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k, health=health)
     deps = ExecutorDeps(
         vector=vector_ret,

@@ -30,7 +30,9 @@ def events_for_node(node_name: str, delta: AgentState) -> Iterator[tuple[str, di
         return
     hop = last.hop
     if node_name == AgentNode.EXECUTOR:
-        yield from _events_for_executor(hop, last)
+        # A terminal update ran no node: its last step already had its frames.
+        if not delta.get("done"):
+            yield from _events_for_executor(hop, last)
     elif node_name == AgentNode.CRITIC:
         runtime = delta.get("register_runtime")
         if runtime is not None and runtime.progress:

@@ -2,6 +2,7 @@
 
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.audit_store import AuditStore
+from agentic_graphrag.governance.budget import LLM_BY_ROLE_KEY
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
     ChannelStatus,
@@ -45,5 +46,6 @@ def record_metrics(chain: ReasoningChain, *, tenant_id: str, user_id: str) -> No
             status=chain.status.value if chain.status else "",
             tenant_id=tenant_id,
             user_id=user_id,
+            llm_by_role=(chain.metadata or {}).get(LLM_BY_ROLE_KEY) or {},
         )
     )

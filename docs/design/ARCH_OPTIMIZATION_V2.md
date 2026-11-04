@@ -4,6 +4,7 @@ O-1…O-8 已交付；剩余架构方向见 §5，真实模型效果与部署验
 原始外部评估、逐项核对、旧基线与第一批 A/B 结果见
 [CHANGELOG.md](../../CHANGELOG.md#arch-v2-original-review)。
 关联文档：[REFACTOR_PLAN.md](REFACTOR_PLAN.md) · [ARCHITECTURE.md](../ARCHITECTURE.md)。
+多智能体编排的目标与进度见 [ARCH_OPTIMIZATION_V3.md](ARCH_OPTIMIZATION_V3.md)。
 
 ## 0. 当前结论
 
@@ -105,6 +106,7 @@ O-1…O-8 已实现并有离线单测；重排默认关闭，分层 critic 等�
 - **熔断器按路由拆分**：`chat:strong`、`chat:light`、`embed` 各用一个熔断器（`CircuitBreakerSet`），这是降级的前提。
 - `CircuitBreaker` 新增 `window_seconds` 和 `min_calls`：在时间窗口内，失败率达到 `failure_rate` 且调用数不少于 `min_calls` 时熔断；原有“连续 N 次失败”的规则保留，作为兜底。
 - `OpenAICompatibleProvider`：STRONG 档熔断时，若配置 `llm.fallback_to_light: true`，改用 LIGHT 模型完成调用，并在响应 metadata 中标 `degraded_from=strong`。默认关闭。
+- 熔断器按端点进程级共享，半开只放一个探测，见 V3 §3。
 
 ---
 

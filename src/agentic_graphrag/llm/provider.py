@@ -4,24 +4,35 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from copy import copy
 from pathlib import Path
 from typing import Any
 
-import httpx
-
+from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
+from agentic_graphrag.core.enums import LLMRole, RetrievalChannel
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.llm import response_cache
+from agentic_graphrag.llm.accounting import settle_completion, settle_embedding
 from agentic_graphrag.llm.circuit import (
     ROUTE_EMBED,
     ROUTE_LIGHT,
     ROUTE_STRONG,
     CircuitBreaker,
     CircuitBreakerSet,
+    note_call_failure,
 )
-from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
+from agentic_graphrag.llm.transport import post_json
 from agentic_graphrag.llm.verifier import warn_same_model
+from agentic_graphrag.observability.degradation import REASON_TIER_FALLBACK, record_degradation
+
+_CHAT_KEY_ENV = "LLM_API_KEY"
+_EMBED_KEY_ENV = "LLM_EMBEDDING_API_KEY (or LLM_API_KEY)"
+
+
+def _token_counts(usage: dict[str, Any]) -> tuple[int, int]:
+    return int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
 
 
 class LLMProvider:
@@ -40,6 +51,7 @@ class LLMProvider:
         budget: BudgetTracker | None = None,
         cache_dir: str | Path | None = None,
         circuit: CircuitBreaker | None = None,
+        circuits: CircuitBreakerSet | None = None,
         fallback_to_light: bool = False,
     ) -> None:
         self.api_key = api_key
@@ -56,8 +68,8 @@ class LLMProvider:
         self.timeout_seconds = timeout_seconds
         self.budget = budget
         self.cache_dir = Path(cache_dir) if cache_dir else None
-        # One breaker per route (O-8); ``circuit`` is the template they clone.
-        self.circuits = CircuitBreakerSet(circuit)
+        # One breaker per route (O-8), cloned from ``circuit``; process-wide when passed in.
+        self.circuits = circuits if circuits is not None else CircuitBreakerSet(circuit)
         self.fallback_to_light = fallback_to_light
         self.degradations = 0
         if self.cache_dir:
@@ -73,14 +85,15 @@ class LLMProvider:
         verifier = copy(self)
         verifier.strong_model = verifier.light_model = selected
         verifier.fallback_to_light = False
-        verifier.circuits = CircuitBreakerSet(self.circuits.template)
+        verifier.circuits = self.circuits.for_client(f"verifier:{selected}")
         return verifier
 
-    @property
-    def circuit(self) -> CircuitBreaker:
-        """Breaker a STRONG call would go through now (LIGHT when degrading)."""
+    def circuit_for(self, tier: Tier) -> CircuitBreaker:
+        """Breaker a call at ``tier`` would go through now (LIGHT when degrading)."""
         strong = self.circuits.route(ROUTE_STRONG)
         light = self.circuits.route(ROUTE_LIGHT)
+        if tier != Tier.STRONG:
+            return light
         if not strong.allow() and self.fallback_to_light and light.allow():
             return light
         return strong
@@ -93,6 +106,9 @@ class LLMProvider:
         if not self.circuits.route(ROUTE_LIGHT).allow():
             return tier
         self.degradations += 1
+        if self.budget:
+            self.budget.note_tier_fallback()
+        record_degradation(RetrievalChannel.LLM, REASON_TIER_FALLBACK)
         return Tier.LIGHT
 
     def complete(
@@ -119,35 +135,30 @@ class LLMProvider:
         cached = response_cache.read_cache(self.cache_dir, cache_key)
         if cached is not None:
             if self.budget:
-                usage = cached.get("usage") or {}
-                self.budget.record_call(
-                    int(usage.get("prompt_tokens", 0)),
-                    int(usage.get("completion_tokens", 0)),
-                )
+                self.budget.record_call(*_token_counts(cached.get("usage") or {}))
             return str(cached["content"])
 
-        data = self._post(
-            "/chat/completions",
-            payload,
-            base_url=self.base_url,
-            api_key=self.api_key,
-            key_env="LLM_API_KEY",
-            route=ROUTE_STRONG if tier == Tier.STRONG else ROUTE_LIGHT,
-        )
-        response = CompletionResponse.model_validate(data)
-        content = response.choices[0].message.content
-        usage = (response.usage or CompletionUsage()).model_dump()
-        if self.budget:
-            self.budget.record_call(
-                int(usage.get("prompt_tokens", 0)),
-                int(usage.get("completion_tokens", 0)),
-            )
-        response_cache.write_cache(
-            self.cache_dir,
-            cache_key,
-            {"content": content, "usage": usage},
-        )
+        content, usage = self._metered_chat(payload, tier)
+        response_cache.write_cache(self.cache_dir, cache_key, {"content": content, "usage": usage})
         return content
+
+    def _metered_chat(self, payload: dict[str, Any], tier: Tier) -> tuple[str, dict[str, Any]]:
+        """Hold a budget slot across the HTTP call, so the cap binds before paying."""
+        if self.budget:
+            self.budget.reserve_call()
+        try:
+            data = self._post(
+                "/chat/completions",
+                payload,
+                base_url=self.base_url,
+                api_key=self.api_key,
+                route=ROUTE_STRONG if tier == Tier.STRONG else ROUTE_LIGHT,
+            )
+        except BaseException:
+            if self.budget:
+                self.budget.release_call()
+            raise
+        return settle_completion(data, self.budget)
 
     def embed(self, text: str) -> list[float]:
         return self.embed_for_model(text, self.embedding_model)
@@ -163,29 +174,23 @@ class LLMProvider:
         if cached is not None:
             return list(cached["embedding"])
 
-        data = self._post(
-            "/embeddings",
-            payload,
-            base_url=self.embedding_base_url,
-            api_key=self.embedding_api_key,
-            key_env="LLM_EMBEDDING_API_KEY (or LLM_API_KEY)",
-            route=ROUTE_EMBED,
-        )
+        data = self._post_embeddings(payload)
         embedding = data["data"][0]["embedding"]
-        # Embeddings are metered as their own call kind (not chat calls) so
-        # the hop budget is unaffected but cost/usage stay complete (§5.3).
-        if self.budget:
-            usage = data.get("usage") or {}
-            self.budget.record_embedding(
-                int(usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0))
-            )
         response_cache.write_cache(self.cache_dir, cache_key, {"embedding": embedding})
         return list(embedding)
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        payload = {"model": self.embedding_model, "input": texts}
+        data = self._post_embeddings({"model": self.embedding_model, "input": texts})
+        rows = sorted(data["data"], key=lambda row: row["index"])
+        if [row["index"] for row in rows] != list(range(len(texts))):
+            raise ValueError("Embedding response indexes do not match the input batch")
+        return [list(row["embedding"]) for row in rows]
+
+    def _post_embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.budget:
+            self.budget.check_tokens()
         data = self._post(
             "/embeddings",
             payload,
@@ -193,12 +198,8 @@ class LLMProvider:
             api_key=self.embedding_api_key,
             route=ROUTE_EMBED,
         )
-        rows = sorted(data["data"], key=lambda row: row["index"])
-        if [row["index"] for row in rows] != list(range(len(texts))):
-            raise ValueError("Embedding response indexes do not match the input batch")
-        if self.budget:
-            self.budget.record_embedding(int((data.get("usage") or {}).get("total_tokens", 0)))
-        return [list(row["embedding"]) for row in rows]
+        settle_embedding(data, self.budget)
+        return data
 
     def _post(
         self,
@@ -207,38 +208,43 @@ class LLMProvider:
         *,
         base_url: str,
         api_key: str,
-        key_env: str = "LLM_API_KEY",
         route: str = ROUTE_STRONG,
     ) -> dict[str, Any]:
         if not api_key:
+            key_env = _EMBED_KEY_ENV if route == ROUTE_EMBED else _CHAT_KEY_ENV
             raise RuntimeError(
                 f"{key_env} is not set. Configure .env or use MockLLMProvider in tests."
             )
         breaker = self.circuits.route(route)
-        if not breaker.allow():
+        permit = breaker.acquire()
+        if permit is None:
             raise RuntimeError(f"LLM circuit open ({route}): too many failures")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        # Connect must fail fast: SSL hang otherwise dominates Fast Path P95.
-        connect_s = min(3.0, float(self.timeout_seconds))
-        timeout = httpx.Timeout(
-            connect=connect_s,
-            read=float(self.timeout_seconds),
-            write=min(30.0, float(self.timeout_seconds)),
-            pool=connect_s,
-        )
+        started = time.perf_counter()
         try:
-            with httpx.Client(base_url=base_url, timeout=timeout) as client:
-                resp = client.post(path, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = JSON_OBJECT.validate_python(resp.json())
-        except Exception:
-            breaker.record_failure()
+            data = post_json(
+                path,
+                payload,
+                base_url=base_url,
+                api_key=api_key,
+                timeout_seconds=self.timeout_seconds,
+            )
+        except BaseException as exc:
+            if isinstance(exc, Exception):
+                note_call_failure(breaker, exc, permit=permit)
+            self._meter_remote(route, started, failed=True)
             raise
-        breaker.record_success()
-        return data
+        else:
+            breaker.record_success(permit=permit)
+            self._meter_remote(route, started, failed=False)
+            return data
+        finally:
+            breaker.release_probe(permit=permit)
+
+    def _meter_remote(self, route: str, started: float, *, failed: bool) -> None:
+        if self.budget:
+            elapsed_ms = int((time.perf_counter() - started) * MILLISECONDS_PER_SECOND)
+            role = LLMRole.EMBEDDING if route == ROUTE_EMBED else None
+            self.budget.record_remote(elapsed_ms, failed=failed, role=role)
 
 
 class MockLLMProvider(LLMProvider):
