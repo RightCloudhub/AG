@@ -73,6 +73,7 @@ Web 工作台：<http://localhost:8000/web>
 |------|----------|
 | `POST /v1/query` · `/v1/query/stream` · `/v1/feedback` · `GET /v1/audit/queries/{id}`（自租户） · `GET /v1/graph/entities` | reader |
 | `POST /v1/docs` · `GET /v1/ingest-tasks` · `GET /v1/ingest-tasks/{id}` · `GET /v1/review-queue` · `POST /v1/review-queue/{id}/decision` | admin / operator |
+| `GET /v1/documents[/{id}[/chunks[/{chunk_id}]]]` · `PATCH /v1/documents/{id}/chunks/{chunk_id}` · `POST /v1/documents/{id}/reparse` · `DELETE /v1/documents/{id}` | admin / operator |
 | `GET /v1/metrics` · `GET /v1/traces/{id}` · `GET /v1/budget/snapshot` · `GET /v1/audit-events` | admin |
 | `GET /v1/me` | 当前身份策略允许时可用；启用强制鉴权后需有效 API Key |
 | `GET /healthz` · `GET /metrics-prom` · `/web` · `/docs` · `/openapi.json` | 公开（免鉴权） |
@@ -239,7 +240,8 @@ chunk ID 格式不变，重新摄取会按新分块规则生成内容；本变�
 ## 数据保留与清理（ENT-06）
 
 `configs/default.yaml` `retention:`（audit_chains 90 天 / audit_events 90 天 /
-review_queue 30 天 / ingest_tasks 30 天）。清理脚本（先 `--dry-run`）：
+review_queue 30 天 / ingest_tasks 30 天；文档运维见下文“文档与分块运维”：source_artifacts 30 天 /
+staged_operations 30 天 / historical_revisions 90 天 / idempotency 7 天）。清理脚本（先 `--dry-run`）：
 
 ```bash
 PYTHONPATH=src python scripts/prune_data_files.py --dry-run
@@ -398,3 +400,78 @@ resumable 单会话 500 MiB，part 5 MiB，过期 86400 秒。`embedding_batch_s
 
 定期运行 `python -m agentic_graphrag.cli.ingest_maintenance prune-uploads --tenant acme`
 清理过期会话。完成后立即删除 part 内容；任务与文档保留各自 journal。
+
+
+## 文档与分块运维（K-01…K-06，2026-11-04）
+
+适用于 FileDocStore（默认 `runtime_dir/docs/documents.sqlite3`）。进程内 InMemoryDocStore 不支持，
+`GET /v1/me` 的 `documents` / `chunk_mutations` / `document_reparse` / `parse_async` 能力位为 false，
+相关端点返回 503。所有端点仅 admin/operator，租户来自认证主体；跨租户 ID 与不存在一律 404。
+
+### 读模型
+
+- `GET /v1/documents?query=&status=&limit=&offset=`：`limit` 1–100（默认 20），按 `updated_at` 倒序、
+  `doc_id` 升序；`status` ∈ `parsing|parse_failed|pending|ready|failed|deleting|replacing`。
+  响应 `{items, total, limit, offset, filters}`；列表只读 SQLite 投影列，不解码正文和 embedding。
+- `GET /v1/documents/{id}`：`parse`（ready/queued/running/failed）、`chunks{total,enabled}`、
+  `indexes.vector|fulltext|graph`（pending/running/partial/ready/failed/disabled/unavailable）、
+  `pending_operation`、`source_artifact{available,sha256,media_type}`。offline profile 没有语义
+  embedder，向量通道固定显示 `unavailable`，不会显示 ready。`file://` 来源只显示文件名。
+- `GET /v1/documents/{id}/chunks`、`/chunks/{chunk_id}`：revision、enabled、breadcrumb、
+  token 数、各阶段 `{state, revision, error, model}`；详情含正文与白名单 provenance，不含 embedding。
+
+### 分块编辑 / 停用 / 启用
+
+`PATCH /v1/documents/{id}/chunks/{chunk_id}`，JSON `{"text"?, "enabled"?, "expected_revision"}`，
+必须带 `Idempotency-Key` 头（缺失 400）。成功 202：`{chunk, saved_revision, task_id, index_ready:false}`。
+revision 不符 409 `REVISION_CONFLICT`（`details.current_revision`）；同一 key 换 payload 409
+`IDEMPOTENCY_CONFLICT`；同 key 同 payload 返回原响应（重启后仍然成立）。文档处于删除/替换中返回 409。
+
+- 一次 SQLite 事务同时写入：新 revision 与可见性、租户 generation +1、幂等结果、待执行 op 记录。
+  之后再把 op 写入 `ingest_tasks.jsonl`（task_id 预留在 op 中，写入幂等）。两步之间崩溃时，
+  API 下次命令或 worker 每次轮询都会补发未派发的 op，保证只产生一个任务。202 即“已保存且可恢复”。
+- 停用是可见性写入：提交即对检索不可见（`StoreBundle.visibility`），无需等待 worker，也不等待
+  正在阻塞的索引任务；物理清理由任务完成，可重试。重新启用会重建缺失阶段，正文未变时复用 embedding。
+- 编辑会重新 embedding、更新 BM25，先移除该分块旧 revision 的图谱来源再重新抽取；其它分块支持的
+  事实保留。审核决策同样按分块 revision/enabled 校验，过期返回 `stale_document`。
+- 物理记录按（租户、文档版本、分块 revision、阶段 generation）区分：内存/BM25 adapter 拒绝低 identity 的
+  写入，Qdrant 为每个 identity 建独立 point 并在搜索时只保留最高 identity；清理只删除严格低于
+  当前 identity 的记录，迟到的旧写入或旧清理不会覆盖/删除新 revision。
+
+### 原始文件保留、异步解析与重解析
+
+- 普通 `POST /v1/docs` 与 resumable `complete` 的同步响应及解析错误码不变；原始字节在接受前写入
+  `docs/sources/<租户摘要>/<sha256>`（不可变、内容寻址，引用不对外暴露），resumable 在删除 part 前完成。
+- `parse_async=true`（`POST /v1/docs?parse_async=true` 或 `POST /v1/uploads/{id}/complete?parse_async=true`）：
+  校验并持久暂存后返回 202，`docs[].doc_id` 为预留 ID、`status=parsing`。worker 先解析整批，任一文件失败
+  则整批不接受（已有文档与索引不动），错误写在任务 `docs[].error` 与 message。去重命中已有文档时，
+  任务行给出 `provisional_doc_id → doc_id` 映射。重复 complete 只产生一个操作。
+- `POST /v1/documents/{id}/reparse`，JSON `{"expected_version", "mode": "source"|"rechunk"}` + `Idempotency-Key`，
+  202 返回任务。解析在锁外进行，结果存入独立的 staged 记录（不在 `metadata.lifecycle`）；发布前在文档锁内
+  复核版本、生命周期意图、分块变更序号与租约 fencing token，任何变化即 `publication_conflict`，
+  当前版本继续服务。发布使用带日志的强制替换：保持 UUID、version+1、绕过内容去重，即使正文不变也重建，
+  并覆盖分块编辑。没有保留原文件的旧文档返回 409 `REPARSE_UNAVAILABLE`（`details.rechunk_available=true`），
+  可用 `mode=rechunk` 基于已存正文重建。
+
+### 恢复（5a：按文档串行）
+
+- 同一文档的索引、编辑、停用、重解析阶段都在 `doc_state` 文档租约下执行；租约 token 即阶段 generation，
+  每次阶段提交与清理前校验。provider 调用期间租约过期的 worker 无法发布或删除。租约被他人持有时
+  任务回到 `queued`（message `Waiting for document lease`）稍后重试。
+- 阶段失败记录在分块 `stages.<stage>.error`，任务为 `partial`；修复后执行
+  `python -m agentic_graphrag reconcile --tenant acme` 重跑。删除后的挂起 op 以 `document_changed` 结束。
+- 多个 API / worker 进程通过 SQLite 中持久化的租户 generation 协调缓存失效；进程内 `IndexVersion`
+  只覆盖本进程。查询侧接入 generation 与可见性过滤属于后续集成项。
+
+### 备份、迁移与保留
+
+1. 备份：停写（暂停上传与 worker）后复制整个 `runtime_dir/docs/`（`documents.sqlite3` 与 `sources/`）、
+   `ingest_tasks.jsonl`、`review_queue.jsonl`、BM25 snapshot，以及 live 环境的 Qdrant / Neo4j 快照。
+2. 迁移：新版本首次打开 FileDocStore 自动升级到 schema v2（`PRAGMA user_version=2`），旧分块迁移为
+   `enabled=true, revision=1`。升级后旧版 writer 的定位插入会直接失败，新版也拒绝打开更新的 schema，
+   所以必须先升级所有 API 与 worker 再开放写入/分块变更。Qdrant 旧 point（无 revision 字段）在文档下次
+   替换或执行 reindex 时清除；建议升级后对每个租户运行一次 `reindex`。
+3. 保留：`scripts/prune_data_files.py` 同时清理文档运维记录：过期且无引用的原始文件与历史版本来源链接、
+   已结束的 op/staged 正文/预留 ID/删除墓碑、非当前 revision 的编辑历史、已结束命令的幂等记录。
+   当前版本或未清理 op 引用的原文件、当前 revision、pending/running 命令的幂等 key 永不清理。
+   原文件被清理后重解析返回 `REPARSE_UNAVAILABLE`。
