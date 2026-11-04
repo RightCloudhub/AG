@@ -152,6 +152,12 @@ retention:
   audit_events_days: 90
   review_queue_days: 30
   ingest_tasks_days: 30
+  # Document operations (K-06); never removes sources of current versions or pending
+  # operations, the current chunk revision, or keys of pending commands.
+  source_artifacts_days: 30      # unreferenced original uploads and superseded source links
+  staged_operations_days: 30     # finished parse/reparse/edit records, staged text, tombstones
+  historical_revisions_days: 90  # chunk edit history (current revision always kept)
+  idempotency_days: 7            # Idempotency-Key results of finished commands
 
 # Durable ingestion, bounded retries and upload capacity.
 indexing:

@@ -20,3 +20,9 @@ class RetentionConfig(BaseModel):
     audit_events_days: int = 90
     review_queue_days: int = 30
     ingest_tasks_days: int = 30
+    # K-06 document operations. Sources of current versions or unpruned operations,
+    # current chunk revisions and keys of pending operations are always kept.
+    source_artifacts_days: int = 30
+    staged_operations_days: int = 30
+    historical_revisions_days: int = 90
+    idempotency_days: int = 7
