@@ -1,0 +1,131 @@
+[
+ {
+  "_id": "hp-001",
+  "question": "Which city is the birthplace of the author of The Silent Harbor?",
+  "answer": "Lisbon",
+  "supporting_facts": [
+   [
+    "The Silent Harbor",
+    0
+   ],
+   [
+    "Maria Duarte",
+    1
+   ]
+  ],
+  "context": [
+   [
+    "The Silent Harbor",
+    [
+     "The Silent Harbor is a 1998 novel by Maria Duarte.",
+     " It won the Coastal Prize."
+    ]
+   ],
+   [
+    "Maria Duarte",
+    [
+     "Maria Duarte is a Portuguese novelist.",
+     " She was born in Lisbon in 1961."
+    ]
+   ],
+   [
+    "Porto",
+    [
+     "Porto is a city in northern Portugal."
+    ]
+   ]
+  ],
+  "type": "bridge",
+  "level": "hard"
+ },
+ {
+  "_id": "hp-002",
+  "question": "Are the Red Finch and the Blue Heron both bands from Ohio?",
+  "answer": "yes",
+  "supporting_facts": [
+   [
+    "Red Finch (band)",
+    0
+   ],
+   [
+    "Blue Heron (band)",
+    0
+   ]
+  ],
+  "context": [
+   [
+    "Red Finch (band)",
+    [
+     "Red Finch is an indie band from Columbus, Ohio."
+    ]
+   ],
+   [
+    "Blue Heron (band)",
+    [
+     "Blue Heron is a folk band formed in Dayton, Ohio."
+    ]
+   ]
+  ],
+  "type": "comparison",
+  "level": "medium"
+ },
+ {
+  "_id": "hp-003",
+  "question": "What river flows through the capital of Veloria?",
+  "answer": "Amber River",
+  "supporting_facts": [
+   [
+    "Veloria",
+    0
+   ],
+   [
+    "Castrel",
+    1
+   ]
+  ],
+  "context": [
+   [
+    "Veloria",
+    [
+     "Veloria is a fictional country whose capital is Castrel."
+    ]
+   ],
+   [
+    "Castrel",
+    [
+     "Castrel is the largest city of Veloria.",
+     " The Amber River flows through Castrel."
+    ]
+   ]
+  ],
+  "type": "bridge",
+  "level": "easy"
+ },
+ {
+  "_id": "hp-004",
+  "question": "Who directed the film scored by Ana Ilic?",
+  "answer": "Tomas Berg",
+  "supporting_facts": [
+   [
+    "Night Lanterns",
+    0
+   ]
+  ],
+  "context": [
+   [
+    "Night Lanterns",
+    [
+     "Night Lanterns is a 2004 film directed by Tomas Berg with music by Ana Ilic."
+    ]
+   ],
+   [
+    "Ana Ilic",
+    [
+     "Ana Ilic is a Serbian composer."
+    ]
+   ]
+  ],
+  "type": "bridge",
+  "level": "medium"
+ }
+]

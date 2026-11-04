@@ -1,0 +1,181 @@
+# Public benchmark run manifest — HippoRAG 2 protocol, frozen final comparison (B-01).
+#
+# Status: NOT EXECUTED. Nothing below has been run. Every "UNVERIFIED" / null value must be
+# pinned by an operator (and committed) BEFORE the pilot; changing any field changes the
+# manifest sha256, and results recorded under another hash are never mixed into a report.
+#
+# Paths are local artifacts (downloaded corpora, prepared indexes, result journals); they are
+# NOT committed. See evals/public/README.md for the commands.
+manifest_version: 1
+run_id: hipporag2-final-v1
+run_kind: final
+split: final
+created: 2026-11-04
+
+protocol:
+  name: hipporag2
+  upstream_repo: https://github.com/OSU-NLP-Group/HippoRAG
+  # UNVERIFIED: no upstream commit has been checked. Pin the commit whose dataset files,
+  # splits, corpus scope and scorer are used, then set verified: true.
+  upstream_revision: null
+  scorer: squad_em_f1
+  verified: false
+  notes: "working recommendation from plan §4.1 B-01; scorer/splits not yet compared upstream"
+
+datasets:
+  - name: hotpotqa
+    raw_format: hipporag
+    final_questions_path: evals/public/data/hotpotqa/hotpotqa.json
+    corpus_path: evals/public/data/hotpotqa/hotpotqa_corpus.json
+    # A separate dev split is required before any tuning (plan §4.4); never reuse final IDs.
+    dev_questions_path: evals/public/data/hotpotqa/hotpot_dev_distractor_v1.json
+    dev_raw_format: hotpotqa
+    upstream_final_ids_path: null
+    source_allowlist:
+      hotpotqa.json: null          # sha256 to be pinned after download
+      hotpotqa_corpus.json: null
+      hotpot_dev_distractor_v1.json: null
+    license: CC BY-SA 4.0 (UNVERIFIED for the upstream subset)
+    final_size: 1000
+    split_sizes: {spike: 50, smoke: 3, pilot: 50}
+    sampling_seed: 20261104
+    expected_passages: null
+    corpus_sha256: null
+  - name: 2wikimultihopqa
+    raw_format: hipporag
+    final_questions_path: evals/public/data/2wikimultihopqa/2wikimultihopqa.json
+    corpus_path: evals/public/data/2wikimultihopqa/2wikimultihopqa_corpus.json
+    dev_questions_path: evals/public/data/2wikimultihopqa/dev.json
+    dev_raw_format: 2wikimultihopqa
+    upstream_final_ids_path: null
+    source_allowlist:
+      2wikimultihopqa.json: null
+      2wikimultihopqa_corpus.json: null
+      dev.json: null
+    license: Apache-2.0 (UNVERIFIED for the upstream subset)
+    final_size: 1000
+    split_sizes: {spike: 50, smoke: 3, pilot: 50}
+    sampling_seed: 20261105
+    expected_passages: null
+    corpus_sha256: null
+  - name: musique
+    raw_format: hipporag
+    final_questions_path: evals/public/data/musique/musique.json
+    corpus_path: evals/public/data/musique/musique_corpus.json
+    dev_questions_path: evals/public/data/musique/musique_ans_v1.0_dev.jsonl
+    dev_raw_format: musique
+    upstream_final_ids_path: null
+    source_allowlist:
+      musique.json: null
+      musique_corpus.json: null
+      musique_ans_v1.0_dev.jsonl: null
+    license: CC BY 4.0 (UNVERIFIED for the upstream subset)
+    final_size: 1000
+    split_sizes: {spike: 50, smoke: 3, pilot: 50}
+    sampling_seed: 20261106
+    expected_passages: null
+    corpus_sha256: null
+
+arms:
+  - {name: pure_vector, kind: internal_vector, stochastic: true}
+  - {name: vector_rerank, kind: internal_vector, stochastic: true, rerank: true}
+  - name: lightrag
+    kind: external
+    stochastic: true
+    external:
+      env_dir: evals/public/envs/lightrag
+      python: evals/public/envs/lightrag/.venv/bin/python
+      backend: lightrag
+      lock_file: evals/public/envs/lightrag/requirements.lock
+      package: lightrag-hku
+      package_revision: null       # UNVERIFIED
+      native_mode: hybrid
+      native_config: {}
+  - name: hipporag2
+    kind: external
+    stochastic: true
+    external:
+      env_dir: evals/public/envs/hipporag2
+      python: evals/public/envs/hipporag2/.venv/bin/python
+      backend: hipporag2
+      lock_file: evals/public/envs/hipporag2/requirements.lock
+      package: hipporag
+      package_revision: null       # UNVERIFIED
+      native_mode: rag_qa
+      native_config: {}
+  - {name: ag_single_tier, kind: internal_ag, stochastic: true, register_enabled: false}
+  - {name: ag_registry, kind: internal_ag, stochastic: true, register_enabled: true}
+
+run_seeds: [101, 202, 303]
+questions_per_dataset: 1000
+
+models:
+  generator: {id: gpt-4.1, revision: null, provider: openai-compatible, supports_seed: false}
+  embedding: {id: text-embedding-3-small, revision: null, provider: openai-compatible}
+  reranker: {id: BAAI/bge-reranker-v2-m3, revision: null, provider: http}
+  extraction: {id: gpt-4.1, revision: null, provider: openai-compatible}
+  verifier: {id: gpt-4.1-mini, revision: null, provider: openai-compatible}
+
+context:
+  top_k: 5
+  recall_cutoffs: [2, 5]
+  max_context_tokens: 8000
+  max_hops: 4
+  max_llm_calls_per_query: 20
+  max_tokens_per_query: 50000
+  query_timeout_seconds: 120
+
+retry:
+  max_attempts: 3
+  backoff_initial_seconds: 2.0
+  backoff_multiplier: 2.0
+  backoff_max_seconds: 60.0
+  retry_on: [rate_limit, transport]
+  terminal_selection: last_attempt
+
+cache:
+  answer_cache: false
+  retrieval_cache: false
+  completion_replay_cache: false
+  external_native_query_cache: false
+  within_query_dedup: true
+  warm_prepared_index: true
+  warmup_queries: 0
+
+execution:
+  workers: 1
+  block_size: 25
+  order: randomized_blocks
+  order_seed: 7
+  hardware: UNVERIFIED
+
+# Dated model prices are supplied by the operator; until then money is reported as unknown.
+prices: []
+
+ceiling:
+  money: null            # B-12: record before the pilot
+  currency: USD
+  provider_tokens: null  # B-12: record before the pilot
+  abort: {window: 50, max_error_rate: 0.2, error_kinds: [rate_limit, forbidden]}
+  step_down_level: 0     # 0 full | 1 seeds only AG pair+stochastic | 2 one seed non-AG | 3 500 Qs
+  deterministic_repeat_questions: 100
+  reduced_questions: 500
+
+promotion:               # B-10: predeclare from the pilot before the final run
+  min_accuracy_gain_pp: null
+  max_coverage_drop_pp: null
+  max_selective_risk_increase_pp: null
+  max_token_ratio: null
+  max_deep_p95_ms: null
+  alpha: 0.05
+  declared_on: null
+  declared_from: null
+
+workspace_dir: evals/public/work/workspace/hipporag2-final-v1
+results_dir: evals/public/work/results/hipporag2-final-v1
+store_namespace: bench_hipporag2_final_v1
+extraction_schema_path: configs/schema/open_domain_bench_v0.yaml
+reader_prompt_path: configs/benchmarks/prompts/reader.md
+abstention_detector: abstain-v1
+bootstrap_resamples: 2000
+bootstrap_seed: 11

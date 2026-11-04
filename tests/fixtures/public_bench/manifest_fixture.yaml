@@ -1,0 +1,64 @@
+# Offline contract-test manifest over the tiny vendored fixtures. Not a public run.
+manifest_version: 1
+run_id: fixture-contract
+run_kind: fixture
+split: dev
+created: 2026-11-04
+protocol:
+  upstream_repo: https://github.com/OSU-NLP-Group/HippoRAG
+  upstream_revision: null
+  verified: false
+datasets:
+  - name: hotpotqa
+    raw_format: hotpotqa
+    final_questions_path: tests/fixtures/public_bench/hotpotqa_dev.json
+    source_allowlist: {hotpotqa_dev.json: null}
+    final_size: 2
+    split_sizes: {spike: 1, smoke: 0, pilot: 1}
+    sampling_seed: 5
+  - name: 2wikimultihopqa
+    raw_format: 2wikimultihopqa
+    final_questions_path: tests/fixtures/public_bench/2wikimultihopqa_dev.json
+    source_allowlist: {2wikimultihopqa_dev.json: null}
+    final_size: 1
+    split_sizes: {spike: 1, smoke: 0, pilot: 1}
+    sampling_seed: 6
+  - name: musique
+    raw_format: musique
+    final_questions_path: tests/fixtures/public_bench/musique_dev.jsonl
+    source_allowlist: {musique_dev.jsonl: null}
+    final_size: 1
+    split_sizes: {spike: 1, smoke: 0, pilot: 1}
+    sampling_seed: 7
+arms:
+  - {name: pure_vector, kind: internal_vector, stochastic: false}
+  - {name: vector_rerank, kind: internal_vector, stochastic: false, rerank: true}
+  - name: lightrag
+    kind: external
+    external:
+      env_dir: evals/public/envs/lightrag
+      python: evals/public/envs/lightrag/.venv/bin/python
+      backend: stub
+      lock_file: evals/public/envs/lightrag/requirements.lock
+      package: lightrag-hku
+      native_mode: hybrid
+  - name: hipporag2
+    kind: external
+    external:
+      env_dir: evals/public/envs/hipporag2
+      python: evals/public/envs/hipporag2/.venv/bin/python
+      backend: stub
+      lock_file: evals/public/envs/hipporag2/requirements.lock
+      package: hipporag
+      native_mode: rag_qa
+  - {name: ag_single_tier, kind: internal_ag, register_enabled: false}
+  - {name: ag_registry, kind: internal_ag, register_enabled: true}
+run_seeds: [11, 22, 33]
+questions_per_dataset: 4
+models:
+  generator: {id: stub-generator}
+  embedding: {id: stub-embedding}
+workspace_dir: evals/public/work/workspace/fixture-contract
+results_dir: evals/public/work/results/fixture-contract
+store_namespace: bench_fixture_contract
+bootstrap_resamples: 200

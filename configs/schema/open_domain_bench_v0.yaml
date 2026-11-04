@@ -1,0 +1,49 @@
+# Open-domain benchmark extraction schema (B-03 draft) — benchmark-only.
+#
+# Separate from domain_v0.yaml (corporate POC schema), which cannot represent Wikipedia-style
+# multi-hop corpora (HotpotQA, 2WikiMultihopQA, MuSiQue). Used ONLY by the public benchmark
+# runner (src/agentic_graphrag/eval/public/indexing.py); production ingestion never loads it.
+# The production gate rules are unchanged: non-conforming triples are rejected and recorded.
+# Status: DRAFT until the B-00 spike reports the schema rejection rate and graph coverage.
+
+version: "0.1.0-draft"
+name: open_domain_bench_v0
+description: >
+  Open-domain entity/relation types for public multi-hop QA corpora. Relation types are
+  deliberately coarse; fine-grained predicates go into the relation's ``predicate`` attribute.
+
+entity_types:
+  Person: {description: A real or fictional person}
+  Organization: {description: Company, band, team, university, government body, party}
+  Location: {description: Country, city, region, building, landmark, natural feature}
+  CreativeWork: {description: Film, book, album, song, artwork, TV series, video game}
+  Event: {description: War, battle, election, tournament, festival, historical event}
+  Date: {description: A calendar date or year}
+  Quantity: {description: A number with optional unit (population, height, count)}
+  Concept: {description: Field, genre, species, award, title, occupation, language}
+  Other: {description: Named entity not covered above}
+
+# Relation conventions: head/tail lists constrain types; functional_on: [] means multi-valued
+# (open-domain facts rarely justify a single-valued conflict policy before the spike).
+relation_types:
+  BORN_IN: {description: Person born in a place, head: Person, tail: Location, functional_on: []}
+  DIED_IN: {description: Person died in a place, head: Person, tail: Location, functional_on: []}
+  BORN_ON: {description: Person birth date, head: Person, tail: Date, functional_on: []}
+  DIED_ON: {description: Person death date, head: Person, tail: Date, functional_on: []}
+  NATIONALITY: {description: Citizenship or nationality, head: Person, tail: Location, functional_on: []}
+  SPOUSE_OF: {description: Marriage, head: Person, tail: Person, functional_on: []}
+  PARENT_OF: {description: Parent of a child, head: Person, tail: Person, functional_on: []}
+  CHILD_OF: {description: Child of a parent, head: Person, tail: Person, functional_on: []}
+  SIBLING_OF: {description: Sibling, head: Person, tail: Person, functional_on: []}
+  MEMBER_OF: {description: Membership or affiliation, head: [Person, Organization], tail: Organization, functional_on: []}
+  WORKS_FOR: {description: Employment or role, head: Person, tail: Organization, functional_on: []}
+  EDUCATED_AT: {description: Education, head: Person, tail: Organization, functional_on: []}
+  FOUNDED: {description: Founder of an organization, head: Person, tail: Organization, functional_on: []}
+  LOCATED_IN: {description: Located in a place, head: [Organization, Location, Event, CreativeWork], tail: Location, functional_on: []}
+  CREATED: {description: Directed, wrote, composed, performed or produced, head: [Person, Organization], tail: CreativeWork, functional_on: []}
+  PART_OF: {description: Part of a larger whole, head: [Organization, Location, Event, CreativeWork, Concept], tail: [Organization, Location, Event, CreativeWork, Concept], functional_on: []}
+  PARTICIPATED_IN: {description: Took part in an event, head: [Person, Organization], tail: Event, functional_on: []}
+  OCCURRED_ON: {description: Event or work date, head: [Event, CreativeWork, Organization], tail: Date, functional_on: []}
+  HAS_QUANTITY: {description: Numeric property, head: [Person, Organization, Location, Event, CreativeWork], tail: Quantity, functional_on: []}
+  HAS_ATTRIBUTE: {description: Genre, occupation, award, language or other concept, head: [Person, Organization, Location, Event, CreativeWork], tail: Concept, functional_on: []}
+  RELATED_TO: {description: Any other stated relation (predicate attribute required), head: [Person, Organization, Location, CreativeWork, Event, Concept, Other], tail: [Person, Organization, Location, CreativeWork, Event, Concept, Other, Date, Quantity], functional_on: []}
