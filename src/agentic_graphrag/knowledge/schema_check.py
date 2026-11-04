@@ -29,6 +29,7 @@ class Triple(BaseModel):
     source_doc_id: str = ""
     source_chunk_id: str = ""
     source_doc_version: int | None = None
+    source_content_sha256: str = ""
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 

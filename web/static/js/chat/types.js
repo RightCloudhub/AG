@@ -35,6 +35,7 @@
  * @property {{channel: string, reason: string, status: string}[]} degraded
  * @property {boolean} lowConfidence
  * @property {HopProgress[]} hops
+ * @property {ReturnType<typeof import('../responses.js').parseCoverage>} [coverage]
  */
 
 /** @typedef {{key: string, phase: StepPhaseName, hop: number, state: StepStateName}} StepBarItem */

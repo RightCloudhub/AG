@@ -5,6 +5,9 @@
 环境准备（解释器 + 锁定依赖 + `.env`）见 [README 快速开始](../../README.md) 或直接运行
 `./scripts/setup.sh`；环境体检运行 `python scripts/doctor.py`。
 
+知识库双模、版本发布与恢复见 [图谱平台运行手册](GRAPH_PLATFORM.md)；
+七角色模型目录、鉴权与测试发布见 [模型配置手册](MODEL_PROFILES.md)。
+
 ```bash
 source .venv/bin/activate
 # 离线默认（seed + MockLLM）
@@ -18,7 +21,11 @@ Web 工作台：<http://localhost:8000/web>
 启动期（lifespan）自动执行：`setup_logging()`（ENT-01）→ 可选 `setup_otel()`（ENT-08，
 `AGR_OTEL_ENABLED=1` 时）→ **解析运行 Profile 并按能力矩阵装配**（`bootstrap/`）→ **凭据 fail-fast 校验**（ENT-06b）：
 `live` Profile（或旧开关 `AGR_USE_LIVE_STORES=1`）要求 `NEO4J_URI/USER/PASSWORD` + `QDRANT_URL/COLLECTION` 全非空，
-`hybrid` 同样走该校验（`api/app.py` 的 `_missing_store_credentials`），因此也要求这五项全非空；`AGR_ALLOW_LLM=1` 要求 `LLM_API_KEY` 非空且非占位符 —— 缺失直接拒绝启动。
+`hybrid` 同样走该校验（`api/app.py` 的 `_missing_store_credentials`），因此也要求这五项全非空。
+真实模型调用需显式设置 `AGR_ALLOW_LLM=1`。传统 strong/light 配置要求 `LLM_API_KEY`
+非空且非占位符，缺失时拒绝启动；本地无鉴权服务需显式设置 `LLM_AUTH_REQUIRED=false`。
+启用七角色目录时，按各 provider 的 `auth_required` / `secret_ref` 校验凭据，
+不统一要求全局 `LLM_API_KEY`。
 
 **不再有隐式回退**：Neo4j 或 Qdrant 不可达时启动失败（`ProfileError`），不会悄悄换成内存图或内存向量。
 需要“Neo4j + 内存向量”时请显式设置 `AGR_PROFILE=hybrid`。
@@ -32,7 +39,8 @@ Web 工作台：<http://localhost:8000/web>
 | `hybrid` | Neo4j | 内存 | 开 | 不加载 | 显式混合部署 |
 | `eval` | 内存 | 内存 | 关 | 加载 | `agr-run-cases` 默认使用；不读取本地 BM25/向量索引快照 |
 
-`AGR_ALLOW_LLM=1`（且 `LLM_API_KEY` 有效）在所有 Profile 下都会启用真实 LLM；`eval` 下真实 LLM 的响应可从 `data/cache/llm` 磁盘缓存回放。
+`AGR_ALLOW_LLM=1` 在所有 Profile 下均可启用真实 LLM，凭据按上述配置方式校验；
+`eval` 下真实 LLM 的响应可从 `data/cache/llm` 磁盘缓存回放。
 
 ## 环境变量
 
@@ -43,10 +51,11 @@ Web 工作台：<http://localhost:8000/web>
 
 | 变量 | 说明 |
 |------|------|
-| `LLM_API_KEY` / `LLM_BASE_URL` | 聊天 LLM（`.env`） |
+| `LLM_API_KEY` / `LLM_BASE_URL` | 传统 strong/light LLM 配置（`.env`）；七角色目录也可用 `secret_ref` 引用 `LLM_API_KEY` |
+| `LLM_AUTH_REQUIRED` | 传统 LLM 是否需要鉴权，默认 `true`；本地无鉴权服务显式设 `false`（`.env`） |
 | `NEO4J_*` / `QDRANT_*` | 外部存储（`.env`；live 模式启动期强校验） |
 | `AGR_PROFILE` | 运行 Profile：`offline`（默认）/ `live` / `hybrid` / `eval`，非法值拒绝启动 |
-| `AGR_ALLOW_LLM=1` | 启用真实 LLM（需有效 `LLM_API_KEY`） |
+| `AGR_ALLOW_LLM=1` | 显式启用真实 LLM；传统配置或各 provider 分别校验鉴权要求 |
 | `AGR_USE_LIVE_STORES=1` | 旧开关，等价于 `AGR_PROFILE=live`（未设置 `AGR_PROFILE` 时生效） |
 | `AGR_INGEST_INLINE=1` | API 进程内启动 ingest worker：上传 → 索引 → 抽取入图 → 冲突复核（离线模式下上传入图的唯一方式）；`AGR_INGEST_POLL_SECONDS` 调轮询间隔（默认 2） |
 | `AGR_REQUIRE_AUTH=1` | 强制 API Key（生产必开；未设时匿名归入 `default` 租户） |

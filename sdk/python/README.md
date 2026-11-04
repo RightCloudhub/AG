@@ -10,7 +10,7 @@ cd sdk/python
 ./scripts/setup.sh
 uv run --locked pytest --cov=ag_client -q
 uv run --locked mypy
-uv build
+uv run --locked uv build --no-sources
 ```
 
 发布后的 wheel 可用标准 Python 包安装工具安装。本仓库尚未发布到 PyPI。
@@ -71,4 +71,7 @@ asyncio.run(main())
 SDK 不实现断点重放，不自动重发查询、检索或流式 POST；确定安全的 GET 遇到网络错误
 或 502/503/504 默认重试一次，可用 `read_retries=0` 关闭。超时默认 120 秒。
 
-测试使用假 HTTP；真实环境接入、生产预算与领域质量需要部署方另行验收。
+独立包测试使用假 HTTP；核心联合契约测试连接实际 FastAPI 路由，覆盖查询、SSE、原文、
+审计和作用域拒绝。独立 wheel 与完整 stdio/HTTP 链路的验证见
+[交付记录](../../docs/reviews/GRAPH_PLATFORM_EXTENSION.md)。真实领域、供应商模型和生产预算
+仍需部署方另行验收。

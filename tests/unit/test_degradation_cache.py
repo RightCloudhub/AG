@@ -186,6 +186,9 @@ def test_single_channel_degradation_never_enters_answer_cache(
     assert _try_answer_cache(service, req, tenant_id="default", user_id="anonymous") is None
 
     healthy = ReasoningChain(question=QUESTION, status=QueryStatus.ANSWERED, answer="Elena Varga")
+    from agentic_graphrag.app.query_persistence import persist_chain
+
+    persist_chain(service, healthy)
     _maybe_cache_answer(service, req, healthy, tenant_id="default", user_id="anonymous")
     replayed = _try_answer_cache(service, req, tenant_id="default", user_id="anonymous")
     assert replayed is not None

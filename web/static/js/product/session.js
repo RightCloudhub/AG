@@ -3,11 +3,8 @@
 import { ref } from '../../vendor/vue.esm-browser.prod.js';
 import { ApiError } from '../http.js';
 import { request, installTransport } from '../transport.js';
-import { cancelRequests } from '../request_scope.js';
 import { activeConversationId, clearAccountHistory, findConversation, selectHistoryOwner } from '../store/conversations.js';
-import { closeOverlays } from '../store/shell.js';
-import { setGraphFocus } from '../store/graph_focus.js';
-import { inspSyncTo } from '../shell/use_inspector.js';
+import { resetKnowledgeScope, knowledgeRole } from '../store/knowledge.js';
 import { cookieTransport, acceptCsrf, forgetCsrf, onCookieIdentity } from './cookie_transport.js';
 import { parseUser, safeNext } from './contracts.js';
 import { listenIdentity, publishIdentity } from './identity_events.js';
@@ -38,11 +35,8 @@ export function loginDestination(fullPath) { return signedOutDestination || `/lo
 
 function clearViews() {
   viewsCleared = true;
-  cancelRequests();
   selectHistoryOwner(null);
-  closeOverlays();
-  inspSyncTo(null);
-  setGraphFocus('');
+  resetKnowledgeScope();
   sessionRevision.value += 1;
 }
 /** @param {import('./contracts.js').User | null} next */
@@ -51,6 +45,7 @@ export function applyUser(next) {
   const changed = previous?.user_id !== next?.user_id || previous?.tenant_id !== next?.tenant_id || previous?.role !== next?.role;
   if (changed && previous) clearViews();
   user.value = next;
+  knowledgeRole.value = next?.role || 'reader';
   if (next) signedOutDestination = '';
   if (changed || viewsCleared) { selectHistoryOwner(next?.user_id ?? null, next?.tenant_id); viewsCleared = false; }
   sessionReady.value = true;

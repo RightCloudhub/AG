@@ -102,3 +102,17 @@ class RelationScanner(Protocol):
 @runtime_checkable
 class EntityLookup(Protocol):
     def get_entity_by_id(self, entity_id: str, *, tenant_id: str) -> EntityRecord | None: ...
+
+
+@runtime_checkable
+class EntityNames(Protocol):
+    """Read a vocabulary without materializing entity attributes and provenance."""
+
+    def entity_names(self, *, tenant_id: str) -> list[str]: ...
+
+
+@runtime_checkable
+class EntityNameLookup(Protocol):
+    """Return every matching canonical name or alias, including ambiguous matches."""
+
+    def entities_named(self, name: str, *, tenant_id: str) -> list[EntityRecord]: ...

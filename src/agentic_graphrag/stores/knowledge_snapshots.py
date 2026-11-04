@@ -4,9 +4,10 @@ import hashlib
 import json
 
 from agentic_graphrag.core.knowledge import KnowledgeBase, KnowledgeScope, SummaryRecord
-from agentic_graphrag.core.knowledge_versions import KnowledgeSnapshot
+from agentic_graphrag.core.knowledge_versions import GraphChangeSet, KnowledgeSnapshot
 from agentic_graphrag.stores.knowledge_database import read_kb, scope_params, write_kb
-from agentic_graphrag.stores.knowledge_journal import KnowledgeJournal
+from agentic_graphrag.stores.knowledge_journal import KnowledgeJournal, complete_record
+from agentic_graphrag.stores.knowledge_summaries import save_summary_record
 
 
 class KnowledgeSnapshots(KnowledgeJournal):
@@ -58,19 +59,61 @@ class KnowledgeSnapshots(KnowledgeJournal):
         with self.transaction() as db:
             kb = read_kb(db, scope)
             exists = db.execute(
-                "SELECT 1 FROM knowledge_snapshots WHERE tenant=? AND kb=? AND generation=?",
+                "SELECT manifest FROM knowledge_snapshots WHERE tenant=? AND kb=? AND generation=?",
                 (*scope_params(scope), generation),
             ).fetchone()
             if kb is None or not exists:
                 raise ValueError("Only a sealed knowledge base generation can be published")
+            snapshot = KnowledgeSnapshot.model_validate_json(exists[0])
+            restored = snapshot.knowledge_base or kb
+            if restored.scope != scope:
+                raise ValueError("Stored generation configuration has another scope")
             updated = KnowledgeBase.model_validate(
                 {
-                    **kb.model_dump(),
+                    **restored.model_dump(),
                     "active_generation": generation,
                     "config_revision": expected_revision + 1,
                 }
             )
             write_kb(db, updated, expected_revision=expected_revision)
+        return updated
+
+    def commit_generation(
+        self,
+        change: GraphChangeSet,
+        *,
+        expected_revision: int,
+        target_config: KnowledgeBase | None = None,
+    ) -> KnowledgeBase:
+        """The change journal and active pointer commit in one metadata transaction."""
+        scope = change.scope
+        with self.transaction() as db:
+            kb = read_kb(db, scope)
+            snapshot = db.execute(
+                "SELECT manifest FROM knowledge_snapshots WHERE tenant=? AND kb=? AND generation=?",
+                (*scope_params(scope), change.target_generation),
+            ).fetchone()
+            if kb is None or not snapshot:
+                raise ValueError("Only a sealed knowledge base generation can be published")
+            manifest = KnowledgeSnapshot.model_validate_json(snapshot[0])
+            proposed = _publication_config(kb, manifest, target=target_config)
+            if kb.active_generation == change.target_generation:
+                excluded = {"active_generation", "config_revision"}
+                if kb.model_dump(exclude=excluded) != proposed.model_dump(exclude=excluded):
+                    raise ValueError("Published generation configuration is immutable")
+                complete_record(db, change)
+                return kb
+            if kb.active_generation != change.source_generation:
+                raise ValueError("A newer generation has already been published")
+            updated = KnowledgeBase.model_validate(
+                {
+                    **proposed.model_dump(),
+                    "active_generation": change.target_generation,
+                    "config_revision": expected_revision + 1,
+                }
+            )
+            write_kb(db, updated, expected_revision=expected_revision)
+            complete_record(db, change)
         return updated
 
     def tombstone(self, scope: KnowledgeScope, doc_id: str, *, through_version: int) -> None:
@@ -94,19 +137,8 @@ class KnowledgeSnapshots(KnowledgeJournal):
         return bool(row and version <= int(row[0]))
 
     def save_summary(self, summary: SummaryRecord) -> None:
-        key = (*scope_params(summary.scope), summary.generation, summary.summary_id)
         with self.transaction() as db:
-            existing = db.execute(
-                "SELECT fingerprint FROM knowledge_summaries "
-                "WHERE tenant=? AND kb=? AND generation=? AND id=?",
-                key,
-            ).fetchone()
-            if existing and existing[0] != summary.input_fingerprint:
-                raise ValueError("A summary generation cannot change its input fingerprint")
-            db.execute(
-                "INSERT OR REPLACE INTO knowledge_summaries VALUES (?,?,?,?,?,?)",
-                (*key, summary.input_fingerprint, summary.model_dump_json()),
-            )
+            save_summary_record(db, summary)
 
     def summaries(self, scope: KnowledgeScope, *, generation: str) -> list[SummaryRecord]:
         with self.transaction() as db:
@@ -116,3 +148,17 @@ class KnowledgeSnapshots(KnowledgeJournal):
                 (*scope_params(scope), generation),
             ).fetchall()
         return [SummaryRecord.model_validate_json(row[0]) for row in rows]
+
+
+def _publication_config(
+    current: KnowledgeBase,
+    manifest: KnowledgeSnapshot,
+    *,
+    target: KnowledgeBase | None,
+) -> KnowledgeBase:
+    proposed = target or manifest.knowledge_base or current
+    if proposed.scope != current.scope:
+        raise ValueError("Generation configuration has another knowledge scope")
+    if target is not None and target != manifest.knowledge_base:
+        raise ValueError("Target configuration differs from the sealed generation")
+    return proposed

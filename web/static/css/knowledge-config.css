@@ -1,0 +1,46 @@
+/* Keep the selected scope visible at every width; settings share the existing form controls. */
+.knowledge-picker { display: flex; align-items: center; min-width: 0; gap: 4px; }
+.knowledge-picker .select { max-width: 180px; min-width: 0; width: 100%; height: 32px; }
+.knowledge-config { margin-bottom: 24px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+.knowledge-config__heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.knowledge-config h2 { font-size: 18px; font-weight: 500; overflow-wrap: anywhere; }
+.knowledge-config__heading p { color: var(--text-dim); margin-top: 8px; }
+.knowledge-config__actions, .knowledge-config__footer { display: flex; align-items: center; gap: 12px; }
+.knowledge-config__actions { flex-shrink: 0; }
+.knowledge-config__form { max-width: 840px; padding-top: 24px; }
+.knowledge-config h3 { font-size: 16px; font-weight: 500; margin-bottom: 20px; }
+.knowledge-config fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.knowledge-config__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+.knowledge-config .input, .knowledge-config .select { min-width: 0; width: 100%; }
+.knowledge-config__wide { grid-column: 1 / -1; }
+.knowledge-config__check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.knowledge-config__check input { width: 16px; height: 16px; accent-color: var(--text); }
+.knowledge-config__footer { justify-content: flex-end; padding-top: 24px; }
+.knowledge-config__footer .hint { margin-right: auto; }
+.knowledge-config__notice { color: var(--text-dim); margin-top: 14px; }
+.summary-status { max-width: 840px; padding-top: 20px; }
+.summary-status__heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.summary-status .summary-status__heading h3 { margin: 0; }
+.summary-status p { margin: 8px 0; }
+.summary-status__state { font-weight: 500; }
+.summary-status__state--warn { color: var(--warn); }
+.summary-status progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.summary-status__failures { list-style: none; margin: 12px 0 0; padding: 0; }
+.summary-status__failures li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.summary-status__failures span { min-width: 0; overflow-wrap: anywhere; }
+.summary-status__failures small { display: block; color: var(--text-dim); margin-top: 4px; }
+@media (max-width: 1199px) {
+  .knowledge-picker .select { max-width: 136px; }
+}
+@media (max-width: 767px) {
+  .app .topbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .topbar__right { grid-column: 2; }
+  .knowledge-picker { flex: 1; }
+  .knowledge-picker .select { max-width: 100%; min-height: 44px; }
+  .product-topbar .tenant-trigger { max-width: 96px; flex: 0 1 auto; }
+  .knowledge-config__heading { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .knowledge-config__grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .knowledge-config__footer { flex-wrap: wrap; }
+  .knowledge-config__footer .hint { flex-basis: 100%; }
+  .knowledge-config .btn, .knowledge-config .select, .knowledge-config .input, .knowledge-config__check { min-height: 44px; }
+}

@@ -18,10 +18,8 @@ from agentic_graphrag.app.query_run import (
     stream_query_events as _stream_query_events,
 )
 from agentic_graphrag.app.wiring import (
-    ANSWER_CACHE_TTL_SECONDS,
     _chain_to_data,
     _entities_from_triples,
-    _load_seed_graph,
     _load_triples,
     build_executor_for_service,
     build_llm_for_service,
@@ -32,15 +30,18 @@ from agentic_graphrag.config import (
     Settings,
     get_config,
     get_settings,
-    resolve_path,
-    runtime_dir,
 )
 from agentic_graphrag.core.events import EventBus
+from agentic_graphrag.core.knowledge import KnowledgeBase
+from agentic_graphrag.core.knowledge_versions import KnowledgeSnapshot
+from agentic_graphrag.core.ports.entities import EntitySemanticIndex
+from agentic_graphrag.core.ports.knowledge import KnowledgeStore
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.audit_store import AuditStore
 from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.governance.budget_policy import MultiLevelBudget
+from agentic_graphrag.governance.source_store import SourceStore
 from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
 from agentic_graphrag.knowledge.review.executor import ReviewExecutor
 from agentic_graphrag.knowledge.review.queue import ReviewQueue
@@ -76,6 +77,7 @@ class QueryService:
     enable_triage: bool = True
     enable_cache: bool = True
     audit_store: AuditStore | None = None
+    source_archive: SourceStore | None = None
     review_queue: ReviewQueue | None = None
     retrieval_cache: RetrievalCache | None = None
     multi_budget: MultiLevelBudget | None = None
@@ -87,8 +89,11 @@ class QueryService:
     # In-process domain event bus (GraphCommitted / IndexUpdated / ReviewDecided).
     events: EventBus | None = None
     _read_side_subscribed: bool = False
-    # Legacy field retained for tests that monkeypatch it; query paths no longer
-    # hold this lock across agent/SSE lifetimes (see service_query / service_stream).
+    knowledge_store: KnowledgeStore | None = None
+    entity_index: EntitySemanticIndex | None = None
+    knowledge_base: KnowledgeBase | None = None
+    snapshot: KnowledgeSnapshot | None = None
+    parent: QueryService | None = field(default=None, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
@@ -172,43 +177,24 @@ class QueryService:
         allow_llm: bool,
         load_seed: bool = True,
     ) -> QueryService:
-        from agentic_graphrag.governance.budget_policy import BudgetLimits
+        from agentic_graphrag.app.service_factory import service_from_bundle
 
-        triples = _load_triples(resolve_path(seed_triples)) if load_seed else []
-        if triples:
-            # Gated by default now (BL-07): seed triples go through the same
-            # schema + confidence gate as every other ingestion path.
-            _load_seed_graph(bundle.graph, triples)
-        # Build per-tenant budget overrides from config (ENT-05).
-        tenant_overrides: dict[str, BudgetLimits] = {}
-        for tid, tcfg in cfg.tenants.items():
-            tenant_overrides[tid] = BudgetLimits(
-                max_llm_calls=tcfg.max_llm_calls or 10_000,
-                max_tokens=tcfg.max_tokens or 5_000_000,
-                max_cost_units=tcfg.max_cost_units or 1000.0,
-            )
-        svc = cls(
+        return service_from_bundle(
+            cls,
+            bundle,
             cfg=cfg,
             settings=settings,
-            bundle=bundle,
+            seed_triples=seed_triples,
             allow_llm=allow_llm,
-            known_entities=_entities_from_triples(triples) if triples else [],
-            audit_store=AuditStore(runtime_dir(cfg) / "audit_chains.jsonl"),
-            review_queue=ReviewQueue(runtime_dir(cfg) / "review_queue.jsonl"),
-            retrieval_cache=RetrievalCache(
-                cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
-                answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,
-            ),
-            multi_budget=MultiLevelBudget(tenant_overrides=tenant_overrides),
-            ingest_tasks=IngestTaskStore(runtime_dir(cfg) / "ingest_tasks.jsonl"),
+            load_seed=load_seed,
         )
-        from agentic_graphrag.app.write_path import attach_write_path
-
-        attach_write_path(svc)
-        return svc
 
     def close(self) -> None:
         self.bundle.close()
+        if self.knowledge_store is not None and self.parent is None:
+            self.knowledge_store.close()
+        if self.entity_index is not None and self.parent is None:
+            self.entity_index.close()
 
     def run_query(
         self,
@@ -217,7 +203,10 @@ class QueryService:
         tenant_id: str = "default",
         user_id: str = "anonymous",
     ) -> QueryResultData:
-        return execute_run_query(self, req, tenant_id=tenant_id, user_id=user_id)
+        from agentic_graphrag.app.knowledge_scope import prepare_query_service
+
+        svc = prepare_query_service(self, req, tenant_id=tenant_id)
+        return execute_run_query(svc, req, tenant_id=tenant_id, user_id=user_id)
 
     def run_query_chain(
         self,
@@ -227,9 +216,11 @@ class QueryService:
         user_id: str = "anonymous",
     ) -> ReasoningChain:
         """Same production path as :meth:`run_query`, returning the full chain."""
+        from agentic_graphrag.app.knowledge_scope import prepare_query_service
         from agentic_graphrag.app.query_run import execute_query_chain
 
-        return execute_query_chain(self, req, tenant_id=tenant_id, user_id=user_id)
+        svc = prepare_query_service(self, req, tenant_id=tenant_id)
+        return execute_query_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
 
     def stream_query_events(
         self,
@@ -239,7 +230,10 @@ class QueryService:
         user_id: str = "anonymous",
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         """Yield SSE (event, payload) pairs for progressive UI (P3-PERF-06)."""
-        return _stream_query_events(self, req, tenant_id=tenant_id, user_id=user_id)
+        from agentic_graphrag.app.knowledge_scope import prepare_query_service
+
+        svc = prepare_query_service(self, req, tenant_id=tenant_id)
+        return _stream_query_events(svc, req, tenant_id=tenant_id, user_id=user_id)
 
     def submit_feedback(
         self,
@@ -274,6 +268,8 @@ class QueryService:
             settings=self.settings,
             cfg=self.cfg,
             budget=budget,
+            tenant_id=self.knowledge_base.tenant_id if self.knowledge_base else "default",
+            kb_id=self.knowledge_base.kb_id if self.knowledge_base else "default",
         )
 
 
@@ -289,5 +285,9 @@ def build_default_service() -> QueryService:
 
     settings = get_settings()
     cfg = get_config()
-    rp = resolve_runtime_profile(llm_api_key=settings.llm_api_key)
+    rp = resolve_runtime_profile(
+        llm_api_key=settings.llm_api_key,
+        llm_auth_required=settings.llm_auth_required,
+        model_roles_configured=bool(cfg.models.roles),
+    )
     return QueryService.create_for_profile(rp, cfg=cfg, settings=settings)

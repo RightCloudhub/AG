@@ -76,11 +76,13 @@ export const PAGE_TEMPLATE = `
     </div>
   </div>
   <template v-else-if="p.rail.length">${RAIL_TEMPLATE}</template>
+  <p v-if="p.live && live?.coverage" class="answer__coverage" role="status">{{ fmt(T.answer.globalProgress, live.coverage) }}</p>
   <template v-for="r in p.rows" :key="r.index">${'${THREAD_ROWS}'}</template>
   <div v-if="p.live && !p.answer" class="answer" aria-busy="true">
     <div class="answer__skel" aria-hidden="true"><span class="skeleton skeleton--w85"></span><span class="skeleton"></span><span class="skeleton skeleton--w60"></span></div>
   </div>
   <section v-else-if="p.answer" class="answer" :class="{ 'answer--none': p.answer.msg.data.status === QueryStatus.NO_ANSWER }" aria-live="polite">
+    <p v-if="p.answer.msg.data.coverage" class="answer__coverage">{{ fmt(T.answer.globalCoverage, p.answer.msg.data.coverage) }}<span v-if="p.answer.msg.data.coverage.partial"> · {{ T.answer.globalPartial }}</span></p>
     <template v-if="p.answer.msg.data.status === QueryStatus.NO_ANSWER">
       <h3 class="answer__none-title">{{ T.answer.notFoundTitle }}</h3>
       <p class="answer__reason">{{ noAnswerReason(p.answer.msg.data) }}</p>

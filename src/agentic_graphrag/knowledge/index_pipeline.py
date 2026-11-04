@@ -14,6 +14,7 @@ from agentic_graphrag.core.ports.stores import (
     FulltextStore,
     VectorStore,
 )
+from agentic_graphrag.knowledge.chunk_sources import stamp_chunk_sources
 from agentic_graphrag.knowledge.chunk_splitting import ChunkingError
 from agentic_graphrag.knowledge.document_lifecycle import DocumentLifecycle
 from agentic_graphrag.knowledge.embedding_batch import BatchEmbedder, embed_with_retry, status_code
@@ -107,6 +108,7 @@ class IndexPipeline:
     def _ensure_chunks(self, doc: DocumentRecord) -> str | None:
         """Chunk once per version; returns the terminal chunking error, if any."""
         if doc.metadata.get("chunks_initialized"):
+            stamp_chunk_sources(doc)
             return None
         try:
             doc.chunks = chunk_document(
@@ -120,6 +122,7 @@ class IndexPipeline:
             self.docs.save(doc)
             return str(exc)
         doc.metadata["chunks_initialized"] = True
+        stamp_chunk_sources(doc)
         self.docs.save(doc)
         return None
 

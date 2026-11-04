@@ -85,6 +85,7 @@ class GraphRetriever:
         self.relation_relevance_threshold = relation_relevance_threshold
         self.relation_embed_sim = relation_embed_sim
         self.health = health
+        self.infer_relations = True
         self._beam = BeamExpander(
             store,
             BeamConfig(
@@ -139,7 +140,7 @@ class GraphRetriever:
     ) -> list[Candidate]:
         hops = max_hops if max_hops is not None else self.default_neighbor_hops
         lim = min(limit or self.max_neighbors_per_layer, self.max_neighbors_per_layer)
-        preferred = relation_types or infer_relation_types(
+        preferred = relation_types or self._infer_relation_types(
             sub_question, min_score=self.relation_relevance_threshold
         )
         with _graph_store_guard(self.health):
@@ -194,7 +195,9 @@ class GraphRetriever:
     ) -> list[Candidate]:
         hops = max_hops if max_hops is not None else self.default_path_hops
         lim = min(limit or self.max_paths, self.max_paths)
-        preferred = infer_relation_types(sub_question, min_score=self.relation_relevance_threshold)
+        preferred = self._infer_relation_types(
+            sub_question, min_score=self.relation_relevance_threshold
+        )
         with _graph_store_guard(self.health):
             path_rows = self.store.paths(
                 source_name, target_name, max_hops=hops, limit=lim * 3, tenant_id=tenant_id
@@ -246,3 +249,10 @@ class GraphRetriever:
         out.sort(key=lambda c: (-c.score, c.id))
         lim = limit or self.max_neighbors_per_layer
         return out[:lim]
+
+    def _infer_relation_types(self, question: str | None, *, min_score: float) -> list[str]:
+        return (
+            (infer_relation_types(question, min_score=min_score) or [])
+            if self.infer_relations
+            else []
+        )

@@ -1,0 +1,293 @@
+{
+  "fixture": "Offline business paths; loopback capability probe fixture",
+  "screens": [
+    {
+      "name": "knowledge-create",
+      "width": 1440,
+      "file": "knowledge-create-1440.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "knowledge-create",
+      "width": 768,
+      "file": "knowledge-create-768.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "knowledge-create",
+      "width": 390,
+      "file": "knowledge-create-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "summary-unavailable",
+      "width": 1440,
+      "file": "summary-unavailable-1440.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "hero-void",
+          "width": 1440,
+          "message": "34% of the first screen is one empty block (660×660px at 660,240).",
+          "fix": "Place the void on purpose or fill it: move the picture, the film or one fact into it, grow the headline to meet it, or shrink the screen to its content. A void reads as placed only when something closes it on the far side and it is the screen's one rest."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "summary-unavailable",
+      "width": 768,
+      "file": "summary-unavailable-768.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "summary-unavailable",
+      "width": 390,
+      "file": "summary-unavailable-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-original",
+      "width": 1440,
+      "file": "evidence-original-1440.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 1440,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        },
+        {
+          "level": "WARN",
+          "id": "hero-void",
+          "width": 1440,
+          "message": "28% of the first screen is one empty block (1020×360px at 60,360).",
+          "fix": "Place the void on purpose or fill it: move the picture, the film or one fact into it, grow the headline to meet it, or shrink the screen to its content. A void reads as placed only when something closes it on the far side and it is the screen's one rest."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-original",
+      "width": 768,
+      "file": "evidence-original-768.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 768,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        },
+        {
+          "level": "WARN",
+          "id": "blank-gap",
+          "width": 768,
+          "message": "A 456px stretch at 360px holds nothing.",
+          "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-original",
+      "width": 390,
+      "file": "evidence-original-390.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 390,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-deleted",
+      "width": 1440,
+      "file": "evidence-deleted-1440.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 1440,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        },
+        {
+          "level": "WARN",
+          "id": "hero-void",
+          "width": 1440,
+          "message": "28% of the first screen is one empty block (1020×360px at 60,360).",
+          "fix": "Place the void on purpose or fill it: move the picture, the film or one fact into it, grow the headline to meet it, or shrink the screen to its content. A void reads as placed only when something closes it on the far side and it is the screen's one rest."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-deleted",
+      "width": 768,
+      "file": "evidence-deleted-768.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 768,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        },
+        {
+          "level": "WARN",
+          "id": "blank-gap",
+          "width": 768,
+          "message": "A 456px stretch at 360px holds nothing.",
+          "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-deleted",
+      "width": 390,
+      "file": "evidence-deleted-390.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 390,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-draft",
+      "width": 1440,
+      "file": "models-draft-1440.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-draft",
+      "width": 768,
+      "file": "models-draft-768.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-draft",
+      "width": 390,
+      "file": "models-draft-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-published",
+      "width": 1440,
+      "file": "models-published-1440.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-published",
+      "width": 768,
+      "file": "models-published-768.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-published",
+      "width": 390,
+      "file": "models-published-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "evidence-drawer",
+      "width": 390,
+      "file": "evidence-drawer-390.png",
+      "findings": [
+        {
+          "level": "WARN",
+          "id": "font-count",
+          "width": 390,
+          "message": "3 typefaces in use (Inter, JetBrains Mono, Source Serif 4).",
+          "fix": "Two at most."
+        }
+      ],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-actions",
+      "width": 1440,
+      "file": "models-actions-1440.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-actions",
+      "width": 768,
+      "file": "models-actions-768.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "models-actions",
+      "width": 390,
+      "file": "models-actions-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "knowledge-actions",
+      "width": 390,
+      "file": "knowledge-actions-390.png",
+      "findings": [],
+      "overflow": false,
+      "errors": []
+    }
+  ],
+  "checks": [
+    "Created and selected a schema knowledge base from the UI",
+    "Uploaded and indexed a document; summary build explains unavailable models",
+    "Queried the selected knowledge base and opened the versioned original citation",
+    "Deleted the cited document via the API; reopening its citation shows withdrawn content",
+    "Saved a draft, tested real loopback probes, and explicitly published; testing did not publish",
+    "Published a second tested revision and rolled the active pointer back to revision 1",
+    "At 390px, Enter submits a query and Enter on the citation opens the original-source drawer; close restores the answer",
+    "Model save/test/publish controls and capability receipts remain reachable at desktop, tablet and phone widths",
+    "The phone knowledge-base form keeps its create action visible and focusable after the fields"
+  ],
+  "consoleErrors": []
+}

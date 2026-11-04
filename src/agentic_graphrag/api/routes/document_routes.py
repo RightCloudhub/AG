@@ -11,7 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 from agentic_graphrag.api.envelope import ok
 from agentic_graphrag.api.rbac import Role, require_role
-from agentic_graphrag.api.routes.deps import principal, service
+from agentic_graphrag.api.routes.deps import knowledge_service as service
+from agentic_graphrag.api.routes.deps import principal
 from agentic_graphrag.api.routes.knowledge_upload import (
     emit_audit,
     parse_upload_content,
@@ -45,8 +46,15 @@ class UploadInit(BaseModel):
 
 
 def _sessions(request: Request) -> UploadSessions:
-    cfg = service(request).cfg
-    return UploadSessions(runtime_dir(cfg) / "uploads", cfg.indexing)
+    import hashlib
+
+    svc = service(request)
+    cfg = svc.cfg
+    kb = svc.knowledge_base
+    directory = runtime_dir(cfg) / "uploads"
+    if kb and kb.kb_id != "default":
+        directory /= hashlib.sha256(kb.scope.model_dump_json().encode()).hexdigest()
+    return UploadSessions(directory, cfg.indexing)
 
 
 def _upload_error(exc: Exception) -> ApiError:
@@ -128,6 +136,9 @@ async def upload_part(upload_id: str, number: int, request: Request) -> JsonObje
 @router.post("/uploads/{upload_id}/complete")
 def complete_upload(upload_id: str, request: Request) -> JsonObject:
     svc = service(request)
+    from agentic_graphrag.app.knowledge_writes import prepare_upload
+
+    svc = prepare_upload(svc, upload_id)
     sessions = _sessions(request)
     tenant, _ = principal(request)
     try:

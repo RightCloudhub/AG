@@ -21,7 +21,9 @@ from agentic_graphrag.agent.question_normalization import normalize_question
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 
 # Backward-compatible re-exports.
@@ -44,8 +46,13 @@ def plan(
     *,
     allow_llm: bool = True,
     known_entities: list[str] | None = None,
+    llm_only: bool = False,
 ) -> list[SubQuestion]:
+    from agentic_graphrag.agent.planning_policy import PlanningUnavailable
+
     if not allow_llm or llm is None:
+        if llm_only:
+            raise PlanningUnavailable("This knowledge base requires LLM planning")
         return plan_offline(question, known_entities=known_entities)
 
     prompt = load_prompt(PromptName.PLANNER)
@@ -53,7 +60,7 @@ def plan(
         prompt.format(question=question, memory_summary=memory_summary or "(empty)")
     )
     result = complete_structured(
-        llm,
+        for_role(llm, ModelRole.RESEARCHER),
         [
             Message(role=MessageRole.SYSTEM, content=system),
             Message(role=MessageRole.USER, content=user),
@@ -62,6 +69,8 @@ def plan(
         tier=Tier.STRONG,
     )
     if not result.sub_questions:
+        if llm_only:
+            raise PlanningUnavailable("No valid LLM plan")
         return plan_offline(question, known_entities=known_entities)
     return normalize_plan(result.sub_questions)
 

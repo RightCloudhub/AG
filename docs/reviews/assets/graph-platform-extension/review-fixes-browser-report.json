@@ -1,0 +1,30 @@
+{
+  "checks": [
+    "Renaming while profile revision 2 is active preserves pinned revision 1 and generation.",
+    "Explicitly changing the model binding selects active revision 2.",
+    "Switching from Schema/Required to Open resets to confidence, disables Required, explains its scope, and saves successfully."
+  ],
+  "screens": [
+    {
+      "file": "review-open-configuration-1440.png",
+      "width": 1440,
+      "findings": [],
+      "overflow": false,
+      "consoleErrors": []
+    },
+    {
+      "file": "review-open-configuration-768.png",
+      "width": 768,
+      "findings": [],
+      "overflow": false,
+      "consoleErrors": []
+    },
+    {
+      "file": "review-open-configuration-390.png",
+      "width": 390,
+      "findings": [],
+      "overflow": false,
+      "consoleErrors": []
+    }
+  ]
+}

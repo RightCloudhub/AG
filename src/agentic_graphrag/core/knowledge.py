@@ -34,6 +34,7 @@ class KnowledgeBase(KnowledgeScope):
     schema_id: str | None = None
     schema_version: str | None = None
     model_profile_id: str | None = None
+    model_profile_revision: int | None = Field(default=None, ge=1)
     config_revision: int = Field(default=1, ge=1)
     active_generation: str = Field(default=INITIAL_GENERATION, pattern=_PUBLIC_ID)
     review_policy: Literal["confidence", "required"] = "confidence"
@@ -48,6 +49,8 @@ class KnowledgeBase(KnowledgeScope):
     def valid_mode(self) -> Self:
         if self.build_mode == "open" and self.schema_id is not None:
             raise ValueError("An open knowledge base cannot bind a Schema")
+        if self.model_profile_revision is not None and self.model_profile_id is None:
+            raise ValueError("A profile revision requires a model profile")
         return self
 
 
@@ -60,6 +63,7 @@ class SourceRef(BaseModel):
     doc_version: int = Field(ge=1)
     chunk_id: str = Field(min_length=1, max_length=512)
     content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    span_origin: Literal["document", "chunk"] = "document"
     span_start: int = Field(default=0, ge=0)
     span_end: int | None = Field(default=None, ge=0)
     page: int | None = Field(default=None, ge=1)

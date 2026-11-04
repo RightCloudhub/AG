@@ -49,6 +49,9 @@ class BeamItem:
     edges: list[tuple[RelationRecord, EntityRecord]]
 
 
+type ScoredEdges = list[tuple[float, RelationRecord, EntityRecord]]
+
+
 @dataclass(frozen=True)
 class BeamConfig:
     """Caps controlling layer fan-out and high-degree hard filters."""
@@ -82,26 +85,25 @@ class BeamExpander:
     ) -> list[tuple[float, RelationRecord, EntityRecord]]:
         """1-hop edges from store, scored and pruned."""
         fetch_limit = max(self.cfg.max_neighbors_per_layer * 2, self.cfg.beam_width * 2)
-        # Soft filter: pass preferred when high-degree risk; else fetch all and score
-        hard_types = preferred_relations
         rows = self.store.neighbors(
             entity_name,
             max_hops=1,
-            relation_types=hard_types if self.looks_high_degree(entity_name) else None,
-            limit=fetch_limit,
+            relation_types=None,
+            limit=max(fetch_limit, self.cfg.high_degree_threshold + 1),
             tenant_id=tenant_id,
         )
-        # If hard filter yielded nothing, retry unfiltered
-        if hard_types and not rows:
-            rows = self.store.neighbors(
+        # Reuse the degree probe; most entities need just one scoped read.
+        if preferred_relations and len(rows) > self.cfg.high_degree_threshold:
+            filtered = self.store.neighbors(
                 entity_name,
                 max_hops=1,
-                relation_types=None,
+                relation_types=preferred_relations,
                 limit=fetch_limit,
                 tenant_id=tenant_id,
             )
+            rows = filtered or rows
 
-        scored = self._score_rows(rows, preferred_relations, sub_question)
+        scored = self._score_rows(rows[:fetch_limit], preferred_relations, sub_question)
         scored.sort(key=lambda t: (-t[0], t[1].type, t[2].name))
         return scored[: self.cfg.max_neighbors_per_layer]
 
@@ -159,15 +161,6 @@ class BeamExpander:
             health=self.health,
         )
 
-    def looks_high_degree(self, entity_name: str) -> bool:
-        rows = self.store.neighbors(
-            entity_name,
-            max_hops=1,
-            relation_types=None,
-            limit=self.cfg.high_degree_threshold + 1,
-        )
-        return len(rows) > self.cfg.high_degree_threshold
-
     def beam_expand(
         self,
         entity_name: str,
@@ -182,8 +175,11 @@ class BeamExpander:
             BeamItem(score=1.0, node_name=entity_name, nodes=[start], rels=[], edges=[])
         ]
         all_frontier = list(beams)
+        layers: dict[str, ScoredEdges] = {}
         for _hop in range(max(1, max_hops)):
-            nxt = self._expand_layer(beams, preferred_relations, sub_question, tenant_id=tenant_id)
+            nxt = self._expand_layer(
+                beams, preferred_relations, sub_question, tenant_id=tenant_id, layers=layers
+            )
             if not nxt:
                 break
             nxt.sort(key=lambda b: (-b.score, b.node_name))
@@ -198,11 +194,14 @@ class BeamExpander:
         sub_question: str | None,
         *,
         tenant_id: str | None = None,
+        layers: dict[str, ScoredEdges],
     ) -> list[BeamItem]:
         nxt: list[BeamItem] = []
         for item in beams:
             nxt.extend(
-                self._extend_item(item, preferred_relations, sub_question, tenant_id=tenant_id)
+                self._extend_item(
+                    item, preferred_relations, sub_question, tenant_id=tenant_id, layers=layers
+                )
             )
         return nxt
 
@@ -213,15 +212,18 @@ class BeamExpander:
         sub_question: str | None,
         *,
         tenant_id: str | None = None,
+        layers: dict[str, ScoredEdges],
     ) -> list[BeamItem]:
         seen = {normalize_name(n.name) for n in item.nodes}
         out: list[BeamItem] = []
-        layer = self.layer_edges(
-            item.node_name,
-            preferred_relations=preferred_relations,
-            sub_question=sub_question,
-            tenant_id=tenant_id,
-        )
+        if item.node_name not in layers:
+            layers[item.node_name] = self.layer_edges(
+                item.node_name,
+                preferred_relations=preferred_relations,
+                sub_question=sub_question,
+                tenant_id=tenant_id,
+            )
+        layer = layers[item.node_name]
         for sc, rel, ent in layer:
             if normalize_name(ent.name) in seen:
                 continue

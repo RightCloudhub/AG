@@ -10,13 +10,16 @@ import { useWorkspaceBehavior } from './workspace_behavior.js';
 import { PRODUCT_TOPBAR_TEMPLATE } from './topbar_template.js';
 import { PRODUCT_NOTEBOOK_TEMPLATE } from './notebook_template.js';
 import { initial } from './settings/data.js';
+import { knowledgeRevision } from '../knowledge/scope.js';
+import KnowledgeSelect from '../knowledge/select.js';
 
 export default {
+  components: { KnowledgeSelect },
   setup() {
     const notebook = useNotebook();
     const palette = usePalette({ ...notebook, toggleTheme });
     const behavior = useWorkspaceBehavior(notebook, palette);
-    return { P, T, fmt, user, sessionRevision, changingIdentity, sessionError, reloadSession, preferences, toggleTheme, initial,
+    return { P, T, fmt, user, sessionRevision, knowledgeRevision, changingIdentity, sessionError, reloadSession, preferences, toggleTheme, initial,
       ...notebook, ...palette, ...behavior, closePalette: palette.closePaletteDialog };
   },
   template: `<div class="app product-app" :class="{'app--insp-collapsed': preferences.inspectorCollapsed}">
@@ -26,7 +29,7 @@ export default {
     ${PRODUCT_NOTEBOOK_TEMPLATE}
     <div v-if="changingIdentity" class="product-error" role="status">{{ P.switching }}</div>
     <div v-else-if="sessionError" class="product-error" role="alert"><h1>{{ P.loadError }}</h1><button type="button" class="btn btn--primary" @click="reloadSession">{{ T.states.retry }}</button></div>
-    <router-view v-else :key="sessionRevision"></router-view>
+    <router-view v-else :key="sessionRevision + ':' + knowledgeRevision"></router-view>
     ${PALETTE_TEMPLATE}
     <create-tenant-dialog v-if="creatingTenant" :close="closeCreateTenant"></create-tenant-dialog>
   </div>`,

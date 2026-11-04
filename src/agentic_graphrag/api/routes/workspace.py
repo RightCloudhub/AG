@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
-from agentic_graphrag.api.routes.deps import principal, service
+from agentic_graphrag.api.routes.deps import knowledge_service as service
+from agentic_graphrag.api.routes.deps import principal
 from agentic_graphrag.api.routes.knowledge_graph_browse import (
     DEFAULT_ENTITY_PAGE,
     MAX_ENTITY_PAGE,
@@ -48,7 +49,12 @@ def list_ingest_tasks(
     tenant_id, _user_id = principal(request)
     svc = service(request)
     if svc.ingest_tasks is None:
-        rows, total = list_cached_tasks(tenant_id=tenant_id, limit=page.limit, offset=page.offset)
+        rows, total = list_cached_tasks(
+            tenant_id=tenant_id,
+            limit=page.limit,
+            offset=page.offset,
+            kb_id=svc.knowledge_base.kb_id if svc.knowledge_base else "default",
+        )
     else:
         tasks, total = svc.ingest_tasks.list(
             tenant_id=tenant_id, limit=page.limit, offset=page.offset
@@ -116,6 +122,9 @@ def list_graph_entities(
     """Return a tenant-scoped, searchable page of graph entities."""
     svc = service(request)
     tenant_id, _user_id = principal(request)
+    from agentic_graphrag.app.query_selection import select_documents
+
+    svc = select_documents(svc, None, tenant_id=tenant_id)
     result = entity_page(
         svc.bundle.graph,
         limit=page.limit,

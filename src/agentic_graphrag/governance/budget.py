@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from agentic_graphrag.governance.execution import check_execution
+
 
 class BudgetExceeded(Exception):
     """Raised when a hard budget guardrail is hit."""
@@ -31,6 +33,7 @@ class BudgetTracker:
         return self.prompt_tokens + self.completion_tokens
 
     def check(self) -> None:
+        check_execution()
         if self.llm_calls >= self.max_llm_calls:
             raise BudgetExceeded(
                 f"max_llm_calls reached ({self.llm_calls}/{self.max_llm_calls})",
@@ -42,8 +45,11 @@ class BudgetTracker:
                 self,
             )
 
-    def record_call(self, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
-        self.check()
+    def record_call(
+        self, prompt_tokens: int = 0, completion_tokens: int = 0, *, check_limits: bool = True
+    ) -> None:
+        if check_limits:
+            self.check()
         self.llm_calls += 1
         self.prompt_tokens += max(0, prompt_tokens)
         self.completion_tokens += max(0, completion_tokens)
@@ -51,9 +57,9 @@ class BudgetTracker:
             f"call#{self.llm_calls} prompt={prompt_tokens} completion={completion_tokens}"
         )
 
-    def record_embedding(self, tokens: int = 0) -> None:
+    def record_embedding(self, tokens: int = 0, *, check_limits: bool = True) -> None:
         """Meter one embedding call: token-capped, but not a chat call."""
-        if self.total_tokens >= self.max_tokens:
+        if check_limits and self.total_tokens >= self.max_tokens:
             self.check()
         self.embed_calls += 1
         self.prompt_tokens += max(0, tokens)

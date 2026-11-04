@@ -11,7 +11,7 @@ cd integrations/mcp
 AG_MCP_BASE_URL=http://localhost:8000 uv run --locked ag-mcp
 uv run --locked pytest --cov=ag_mcp -q
 uv run --locked mypy
-uv build
+uv run --locked uv build --no-sources
 ```
 
 `uv.lock` 使用仓库内的独立 SDK。两个 wheel 可一起交付；尚未发布至 PyPI。
@@ -55,5 +55,7 @@ SDK 与 MCP 不自动重发计费 POST。取消会传递至异步 HTTP 客户端
 模型调用仍会结算。AG 查询 SSE 与 MCP stdio 是不同协议；此版本没有远程 MCP
 Streamable HTTP、SSE 持久化重放或跨知识库查询。
 
-自动化验收使用官方通用 MCP 客户端与假 HTTP 完成 stdio 工具发现和取证。
-Claude / Cursor 的真实版本接入结果须部署方记录，本文的配置示例不代表已完成验收。
+包内自动化使用官方通用 MCP 客户端与假 HTTP 完成 stdio 工具发现和取证；核心联合测试
+再连接实际 FastAPI 路由。独立 wheel 的完整 stdio/HTTP 验证见
+[交付记录](../../docs/reviews/GRAPH_PLATFORM_EXTENSION.md)。Claude / Cursor 的真实版本接入
+结果仍须部署方记录，本文的配置示例不代表已完成这些客户端的验收。

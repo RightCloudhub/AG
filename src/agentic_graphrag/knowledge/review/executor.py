@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentic_graphrag.core.events import EventBus, GraphCommitted, ReviewDecided
+from agentic_graphrag.core.ports.entities import EntitySemanticIndex
 from agentic_graphrag.core.ports.stores import DocStore, GraphStore
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph, triples_to_records
 from agentic_graphrag.knowledge.review.document_guard import stale_document
@@ -32,7 +33,7 @@ from agentic_graphrag.knowledge.review.executor_ops import (
     relations_from_docs,
 )
 from agentic_graphrag.knowledge.review.queue import ReviewItem, ReviewStatus, ReviewType
-from agentic_graphrag.knowledge.schema_check import Triple
+from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ class ReviewExecutorDeps:
     on_commit: Callable[[], None] | None = None  # legacy hook; prefer ``events``
     events: EventBus | None = None
     docs: DocStore | None = None
+    schema: SchemaDefinition | None = None
+    entity_index: EntitySemanticIndex | None = None
+    embedding_space: str = ""
+    before_done: Callable[[str], None] | None = None
 
 
 class ReviewExecutor:
@@ -59,6 +64,10 @@ class ReviewExecutor:
         self.on_commit = deps.on_commit
         self.events = deps.events
         self.docs = deps.docs
+        self.schema = deps.schema
+        self.entity_index = deps.entity_index
+        self.embedding_space = deps.embedding_space
+        self.before_done = deps.before_done
         self._handlers: dict[tuple[str, str], Handler] = {
             (ReviewType.CONFLICT.value, ReviewStatus.APPROVED.value): self._approve_conflict,
             (ReviewType.EXTRACTION.value, ReviewStatus.APPROVED.value): self._write_proposed,
@@ -73,14 +82,24 @@ class ReviewExecutor:
             return self._execute_locked(item)
 
     def _execute_locked(self, item: ReviewItem) -> dict[str, Any]:
-        if item.execution.get("applied"):
+        if item.execution.get("applied") or item.execution.get("completed"):
+            self._settle_task(item)
             return item.execution  # idempotent: a replay never writes twice
         handler = self._handlers.get((item.type, item.status))
         if self.docs is not None and stale_document(item, self.docs, tasks=self.task_store):
             outcome = {"applied": False, "effect": "stale_document"}
         else:
             outcome = {"applied": False, "effect": "none"} if handler is None else handler(item)
+        outcome["completed"] = True
         applied = bool(outcome.get("applied"))
+        self._publish_events(item, applied=applied)
+        if self.review_queue is not None:
+            self.review_queue.record_execution(item.id, outcome)
+        item.execution = outcome
+        self._settle_task(item)
+        return outcome
+
+    def _publish_events(self, item: ReviewItem, *, applied: bool) -> None:
         if self.events is not None:
             tenant = str(item.tenant_id or "")
             if applied:
@@ -96,11 +115,6 @@ class ReviewExecutor:
             )
         if applied and self.on_commit is not None:
             self.on_commit()
-        if self.review_queue is not None:
-            self.review_queue.record_execution(item.id, outcome)
-        item.execution = outcome
-        self._settle_task(item)
-        return outcome
 
     # --- handlers ---------------------------------------------------------
 
@@ -115,6 +129,8 @@ class ReviewExecutor:
         return {"applied": bool(written), "effect": "fact_written", "written": written}
 
     def _remove_proposed(self, item: ReviewItem) -> dict[str, Any]:
+        if item.payload.get("staged"):
+            return {"applied": False, "effect": "candidate_rejected"}
         triple = _triple(item.payload.get("triple"), item.tenant_id)
         if triple is None:
             return {"applied": False, "effect": "invalid_payload"}
@@ -123,6 +139,8 @@ class ReviewExecutor:
         return {"applied": bool(removed), "effect": "fact_removed", "retired": removed}
 
     def _merge_entities(self, item: ReviewItem) -> dict[str, Any]:
+        if item.payload.get("open_resolution"):
+            return self._merge_open_entities(item)
         from agentic_graphrag.knowledge.resolution_merge import MergeApply, apply_entity_merge
 
         keep = self.graph.get_entity_by_name(
@@ -136,6 +154,24 @@ class ReviewExecutor:
         canonical = str(item.payload.get("canonical") or keep.name)
         apply_entity_merge(MergeApply(store=self.graph, keep=keep, drop=drop, canonical=canonical))
         return {"applied": True, "effect": "entities_merged", "kept": canonical}
+
+    def _merge_open_entities(self, item: ReviewItem) -> dict[str, Any]:
+        from agentic_graphrag.knowledge.review.open_resolution import (
+            OpenMergeDeps,
+            apply_open_merge,
+        )
+
+        if self.entity_index is None or self.review_queue is None or not self.embedding_space:
+            return {"applied": False, "effect": "entity_index_unavailable"}
+        return apply_open_merge(
+            item,
+            OpenMergeDeps(
+                graph=self.graph,
+                index=self.entity_index,
+                space=self.embedding_space,
+                queue=self.review_queue,
+            ),
+        )
 
     def _rollback_upload(self, item: ReviewItem) -> dict[str, Any]:
         doc_ids = set(item.payload.get("doc_ids") or [])
@@ -151,27 +187,22 @@ class ReviewExecutor:
         triple = _triple(raw, tenant_id)
         if triple is None:
             return 0
-        stats = load_triples_into_graph(self.graph, [triple], clear_first=False)
+        stats = load_triples_into_graph(self.graph, [triple], clear_first=False, schema=self.schema)
         return int(stats.get("relations_upserted", 0))
 
     def _settle_task(self, item: ReviewItem) -> None:
         """REVIEW → DONE once no conflict of the item's ingest batch is pending."""
-        if self.task_store is None or self.review_queue is None or not item.batch_id:
-            return
-        task = self.task_store.get(item.batch_id, tenant_id=item.tenant_id or "default")
-        if task is None or task.status != "review":
-            return
-        pending = self.review_queue.count(
-            status=ReviewStatus.PENDING.value,
-            type=ReviewType.CONFLICT.value,
-            batch_id=item.batch_id,
-            tenant_id=item.tenant_id,
-        )
-        if pending:
+        from agentic_graphrag.knowledge.review.settlement import ready_review_task
+
+        if not ready_review_task(self, item):
             return
         from agentic_graphrag.knowledge.ingest_tasks import IngestStatus
 
+        if self.before_done is not None:
+            self.before_done(item.batch_id)
+
         try:
+            assert self.task_store is not None
             self.task_store.transition(item.batch_id, IngestStatus.DONE, message="Review completed")
         except (KeyError, ValueError) as exc:
             logger.warning("Cannot settle task %s after review: %s", item.batch_id, exc)

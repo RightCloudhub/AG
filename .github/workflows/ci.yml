@@ -61,6 +61,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -69,8 +71,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Sync locked environment (dev and optional Web application)
-        run: uv sync --locked --extra dev --extra webapp
+      - name: Sync locked environment (Web, summaries and client contracts)
+        run: uv sync --locked --extra dev --extra webapp --extra summary --extra contracts
 
       - name: Strict Python types
         run: uv run --locked mypy
@@ -82,6 +84,15 @@ jobs:
       # Validation only: the browser still serves source ESM without a build.
       - name: Strict JavaScript types
         run: npx --yes --package=typescript@5.9.3 tsc --project web/jsconfig.json
+
+      - name: Exported REST and SSE schema drift
+        run: uv run --locked python scripts/export_api_contracts.py --check
+
+      - name: REST and SSE compatibility with the PR base
+        if: github.event_name == 'pull_request'
+        env:
+          API_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: uv run --locked python scripts/export_api_contracts.py --check --base-ref "$API_BASE_REF"
 
       # The core/ dependency-boundary check runs as part of this suite.
       - name: Unit tests + coverage gate
@@ -100,6 +111,38 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: ignore
+
+  clients:
+    name: SDK and MCP packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        project: [sdk/python, integrations/mcp]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: |
+            sdk/python/uv.lock
+            integrations/mcp/uv.lock
+      - name: Sync independently locked package
+        run: uv sync --locked --extra dev
+      - name: Package lint and types
+        run: |
+          uv run --locked ruff check src tests
+          uv run --locked ruff format --check src tests
+          uv run --locked mypy
+      - name: Package tests and coverage
+        run: uv run --locked pytest -q --cov
+      - name: Build distributable wheel and source archive
+        # Build has no --locked flag; validate the package lock before running it.
+        run: uv run --locked uv build --no-sources
 
   eval-offline:
     name: Offline eval (POC 30/31, G2 196/200, probes)

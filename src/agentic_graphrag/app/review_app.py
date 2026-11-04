@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
 
 
+from agentic_graphrag.app.review_scope import publish_reviewed_batch, review_write_service
 from agentic_graphrag.app.write_path import review_executor_for
 from agentic_graphrag.knowledge.review.queue import ReviewDecision, ReviewItem
 
@@ -39,8 +40,26 @@ class ReviewApp:
         if queue is None:
             raise ReviewQueueUnavailable("review queue not configured")
         dec = decision if isinstance(decision, ReviewDecision) else ReviewDecision(decision)
-        item = queue.decide(item_id, dec, reviewer=reviewer, note=note, tenant_id=tenant_id)
-        executor = review_executor_for(self._svc)
+        with self._svc.bundle.docs.lock():
+            item = queue.decide(item_id, dec, reviewer=reviewer, note=note, tenant_id=tenant_id)
+            return self._execute(item)
+
+    def retry(self, item_id: str, *, tenant_id: str) -> ReviewItem:
+        queue = self._svc.review_queue
+        if queue is None:
+            raise ReviewQueueUnavailable("review queue not configured")
+        with self._svc.bundle.docs.lock():
+            item = queue.get(item_id)
+            if item is None or (item.tenant_id or "default") != tenant_id:
+                raise KeyError(item_id)
+            if item.status == "pending":
+                raise ValueError("A human decision is required before execution retry")
+            return self._execute(item)
+
+    def _execute(self, item: ReviewItem) -> ReviewItem:
+        selected = review_write_service(self._svc, item)
+        executor = review_executor_for(selected)
         if executor is not None:
             executor.execute(item)
+            publish_reviewed_batch(selected, item)
         return item

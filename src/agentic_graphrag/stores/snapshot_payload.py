@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -16,6 +15,7 @@ from agentic_graphrag.core.ports.stores import (
     EntityRecord,
     RelationRecord,
 )
+from agentic_graphrag.core.source_projection import with_sources
 
 
 class SnapshotPayload(BaseModel):
@@ -74,7 +74,7 @@ def _visible_entities(
     for entity in payload.entities:
         sources = visible_sources(entity.sources, payload.scope, store=store, versions=versions)
         if not entity.sources or sources:
-            result.append(replace(entity, sources=sources))
+            result.append(with_sources(entity, sources))
     return result
 
 
@@ -92,7 +92,7 @@ def _visible_relations(
         if relation.sources and not sources:
             continue
         if {relation.head_id, relation.tail_id} <= entity_ids:
-            result.append(replace(relation, sources=sources))
+            result.append(with_sources(relation, sources))
     return result
 
 

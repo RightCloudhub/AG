@@ -160,27 +160,39 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | P5-CAP-01…04、EXT-03 | **脚手架 [x]** — graph entities API、tools registry、confidence、Reranker Protocol、多租户预算 |
 | **P5-UI-01** | **[x] 代码完成** — Vue 3 零构建重构 + 交互增强（会话历史 / 中止 / 逐 turn 反馈 / 健康点）；ADR-006 已入 tech-stack；计划见 [`plan/phases/p5-ui-01-vue-refactor.md`](../../plan/phases/p5-ui-01-vue-refactor.md) |
 | **P5-UI-02** | **🟢 已交付** — 角色感知控制台（壳 + hash 路由 + 问答 / 知识运维 / 审核 / 可观测 / 图谱浏览五视图）；M0 API 前置（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）已落地；管理视图位于 `js/admin/`，视觉见 UI_DESIGN §10；执行计划 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md) |
-| P5-EXT-01/02、GOV-* | **立项后** |
+| GOV-* | **立项后**；图谱扩展统一见下方 P5-EXT-01～18 |
 | **P5-ENT-01…08** | **🟢 工程完成（RPA 除外）** — ENT-01/02/03/04/05/06/08 已实现并有离线单测；ENT-07/RPA 按用户范围明确不实施；Redis/真实后端/OTLP collector/metrics 拆分门禁仍需部署或代码质量验证。 |
 
 ---
 
-### 图谱与接入扩展（2026-11-04，规划未实施）
+### 图谱与接入扩展（2026-11-04，工程交付，真实环境待验收）
 
-依据当前代码制定的详细方案见
-[图谱双模、概括问答与对外接入计划](../../plan/workstreams/graph-platform-extension.md)。
-技术选型为 ADR-010～012 提案，既有 G2/G3/G4 门禁保持原状态。
+[工作流](../../plan/workstreams/graph-platform-extension.md) 的 18 项中 14 项完成、4 项保留
+验收；ADR-010～012 已采纳。实现、运行命令、指标与截图见
+[交付记录](GRAPH_PLATFORM_EXTENSION.md) 和 [运行手册](../ops/GRAPH_PLATFORM.md)。
+既有 G2/G3/G4 产品门禁保持原状态。
 
-| 项目 | 状态 | 关闭条件/边界 |
+| 项目 | 状态 | 关闭证据或剩余条件 |
 |---|---|---|
-| 知识库级配置与隔离 | [ ] | P5-EXT-02/03：默认库迁移、所有存储/任务/缓存/审计贯穿 `kb_id` 与版本 |
-| Schema/开放双模 | [ ] | P5-EXT-06～09：开放抽取/描述、实体向量与别名消歧、复核；开放模式不得回退领域规则规划 |
-| 文档与社区摘要、Global 问答 | [ ] | P5-EXT-10～12：Leiden、map-reduce、范围覆盖、原文引用；真实生成需 LLM，可用本地服务 |
-| 受影响社区增量重算 | [ ] | P5-EXT-13：持久化变更、幂等恢复、桥边/删除/合并及旧任务覆盖回归；必要时扩大重算范围 |
-| 开放图反推 Schema、Agent 复核 | [ ] | P5-EXT-14/15：草案人审、影子升级/回滚；Agent 先影子评测及低风险自动处理，全面替代人工待质量证据 |
-| 七角色模型与管理端测试 | [ ] | P5-EXT-04/05：复用兼容 HTTP，按能力测试；LiteLLM 首版可作外部代理，嵌入式依赖后续评估 |
-| REST/SSE 契约、SDK、stdio MCP | [ ] | P5-EXT-16～18：类型化契约、引用 resolver、审计状态、独立客户端与真实接入验收 |
-| 后续范围 | [ ] | 跨知识库联合查询、远程 MCP、SSE 持久化断点重放、多主机共享协调单独立项；首版单机多进程 |
+| 知识库级配置与隔离 | [x] | P5-EXT-02/03：默认库兼容、KB/快照、任务/缓存/审计隔离、来源撤回及恢复回归通过 |
+| Schema/开放双模 | [x] | P5-EXT-06～09：自由标签 codec、语义实体/别名/合并、LLM 登记表、必审候选及可恢复写回 |
+| 文档/社区摘要与 Global | [x] | P5-EXT-10～12：Leiden、map-reduce/verifier、子集覆盖、原文版本、失败/预算回归；真实生成质量另列 |
+| 增量重算与 Schema 升级 | [x] | P5-EXT-13/14：持久化变更/租约/恢复、摘要复用、人审草案、影子发布和删除优先的回滚 |
+| 七角色配置与管理端 | [x] | P5-EXT-04/05：目录能力校验、固定版本、保存/测试/发布/回滚；浏览器使用 loopback 探测替身 |
+| REST/SSE 与取证契约 | [x] | P5-EXT-16：typed 导出、唯一终态、取消结算、审计回执、Unicode 原文分页及跨库拒绝 |
+| 真实领域基线与 Prompt 质量 | [~] | P5-EXT-01：离线配对和 dev 回归通过；真实文档分离的开发/留出集、概括/误合并金标、实际模型 Prompt 回归待做 |
+| Agent 复核质量 | [~] | P5-EXT-15：建议/校准/白名单/抽检机制完成；缺真实留出集人工配对证据，默认关闭自动化 |
+| 指定客户端接入 | [~] | P5-EXT-17：独立安装/打包、官方 MCP 客户端的真实 stdio→SDK→HTTP→API 取证通过；Claude Desktop/Cursor 实际版本待验收 |
+| 目标部署与产品验收 | [~] | P5-EXT-18：手册及本地故障演练完成；实际 provider/费用、Neo4j/Qdrant 迁移、容量/HTTP SLO 和生产部署待验收 |
+| 大库快照容量 | [ ] | 完整载荷保存于本地 SQLite，读索引按 generation 恢复；测量复制、内存、启动/恢复成本与并发吞吐后决定外部快照/协调方案 |
+| 后续范围 | [ ] | 跨知识库联合查询、远程 MCP、持久化 SSE 重放、嵌入式 LiteLLM、多主机协调另行立项 |
+
+运行边界：SQLite 只支持本主机协调；CLI/task operation ID 全局唯一；CAS 冲突不自动
+rebase；描述变化且无 embedder 时跳过旧语义向量，后续有模型的 reindex 重建。
+普通 KB PATCH 不支持任意模式切换；关系统计随 SchemaDraft 提供，CLI 没有通用 dry-run。
+Global 覆盖分母不等于合同条款的普遍性统计；模型生成的无据“所有/多数/百分比”被拒绝。
+SSE 终态和重新取证检查删除，已发送的网络帧和历史客户端副本无法撤回。
+这些实现差异统一列在工作流 §10，不以合成满分或 loopback 探测关闭真实环境验收。
 
 ## 6. 工程债务与有意覆盖率缺口
 

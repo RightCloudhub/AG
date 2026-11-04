@@ -1,5 +1,6 @@
 """Knowledge configuration with compare-and-swap publication and durable journals."""
 
+import builtins
 import sqlite3
 
 from agentic_graphrag.core.knowledge import KnowledgeBase, KnowledgeScope
@@ -33,6 +34,12 @@ class SQLiteKnowledgeStore(KnowledgeSnapshots):
         except sqlite3.IntegrityError as exc:
             raise ValueError("Knowledge base already exists") from exc
         return kb
+
+    def scopes(self) -> builtins.list[KnowledgeScope]:
+        """Internal worker inventory; public callers must use tenant-scoped list()."""
+        with self.transaction() as db:
+            rows = db.execute("SELECT tenant,kb FROM knowledge_bases ORDER BY tenant,kb").fetchall()
+        return [KnowledgeScope(tenant_id=row[0], kb_id=row[1]) for row in rows]
 
     def ensure_default(self, tenant_id: str) -> KnowledgeBase:
         scope = KnowledgeScope(tenant_id=tenant_id)

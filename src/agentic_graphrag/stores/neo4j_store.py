@@ -7,7 +7,6 @@ Pre-property graphs must be rebuilt via ``agr-build-graph``.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from neo4j import Driver, GraphDatabase
@@ -18,7 +17,6 @@ from agentic_graphrag.core.ports.capabilities import (
     Pingable,
 )
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
-from agentic_graphrag.stores.document_provenance import merge_sources
 from agentic_graphrag.stores.neo4j_codec import (
     attrs_for_neo4j,
     attrs_from_neo4j,
@@ -30,6 +28,7 @@ from agentic_graphrag.stores.neo4j_codec import (
 from agentic_graphrag.stores.neo4j_documents import Neo4jDocumentDeletion
 from agentic_graphrag.stores.neo4j_mutation import Neo4jEntityMutation
 from agentic_graphrag.stores.neo4j_queries import neighbors_query, path_record, tenant_predicate
+from agentic_graphrag.stores.neo4j_write import validate_identifier, write_entity, write_relation
 
 # Back-compat aliases used by unit tests.
 _attrs_for_neo4j = attrs_for_neo4j
@@ -38,20 +37,12 @@ _sources_for_neo4j = sources_for_neo4j
 _sources_from_neo4j = sources_from_neo4j
 _node_to_entity = node_to_entity
 _rel_to_record = rel_to_record
+_validate_identifier = validate_identifier
 
-_SAFE_LABEL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_SAFE_REL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MAX_NEIGHBOR_HOPS = 5
 _MAX_NEIGHBOR_LIMIT = 200
 _MAX_PATH_HOPS = 6
 _MAX_PATH_LIMIT = 50
-
-
-def _validate_identifier(value: str, kind: str) -> str:
-    pattern = _SAFE_LABEL if kind == "label" else _SAFE_REL
-    if not pattern.match(value):
-        raise ValueError(f"Invalid {kind} identifier: {value!r}")
-    return value
 
 
 class Neo4jGraphStore(Neo4jDocumentDeletion, Neo4jEntityMutation, EntityLister, Closable, Pingable):
@@ -81,22 +72,7 @@ class Neo4jGraphStore(Neo4jDocumentDeletion, Neo4jEntityMutation, EntityLister, 
         return count
 
     def _upsert_one_entity(self, session: Any, ent: EntityRecord) -> bool:
-        label = _validate_identifier(ent.type, "label")
-        query = (
-            f"MERGE (e:`{label}` {{id: $id, tenant_id: $tenant_id}}) "
-            "SET e.name = $name, e.tenant_id = $tenant_id, "
-            "e.attributes = $attributes, e.aliases = $aliases "
-            "RETURN e.id AS id"
-        )
-        result = session.run(
-            query,
-            id=ent.id,
-            name=ent.name,
-            tenant_id=ent.tenant_id,
-            attributes=attrs_for_neo4j(ent.attributes),
-            aliases=list(ent.aliases or []),
-        )
-        return result.single() is not None
+        return write_entity(session, ent)
 
     def upsert_relations(self, relations: list[RelationRecord]) -> int:
         """Upsert relations; return count of relationships actually merged."""
@@ -110,57 +86,19 @@ class Neo4jGraphStore(Neo4jDocumentDeletion, Neo4jEntityMutation, EntityLister, 
         return count
 
     def _upsert_one_relation(self, session: Any, rel: RelationRecord) -> bool:
-        old = session.run(
-            "MATCH ()-[r]->() WHERE r.id=$id AND r.tenant_id=$tenant_id "
-            "RETURN r.sources AS sources",
-            id=rel.id,
-            tenant_id=rel.tenant_id,
-        ).single()
-        sources = merge_sources(sources_from_neo4j(old["sources"]) if old else [], rel.sources)
-        rel_type = _validate_identifier(rel.type, "rel")
-        query = (
-            "MERGE (h {id: $head_id, tenant_id: $tenant_id}) "
-            "ON CREATE SET h.name = $head_name "
-            "SET h.name = coalesce(h.name, $head_name) "
-            "MERGE (t {id: $tail_id, tenant_id: $tenant_id}) "
-            "ON CREATE SET t.name = $tail_name "
-            "SET t.name = coalesce(t.name, $tail_name) "
-            f"MERGE (h)-[r:`{rel_type}` {{id: $id, tenant_id: $tenant_id}}]->(t) "
-            "SET r.confidence = $confidence, "
-            "    r.tenant_id = $tenant_id, "
-            "    r.attributes = $attributes, "
-            "    r.head_id = $head_id, "
-            "    r.tail_id = $tail_id, "
-            "    r.head_name = $head_name, "
-            "    r.tail_name = $tail_name, "
-            "    r.sources = $sources "
-            "RETURN r.id AS id"
-        )
-        result = session.run(
-            query,
-            id=rel.id,
-            head_id=rel.head_id,
-            tail_id=rel.tail_id,
-            head_name=rel.head_name or "",
-            tail_name=rel.tail_name or "",
-            confidence=rel.confidence,
-            tenant_id=rel.tenant_id,
-            attributes=attrs_for_neo4j(rel.attributes),
-            sources=sources_for_neo4j(sources),
-        )
-        return result.single() is not None
+        return write_relation(session, rel)
 
     def get_entity_by_name(
         self, name: str, entity_type: str | None = None, *, tenant_id: str | None = None
     ) -> EntityRecord | None:
         with self._driver.session() as session:
-            if entity_type:
-                label = _validate_identifier(entity_type, "label")
-                query = f"MATCH (e:`{label}`) WHERE toLower(e.name) = toLower($name) "
-            else:
-                query = "MATCH (e) WHERE toLower(e.name) = toLower($name) "
-            query += f"AND {tenant_predicate('e')} RETURN e LIMIT 1"
-            result = session.run(query, name=name, tenant_id=tenant_id)
+            query = (
+                "MATCH (e) WHERE toLower(e.name) = toLower($name) "
+                "AND ($entity_type IS NULL OR "
+                "coalesce(e.entity_type, head(labels(e)))=$entity_type) "
+                f"AND {tenant_predicate('e')} RETURN e LIMIT 1"
+            )
+            result = session.run(query, name=name, tenant_id=tenant_id, entity_type=entity_type)
             record = result.single()
             if not record:
                 return None
@@ -184,8 +122,6 @@ class Neo4jGraphStore(Neo4jDocumentDeletion, Neo4jEntityMutation, EntityLister, 
             "tenant_id": tenant_id,
         }
         if relation_types:
-            for rt in relation_types:
-                _validate_identifier(rt, "rel")
             params["rel_types"] = relation_types
         query = neighbors_query(max_hops, relation_types)
         return self._run_neighbors(query, params, entity_name)

@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING, Any
 from agentic_graphrag.agent.executor import Executor, ExecutorConfig, ExecutorDeps
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.degradation_policy import promote_degradation_fields
+from agentic_graphrag.app.model_rerank import build_model_reranker
 from agentic_graphrag.config import (
     AppConfig,
+    GraphRetrievalConfig,
     RetrievalConfig,
     Settings,
-    build_llm_provider,
     resolve_path,
 )
 from agentic_graphrag.core.enums import FusionMethod
@@ -24,12 +25,12 @@ from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetTracker
 from agentic_graphrag.knowledge.graph_builder import load_triples_into_graph
 from agentic_graphrag.knowledge.schema_check import Triple
+from agentic_graphrag.llm.factory import build_llm_provider
 from agentic_graphrag.llm.provider import MockLLMProvider
 from agentic_graphrag.observability.degradation import ChannelHealth
 from agentic_graphrag.retrieval.cache import RetrievalCache
 from agentic_graphrag.retrieval.fulltext import FulltextRetriever
 from agentic_graphrag.retrieval.graph import GraphRetriever
-from agentic_graphrag.retrieval.rerankers import build_reranker
 from agentic_graphrag.retrieval.vector import VectorRetriever
 from agentic_graphrag.stores.factory import StoreBundle
 
@@ -67,6 +68,7 @@ def _chain_to_data(chain: ReasoningChain) -> QueryResultData:
     # Evidence catalog promoted for UI citation click-through.
     if isinstance(meta, dict) and not payload.get("evidence"):
         payload["evidence"] = meta.get("evidence") or []
+    payload["audit_status"] = meta.get("audit_status", "disabled")
     return QueryResultData.model_validate(payload)
 
 
@@ -80,22 +82,26 @@ def build_executor_for_service(
     retrieval_cache: RetrievalCache | None,
     enable_cache: bool,
     tenant_id: str | None = None,
+    kb_id: str = "default",
+    budget: BudgetTracker | None = None,
+    model_llm: LLMClient | None = None,
 ) -> Executor:
     ret = cfg.retrieval
-    # One health object per query run, shared by every retriever and the executor
-    # so each swallowed failure lands in the same `degraded_channels` list (O-9).
+    # One health object records all degraded channels in this query.
     health = ChannelHealth()
-    reranker = build_reranker(ret.rerank, health=health) if allow_llm else None
+    llm_for_embed = model_llm or _embed_llm(
+        allow_llm=allow_llm,
+        settings=settings,
+        cfg=cfg,
+        tenant_id=tenant_id or "default",
+        kb_id=kb_id,
+        budget=budget,
+    )
+    reranker = build_model_reranker(ret.rerank, llm_for_embed, health=health) if allow_llm else None
     vec_k, ft_k = _recall_sizes(ret, reranked=reranker is not None)
-    graph_cfg = ret.graph.model_copy(deep=True)
-    if reranker is not None:
-        pool = ret.rerank.candidate_pool
-        graph_cfg.max_neighbors_per_layer = max(pool, graph_cfg.max_neighbors_per_layer)
-        graph_cfg.max_paths = max(pool, graph_cfg.max_paths)
-        graph_cfg.beam_width = max(pool, graph_cfg.beam_width)
+    graph_cfg = _graph_recall_config(ret, reranked=reranker is not None)
     graph_ret = GraphRetriever.from_config(bundle.graph, graph_cfg, health=health)
     fulltext_ret = FulltextRetriever(bundle.fulltext, top_k=ft_k, health=health)
-    llm_for_embed = _embed_llm(allow_llm=allow_llm, settings=settings, cfg=cfg)
     vector_ret = VectorRetriever(bundle.vector, llm_for_embed, top_k=vec_k, health=health)
     deps = ExecutorDeps(
         vector=vector_ret,
@@ -126,19 +132,33 @@ def _recall_sizes(ret: RetrievalConfig, *, reranked: bool) -> tuple[int, int]:
     return pool, pool
 
 
+def _graph_recall_config(ret: RetrievalConfig, *, reranked: bool) -> GraphRetrievalConfig:
+    graph = ret.graph.model_copy(deep=True)
+    if reranked:
+        pool = ret.rerank.candidate_pool
+        graph.max_neighbors_per_layer = max(pool, graph.max_neighbors_per_layer)
+        graph.max_paths = max(pool, graph.max_paths)
+        graph.beam_width = max(pool, graph.beam_width)
+    return graph
+
+
 def build_llm_for_service(
     *,
     allow_llm: bool,
     settings: Settings,
     cfg: AppConfig,
     budget: BudgetTracker,
+    tenant_id: str = "default",
+    kb_id: str = "default",
 ) -> LLMClient | MockLLMProvider:
-    if allow_llm and settings.llm_api_key:
+    if allow_llm:
         return build_llm_provider(
             budget=budget,
             cache_dir=resolve_path(cfg.paths.cache_dir) / "llm",
             settings=settings,
             cfg=cfg,
+            tenant_id=tenant_id,
+            kb_id=kb_id,
         )
     return MockLLMProvider(budget=budget)
 
@@ -148,9 +168,14 @@ def _embed_llm(
     allow_llm: bool,
     settings: Settings,
     cfg: AppConfig,
+    tenant_id: str = "default",
+    kb_id: str = "default",
+    budget: BudgetTracker | None = None,
 ) -> LLMClient | MockLLMProvider:
-    if allow_llm and settings.llm_api_key:
-        return build_llm_provider(settings=settings, cfg=cfg)
+    if allow_llm:
+        return build_llm_provider(
+            settings=settings, cfg=cfg, budget=budget, tenant_id=tenant_id, kb_id=kb_id
+        )
     return MockLLMProvider()
 
 
@@ -166,24 +191,16 @@ def stream_cache_hit_events(
     user_id: str = "anonymous",
 ) -> list[tuple[str, dict[str, Any]]] | None:
     """Return SSE events for a cached answer, or None on miss."""
+    from agentic_graphrag.app.answer_cache import cached_chain
     from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_CACHE_HIT
 
-    if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
+    chain = cached_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
+    if chain is None:
         return None
-    hit = svc.retrieval_cache.get_answer(
-        req.question,
-        tenant_id=tenant_id,
-        user_id=user_id,
-        max_hops=req.max_hops,
-        force_agentic=req.force_agentic,
-        timeout_ms=req.timeout_ms,
-    )
-    if hit is None:
-        return None
-    meta = hit.get("metadata") if isinstance(hit, dict) else None
-    if isinstance(meta, dict) and meta.get("tenant_id") not in (None, tenant_id):
-        return None
-    return [(EVENT_CACHE_HIT, {"query_id": hit.get("query_id")}), (EVENT_ANSWER, hit)]
+    return [
+        (EVENT_CACHE_HIT, {"query_id": chain.query_id}),
+        (EVENT_ANSWER, chain.model_dump(mode="json")),
+    ]
 
 
 def _load_seed_graph(graph: GraphStore, triples: list[Triple]) -> None:

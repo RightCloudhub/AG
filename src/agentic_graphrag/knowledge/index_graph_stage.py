@@ -40,7 +40,6 @@ def run_graph_stage(
     if graph.review_queue is not None:
         result.graph["conflicts_review"] = graph.review_queue.count(
             status="pending",
-            type="conflict",
             tenant_id=doc.tenant_id,
             batch_id=batch_id or None,
             doc_id=doc.doc_id,

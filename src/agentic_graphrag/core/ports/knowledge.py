@@ -12,6 +12,8 @@ class KnowledgeStore(Protocol):
 
     def list(self, tenant_id: str, *, limit: int = 100, offset: int = 0) -> list[KnowledgeBase]: ...
 
+    def scopes(self) -> builtins.list[KnowledgeScope]: ...
+
     def create(self, kb: KnowledgeBase) -> KnowledgeBase: ...
 
     def ensure_default(self, tenant_id: str) -> KnowledgeBase: ...
@@ -19,6 +21,20 @@ class KnowledgeStore(Protocol):
     def update(self, kb: KnowledgeBase, *, expected_revision: int) -> KnowledgeBase: ...
 
     def begin_write(self, intent: WriteIntent) -> WriteIntent: ...
+
+    def get_write(self, scope: KnowledgeScope, operation_id: str) -> WriteIntent | None: ...
+
+    def mark_seeded(
+        self,
+        scope: KnowledgeScope,
+        operation_id: str,
+        *,
+        index_generations: tuple[tuple[str, str], ...] = (),
+    ) -> WriteIntent: ...
+
+    def set_write_documents(
+        self, scope: KnowledgeScope, operation_id: str, *, document_ids: tuple[str, ...]
+    ) -> WriteIntent: ...
 
     def pending_writes(self, scope: KnowledgeScope) -> builtins.list[WriteIntent]: ...
 
@@ -36,6 +52,14 @@ class KnowledgeStore(Protocol):
 
     def publish(
         self, scope: KnowledgeScope, *, generation: str, expected_revision: int
+    ) -> KnowledgeBase: ...
+
+    def commit_generation(
+        self,
+        change: GraphChangeSet,
+        *,
+        expected_revision: int,
+        target_config: KnowledgeBase | None = None,
     ) -> KnowledgeBase: ...
 
     def tombstone(self, scope: KnowledgeScope, doc_id: str, *, through_version: int) -> None: ...

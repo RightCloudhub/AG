@@ -5,7 +5,7 @@
 模块说明见 [架构文档](docs/ARCHITECTURE.md)，有意延期或例外记入
 [债务台账](docs/reviews/IMPORTANT.md)。文档与实现不一致时须明确差异并同步修正。
 
-**版本**：V1.2（2026-10-31）— 对齐当前组合根、运行 profile 与接口契约，清理重复信息。
+**版本**：V1.3（2026-11-04）— 依 ADR-010～012 同步知识库快照、按角色用模及取证/审计契约。
 下文源码路径均相对 `src/agentic_graphrag/`；可调参数以 `config.py` 加载后的有效配置为准。
 
 ## S1. 架构不变量
@@ -34,20 +34,24 @@
   `AGR_USE_LIVE_STORES=1`（等价于 `live`），未设置时为 `offline`。
   `live` 使用 Neo4j + Qdrant，Neo4j + 内存向量须声明为 `hybrid`；
   profile 无效、所需存储凭据缺失或后端不可达时失败，不静默切换后端。
-  服务启用真实 LLM 还须 `AGR_ALLOW_LLM=1` 与有效 `LLM_API_KEY`，独立于存储 profile；
-  API 启动时校验显式启用的在线能力所需凭据。
+  服务启用真实 LLM 还须 `AGR_ALLOW_LLM=1`，独立于存储 profile。
+  传统 strong/light 默认要求有效 `LLM_API_KEY`，本地无鉴权服务须显式
+  `LLM_AUTH_REQUIRED=false`；角色目录分别校验 provider 的 `auth_required`/`secret_ref`。
+  API 启动时校验显式启用的在线能力与所需凭据。
 - **S2.4 启发式隔离**：`generation/offline_heuristics/` 仅服务演示语料的确定性评测。
   不得靠添加语料特定规则掩盖生产 LLM 问题或制造评测提升。
 
 ## S3. 运行时护栏
 
-- **S3.1 统一执行与计量**：流式和非流式查询共用 `agent/pipeline.py`。
+- **S3.1 统一执行与计量**：流式和非流式查询共用局部 `agent/pipeline.py` 或
+  全局 `agent/global_query.py`，先固定知识库/文档选择及快照。
   `agent/guardrails.py` 控制跳数、子问题广度、截止时间与递归上限，
   `governance/budget.py` 统一计量 LLM 调用和 token；Fast Path 升级、重试不得绕过计量。
   限制从 `AppConfig.guardrails` 加载，请求覆盖只作用于本次查询并受服务端上限约束，
   不修改全局配置；递归下限由 `min_recursion_limit()` 随跳数计算。
 - **S3.2 预算预留与结算**：租户 / 用户预算经 `governance/budget_policy.py` 原子检查并预留；
-  准入超限时在执行前拒绝。成功后按实际用量结算，失败或流关闭时释放未结算的预留。
+  准入超限时在执行前拒绝。成功、失败与取消均结算已发生用量，释放剩余预留；
+  已发送给供应商的调用不能因客户端断流而当作免费调用。
 - **S3.3 可解释终止**：运行中触发护栏时保留已收集证据，返回部分结果或无法回答状态及终止原因。
   递归超限须恢复已有状态；准入拒绝和无法恢复的错误走结构化错误契约，不向客户端暴露裸异常。
 
@@ -60,12 +64,15 @@
 - **S4.2 JSON envelope**：`/v1/*` 普通 JSON 业务响应遵守 `api/envelope.py` 的
   `success/data/error/meta` 契约，客户端必须检查 `success`；SSE 按事件契约消费。
 - **S4.3 SSE 契约**：公开事件为
-  `cache_hit / triage / thinking / sub_question / hop_done / answer / error`，
-  定义见 `app/stream_events.py`。`answer` 携带推理链，`error` 携带 `code/message`；
-  内部终止标记 `__final_chain__` 不对外发送。增改事件须同步消费端，未知事件静默忽略。
+  `cache_hit / triage / thinking / sub_question / hop_done / degraded / global_progress / answer / error`，
+  类型见 `api/stream_contract.py`，导出为 `configs/contracts/sse-v1.schema.json`。
+  `answer` 携带推理链，`error` 携带 `code/message/query_id`；每条流最多一个终态。
+  内部终止标记不对外发送。未知事件静默忽略；事件 ID 不表示支持持久化重放。
 - **S4.4 审计与反馈**：应用层完成的查询须经 `governance/audit_store.py` 记录推理链，
-  已保存记录可由 `GET /v1/audit/queries/{query_id}` 在所属租户内回查。
-  当前审计写入失败会记录错误日志但不阻断回答，成功响应不保证审计已持久化。
+  已保存记录可由 `GET /v1/audit/queries/{query_id}` 在所属租户/知识库内回查。
+  查询和独立检索公开 `audit_status`；`audit_required=true` 时持久化失败返回
+  `AUDIT_UNAVAILABLE`。原文/检索审计存于 `governance/source_store.py`，原文按服务器
+  分配的证据 ID 与 SourceRef 解析，不能按客户端文件路径读取。
   `POST /v1/feedback` 关联所属租户的已有记录，不准确反馈进入人工复核队列。
 
 ## S5. 安全不变量
@@ -81,7 +88,9 @@
 - **S5.5 前端文本安全**：自有 `web/` 代码的动态文本经 mustache / `textContent` 输出，
   禁止 `v-html` 与 `innerHTML`。
 - **S5.6 提示边界**：用户输入与系统指令隔离；检索内容按不可信数据处理，不作为指令执行。
-- **S5.7 租户隔离**：存储读写、缓存、审计和复核队列传递并校验租户上下文。
+- **S5.7 租户与知识库隔离**：存储读写、缓存、任务、模型配置、摘要、审计和复核队列
+  传递并校验 `tenant_id/kb_id`；省略知识库时兼容 `default`。查询固定完整 generation，
+  发布受预期 revision 检查；删除标记优先于旧快照和回滚。已发送的网络帧无法撤回。
   用户预算身份默认绑定 API Key，不信任客户端 `X-User-Id`；信任该头须显式启用。
 
 ## S6. 评测与变更

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
-from agentic_graphrag.app.degradation_policy import promote_degradation_fields
-from agentic_graphrag.core.reasoning import QueryStatus, ReasoningChain
+from agentic_graphrag.app.evidence_sources import catalog_visible
+from agentic_graphrag.app.query_persistence import persist_chain, require_audit
+from agentic_graphrag.core.reasoning import CostStats, QueryStatus, ReasoningChain
+from agentic_graphrag.governance.execution import current_execution
 from agentic_graphrag.observability.degradation import (
     DEGRADED_CHANNELS_KEY,
     LOW_CONFIDENCE_KEY,
@@ -25,7 +28,18 @@ def _try_answer_cache(
     tenant_id: str,
     user_id: str,
 ) -> QueryResultData | None:
+    from agentic_graphrag.app.wiring import _chain_to_data
+
+    chain = cached_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
+    return _chain_to_data(chain) if chain is not None else None
+
+
+def cached_chain(
+    svc: QueryService, req: QueryRequest, *, tenant_id: str, user_id: str
+) -> ReasoningChain | None:
     if not (svc.enable_cache and svc.retrieval_cache and not req.force_agentic):
+        return None
+    if req.strategy == "global" or req.doc_ids is not None:
         return None
     hit = svc.retrieval_cache.get_answer(
         req.question,
@@ -37,13 +51,39 @@ def _try_answer_cache(
     )
     if hit is None:
         return None
-    # Defense-in-depth: never return another tenant's cached payload.
-    meta = hit.get("metadata") if isinstance(hit, dict) else None
-    if isinstance(meta, dict) and meta.get("tenant_id") not in (None, tenant_id):
+    chain = ReasoningChain.model_validate(hit)
+    if not _valid_cached_chain(svc, req, chain, tenant_id=tenant_id):
         return None
-    data = QueryResultData.model_validate(promote_degradation_fields(dict(hit)))
-    data.metadata = {**(data.metadata or {}), "cache_hit": True}
-    return data
+    original_id = chain.query_id
+    execution = current_execution.get()
+    chain.query_id = execution.query_id if execution is not None else str(uuid4())
+    chain.cost = CostStats()
+    chain.metadata.update(
+        cache_hit=True,
+        original_query_id=original_id,
+        query_id=chain.query_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
+    persist_chain(svc, chain)
+    require_audit(req, chain)
+    return chain
+
+
+def _valid_cached_chain(
+    svc: QueryService, req: QueryRequest, chain: ReasoningChain, *, tenant_id: str
+) -> bool:
+    meta = chain.metadata
+    if meta.get("tenant_id", "default") != tenant_id or meta.get("kb_id", "default") != req.kb_id:
+        return False
+    if meta.get("requested_strategy", "auto") != req.strategy:
+        return False
+    if not catalog_visible(svc, meta.get("evidence", []), current=True):
+        return False
+    return (
+        svc.audit_store is None
+        or svc.audit_store.get_for_tenant(chain.query_id, tenant_id) is not None
+    )
 
 
 def _is_cacheable_answer(chain: ReasoningChain) -> bool:

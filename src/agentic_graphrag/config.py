@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agentic_graphrag.config_degradation import DegradationConfig
@@ -16,9 +16,11 @@ from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConf
 from agentic_graphrag.config_ingest import IndexingConfig
 from agentic_graphrag.config_knowledge import KnowledgeConfig
 from agentic_graphrag.config_llm import LLMResilienceConfig
+from agentic_graphrag.config_models import ModelRoutingConfig
 from agentic_graphrag.config_paths import PathsConfig, find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
 from agentic_graphrag.config_rerank import RerankConfig as RerankConfig
+from agentic_graphrag.config_summary import SummaryConfig
 from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, DEFAULT_RRF_K
 from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, RerankKind
 
@@ -104,6 +106,8 @@ class AppConfig(BaseModel):
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    models: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
+    summaries: SummaryConfig = Field(default_factory=SummaryConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
     tenants: dict[str, TenantBudgetConfig] = Field(default_factory=dict)
@@ -120,6 +124,8 @@ class Settings(BaseSettings):
     )
 
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_auth_required: bool = Field(default=True, alias="LLM_AUTH_REQUIRED")
+    model_secrets: dict[str, SecretStr] = Field(default_factory=dict, alias="MODEL_SECRETS")
     llm_base_url: str = Field(default="https://api.openai.com/v1", alias="LLM_BASE_URL")
     llm_strong_model: str | None = Field(default=None, alias="LLM_STRONG_MODEL")
     llm_light_model: str | None = Field(default=None, alias="LLM_LIGHT_MODEL")

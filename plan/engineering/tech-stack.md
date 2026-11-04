@@ -136,7 +136,9 @@
 - **决策**：引入 `KnowledgeScope`、知识库活动 generation、来源版本与持久化变更记录；
   Schema/开放抽取共享解析、任务和图端口，采用各自门禁。开放图物理编码使用固定标签/边，
   自由类型存属性。通过 `CommunityDetector` 接入本地 Leiden，文档/社区摘要经后台任务生成。
-  具体 Leiden 包与版本在 E0 验证后锁定，不强依赖 Neo4j GDS 或整个 GraphRAG 框架。
+  Leiden 适配器选定 `leidenalg==0.10.2` 与 `igraph==0.11.8`，通过可选 `summary`
+  extra 安装并在后台任务中懒加载；固定节点/边顺序、随机种子和算法参数。
+  不强依赖 Neo4j GDS 或整个 GraphRAG 框架，离线路径不要求安装社区算法依赖。
 - **理由**：复用现有 GraphStore、任务恢复与引用链，同时支持同租户多库和社区增量更新。
   摘要依赖指纹区分拓扑更新与内容更新；局部修复必要时可扩大范围。
 - **影响**：四种 store、缓存、worker、审计均需贯穿知识库与版本；旧数据迁入默认库。
@@ -172,6 +174,8 @@
 - **影响**：增加 API 契约回归和实际客户端验收；不让 SDK 用户依赖完整 GraphRAG 运行环境。
   `audit_required` 明确区分回答成功与审计成功，现有客户端保留可用行为。
 - **状态**：用户要求执行扩展计划后采纳；远程 MCP 和事件断点重放不纳入首版。
+  `contracts` 可选依赖仅供核心 API 与本仓库 SDK/MCP 的进程内契约测试，采用官方
+  `mcp` Python SDK；核心离线安装不需要它，两个客户端包仍独立安装与发布。
   详见 [扩展计划](../workstreams/graph-platform-extension.md) I1。
 
 ## 3. 待决策清单（评审会）

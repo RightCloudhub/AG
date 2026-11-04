@@ -27,11 +27,11 @@ class ScriptLLM(MockLLMProvider):
     def __init__(self, responses):
         super().__init__()
         self.script = list(responses)
-        self.options = []
+        self.call_options = []
 
     def complete(self, messages, **kwargs):
         self.calls.append(messages)
-        self.options.append(kwargs)
+        self.call_options.append(kwargs)
         response = self.script.pop(0)
         return response if isinstance(response, str) else json.dumps(response)
 
@@ -122,8 +122,8 @@ def test_one_chunk_closes_two_hops_and_is_fully_auditable(monkeypatch):
     assert {c["req_id"] for c in event["changes"] if c["after"] == "resolved"} == {"owner", "city"}
     assert seed.calls[0][1:] == (5, "tenant-a")
     assert fulltext.calls[0][2] == "tenant-a" and QUESTION in fulltext.calls[0][0]
-    assert all(call["temperature"] == 0 for call in llm.options[:4])
-    assert llm.options[2]["tier"] == Tier.LIGHT
+    assert all(call["temperature"] == 0 for call in llm.call_options[:4])
+    assert llm.call_options[2]["tier"] == Tier.LIGHT
     assert "Acme is a company" not in llm.calls[2][-1].content
 
 

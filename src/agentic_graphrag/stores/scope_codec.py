@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from copy import deepcopy
-from dataclasses import dataclass, replace
-from typing import TypeVar
+from dataclasses import dataclass
+from functools import cached_property
+from typing import Any, TypeVar
 
 from agentic_graphrag.core.knowledge import KnowledgeScope
 from agentic_graphrag.core.ports.stores import (
@@ -15,6 +15,7 @@ from agentic_graphrag.core.ports.stores import (
     EntityRecord,
     RelationRecord,
 )
+from agentic_graphrag.stores.record_copy import copy_record
 
 Record = TypeVar("Record", EntityRecord, RelationRecord, DocumentRecord, ChunkRecord)
 _NAMESPACE_PREFIX = "\x1fagkb:"
@@ -56,7 +57,7 @@ class ScopeBinding:
     generation: str = "1"
     read_only: bool = False
 
-    @property
+    @cached_property
     def owner(self) -> str:
         return storage_tenant(self.scope, generation=self.generation)
 
@@ -68,39 +69,39 @@ class ScopeBinding:
         return self.owner
 
     def encode(self, record: Record) -> Record:
+        return self._encode(copy_record(record))
+
+    def _encode(self, record: Record) -> Record:
         self.check(record.tenant_id or self.scope.tenant_id, write=True)
         if record.kb_id not in {"default", self.scope.kb_id}:
             raise ValueError("Record belongs to another knowledge base")
-        result = replace(
-            deepcopy(record),
-            tenant_id=self.owner,
-            kb_id=self.scope.kb_id,
-            generation=self.generation,
-        )
-        if isinstance(result, DocumentRecord):
-            result.chunks = [self.encode(chunk) for chunk in result.chunks]
-        if isinstance(result, (DocumentRecord, ChunkRecord)):
-            result.metadata.update(
+        record.tenant_id = self.owner
+        record.kb_id = self.scope.kb_id
+        record.generation = self.generation
+        if isinstance(record, DocumentRecord):
+            record.chunks = [self._encode(chunk) for chunk in record.chunks]
+        if isinstance(record, (DocumentRecord, ChunkRecord)):
+            record.metadata.update(
                 tenant_id=self.owner, kb_id=self.scope.kb_id, generation=self.generation
             )
-        return result
+        return record
 
-    def decode(self, record: Record) -> Record:
+    def decode(self, record: Record, *, memo: dict[int, Any] | None = None) -> Record:
         if (record.tenant_id or "default") != self.owner:
             raise ValueError("Storage returned a record outside the bound knowledge scope")
-        result = replace(
-            deepcopy(record),
-            tenant_id=self.scope.tenant_id,
-            kb_id=self.scope.kb_id,
-            generation=self.generation,
-        )
-        if isinstance(result, DocumentRecord):
-            result.chunks = [
-                self.decode(replace(chunk, tenant_id=chunk.tenant_id or self.owner))
-                for chunk in result.chunks
-            ]
-        if isinstance(result, (DocumentRecord, ChunkRecord)):
-            result.metadata.update(
+        return self._decode(copy_record(record, memo=memo))
+
+    def _decode(self, record: Record) -> Record:
+        record.tenant_id = self.scope.tenant_id
+        record.kb_id = self.scope.kb_id
+        record.generation = self.generation
+        if isinstance(record, DocumentRecord):
+            for chunk in record.chunks:
+                if (chunk.tenant_id or self.owner) != self.owner:
+                    raise ValueError("Chunk belongs to another knowledge scope")
+                self._decode(chunk)
+        if isinstance(record, (DocumentRecord, ChunkRecord)):
+            record.metadata.update(
                 tenant_id=self.scope.tenant_id, kb_id=self.scope.kb_id, generation=self.generation
             )
-        return result
+        return record

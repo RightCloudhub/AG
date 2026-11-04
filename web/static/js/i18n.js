@@ -34,6 +34,8 @@ export const zh = Object.freeze({
     states: { pending: '等待', active: '进行中', done: '已完成', failed: '失败', stopped: '已停止' },
   },
   answer: {
+    globalProgress: '正在概括：已处理 {processed}/{total} 份文档',
+    globalCoverage: '已覆盖 {processed}/{total} 份文档', globalPartial: '覆盖不完整',
     notFoundTitle: '未能得出结论', reason: '原因', missing: '缺少的信息', supply: '去补充知识',
     partial: '基于部分路径', copy: '复制', copyAnswer: '复制结论', copyId: '复制 query_id', copied: '已复制',
     followups: '继续追问', finding: '{hops} 跳 · {evidence} 条证据 · 置信度 {confidence}',
@@ -81,6 +83,9 @@ export const zh = Object.freeze({
     openInGraph: '在图谱视图中查看', nodes: '节点', edges: '路径', truncated: '（已截断）',
     sourceDoc: '文档 {doc} · 第 {n} 段', sourceGraph: '图谱 · {relation}', sourceGraphPlain: '图谱',
     score: '得分', graphRow: '图谱行',
+    original: '引用原文', originalLoading: '正在读取原文…', originalRetry: '重试',
+    originalDeleted: '原文已删除，此引用内容已撤回。', originalUnavailable: '此证据没有可回读的原文版本。',
+    originalVersion: '文档 {doc} · 版本 {version}', originalPrevious: '上一段', originalNext: '下一段',
   },
   log: {
     route: '路由', queryId: 'query_id', trace: '事件流水', copy: '复制日志', copied: '已复制',
@@ -162,7 +167,7 @@ export const zh = Object.freeze({
     failed: '审核失败：{msg}', pendingCount: '{n} 个待审核',
   },
   ops: {
-    title: '系统运维', metrics: '监控指标', budget: '配额分析', audit: '安全审计',
+    title: '系统运维', metrics: '监控指标', budget: '配额分析', audit: '安全审计', models: '角色模型',
     totalQueries: '总查询数', p50: '延迟 P50', p95: '延迟 P95', p99: '延迟 P99', budgetTrips: '配额耗尽次数',
     routes: '路由分布', errors: '错误统计', health: '健康检查', check: '检查项', status_: '状态',
     noMetrics: '暂无指标数据', noBudget: '暂无配额数据', noAudit: '暂无审计事件',
@@ -173,6 +178,8 @@ export const zh = Object.freeze({
 /** Active locale table (single locale today). */
 export const text = zh;
 export { productCopy as productText } from './i18n_product.js';
+export { modelCopy as modelText } from './i18n_models.js';
+export { knowledgeCopy as knowledgeText } from './i18n_knowledge.js';
 
 /** @param {string} template @param {Record<string, string | number>} vars */
 export function fmt(template, vars) {

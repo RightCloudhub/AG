@@ -2,24 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from agentic_graphrag.api.envelope import MetaBody, ok
+from agentic_graphrag.api.envelope import MetaBody, TypedEnvelope, ok
 from agentic_graphrag.api.routes.deps import principal, service
-from agentic_graphrag.api.sse import format_sse
-from agentic_graphrag.app.contracts import QueryRequest
+from agentic_graphrag.api.stream_bridge import StreamBridge
+from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.errors import ApiError
 from agentic_graphrag.core.json_types import JsonObject
 
 router = APIRouter(prefix="/v1", tags=["query"])
 
 
-@router.post("/query")
+@router.post("/query", response_model=TypedEnvelope[QueryResultData], operation_id="query")
 def post_query(body: QueryRequest, request: Request) -> JsonObject:
     request_id = request.headers.get("x-request-id") or str(uuid4())
     meta = MetaBody(request_id=request_id)
@@ -35,25 +33,27 @@ def post_query(body: QueryRequest, request: Request) -> JsonObject:
         raise
 
 
-@router.post("/query/stream")
+@router.post(
+    "/query/stream",
+    operation_id="stream_query",
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
 async def post_query_stream(body: QueryRequest, request: Request) -> StreamingResponse:
     """SSE stream: triage → thinking → sub_question → hop_done → answer."""
     tenant_id, user_id = principal(request)
     svc = service(request)
 
-    async def gen() -> AsyncIterator[str]:
-        # Async generator + sleep(0) lets ASGI flush each frame before the next
-        # agent hop blocks (sync iterators often buffer until the whole run ends).
-        for etype, payload in svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id):
-            yield format_sse(etype, payload)
-            await asyncio.sleep(0)
+    bridge = StreamBridge(
+        lambda: svc.stream_query_events(body, tenant_id=tenant_id, user_id=user_id)
+    )
 
     return StreamingResponse(
-        gen(),
+        bridge.frames(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-Query-Id": bridge.query_id,
         },
     )

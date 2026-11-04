@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
-from agentic_graphrag.agent.guardrails import GuardrailConfig
 from agentic_graphrag.app.answer_cache import (  # noqa: F401 — re-exported
     _is_cacheable_answer,
     _maybe_cache_answer,
@@ -17,13 +14,14 @@ from agentic_graphrag.app.answer_cache import (  # noqa: F401 — re-exported
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.degradation_policy import apply_degradation_policy
 from agentic_graphrag.app.errors import BUDGET_EXCEEDED, ApiError
+from agentic_graphrag.app.model_metadata import attach_model_metadata
+from agentic_graphrag.app.query_accounting import close_client, settle_aborted
 from agentic_graphrag.app.query_agent import QUESTION_SPAN_PREVIEW, run_agent_with_timeout
+from agentic_graphrag.app.query_limits import guard_and_budget
+from agentic_graphrag.app.query_persistence import persist_chain, require_audit
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
-from agentic_graphrag.app.telemetry import save_chain_audit
-from agentic_graphrag.app.tenant_context import tenant_entities
 from agentic_graphrag.app.wiring import (
     _chain_to_data,
-    build_executor_for_service,
     build_llm_for_service,
     cost_units_for_chain,
 )
@@ -31,6 +29,7 @@ from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance import audit_events
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.governance.execution import current_execution, execution_scope
 from agentic_graphrag.observability.context import query_context
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
@@ -92,8 +91,9 @@ def execute_query_chain(
     Returns the full :class:`ReasoningChain` for drivers that need step-level
     detail (eval, CLI). The HTTP path is :func:`execute_run_query`.
     """
-    with query_context(query_id=str(uuid4()), tenant_id=tenant_id, user_id=user_id):
-        return _execute_query_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
+    with execution_scope() as control:
+        with query_context(query_id=control.query_id, tenant_id=tenant_id, user_id=user_id):
+            return _execute_query_chain(svc, req, tenant_id=tenant_id, user_id=user_id)
 
 
 def _execute_query_chain(
@@ -120,11 +120,17 @@ def _execute_query_chain(
         _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
         settled = True
         _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
+        require_audit(req, chain)
         return chain
-    except Exception:
+    except BaseException:
         if not settled:
             _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
+            if control := current_execution.get():
+                settle_aborted(svc, control, tenant_id=tenant_id, user_id=user_id)
         raise
+    finally:
+        if settled and (control := current_execution.get()):
+            close_client(control)
 
 
 def stream_query_events(
@@ -197,31 +203,26 @@ def _invoke_agent(
     tenant_id: str,
     user_id: str,
 ) -> ReasoningChain:
-    # ceil so sub-second timeouts (e.g. 500ms) become 1s, never 0 (0 disables).
-    timeout_override = (
-        max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
-    )
-    guard_cfg = GuardrailConfig.from_app_config(
-        svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
-    )
-    budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
+    guard_cfg, budget = guard_and_budget(svc, req)
+    if control := current_execution.get():
+        control.budget = budget
     trace_ctx = get_tracer().start(
         query_id=query_id_var.get() or None, tenant_id=tenant_id, user_id=user_id
     )
     # Build deps without a process-global lock so concurrent queries can proceed.
-    executor = build_executor_for_service(
-        bundle=svc.bundle,
-        cfg=svc.cfg,
-        settings=svc.settings,
-        allow_llm=svc.allow_llm,
-        known_entities=tenant_entities(svc, tenant_id),
-        tenant_id=tenant_id or None,
-        retrieval_cache=svc.retrieval_cache,
-        enable_cache=svc.enable_cache,
-    )
+    from agentic_graphrag.app.query_dependencies import query_dependencies
+
     llm = build_llm_for_service(
-        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
+        allow_llm=svc.allow_llm,
+        settings=svc.settings,
+        cfg=svc.cfg,
+        budget=budget,
+        tenant_id=tenant_id,
+        kb_id=req.kb_id,
     )
+    if control is not None:
+        control.llm = llm
+    executor, llm = query_dependencies(svc, budget, tenant_id=tenant_id, llm=llm)
     chain = run_agent_with_timeout(
         svc,
         req,
@@ -259,6 +260,10 @@ def _finalize_chain(
         "user_id": user_id,
         "query_id": chain.query_id,
         "request_id": request_id,
+        "kb_id": req.kb_id,
+        "strategy": chain.metadata.get("strategy", "local"),
+        "requested_strategy": req.strategy,
+        "doc_ids": req.doc_ids,
     }
 
 
@@ -270,7 +275,8 @@ def _persist_and_commit(
     tenant_id: str,
     user_id: str,
 ) -> None:
-    save_chain_audit(svc.audit_store, chain)
+    attach_model_metadata(svc, chain)
+    persist_chain(svc, chain)
     if svc.enable_cache and svc.retrieval_cache is not None:
         _maybe_cache_answer(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     if svc.multi_budget:
@@ -284,3 +290,5 @@ def _persist_and_commit(
             reserved_tokens=RESERVE_TOKENS,
             reserved_cost=RESERVE_COST,
         )
+    if control := current_execution.get():
+        control.settled = True

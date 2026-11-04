@@ -16,6 +16,8 @@ import { applyInspectorWidth, stepInspectorHop, toggleInspector } from './shell/
 import { BANNER_TEMPLATE, PALETTE_TEMPLATE, SETTINGS_TEMPLATE, TOPBAR_TEMPLATE } from './shell/tpl_topbar.js';
 import { NOTEBOOK_TEMPLATE } from './shell/tpl_notebook.js';
 import { initializeLegacyHistory } from './store/conversations.js';
+import { knowledgeRevision } from './knowledge/scope.js';
+import KnowledgeSelect from './knowledge/select.js';
 
 /** @typedef {import('./contracts.js').ViewName} ViewName */
 
@@ -35,6 +37,7 @@ function isTyping(target) {
 }
 
 const App = {
+  components: { KnowledgeSelect },
   setup() {
     /** @type {import('../vendor/vue.esm-browser.prod.js').Ref<ViewName>} */
     const currentView = ref(View.CHAT);
@@ -89,7 +92,7 @@ const App = {
 
     return {
       ...shell, ...palette, openPalette: palette.openPaletteDialog, closePalette: palette.closePaletteDialog, currentView, currentComponent,
-      loadError, navigate, handleHashChange, paletteOpen, T, fmt, Role, UiPolicy,
+      loadError, navigate, handleHashChange, paletteOpen, knowledgeRevision, T, fmt, Role, UiPolicy,
     };
   },
 
@@ -98,7 +101,7 @@ const App = {
   ${TOPBAR_TEMPLATE}
   ${BANNER_TEMPLATE}
   ${NOTEBOOK_TEMPLATE}
-  <component v-if="currentComponent" :is="currentComponent" :key="currentView"></component>
+  <component v-if="currentComponent" :is="currentComponent" :key="currentView + ':' + knowledgeRevision"></component>
   <div v-else class="page"><p v-if="loadError" class="load-error" role="alert">{{ T.app.loadFailed }}: {{ currentView }}
 {{ loadError }}</p><div v-else class="empty"><span class="spinner"></span></div></div>
   ${SETTINGS_TEMPLATE}

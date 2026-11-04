@@ -27,15 +27,13 @@ from agentic_graphrag.knowledge.index_result import (
 from agentic_graphrag.knowledge.index_result import (
     task_outcome as task_outcome,
 )
-from agentic_graphrag.knowledge.index_result import (
-    total_counts,
-)
 from agentic_graphrag.knowledge.ingest_tasks import (
     IngestStatus,
     IngestTask,
     IngestTaskStore,
     LeaseLost,
 )
+from agentic_graphrag.knowledge.task_finalize import finalize_task
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
     ChannelStatus,
@@ -69,8 +67,14 @@ class IngestWorker:
         config: IngestWorkerConfig | None = None,
         worker_id: str | None = None,
         graph_ingestor: GraphIngestor | None = None,
+        task_runner: Callable[[IngestTask, str], list[IngestResult] | None] | None = None,
+        background_work: Callable[[], None] | None = None,
+        before_done: Callable[[IngestTask], None] | None = None,
     ) -> None:
         self.graph_ingestor = graph_ingestor
+        self.task_runner = task_runner
+        self.background_work = background_work
+        self.before_done = before_done
         self.doc_store = doc_store
         self.vector_store = vector_store
         self.fulltext_store = fulltext_store
@@ -107,7 +111,10 @@ class IngestWorker:
 
     def run_once(self) -> list[IngestResult]:
         if self.task_store is not None:
-            return self._run_task_batch()
+            results = self._run_task_batch()
+            if self.background_work is not None:
+                self.background_work()
+            return results
         results = []
         for doc_id, tenant in self.doc_store.list_refs():
             doc = self.doc_store.get(doc_id, tenant_id=tenant)
@@ -182,7 +189,12 @@ class IngestWorker:
     def _run_task(self, task: IngestTask) -> list[IngestResult]:
         """Index one claimed task's documents, then record its terminal status."""
         try:
+            if self.task_runner is not None:
+                routed = self.task_runner(task, self.worker_id)
+                if routed is not None:
+                    return routed
             results = self._process_task_docs(task)
+            finalize_task(self, task, results)
         except LeaseLost:
             # A stale requeue gave the task to another worker, which now owns its outcome.
             logger.warning("Lost the lease on task %s; leaving it to its new owner", task.id)
@@ -197,22 +209,6 @@ class IngestWorker:
             )
             self._finalize(task.id, IngestStatus.FAILED, type(exc).__name__)
             return [IngestResult("", error=type(exc).__name__, fatal=True)]
-        # Review execution uses the same lock, so a decision cannot miss settlement
-        # between counting pending items and publishing the terminal task state.
-        with self.doc_store.lock():
-            queue = self.graph_ingestor.review_queue if self.graph_ingestor else None
-            pending = (
-                queue.count(
-                    status="pending", type="conflict", tenant_id=task.tenant_id, batch_id=task.id
-                )
-                if queue is not None
-                else None
-            )
-            self._finalize(
-                task.id,
-                *task_outcome(results, pending_reviews=pending),
-                counts=total_counts(results),
-            )
         return results
 
     def _process_task_docs(self, task: IngestTask) -> list[IngestResult]:

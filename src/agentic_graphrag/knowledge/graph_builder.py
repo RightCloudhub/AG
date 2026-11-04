@@ -64,6 +64,10 @@ def triples_to_records(
             "span": t.source_span,
             "confidence": t.confidence,
         }
+        if t.source_doc_version is not None:
+            source["doc_version"] = t.source_doc_version
+        if t.source_content_sha256:
+            source["content_sha256"] = t.source_content_sha256
         hid = _add_entity(entities, t.head, tenant)
         tid = _add_entity(entities, t.tail, tenant)
         sources_by_entity[(tenant, hid)].append(source)

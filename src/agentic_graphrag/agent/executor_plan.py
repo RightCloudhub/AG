@@ -15,7 +15,9 @@ from agentic_graphrag.core.enums import (
     RetrievalTool,
     ToolArgument,
 )
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import Message, Tier
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import (
     REASON_LLM_UNAVAILABLE,
@@ -83,6 +85,8 @@ def choose_tools(
     Remote LLM tool-planning is expensive (seconds–tens of seconds). Use it only
     when heuristics have no graph/path handle — not on every Fast Path hop.
     """
+    if executor.config.llm_only:
+        return _required_llm_plan(executor, sub_question, entities_hint, allow_llm=allow_llm)
     heuristic = build_heuristic(executor, sub_question, entities_hint)
     if not allow_llm or executor.llm is None:
         return heuristic
@@ -93,6 +97,20 @@ def choose_tools(
     if llm_plan:
         return [sanitize_spec(executor, s, sub_question) for s in llm_plan]
     return heuristic
+
+
+def _required_llm_plan(
+    executor: Executor, sub_question: str, entities_hint: list[str], *, allow_llm: bool
+) -> list[ToolCallSpec]:
+    from agentic_graphrag.agent.planning_policy import PlanningUnavailable
+
+    if not allow_llm or executor.llm is None:
+        raise PlanningUnavailable("This knowledge base requires LLM planning")
+    for _ in range(2):
+        plan = _try_llm_plan(executor, sub_question, entities_hint)
+        if plan:
+            return plan
+    raise PlanningUnavailable("No valid LLM tool plan")
 
 
 def build_heuristic(
@@ -232,7 +250,7 @@ def _try_llm_plan(
             )
         )
         plan = complete_structured(
-            executor.llm,
+            for_role(executor.llm, ModelRole.RESEARCHER),
             [
                 Message(role=MessageRole.SYSTEM, content=system),
                 Message(role=MessageRole.USER, content=user),

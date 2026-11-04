@@ -12,6 +12,7 @@ import { openNotebook } from '../store/shell.js';
 import { formatBytes, isActiveStatus, stageFiles, statusBadge, statusHint } from '../knowledge/ingest_wizard.js';
 import { useViewLifetime } from '../view_lifetime.js';
 import { navigateView } from '../navigation.js';
+import KnowledgeConfig from '../knowledge/config_panel.js';
 
 /** @template T @typedef {import('../../vendor/vue.esm-browser.prod.js').Ref<T>} Ref */
 /** @typedef {import('../knowledge/ingest_wizard.js').StagedFile} StagedFile */
@@ -19,6 +20,7 @@ import { navigateView } from '../navigation.js';
 
 export default {
   name: 'KnowledgeView',
+  components: { KnowledgeConfig },
   setup() {
     const alive = useViewLifetime();
     /** @type {Ref<number>} */
@@ -137,6 +139,7 @@ export default {
     </div>
   </div>
   <div class="view-body">
+    <knowledge-config></knowledge-config>
     <section class="import-wizard" :aria-label="T.knowledge.wizardTitle" @keydown="onKeydown">
       <div class="import-wizard__head"><h2 class="dialog__title">{{ T.knowledge.wizardTitle }}</h2></div>
       <ol class="wizard__steps">

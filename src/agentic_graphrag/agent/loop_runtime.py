@@ -88,6 +88,7 @@ class AgentRuntime:
             self.llm if allow_llm else None,
             allow_llm=allow_llm and self.llm is not None,
             known_entities=known,
+            llm_only=self.executor.config.llm_only,
         )
         # Enforce breadth explicitly instead of silently truncating the tail (BL-12).
         kept, dropped = cap_plan_breadth(sqs, self.guard_cfg.max_sub_questions)

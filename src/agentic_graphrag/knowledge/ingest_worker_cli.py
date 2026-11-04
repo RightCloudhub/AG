@@ -12,23 +12,34 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from typing import TYPE_CHECKING
 
-from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
-from agentic_graphrag.knowledge.ingest_tasks import IngestTaskStore
 from agentic_graphrag.knowledge.ingest_worker import IngestWorker
-from agentic_graphrag.knowledge.review.queue import ReviewQueue
-from agentic_graphrag.knowledge.worker_wiring import batch_embedder, worker_config
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from agentic_graphrag.app.query_service import QueryService
+
 
 def build_cli_worker() -> IngestWorker:
+    from agentic_graphrag.app.write_path import build_inline_worker
+
+    return build_inline_worker(build_cli_service())
+
+
+def build_cli_service() -> QueryService:
+    from agentic_graphrag.app.query_service import QueryService
     from agentic_graphrag.bootstrap import build_stores, resolve_runtime_profile
-    from agentic_graphrag.config import get_config, get_settings, runtime_dir
+    from agentic_graphrag.config import get_config, get_settings
 
     cfg = get_config()
     settings = get_settings()
-    rp = resolve_runtime_profile(llm_api_key=settings.llm_api_key)
+    rp = resolve_runtime_profile(
+        llm_api_key=settings.llm_api_key,
+        llm_auth_required=settings.llm_auth_required,
+        model_roles_configured=bool(cfg.models.roles),
+    )
     bundle = build_stores(rp, cfg=cfg, settings=settings)
     if not bundle.docs.durable:
         logger.warning(
@@ -42,21 +53,15 @@ def build_cli_worker() -> IngestWorker:
             "to the API. Use AGR_PROFILE=live|hybrid (shared BM25 snapshot).",
             type(bundle.fulltext).__name__,
         )
-    processed = runtime_dir(cfg)
-    ingestor = GraphIngestor(
-        GraphIngestDeps(
-            graph=bundle.graph, review_queue=ReviewQueue(processed / "review_queue.jsonl")
-        )
+    svc = QueryService._from_bundle(
+        bundle,
+        cfg=cfg,
+        settings=settings,
+        seed_triples="",
+        load_seed=False,
+        allow_llm=rp.allow_llm,
     )
-    return IngestWorker(
-        doc_store=bundle.docs,
-        vector_store=bundle.vector,
-        fulltext_store=bundle.fulltext,
-        task_store=IngestTaskStore(processed / "ingest_tasks.jsonl"),
-        config=worker_config(cfg, live=rp.allow_llm),
-        embed_many=batch_embedder(cfg, settings, live=rp.allow_llm),
-        graph_ingestor=ingestor,
-    )
+    return svc
 
 
 def main(argv: list[str] | None = None) -> None:

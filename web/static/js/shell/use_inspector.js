@@ -13,6 +13,7 @@ import { routeLabel } from '../chat/presenters.js';
 import { setGraphFocus } from '../store/graph_focus.js';
 import { preferences, setPreferences } from '../store/preferences.js';
 import { closeInspector, inspectorOpen, openInspector } from '../store/shell.js';
+import EvidenceSource from '../knowledge/evidence_source.js';
 
 /** @template T @typedef {import('../../vendor/vue.esm-browser.prod.js').Ref<T>} Ref */
 /** @typedef {import('../responses.js').Answer} Answer */
@@ -124,6 +125,7 @@ export function useInspector() {
     inspTab.value = InspectorTab.EVIDENCE;
     inspHop.value = 0;
     inspHighlight.value = id;
+    if (inspAnswer.value?.evidence.some(e => e.id === id && e.evidence_id)) inspExpanded.value = { ...inspExpanded.value, [id]: true };
     if (overlayQuery()) openInspector();
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => { if (inspHighlight.value === id) inspHighlight.value = ''; }, UiPolicy.HIGHLIGHT_MS);
@@ -186,5 +188,6 @@ export function useInspector() {
     inspGraphView, inspGraphKey, inspHopById, inspCounts, inspHops, inspRows, inspSubgraph, inspHotEdges, inspHotNodes, inspRouteLabel,
     inspectorOpen, inspShow, inspSelectHop, inspCitationIndex, inspFocusEvidence, inspHighlightGraph, inspToggleExpanded, inspNodeHopClass,
     inspOpenGraph, inspToggle, inspCopyLog, inspTabKeydown, inspResizeStart, closeInspector, evidenceDomId, hopClass, InspectorTab, EvidenceSort,
+    EvidenceSource,
   };
 }

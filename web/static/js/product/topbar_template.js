@@ -3,6 +3,7 @@ export const PRODUCT_TOPBAR_TEMPLATE = `<header class="topbar product-topbar">
   <div class="topbar__left"><button type="button" class="btn btn--icon btn--ghost menu-btn" @click="openNotebook" :aria-label="P.menu"><ag-icon name="menu"></ag-icon></button>
     <router-link to="/app/chat" class="topbar__brand" :title="P.brand"><ag-icon name="mark" :size="22"></ag-icon><span>{{ P.brand }}</span></router-link>
     <button class="tenant-trigger" type="button" popovertarget="tenant-menu" :disabled="changingIdentity" :aria-label="P.switchTenant + ' · ' + tenant?.name"><span>{{ tenant?.name }}</span><ag-icon name="chevronDown" :size="14"></ag-icon></button>
+    <knowledge-select></knowledge-select>
   </div>
   <button type="button" class="topbar__search" @click="openPaletteDialog" :aria-label="P.search"><ag-icon name="search" :size="14"></ag-icon><span>{{ P.search }}</span><kbd>⌘K</kbd></button>
   <div class="topbar__right"><label for="top-mode" class="sr-only">{{ T.topbar.mode }}</label><select id="top-mode" class="select select--quiet mode-select" :value="mode" @change="setMode($event.target.value)"><option v-for="item in modeOptions" :key="item.id" :value="item.id">{{ item.label }}</option></select>

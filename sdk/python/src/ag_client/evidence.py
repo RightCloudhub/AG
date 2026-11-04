@@ -18,10 +18,11 @@ class SourceRef(WireModel):
     doc_version: int
     chunk_id: str = ""
     content_sha256: str = ""
+    span_origin: Literal["document", "chunk"] = "document"
     span_start: int = 0
     span_end: int | None = None
     page: int | None = None
-    paragraph: int | None = None
+    paragraph: str | None = None
 
 
 class Snapshot(WireModel):

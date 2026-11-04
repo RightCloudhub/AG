@@ -6,12 +6,13 @@ from types import SimpleNamespace
 
 import httpx
 
+from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.cli.index_batches import embed_chunks
-from agentic_graphrag.config import AppConfig
+from agentic_graphrag.config import AppConfig, Settings
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.index_config import IngestWorkerConfig
-from agentic_graphrag.knowledge.ingest_worker import IngestWorker
 from agentic_graphrag.stores.doc_store import FileDocStore
+from agentic_graphrag.stores.factory import create_offline_bundle
 from agentic_graphrag.stores.vector_store import InMemoryVectorStore
 
 
@@ -27,10 +28,14 @@ def test_cli_ingest_and_embedding_snapshot_keep_tenant(tmp_path, monkeypatch):
     raw.mkdir()
     (raw / "source.txt").write_text("original text")
     docs = FileDocStore(tmp_path / "docs")
-    worker = IngestWorker(doc_store=docs, vector_store=InMemoryVectorStore())
     monkeypatch.setenv("AGR_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setattr(ingest, "get_config", lambda: cfg)
-    monkeypatch.setattr(ingest, "build_cli_worker", lambda: worker)
+    bundle = create_offline_bundle(cfg=cfg)
+    bundle.docs = docs
+    svc = QueryService._from_bundle(
+        bundle, cfg=cfg, settings=Settings(), load_seed=False, seed_triples="", allow_llm=False
+    )
+    monkeypatch.setattr(ingest, "build_cli_service", lambda: svc)
     path = tmp_path / "chunks.jsonl"
     ingest.ingest_main(["--input", str(raw), "--out", str(path), "--tenant", "alpha"])
     row = json.loads(path.read_text())

@@ -8,6 +8,47 @@
 
 更新约定：文档和状态表只维护最新结论；变更过程、旧指标与关闭记录写在这里。
 
+## 2026-11-04
+
+### 图谱双模、概括问答与对外接入
+
+实现及验收：[GRAPH_PLATFORM_EXTENSION.md](docs/reviews/GRAPH_PLATFORM_EXTENSION.md)。
+运行与恢复：[GRAPH_PLATFORM.md](docs/ops/GRAPH_PLATFORM.md)。
+
+- 知识库作用域贯穿存储、任务、查询、缓存、来源和审计；默认库兼容旧请求，完整 shadow
+  generation、持久化写入意图、CAS 发布、恢复与删除优先的回滚落地。
+- 开放实体/关系抽取、描述/向量/别名消歧、LLM 登记表规划、Schema 必审候选与可恢复写回；
+  新 Schema 通过人工草案审核和影子升级，不自动启用旧公司域规则。
+- 文档/社区摘要、Leiden 与受影响社区重算、Global map-reduce/verifier、子集覆盖和 partial
+  结果；七角色模型目录、能力测试、草稿/版本发布与管理界面。
+- typed REST/OpenAPI/SSE、版本化原文 resolver、查询/独立检索审计回执、取消及预算结算；
+  独立 SDK/MCP 的锁文件、类型/覆盖率/打包和 CI job。
+- 修复摘要刷新/卸载/切库竞争、Unicode 原文分页、删除终态清理与后台任务恢复边界。
+  检索按单次遍历复用已评分邻接层，图读取保留存储隔离；同次取证复用重复文档读取，
+  后续请求重新检查，删除/新增不会使用过期读取结果。
+- 复审修复：原文解析失败仍按 citation 检查删除并保存撤回谱系；自由字典使用兼容输出模式；
+  必审批次在图重启后恢复已批准事实，retry/reconcile 可继续发布；Open 库拒绝 Schema-only
+  必审策略；普通配置保存保留固定模型 revision；缓存流复用响应头中的 query ID 和审计回执。
+
+验证：核心 **1169 passed / 4 既有 xfailed / 91.82%**；Ruff、format、strict mypy、
+代码指标、checkJs、Vue 模板及契约漂移检查通过。SDK **39 / 98.90%**，
+MCP **22 / 95.06%**；独立 wheel 环境与官方 MCP 客户端完成完整 stdio/HTTP 取证。
+浏览器在 1440/768/390 下保存 23 张最终场景截图，0 FAIL、12 已说明的 WARN、无溢出或控制台错误。
+同日复审后：核心 **1185 passed / 4 xfailed / 91.88%**；六项修复及三张设置控件回归截图
+见交付验收第 5 节，独立客户端与离线下限复跑通过。
+
+离线：POC/triage 各 **31/31**，G2 **200/200**，probes **54/54、20/20**，
+dev **153/153**，金标 **0 flagged**。最终同图配对基线/候选均 200/200，McNemar **p=1**，
+chain P95 **65→64 ms**、LLM 调用均值 **0→0**，不声称效果提升。
+另一轮完整服务调用（含原文/审计持久化、不含 HTTP）P95 **61.77→65.90 ms**，
+明确保留新增耐久取证的开销，不能把 chain 计时当端到端延迟。
+
+18 项中 14 项工程完成，P5-EXT-01/15/17/18 保留真实领域基线、复核校准、实际供应商、
+Claude/Cursor 和目标部署/容量验收。ADR-010～012、Spec、README、CLAUDE、路线图及
+IMPORTANT 同步。SQLite 单主机、CAS 不自动 rebase、CLI operation ID 全局唯一、
+缺 embedder 的变更描述待 reindex，以及无 SSE 持久化重放等差异均已登记。
+基线早于契约导出，机械旧版 schema 对比此次跳过；本地通过不表示远端 CI 或产品门禁通过。
+
 ## 2026-11-03
 
 <a id="important-snapshot-13"></a>

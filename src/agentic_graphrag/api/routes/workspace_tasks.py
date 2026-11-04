@@ -27,8 +27,21 @@ def get_cached_task(task_id: str) -> dict[str, Any] | None:
         return _TASKS.get(task_id)
 
 
-def list_cached_tasks(*, tenant_id: str, limit: int, offset: int) -> tuple[list[JsonObject], int]:
+def list_cached_tasks(
+    *, tenant_id: str, limit: int, offset: int, kb_id: str = "default"
+) -> tuple[list[JsonObject], int]:
     with _TASKS_LOCK:
         cached = list(_TASKS.values())
-    rows = [row for row in reversed(cached) if tenant_matches(row.get("tenant_id"), tenant_id)]
+    rows = [
+        row
+        for row in reversed(cached)
+        if tenant_matches(row.get("tenant_id"), tenant_id) and task_kb(row) == kb_id
+    ]
     return rows[offset : offset + limit], len(rows)
+
+
+def task_kb(row: dict[str, Any]) -> str:
+    return str(
+        row.get("kb_id")
+        or next((doc["kb_id"] for doc in row.get("docs", []) if doc.get("kb_id")), "default")
+    )

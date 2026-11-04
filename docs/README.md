@@ -22,10 +22,13 @@
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
 | | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 架构优化当前实现、后续设计与验收标准 |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
+| | [GRAPH_PLATFORM.md](./ops/GRAPH_PLATFORM.md) | 知识库双模、摘要任务、迁移恢复、回滚、取证与客户端 |
+| | [MODEL_PROFILES.md](./ops/MODEL_PROFILES.md) | 七角色模型目录、能力测试与配置发布 |
 | | [WEBAPP.md](./ops/WEBAPP.md) | 独立 Web 应用配置、开发邮件、数据库、会话与租户隔离 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |
 | `reviews/` | [IMPORTANT.md](./reviews/IMPORTANT.md) | 延期工作总账 |
+| | [GRAPH_PLATFORM_EXTENSION.md](./reviews/GRAPH_PLATFORM_EXTENSION.md) | 图谱扩展的工程验证、性能口径、截图与真实环境待验收项 |
 | | [TYPE_SAFETY_AUDIT.md](./reviews/TYPE_SAFETY_AUDIT.md) | 全项目类型安全与常量化检查计划、问题台账和修复验证 |
 | | [IMPORTANT_DOCUMENTATION.md](./reviews/IMPORTANT_DOCUMENTATION.md) | BL 修复验证状态与当前验证入口 |
 | | [ENTERPRISE_READINESS.md](./reviews/ENTERPRISE_READINESS.md) | 企业级能力审计 |
@@ -39,5 +42,5 @@
 
 本轮能力扩展见
 [图谱双模、概括问答与对外接入计划](../plan/workstreams/graph-platform-extension.md)：
-包含按当前源码核对的差距、知识库/版本基础、七角色用模、API/SDK/MCP、
-分期任务、迁移回滚与验收；当前为规划，尚未实施。
+保留立项差距与设计，并更新知识库/版本、双模、摘要、七角色用模、API/SDK/MCP 的
+实际交付证据和差异。工程已交付，真实领域、供应商、指定客户端与生产验收单列待办。

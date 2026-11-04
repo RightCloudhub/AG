@@ -1,0 +1,25 @@
+// @ts-check
+/** Model administration copy, exported through the shared locale module. */
+export const modelCopy = Object.freeze({
+  title: '角色模型', description: '为检索、写作和验证分别选择模型。发布后的配置供知识库使用。',
+  profiles: '配置方案', newProfile: '新建方案', selectProfile: '选择方案',
+  name: '方案名称', id: '方案 ID', namePlaceholder: '合同分析', idPlaceholder: 'contracts-balanced',
+  role: '角色', model: '服务与模型', chooseModel: '选择模型', disabled: '不启用',
+  save: '保存草稿', saving: '保存中…', test: '测试连通性', testing: '测试中…',
+  publish: '发布版本', publishing: '发布中…', rollback: '回滚版本', rollbackRevision: '目标版本',
+  draft: '草稿版本', active: '已发布版本', unpublished: '尚未发布', dirty: '有未保存的修改',
+  saved: '草稿已保存', published: '版本已发布', rolledBack: '已切换至指定版本',
+  testPassed: '能力测试通过，可以发布', testFailed: '部分能力未通过，请检查服务后重试',
+  testFirst: '保存草稿并通过能力测试后可发布。',
+  empty: '尚未登记可用模型。请由部署管理员配置模型服务与租户权限。',
+  noProfiles: '还没有配置方案，选择各角色的模型后保存草稿。',
+  results: '能力测试结果', capability: '能力', result: '结果', latency: '延迟', tokens: '用量',
+  statuses: { passed: '通过', failed: '失败', disabled: '未启用' },
+  roles: { triage: '问题分流', researcher: '检索与规划', verifier: '事实验证', writer: '回答与摘要',
+    extractor: '实体与关系抽取', embedding: '向量化', rerank: '检索重排' },
+  capabilities: { completion: '文本生成', json_schema: '结构化输出', json_object: 'JSON 输出',
+    text: '文本与本地校验', embedding: '批量向量', rerank: '相关性重排', configuration: '服务配置' },
+  errors: { authentication: '鉴权失败', rate_limited: '调用限流', timeout: '请求超时',
+    upstream_error: '服务响应异常', invalid_response: '返回数据不符合要求',
+    configuration: '服务凭据未就绪', capability_unavailable: '能力不可用' },
+});

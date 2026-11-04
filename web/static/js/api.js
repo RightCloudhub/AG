@@ -13,6 +13,7 @@ import {
 import { ApiError, parseResponse } from './http.js';
 import { request, sendRequest } from './transport.js';
 import { assertCurrentRequest, requestGeneration, scopedRequest } from './request_scope.js';
+import { knowledgePath, knowledgeQuery } from './knowledge/scope.js';
 export { ApiError } from './http.js';
 
 /** @typedef {import('./contracts.js').ApiResult} ApiResult */
@@ -41,7 +42,7 @@ export function fetchMe() { return parsed(request(ApiEndpoint.ME), parseIdentity
 
 /** @param {QueryRequest} body */
 export function postQuery(body) {
-  return request(ApiEndpoint.QUERY, { method: HttpMethod.POST, body: JSON.stringify(body) });
+  return request(ApiEndpoint.QUERY, { method: HttpMethod.POST, body: JSON.stringify(knowledgeQuery(body)) });
 }
 
 /** @param {Response} response */
@@ -65,7 +66,7 @@ export function streamQuery(body, handlers = {}) {
   const run = () => scopedRequest({ signal: controller.signal }, async scoped => {
     const response = await sendRequest(ApiEndpoint.STREAM, {
       method: HttpMethod.POST,
-      body: JSON.stringify(body),
+      body: JSON.stringify(knowledgeQuery(body)),
       signal: scoped.signal,
     });
     await consumeStream(await validateStream(response), guarded);
@@ -104,45 +105,45 @@ export function fetchEntities(params = {}) {
   const query = pagination(params);
   if (params.query) query.set(QueryKey.QUERY, params.query);
   if (params.entity_type) query.set(QueryKey.ENTITY_TYPE, params.entity_type);
-  return parsed(request(`${ApiEndpoint.ENTITIES}?${query}`), value => rows(value, parseEntity));
+  return parsed(request(knowledgePath(`${ApiEndpoint.ENTITIES}?${query}`)), value => rows(value, parseEntity));
 }
 
 /** @param {ListParams} [params] */
 export function fetchIngestTasks(params = {}) {
-  return parsed(request(`${ApiEndpoint.INGEST_TASKS}?${pagination(params)}`), value => rows(value, parseTask));
+  return parsed(request(knowledgePath(`${ApiEndpoint.INGEST_TASKS}?${pagination(params)}`)), value => rows(value, parseTask));
 }
 
 /** @param {string} taskId */
-export function fetchIngestTask(taskId) { return request(ApiEndpoint.ingestTask(taskId)); }
+export function fetchIngestTask(taskId) { return request(knowledgePath(ApiEndpoint.ingestTask(taskId))); }
 
 /** @param {File[]} files */
 export function uploadDocs(files) {
   const form = new FormData();
   for (const file of files) form.append(FormField.FILES, file);
-  return request(ApiEndpoint.DOCS, { method: HttpMethod.POST, body: form });
+  return request(knowledgePath(ApiEndpoint.DOCS), { method: HttpMethod.POST, body: form });
 }
 
 /** @param {ListParams} [params] */
 export function fetchReviewQueue(params = {}) {
   const query = pagination(params);
   if (params.status) query.set(QueryKey.STATUS, params.status);
-  return parsed(request(`${ApiEndpoint.REVIEW_QUEUE}?${query}`), value => rows(value, parseReview));
+  return parsed(request(knowledgePath(`${ApiEndpoint.REVIEW_QUEUE}?${query}`)), value => rows(value, parseReview));
 }
 
 /** @param {string} itemId @param {{decision: import('./contracts.js').ReviewDecisionName}} body */
 export function decideReview(itemId, body) {
-  return request(ApiEndpoint.reviewDecision(itemId), {
+  return request(knowledgePath(ApiEndpoint.reviewDecision(itemId)), {
     method: HttpMethod.POST, body: JSON.stringify(body),
   });
 }
 
 /** @param {{query_id: string, accurate: boolean, reason?: string}} body */
 export function postFeedback(body) {
-  return request(ApiEndpoint.FEEDBACK, { method: HttpMethod.POST, body: JSON.stringify(body) });
+  return request(knowledgePath(ApiEndpoint.FEEDBACK), { method: HttpMethod.POST, body: JSON.stringify(body) });
 }
 
 /** @param {string} queryId */
-export function fetchAuditQuery(queryId) { return request(ApiEndpoint.auditQuery(queryId)); }
+export function fetchAuditQuery(queryId) { return request(knowledgePath(ApiEndpoint.auditQuery(queryId))); }
 
 export function fetchMetrics() { return parsed(request(ApiEndpoint.METRICS), parseMetrics); }
 export function fetchBudgetSnapshot() { return parsed(request(ApiEndpoint.BUDGET), record); }
@@ -155,4 +156,4 @@ export function fetchAuditEvents(params = {}) {
 }
 
 /** @param {string} queryId */
-export function fetchTrace(queryId) { return request(ApiEndpoint.trace(queryId)); }
+export function fetchTrace(queryId) { return request(knowledgePath(ApiEndpoint.trace(queryId))); }

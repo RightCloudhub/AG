@@ -36,6 +36,8 @@ def _edge_citations(rel: RelationRecord) -> list[Citation]:
             chunk_id=str(src["chunk_id"]),
             relation_id=rel.id or None,
             span=src.get("span") or None,
+            doc_version=src.get("doc_version") or src.get("document_version"),
+            content_sha256=src.get("content_sha256"),
         )
         for src in list(rel.sources or [])[:MAX_SOURCES_PER_EDGE]
         if src.get("chunk_id")

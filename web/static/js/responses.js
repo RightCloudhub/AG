@@ -126,7 +126,7 @@ export function parseMetrics(value) {
  * Evidence catalog row (generation/evidence_catalog.py). Optional fields are
  * only copied when the wire carries them so older payloads round-trip unchanged.
  * @param {unknown} value
- * @returns {{id: string, content: string, score: number, source?: string, truncated?: boolean}}
+ * @returns {{id: string, content: string, score: number, source?: string, truncated?: boolean, evidence_id?: string, source_status?: string}}
  */
 export function parseEvidence(value) {
   const entry = record(value);
@@ -134,6 +134,8 @@ export function parseEvidence(value) {
     id: text(entry.id), content: text(entry.content), score: number(entry.score),
     ...(typeof entry.source === 'string' ? { source: entry.source } : {}),
     ...(typeof entry.truncated === 'boolean' ? { truncated: entry.truncated } : {}),
+    ...(typeof entry.evidence_id === 'string' ? { evidence_id: entry.evidence_id } : {}),
+    ...(typeof entry.source_status === 'string' ? { source_status: entry.source_status } : {}),
   };
 }
 
@@ -188,6 +190,13 @@ export function parseTriage(value) {
 }
 
 /** @param {unknown} value */
+export function parseCoverage(value) {
+  const data = record(value);
+  return { processed: number(data.processed_documents), total: number(data.total_documents),
+    partial: data.partial === true, failed: number(data.failed_map_units) };
+}
+
+/** @param {unknown} value */
 export function parseAnswer(value) {
   const data = record(value);
   if (typeof data.answer !== 'string' || typeof data.query_id !== 'string') {
@@ -209,6 +218,9 @@ export function parseAnswer(value) {
     // promote them to the top level (app/wiring.py).
     degraded: parseDegradedChannels(data.degraded_channels ?? metadata.degraded_channels),
     low_confidence: data.low_confidence === true || metadata.low_confidence === true,
+    ...(typeof metadata.kb_id === 'string' ? { kb_id: metadata.kb_id } : {}),
+    ...(metadata.source_retracted === true ? { source_retracted: true } : {}),
+    ...(isRecord(metadata.coverage) ? { coverage: parseCoverage(metadata.coverage) } : {}),
   };
 }
 

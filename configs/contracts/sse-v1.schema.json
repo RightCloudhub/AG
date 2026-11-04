@@ -1,0 +1,722 @@
+{
+  "$defs": {
+    "Claim": {
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "CostStats": {
+      "properties": {
+        "completion_tokens": {
+          "default": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "latency_ms": {
+          "default": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "llm_calls": {
+          "default": 0,
+          "title": "Llm Calls",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "tokens": {
+          "default": 0,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "CostStats",
+      "type": "object"
+    },
+    "CriticAction": {
+      "enum": [
+        "sufficient",
+        "next_hop",
+        "rewrite",
+        "give_up"
+      ],
+      "title": "CriticAction",
+      "type": "string"
+    },
+    "DegradedChannelOut": {
+      "description": "One retrieval channel that degraded or failed during the run (O-9).\n\nReported per query so a caller can tell \"no evidence exists\" from \"retrieval\nwas broken\": ``failed`` means the channel produced nothing at all.",
+      "properties": {
+        "channel": {
+          "title": "Channel",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "default": "degraded",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "title": "DegradedChannelOut",
+      "type": "object"
+    },
+    "DegradedPayload": {
+      "additionalProperties": true,
+      "properties": {
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/DegradedChannelOut"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "low_confidence": {
+          "title": "Low Confidence",
+          "type": "boolean"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "channels",
+        "low_confidence"
+      ],
+      "title": "DegradedPayload",
+      "type": "object"
+    },
+    "ErrorPayload": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "query_id"
+      ],
+      "title": "ErrorPayload",
+      "type": "object"
+    },
+    "GlobalProgressPayload": {
+      "additionalProperties": true,
+      "properties": {
+        "processed_documents": {
+          "minimum": 0,
+          "title": "Processed Documents",
+          "type": "integer"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "total_documents": {
+          "minimum": 0,
+          "title": "Total Documents",
+          "type": "integer"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "stage",
+        "unit",
+        "processed_documents",
+        "total_documents"
+      ],
+      "title": "GlobalProgressPayload",
+      "type": "object"
+    },
+    "HopDonePayload": {
+      "additionalProperties": true,
+      "properties": {
+        "conclusion": {
+          "default": "",
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "critic_action": {
+          "default": "",
+          "title": "Critic Action",
+          "type": "string"
+        },
+        "hop": {
+          "minimum": 0,
+          "title": "Hop",
+          "type": "integer"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "hop"
+      ],
+      "title": "HopDonePayload",
+      "type": "object"
+    },
+    "ProgressPayload": {
+      "additionalProperties": true,
+      "properties": {
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id"
+      ],
+      "title": "ProgressPayload",
+      "type": "object"
+    },
+    "QueryRoute": {
+      "enum": [
+        "agentic",
+        "fast_path",
+        "baseline",
+        "chitchat"
+      ],
+      "title": "QueryRoute",
+      "type": "string"
+    },
+    "QueryStatus": {
+      "enum": [
+        "answered",
+        "partial",
+        "no_answer"
+      ],
+      "title": "QueryStatus",
+      "type": "string"
+    },
+    "ReasoningChain": {
+      "description": "FR-AN-02 reasoning chain — single source of truth for P2-AG-06.",
+      "properties": {
+        "answer": {
+          "default": "",
+          "title": "Answer",
+          "type": "string"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/Claim"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "cost": {
+          "$ref": "#/$defs/CostStats"
+        },
+        "explored_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Explored Paths",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "missing_info": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Info",
+          "type": "array"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/QueryRoute",
+          "default": "agentic"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/QueryStatus",
+          "default": "no_answer"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ReasoningStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "ReasoningChain",
+      "type": "object"
+    },
+    "ReasoningStep": {
+      "properties": {
+        "conclusion": {
+          "default": "",
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "critic_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CriticAction"
+            },
+            {
+              "$ref": "#/$defs/StepAction"
+            },
+            {
+              "const": "",
+              "type": "string"
+            }
+          ],
+          "default": "",
+          "description": "sufficient|next_hop|rewrite|give_up (CriticAction value)",
+          "title": "Critic Action"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "hop": {
+          "description": "Hop index within the agentic loop",
+          "minimum": 0,
+          "title": "Hop",
+          "type": "integer"
+        },
+        "sub_question": {
+          "title": "Sub Question",
+          "type": "string"
+        },
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/ToolCallTrace"
+          },
+          "title": "Tool Calls",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hop",
+        "sub_question"
+      ],
+      "title": "ReasoningStep",
+      "type": "object"
+    },
+    "RetrievalTool": {
+      "enum": [
+        "graph_neighbors",
+        "graph_path",
+        "graph_subgraph",
+        "vector_search",
+        "fulltext_search",
+        "cache"
+      ],
+      "title": "RetrievalTool",
+      "type": "string"
+    },
+    "StepAction": {
+      "enum": [
+        "fast_path"
+      ],
+      "title": "StepAction",
+      "type": "string"
+    },
+    "SubQuestionPayload": {
+      "additionalProperties": true,
+      "properties": {
+        "hop": {
+          "minimum": 0,
+          "title": "Hop",
+          "type": "integer"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "sub_question": {
+          "title": "Sub Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "hop",
+        "sub_question"
+      ],
+      "title": "SubQuestionPayload",
+      "type": "object"
+    },
+    "ThinkingPayload": {
+      "additionalProperties": true,
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "stage",
+        "text"
+      ],
+      "title": "ThinkingPayload",
+      "type": "object"
+    },
+    "ToolCallTrace": {
+      "properties": {
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "hits": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hits",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalTool"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Tool"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ToolCallTrace",
+      "type": "object"
+    },
+    "TriagePayload": {
+      "additionalProperties": true,
+      "properties": {
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "estimated_hops": {
+          "default": 0,
+          "title": "Estimated Hops",
+          "type": "integer"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "route": {
+          "title": "Route",
+          "type": "string"
+        },
+        "rule_hit": {
+          "default": "",
+          "title": "Rule Hit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "route"
+      ],
+      "title": "TriagePayload",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One terminal answer or error. Ignore unknown events. No POST replay.",
+  "oneOf": [
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ProgressPayload"
+        },
+        "event": {
+          "const": "cache_hit"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/TriagePayload"
+        },
+        "event": {
+          "const": "triage"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ThinkingPayload"
+        },
+        "event": {
+          "const": "thinking"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SubQuestionPayload"
+        },
+        "event": {
+          "const": "sub_question"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/HopDonePayload"
+        },
+        "event": {
+          "const": "hop_done"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DegradedPayload"
+        },
+        "event": {
+          "const": "degraded"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/GlobalProgressPayload"
+        },
+        "event": {
+          "const": "global_progress"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ReasoningChain"
+        },
+        "event": {
+          "const": "answer"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ErrorPayload"
+        },
+        "event": {
+          "const": "error"
+        },
+        "id": {
+          "pattern": "^.+:[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "id",
+        "data"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "AgenticGraphRAG v1 SSE decoded frame",
+  "x-contract-version": "1.1.0",
+  "x-heartbeat": ": keep-alive"
+}

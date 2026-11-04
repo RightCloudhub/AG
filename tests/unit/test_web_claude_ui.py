@@ -26,6 +26,8 @@ CSS_FILES = (
     "wizard.css",
     "admin.css",
     "responsive.css",
+    "knowledge-config.css",
+    "models.css",
 )
 VIEW_FILES = (
     "views/chat.js",
@@ -61,6 +63,13 @@ FEATURE_JS = (
     "shell/use_palette.js",
     "shell/use_inspector.js",
     "knowledge/ingest_wizard.js",
+    "knowledge/config_panel.js",
+    "knowledge/summary_api.js",
+    "knowledge/summary_state.js",
+    "knowledge/summary_panel.js",
+    "knowledge/evidence_source.js",
+    "knowledge/select.js",
+    "admin/models.js",
 )
 TEMPLATE_JS = (
     "app.js",
@@ -72,6 +81,10 @@ TEMPLATE_JS = (
     "shell/tpl_topbar.js",
     "shell/tpl_notebook.js",
     "shell/tpl_inspector.js",
+    "knowledge/config_panel.js",
+    "knowledge/summary_panel.js",
+    "knowledge/evidence_source.js",
+    "admin/models.js",
 )
 REQUIRED_FILES = (
     WEB / "index.html",
@@ -200,6 +213,17 @@ def test_frontend_injection_and_external_asset_safety():
     assert not EMOJI.search(text), "icons are drawn SVG paths (icons.js), never emoji"
 
 
+def test_models_panel_is_an_admin_tab_with_separate_save_test_and_publish():
+    assert "ModelsPanel" in _js("admin/ops.js") and "OpsTab.MODELS" in _js("admin/ops.js")
+    panel = _js("admin/models.js")
+    assert 'v-model="form.roles[role]"' in panel
+    assert "canTest" in panel and "canPublish" in panel
+    assert 'role="alert"' in panel and 'role="status"' in panel
+    assert "password" not in panel and "secret_ref" not in panel
+    for entry in ("index.html", "application.html"):
+        assert "/web/static/css/models.css" in _read(WEB / entry)
+
+
 def test_shell_is_topbar_notebook_page_and_inspector():
     topbar = _js("shell/tpl_topbar.js")
     assert 'class="topbar"' in topbar and 'name="mark"' in topbar and "openPalette" in topbar
@@ -242,6 +266,19 @@ def test_question_page_has_title_rail_conclusion_meta():
         assert f"function {handler}" in chat, handler
     assert "abortCtrl.value.abort()" in chat and "postFeedback" in chat
     assert "railFromProgress" in chat and "railFromAnswer" in chat and "inspShow" in chat
+
+
+def test_summary_status_and_original_evidence_are_connected_to_scoped_views():
+    assert "<summary-status" in _js("knowledge/config_panel.js")
+    status = _js("knowledge/summary_panel.js")
+    assert 'role="alert"' in status and 'role="status"' in status
+    assert "status.ready" in status and "run(job.id)" in status
+    assert "EvidenceSource" in _js("shell/use_inspector.js")
+    inspector = _js("shell/tpl_inspector.js")
+    assert ":evidence-id=" in inspector and ":kb-id=" in inspector
+    original = _js("knowledge/evidence_source.js")
+    assert "{{ original.content }}" in original and "originalDeleted" in original
+    assert "globalCoverage" in _js("chat/tpl_page.js")
 
 
 def test_workspace_and_static_assets_are_served():

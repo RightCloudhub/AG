@@ -40,7 +40,7 @@ class Profile(StrEnum):
 
 class LLMMode(StrEnum):
     OFF = "off"  # MockLLM / rule-based only
-    LIVE = "live"  # real provider (requires a key)
+    LIVE = "live"  # explicit provider; local endpoints may be configured without keys
 
 
 class ProfileError(RuntimeError):
@@ -143,6 +143,8 @@ def resolve_runtime_profile(
     env: Mapping[str, str] | None = None,
     *,
     llm_api_key: str | None = None,
+    llm_auth_required: bool = True,
+    model_roles_configured: bool = False,
 ) -> RuntimeProfile:
     """Resolve the profile and LLM mode; validate against the capability matrix."""
     env = os.environ if env is None else env
@@ -154,7 +156,8 @@ def resolve_runtime_profile(
             f"profile {profile.value!r} does not allow a live LLM (AGR_ALLOW_LLM=1); "
             "use record/replay fixtures instead"
         )
-    mode = LLMMode.LIVE if wants_llm and _llm_key_usable(llm_api_key) else LLMMode.OFF
+    ready = _llm_key_usable(llm_api_key) or not llm_auth_required or model_roles_configured
+    mode = LLMMode.LIVE if wants_llm and ready else LLMMode.OFF
     return RuntimeProfile(profile=profile, caps=caps, llm_mode=mode)
 
 

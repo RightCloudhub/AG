@@ -14,8 +14,10 @@ from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import CircuitControlledClient, LLMClient, Message, Tier
 from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
+from agentic_graphrag.generation.answer_fallback import _offline_or_abstain
 
 # Re-export for older imports / tests
 from agentic_graphrag.generation.citations import (
@@ -31,8 +33,8 @@ from agentic_graphrag.generation.evidence_catalog import (  # noqa: F401 — re-
     _attach_evidence_catalog,
     _catalog_entry,
 )
-from agentic_graphrag.generation.offline_answer import offline_answer
 from agentic_graphrag.generation.verdict import report_gap
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
@@ -148,7 +150,7 @@ def _llm_answer(
         + extra
     )
     return complete_structured(
-        llm,
+        for_role(llm, ModelRole.WRITER),
         [
             Message(role=MessageRole.SYSTEM, content=system),
             Message(role=MessageRole.USER, content=user),
@@ -181,7 +183,7 @@ def generate_answer(
         return chain
 
     if not allow_llm or llm is None:
-        return offline_answer(chain, evidence, conclusions)
+        return _offline_or_abstain(chain, evidence, conclusions)
 
     # Skip remote call entirely when circuit is already open (P95: avoid 3s connect).
     circuit = llm.circuit if isinstance(llm, CircuitControlledClient) else None
@@ -193,7 +195,7 @@ def generate_answer(
             "llm_error": "CircuitOpen",
             "llm_error_msg": "LLM circuit open; offline answer",
         }
-        return offline_answer(chain, evidence, conclusions)
+        return _offline_or_abstain(chain, evidence, conclusions)
 
     try:
         return _generate_with_llm(
@@ -226,7 +228,7 @@ def _degrade(
         "llm_error": type(exc).__name__,
         "llm_error_msg": str(exc)[:200],
     }
-    return offline_answer(chain, evidence, conclusions)
+    return _offline_or_abstain(chain, evidence, conclusions)
 
 
 def _generate_with_llm(

@@ -14,10 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agentic_graphrag.api.auth import AuthRateLimitMiddleware
 from agentic_graphrag.api.envelope import MetaBody, fail
-from agentic_graphrag.api.routes import admin as admin_routes
-from agentic_graphrag.api.routes import knowledge as knowledge_routes
-from agentic_graphrag.api.routes import query as query_routes
-from agentic_graphrag.api.routes import workspace as workspace_routes
+from agentic_graphrag.api.routes import install_business_routes
 from agentic_graphrag.app.errors import INTERNAL_ERROR, INVALID_INPUT, ApiError
 from agentic_graphrag.app.query_service import QueryService, build_default_service
 from agentic_graphrag.config import ROOT_DIR
@@ -142,11 +139,15 @@ def _missing_store_credentials(svc: QueryService) -> list[str]:
 
 
 def _valid_llm_key(svc: QueryService) -> bool:
+    if not svc.settings.llm_auth_required or svc.cfg.models.roles:
+        return True
     key = svc.settings.llm_api_key
     return bool(key and key.strip() and "your-key" not in key)
 
 
 def _register_routes(app: FastAPI) -> None:
+    install_business_routes(app, identity=True)
+
     @app.get("/healthz")
     def healthz(request: Request) -> dict[str, Any]:
         """Liveness + shallow dependency checks (graph/vector/doc store)."""
@@ -161,12 +162,6 @@ def _register_routes(app: FastAPI) -> None:
             content=prometheus_metrics_text(),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
-
-    app.include_router(query_routes.router)
-    app.include_router(knowledge_routes.router)
-    app.include_router(workspace_routes.router)
-    app.include_router(workspace_routes.identity_router)
-    app.include_router(admin_routes.router)
 
 
 def _health_payload(request: Request) -> dict[str, Any]:

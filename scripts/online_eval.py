@@ -200,7 +200,9 @@ def run_batch(
         app.enable_cache = False
         app.retrieval_cache = None
         with (
-            patch("agentic_graphrag.app.query_run.build_executor_for_service", chat_executor),
+            patch(
+                "agentic_graphrag.app.query_dependencies.build_executor_for_service", chat_executor
+            ),
             report_path.open("w", encoding="utf-8") as report,
         ):
             for index, case in enumerate(cases, 1):

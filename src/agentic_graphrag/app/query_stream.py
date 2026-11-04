@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 import typing
 from collections.abc import Iterator
@@ -22,8 +21,10 @@ from agentic_graphrag.app.degradation_policy import (
     apply_degradation_policy,
 )
 from agentic_graphrag.app.errors import INTERNAL_ERROR, ApiError
+from agentic_graphrag.app.global_query import global_progress, uses_global
+from agentic_graphrag.app.query_accounting import close_client, settle_aborted
+from agentic_graphrag.app.query_limits import guard_and_budget as _guard_and_budget
 from agentic_graphrag.app.query_run import (
-    MS_PER_SECOND,
     QUESTION_SPAN_PREVIEW,
     _budget_api_error,
     _finalize_chain,
@@ -33,14 +34,17 @@ from agentic_graphrag.app.query_run import (
 )
 from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_DEGRADED, EVENT_ERROR
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
-from agentic_graphrag.app.tenant_context import tenant_entities
 from agentic_graphrag.app.wiring import (
-    build_executor_for_service,
     build_llm_for_service,
     stream_cache_hit_events,
 )
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.governance.execution import (
+    ExecutionStopped,
+    current_execution,
+    execution_scope,
+)
 from agentic_graphrag.observability.context import iterate_with_context, query_context
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
@@ -78,11 +82,14 @@ def _stream_live(
     tenant_id: str,
     user_id: str,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    trace_ctx = get_tracer().start(tenant_id=tenant_id, user_id=user_id)
-    with query_context(query_id=trace_ctx.query_id, tenant_id=tenant_id, user_id=user_id):
-        yield from _stream_with_budget(
-            svc, req, tenant_id=tenant_id, user_id=user_id, trace_ctx=trace_ctx
+    with execution_scope(reuse=True) as control:
+        trace_ctx = get_tracer().start(
+            query_id=control.query_id, tenant_id=tenant_id, user_id=user_id
         )
+        with query_context(query_id=trace_ctx.query_id, tenant_id=tenant_id, user_id=user_id):
+            yield from _stream_with_budget(
+                svc, req, tenant_id=tenant_id, user_id=user_id, trace_ctx=trace_ctx
+            )
 
 
 def _stream_with_budget(
@@ -101,12 +108,14 @@ def _stream_with_budget(
         for etype, payload in _stream_agent(
             svc, req, tenant_id=tenant_id, user_id=user_id, t0=t0, trace_ctx=trace_ctx
         ):
-            if etype == EVENT_ANSWER:
+            if etype == EVENT_ANSWER or payload.pop("_settled", False):
                 # _finish_answer settled the reservation via commit.
                 reserved = False
             yield etype, payload
     except ApiError as exc:
         yield EVENT_ERROR, {"code": exc.code, "message": exc.message}
+    except ExecutionStopped as exc:
+        yield EVENT_ERROR, {"code": "QUERY_CANCELLED", "message": str(exc)}
     except BudgetExceeded as exc:
         err = _budget_api_error(exc, tenant_id=tenant_id, user_id=user_id)
         yield EVENT_ERROR, {"code": err.code, "message": err.message}
@@ -117,8 +126,17 @@ def _stream_with_budget(
         record_degradation("query_stream", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED)
         yield EVENT_ERROR, {"code": INTERNAL_ERROR, "message": type(exc).__name__}
     finally:
-        if reserved:
-            _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
+        _settle_stream(svc, reserved=reserved, tenant_id=tenant_id, user_id=user_id)
+
+
+def _settle_stream(svc: QueryService, *, reserved: bool, tenant_id: str, user_id: str) -> None:
+    control = current_execution.get()
+    if reserved and not (control and control.settled):
+        _release_budget(svc, tenant_id=tenant_id, user_id=user_id)
+        if control is not None:
+            settle_aborted(svc, control, tenant_id=tenant_id, user_id=user_id)
+    elif control is not None:
+        close_client(control)
 
 
 def _stream_agent(
@@ -136,6 +154,13 @@ def _stream_agent(
     slow client drained events slowly. Build is cheap and stores are shared.
     """
     guard_cfg, budget = _guard_and_budget(svc, req)
+    if control := current_execution.get():
+        control.budget = budget
+        control.deadline = (
+            time.monotonic() + guard_cfg.query_timeout_seconds
+            if guard_cfg.query_timeout_seconds
+            else None
+        )
     executor, llm, opts = _build_stream_deps(
         svc, req, (guard_cfg, budget), tenant_id=tenant_id, query_id=trace_ctx.query_id
     )
@@ -152,17 +177,6 @@ def _stream_agent(
         )
 
 
-def _guard_and_budget(svc: QueryService, req: QueryRequest) -> tuple[GuardrailConfig, Any]:
-    timeout_override = (
-        max(1, math.ceil(req.timeout_ms / MS_PER_SECOND)) if req.timeout_ms is not None else None
-    )
-    guard_cfg = GuardrailConfig.from_app_config(
-        svc.cfg, max_hops=req.max_hops, query_timeout_seconds=timeout_override
-    )
-    budget = svc.multi_budget.query_tracker() if svc.multi_budget else guard_cfg.budget_tracker()
-    return guard_cfg, budget
-
-
 def _build_stream_deps(
     svc: QueryService,
     req: QueryRequest,
@@ -172,26 +186,26 @@ def _build_stream_deps(
     query_id: str,
 ) -> tuple[Executor, LLMClient | None, QueryOptions]:
     guard_cfg, budget = guard_budget
-    executor = build_executor_for_service(
-        bundle=svc.bundle,
-        cfg=svc.cfg,
-        settings=svc.settings,
-        allow_llm=svc.allow_llm,
-        known_entities=tenant_entities(svc, tenant_id),
-        tenant_id=tenant_id or None,
-        retrieval_cache=svc.retrieval_cache,
-        enable_cache=svc.enable_cache,
-    )
+    from agentic_graphrag.app.query_dependencies import query_dependencies
+
     llm = build_llm_for_service(
-        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
+        allow_llm=svc.allow_llm,
+        settings=svc.settings,
+        cfg=svc.cfg,
+        budget=budget,
+        tenant_id=tenant_id,
+        kb_id=req.kb_id,
     )
+    executor, llm = query_dependencies(svc, budget, tenant_id=tenant_id, llm=llm)
+    if control := current_execution.get():
+        control.llm = llm
     opts = QueryOptions(
         query_id=query_id,
         guard_cfg=guard_cfg,
         budget=budget,
         allow_llm=svc.allow_llm,
-        force_agentic=req.force_agentic,
-        enable_triage=svc.enable_triage and not req.force_agentic,
+        force_agentic=req.force_agentic or executor.config.llm_only,
+        enable_triage=svc.enable_triage and not req.force_agentic and not executor.config.llm_only,
         known_entities=executor.known_entities,
         tenant_id=tenant_id,
     )
@@ -209,9 +223,14 @@ def _consume_progress(
     user_id: str,
     t0: float,
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    for etype, payload in iter_query_progress(
-        req.question, executor, llm if svc.allow_llm else None, options=opts
-    ):
+    if uses_global(svc, req):
+        assert llm is not None and opts.budget is not None and opts.query_id is not None
+        progress = global_progress(svc, req, llm=llm, budget=opts.budget, query_id=opts.query_id)
+    else:
+        progress = iter_query_progress(
+            req.question, executor, llm if svc.allow_llm else None, options=opts
+        )
+    for etype, payload in progress:
         if etype != EVENT_FINAL_CHAIN:
             yield etype, typing.cast(dict[str, object], payload)
             continue
@@ -264,4 +283,15 @@ def _finish_answer(
     )
     _persist_and_commit(svc, req, chain, tenant_id=tenant_id, user_id=user_id)
     _record_metrics(chain, tenant_id=tenant_id, user_id=user_id)
+    if req.audit_required and chain.metadata.get("audit_status") != "persisted":
+        yield (
+            EVENT_ERROR,
+            {
+                "code": "AUDIT_UNAVAILABLE",
+                "message": "Durable audit could not be recorded",
+                "query_id": chain.query_id,
+                "_settled": True,
+            },
+        )
+        return
     yield EVENT_ANSWER, chain.model_dump(mode="json")

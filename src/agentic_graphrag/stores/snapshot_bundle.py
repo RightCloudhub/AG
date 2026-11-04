@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from agentic_graphrag.core.knowledge import KnowledgeScope
 from agentic_graphrag.core.knowledge_versions import KnowledgeSnapshot
+from agentic_graphrag.core.ports.capabilities import ProcessLocalIndex
 from agentic_graphrag.core.ports.knowledge import KnowledgeStore
 from agentic_graphrag.stores.doc_store import InMemoryDocStore
 from agentic_graphrag.stores.factory import GraphBackend, StoreBundle, VectorBackend
@@ -49,9 +50,10 @@ def capture_snapshot(
             entities=list(entities_in_scope(bundle.graph, tenant)),
             relations=list(relations_in_scope(bundle.graph, tenant)),
         )
+        payload = visible_payload(payload, store)
         manifest = manifest.model_copy(
             update={
-                "document_selection_fingerprint": document_fingerprint(documents),
+                "document_selection_fingerprint": document_fingerprint(payload.documents),
             }
         )
         return store.save_snapshot(manifest, payload.model_dump_json())
@@ -80,16 +82,27 @@ def snapshot_bundle(store: KnowledgeStore, scope: KnowledgeScope, generation: st
         vector_backend=VectorBackend.MEMORY,
     )
     bound = scope_bundle(raw, scope, generation=generation)
-    _restore(bound, payload)
+    restore_records(bound, payload)
     return scope_bundle(raw, scope, generation=generation, read_only=True)
 
 
-def _restore(bundle: StoreBundle, payload: SnapshotPayload) -> None:
+def restore_records(bundle: StoreBundle, payload: SnapshotPayload) -> None:
+    """Idempotently materialize a sealed source before beginning document changes."""
     bundle.graph.upsert_entities(payload.entities)
     bundle.graph.upsert_relations(payload.relations)
     for doc in payload.documents:
-        bundle.docs.save(doc)
         bundle.fulltext.index([replace(chunk) for chunk in doc.chunks if chunk.fulltext_indexed])
         embedded = [replace(chunk) for chunk in doc.chunks if chunk.embedding and chunk.embedded]
         if embedded:
             bundle.vector.upsert(embedded)
+        indexes = {
+            "embedded": bundle.vector,
+            "fulltext_indexed": bundle.fulltext,
+            "graph_extracted": bundle.graph,
+        }
+        doc.metadata["index_generations"] = {
+            stage: index.index_generation
+            for stage, index in indexes.items()
+            if isinstance(index, ProcessLocalIndex)
+        }
+        bundle.docs.save(doc)

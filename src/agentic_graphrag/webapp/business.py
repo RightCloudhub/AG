@@ -16,10 +16,9 @@ def install_business(
     app: FastAPI,
     query_service: QueryService | None,
 ) -> AbstractAsyncContextManager[None]:
-    from agentic_graphrag.api.routes import admin, knowledge, query, workspace
+    from agentic_graphrag.api.routes import admin, install_business_routes
 
-    for router in (query.router, knowledge.router, workspace.router, admin.router):
-        app.include_router(router)
+    install_business_routes(app)
 
     @app.get("/metrics-prom", dependencies=[Depends(require_role(Role.ADMIN))])
     def metrics(request: Request) -> Response:

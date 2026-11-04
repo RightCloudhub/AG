@@ -35,7 +35,7 @@ export const ErrorMessage = Object.freeze({
 });
 export const StreamEvent = Object.freeze({
   CACHE_HIT: 'cache_hit', TRIAGE: 'triage', THINKING: 'thinking',
-  SUB_QUESTION: 'sub_question', HOP_DONE: 'hop_done', ANSWER: 'answer', ERROR: 'error',
+  SUB_QUESTION: 'sub_question', HOP_DONE: 'hop_done', GLOBAL_PROGRESS: 'global_progress', ANSWER: 'answer', ERROR: 'error',
   // O-9: a channel failed during the run; the frame carries {channels, low_confidence}.
   DEGRADED: 'degraded',
 });
@@ -95,7 +95,7 @@ export const IngestStatus = Object.freeze({
   QUEUED: 'queued', EXTRACTING: 'extracting', REVIEW: 'review', DONE: 'done',
   FAILED: 'failed', EMPTY: 'empty',
 });
-export const OpsTab = Object.freeze({ METRICS: 'metrics', BUDGET: 'budget', AUDIT: 'audit' });
+export const OpsTab = Object.freeze({ METRICS: 'metrics', BUDGET: 'budget', AUDIT: 'audit', MODELS: 'models' });
 export const UiPolicy = Object.freeze({
   DEFAULT_PAGE_SIZE: 50, TABLE_PAGE_SIZE: 20, GRAPH_PAGE_SIZE: 24,
   AUDIT_PAGE_SIZE: 100, SEARCH_DEBOUNCE_MS: 300, ID_PREVIEW: 12,
@@ -148,7 +148,7 @@ export const ProposedEndpoint = Object.freeze({
 /** @typedef {(typeof StreamEvent)[keyof typeof StreamEvent]} StreamEventName */
 /** @typedef {(payload: unknown, event: StreamEventName) => void} StreamHandler */
 /** @typedef {Partial<Record<StreamEventName, StreamHandler>> & {done?: () => void}} StreamHandlers */
-/** @typedef {{question: string, force_agentic?: boolean, max_hops?: number, timeout_ms?: number}} QueryRequest */
+/** @typedef {{question: string, kb_id?: string, doc_ids?: string[], force_agentic?: boolean, max_hops?: number, timeout_ms?: number}} QueryRequest */
 /** @typedef {(typeof ReviewDecision)[keyof typeof ReviewDecision]} ReviewDecisionName */
 /** @typedef {(typeof ReviewStatus)[keyof typeof ReviewStatus]} ReviewStatusName */
 /** @typedef {(typeof ReviewType)[keyof typeof ReviewType]} ReviewTypeName */

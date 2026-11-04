@@ -9,7 +9,7 @@ export const TOPBAR_TEMPLATE = `
   <div class="topbar__left">
     <button type="button" class="btn btn--icon btn--ghost menu-btn" @click="openNotebook" :aria-label="T.notebook.open"><ag-icon name="menu"></ag-icon></button>
     <a class="topbar__brand" href="#chat" :title="T.app.title + ' · ' + T.app.subtitle"><ag-icon name="mark" :size="20"></ag-icon><span>{{ T.app.subtitle }}</span></a>
-    <span class="topbar__scope" v-if="user"><ag-icon name="knowledge" :size="14"></ag-icon>{{ T.topbar.scope }}<b>{{ user.tenant_id || 'default' }}</b></span>
+    <knowledge-select></knowledge-select>
   </div>
   <button type="button" class="topbar__search" @click="openPalette" :aria-label="T.topbar.searchAria">
     <ag-icon name="search" :size="14"></ag-icon><span>{{ T.topbar.search }}</span><kbd>⌘K</kbd>

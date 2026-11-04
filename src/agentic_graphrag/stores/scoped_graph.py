@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from agentic_graphrag.core.ports.capabilities import (
     DEFAULT_RELATION_SCAN,
     EntityLookup,
     EntityMutation,
+    EntityNameLookup,
+    EntityNames,
     ProcessLocalIndex,
     RelationDeletion,
 )
@@ -82,13 +85,28 @@ class ScopedGraphStore:
         }
 
     def entities_named(self, name: str, *, tenant_id: str | None = None) -> list[EntityRecord]:
+        return [self.binding.decode(row) for row in self._named_rows(name, tenant_id=tenant_id)]
+
+    def _named_rows(self, name: str, *, tenant_id: str | None) -> list[EntityRecord]:
         owner = self.binding.check(tenant_id)
-        return [
-            self.binding.decode(row)
-            for row in entities_in_scope(self.store, owner)
-            if row.name.casefold() == name.casefold()
-            or name.casefold() in {alias.casefold() for alias in row.aliases}
-        ]
+        if isinstance(self.store, EntityNameLookup):
+            rows = self.store.entities_named(name, tenant_id=owner)
+        else:
+            rows = [
+                row
+                for row in entities_in_scope(self.store, owner)
+                if row.name.casefold() == name.casefold()
+                or name.casefold() in {alias.casefold() for alias in row.aliases}
+            ]
+        if any((row.tenant_id or "default") != owner for row in rows):
+            raise ValueError("Storage returned an entity outside the bound knowledge scope")
+        return rows
+
+    def entity_names(self, *, tenant_id: str) -> list[str]:
+        owner = self.binding.check(tenant_id)
+        if isinstance(self.store, EntityNames):
+            return self.store.entity_names(tenant_id=owner)
+        return list(dict.fromkeys(row.name for row in entities_in_scope(self.store, owner)))
 
     def get_entity_by_name(
         self, name: str, entity_type: str | None = None, *, tenant_id: str | None = None
@@ -118,16 +136,21 @@ class ScopedGraphStore:
         tenant_id: str | None = None,
     ) -> list[tuple[RelationRecord, EntityRecord]]:
         owner = self.binding.check(tenant_id)
-        if len(self.entities_named(entity_name, tenant_id=tenant_id)) != 1:
+        matches = self._named_rows(entity_name, tenant_id=tenant_id)
+        if len(matches) != 1:
             return []
         rows = self.store.neighbors(
-            entity_name,
+            matches[0].name,
             max_hops=max_hops,
             relation_types=relation_types,
             limit=limit,
             tenant_id=owner,
         )
-        return [(self.binding.decode(edge), self.binding.decode(entity)) for edge, entity in rows]
+        memo: dict[int, Any] = {}
+        return [
+            (self.binding.decode(edge, memo=memo), self.binding.decode(entity, memo=memo))
+            for edge, entity in rows
+        ]
 
     def neighbors_by_id(
         self,
@@ -162,23 +185,23 @@ class ScopedGraphStore:
         tenant_id: str | None = None,
     ) -> list[PathRecord]:
         owner = self.binding.check(tenant_id)
-        if any(
-            len(self.entities_named(name, tenant_id=tenant_id)) != 1
-            for name in (source_name, target_name)
-        ):
+        source = self._named_rows(source_name, tenant_id=tenant_id)
+        target = self._named_rows(target_name, tenant_id=tenant_id)
+        if len(source) != 1 or len(target) != 1:
             return []
         paths = self.store.paths(
-            source_name,
-            target_name,
+            source[0].name,
+            target[0].name,
             max_hops=max_hops,
             limit=limit,
             tenant_id=owner,
         )
+        memo: dict[int, Any] = {}
         return [
             replace(
                 path,
-                nodes=[self.binding.decode(n) for n in path.nodes],
-                relations=[self.binding.decode(r) for r in path.relations],
+                nodes=[self.binding.decode(n, memo=memo) for n in path.nodes],
+                relations=[self.binding.decode(r, memo=memo) for r in path.relations],
             )
             for path in paths
         ]

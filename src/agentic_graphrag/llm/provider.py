@@ -8,7 +8,7 @@ from copy import copy
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx as httpx  # Compatibility for provider-boundary HTTP stubs.
 
 from agentic_graphrag.core.ports.llm import Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker
@@ -20,7 +20,10 @@ from agentic_graphrag.llm.circuit import (
     CircuitBreaker,
     CircuitBreakerSet,
 )
-from agentic_graphrag.llm.responses import JSON_OBJECT, CompletionResponse, CompletionUsage
+from agentic_graphrag.llm.embedding_response import embedding_rows
+from agentic_graphrag.llm.http_transport import ProviderHttpPool
+from agentic_graphrag.llm.provider_completion import complete, record_embedding_usage
+from agentic_graphrag.llm.provider_options import ProviderOptions
 from agentic_graphrag.llm.verifier import warn_same_model
 
 
@@ -41,7 +44,10 @@ class LLMProvider:
         cache_dir: str | Path | None = None,
         circuit: CircuitBreaker | None = None,
         fallback_to_light: bool = False,
+        options: ProviderOptions | None = None,
     ) -> None:
+        self.options = options or ProviderOptions()
+        self.http_pool = ProviderHttpPool()
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         # Separate embedding endpoint (multi-provider); fall back to chat endpoint.
@@ -55,16 +61,30 @@ class LLMProvider:
         self.temperature = temperature
         self.timeout_seconds = timeout_seconds
         self.budget = budget
-        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.usage = dict.fromkeys(
+            (
+                "chat_calls",
+                "embedding_calls",
+                "rerank_calls",
+                "cache_hits",
+                "prompt_tokens",
+                "completion_tokens",
+            ),
+            0,
+        )
+        self.cache_dir = response_cache.directory(cache_dir)
         # One breaker per route (O-8); ``circuit`` is the template they clone.
         self.circuits = CircuitBreakerSet(circuit)
         self.fallback_to_light = fallback_to_light
         self.degradations = 0
-        if self.cache_dir:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def model_for(self, tier: Tier) -> str:
         return self.strong_model if tier == Tier.STRONG else self.light_model
+
+    def format_for_schema(self, schema: dict[str, Any]) -> dict[str, Any] | None:
+        from agentic_graphrag.llm.output_format import output_format
+
+        return output_format(self.options.structured_output, schema)
 
     def for_verifier(self, *, model: str | None = None) -> LLMProvider:
         """Select a judge without mutating the proposer or dropping its budget/stub."""
@@ -103,51 +123,9 @@ class LLMProvider:
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> str:
-        if self.budget:
-            self.budget.check()
-
-        tier = self._effective_tier(tier)
-        payload: dict[str, Any] = {
-            "model": self.model_for(tier),
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": self.temperature if temperature is None else temperature,
-        }
-        if response_format:
-            payload["response_format"] = response_format
-
-        cache_key = response_cache.cache_key("chat", payload)
-        cached = response_cache.read_cache(self.cache_dir, cache_key)
-        if cached is not None:
-            if self.budget:
-                usage = cached.get("usage") or {}
-                self.budget.record_call(
-                    int(usage.get("prompt_tokens", 0)),
-                    int(usage.get("completion_tokens", 0)),
-                )
-            return str(cached["content"])
-
-        data = self._post(
-            "/chat/completions",
-            payload,
-            base_url=self.base_url,
-            api_key=self.api_key,
-            key_env="LLM_API_KEY",
-            route=ROUTE_STRONG if tier == Tier.STRONG else ROUTE_LIGHT,
+        return complete(
+            self, messages, tier=tier, temperature=temperature, response_format=response_format
         )
-        response = CompletionResponse.model_validate(data)
-        content = response.choices[0].message.content
-        usage = (response.usage or CompletionUsage()).model_dump()
-        if self.budget:
-            self.budget.record_call(
-                int(usage.get("prompt_tokens", 0)),
-                int(usage.get("completion_tokens", 0)),
-            )
-        response_cache.write_cache(
-            self.cache_dir,
-            cache_key,
-            {"content": content, "usage": usage},
-        )
-        return content
 
     def embed(self, text: str) -> list[float]:
         return self.embed_for_model(text, self.embedding_model)
@@ -157,11 +135,20 @@ class LLMProvider:
         # Include endpoint in cache key so multi-provider caches do not collide.
         cache_key = response_cache.cache_key(
             "embed",
-            {"base_url": self.embedding_base_url, "payload": payload},
+            {
+                "base_url": self.embedding_base_url,
+                "namespace": self.options.cache_namespace,
+                "payload": payload,
+            },
         )
         cached = response_cache.read_cache(self.cache_dir, cache_key)
         if cached is not None:
-            return list(cached["embedding"])
+            self.usage["cache_hits"] += 1
+            return embedding_rows(
+                {"data": [{"embedding": cached["embedding"]}]},
+                count=1,
+                dimensions=self.options.embedding_dimensions,
+            )[0]
 
         data = self._post(
             "/embeddings",
@@ -171,14 +158,8 @@ class LLMProvider:
             key_env="LLM_EMBEDDING_API_KEY (or LLM_API_KEY)",
             route=ROUTE_EMBED,
         )
-        embedding = data["data"][0]["embedding"]
-        # Embeddings are metered as their own call kind (not chat calls) so
-        # the hop budget is unaffected but cost/usage stay complete (§5.3).
-        if self.budget:
-            usage = data.get("usage") or {}
-            self.budget.record_embedding(
-                int(usage.get("prompt_tokens", 0) or usage.get("total_tokens", 0))
-            )
+        record_embedding_usage(self, data, kind="embedding")
+        embedding = embedding_rows(data, count=1, dimensions=self.options.embedding_dimensions)[0]
         response_cache.write_cache(self.cache_dir, cache_key, {"embedding": embedding})
         return list(embedding)
 
@@ -193,12 +174,8 @@ class LLMProvider:
             api_key=self.embedding_api_key,
             route=ROUTE_EMBED,
         )
-        rows = sorted(data["data"], key=lambda row: row["index"])
-        if [row["index"] for row in rows] != list(range(len(texts))):
-            raise ValueError("Embedding response indexes do not match the input batch")
-        if self.budget:
-            self.budget.record_embedding(int((data.get("usage") or {}).get("total_tokens", 0)))
-        return [list(row["embedding"]) for row in rows]
+        record_embedding_usage(self, data, kind="embedding")
+        return embedding_rows(data, count=len(texts), dimensions=self.options.embedding_dimensions)
 
     def _post(
         self,
@@ -210,35 +187,35 @@ class LLMProvider:
         key_env: str = "LLM_API_KEY",
         route: str = ROUTE_STRONG,
     ) -> dict[str, Any]:
-        if not api_key:
+        from agentic_graphrag.governance.execution import check_execution
+
+        check_execution()
+        if self.budget and self.budget.total_tokens >= self.budget.max_tokens:
+            self.budget.check()
+        required = (
+            self.options.embedding_auth_required
+            if route == ROUTE_EMBED
+            else self.options.auth_required
+        )
+        if required and not api_key:
             raise RuntimeError(
-                f"{key_env} is not set. Configure .env or use MockLLMProvider in tests."
+                f"{key_env} is not set; configure credentials or an explicit keyless provider"
             )
         breaker = self.circuits.route(route)
         if not breaker.allow():
             raise RuntimeError(f"LLM circuit open ({route}): too many failures")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        # Connect must fail fast: SSL hang otherwise dominates Fast Path P95.
-        connect_s = min(3.0, float(self.timeout_seconds))
-        timeout = httpx.Timeout(
-            connect=connect_s,
-            read=float(self.timeout_seconds),
-            write=min(30.0, float(self.timeout_seconds)),
-            pool=connect_s,
-        )
         try:
-            with httpx.Client(base_url=base_url, timeout=timeout) as client:
-                resp = client.post(path, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = JSON_OBJECT.validate_python(resp.json())
+            data = self.http_pool.post(
+                path, payload, base_url=base_url, api_key=api_key, timeout=self.timeout_seconds
+            )
         except Exception:
             breaker.record_failure()
             raise
         breaker.record_success()
         return data
+
+    def close(self) -> None:
+        self.http_pool.close()
 
 
 class MockLLMProvider(LLMProvider):

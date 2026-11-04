@@ -65,7 +65,7 @@ class QueryResult(WireModel):
     question: str
     answer: str
     status: Literal["answered", "partial", "no_answer"]
-    route: Literal["fast_path", "agentic"] = "agentic"
+    route: Literal["fast_path", "agentic", "chitchat"] = "agentic"
     claims: list[Claim] = Field(default_factory=list)
     steps: list[Step] = Field(default_factory=list)
     cost: Cost = Field(default_factory=Cost)

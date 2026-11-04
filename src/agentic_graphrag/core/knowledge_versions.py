@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentic_graphrag.core.knowledge import KnowledgeScope
+from agentic_graphrag.core.knowledge import KnowledgeBase, KnowledgeScope
 
 
 def timestamp() -> str:
@@ -25,6 +25,7 @@ class KnowledgeSnapshot(BaseModel):
     model_config_revision: str = ""
     document_selection_fingerprint: str = ""
     payload_sha256: str = ""
+    knowledge_base: KnowledgeBase | None = None
     created_at: str = Field(default_factory=timestamp)
 
 
@@ -35,6 +36,9 @@ class WriteIntent(BaseModel):
     source_generation: str
     target_generation: str
     document_ids: tuple[str, ...] = ()
+    expected_revision: int = Field(default=1, ge=1)
+    stage: Literal["pending", "seeded"] = "pending"
+    index_generations: tuple[tuple[str, str], ...] = ()
     status: Literal["pending", "completed"] = "pending"
     created_at: str = Field(default_factory=timestamp)
 

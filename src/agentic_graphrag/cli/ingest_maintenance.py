@@ -2,9 +2,11 @@
 
 import argparse
 import json
-from dataclasses import asdict
 
-from agentic_graphrag.knowledge.ingest_worker_cli import build_cli_worker
+from agentic_graphrag.app.knowledge_maintenance import maintain_knowledge
+from agentic_graphrag.core.knowledge import KnowledgeScope
+from agentic_graphrag.knowledge.ingest_worker_cli import build_cli_service
+from agentic_graphrag.stores.scope_codec import storage_tenant
 
 
 def maintenance_main(argv: list[str] | None = None) -> None:
@@ -13,6 +15,8 @@ def maintenance_main(argv: list[str] | None = None) -> None:
         "action", choices=["reconcile", "reindex", "migrate-doc-ids", "prune-uploads"]
     )
     parser.add_argument("--tenant", required=True, help="Required ownership scope")
+    parser.add_argument("--kb", default="default", help="Knowledge base within the tenant")
+    parser.add_argument("--operation-id", help="Stable id for resuming a maintenance write")
     args = parser.parse_args(argv)
     if args.action == "prune-uploads":
         from agentic_graphrag.config import get_config, runtime_dir
@@ -20,26 +24,24 @@ def maintenance_main(argv: list[str] | None = None) -> None:
 
         cfg = get_config()
         print(
-            UploadSessions(runtime_dir(cfg) / "uploads", cfg.indexing).prune(tenant_id=args.tenant)
+            UploadSessions(runtime_dir(cfg) / "uploads", cfg.indexing).prune(
+                tenant_id=storage_tenant(KnowledgeScope(tenant_id=args.tenant, kb_id=args.kb))
+            )
         )
         return
-    worker = build_cli_worker()
-    if args.action == "migrate-doc-ids":
-        rows = worker.pipeline.lifecycle.migrate(tenant_id=args.tenant)
-        if worker.task_store:
-            worker.task_store.remap_documents(
-                {r["old_id"]: r["doc_id"] for r in rows}, tenant_id=args.tenant
-            )
-        print(json.dumps(rows))
-        worker.reconcile(tenant_id=args.tenant)
-        return
-    results = (
-        worker.reconcile(tenant_id=args.tenant)
-        if args.action == "reconcile"
-        else worker.reindex(tenant_id=args.tenant)
-    )
-    print(json.dumps([asdict(result) for result in results]))
-    if any(result.error for result in results):
+    svc = build_cli_service()
+    try:
+        result = maintain_knowledge(
+            svc,
+            tenant_id=args.tenant,
+            kb_id=args.kb,
+            action=args.action,
+            operation_id=args.operation_id,
+        )
+    finally:
+        svc.close()
+    print(json.dumps(result))
+    if result["status"] == "failed":
         raise SystemExit(1)
 
 

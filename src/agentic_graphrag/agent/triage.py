@@ -19,7 +19,9 @@ from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner_chain import parse_chain
 from agentic_graphrag.agent.question_normalization import normalize_question
 from agentic_graphrag.core.enums import MessageRole, RetrievalChannel
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import (
     REASON_LLM_UNAVAILABLE,
@@ -223,7 +225,7 @@ def _llm_triage(
 ) -> TriageResult | None:
     try:
         raw = complete_structured(
-            llm,
+            for_role(llm, ModelRole.TRIAGE),
             [
                 Message(
                     role=MessageRole.SYSTEM,
