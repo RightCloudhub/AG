@@ -53,7 +53,9 @@ def chunk_states(
                 (tenant, *batch),
             )
         )
-    return {ref: _state(ref, docs, chunks, dead) for ref in refs if ref[0] in docs or ref[0] in dead}
+    return {
+        ref: _state(ref, docs, chunks, dead) for ref in refs if ref[0] in docs or ref[0] in dead
+    }
 
 
 def _state(

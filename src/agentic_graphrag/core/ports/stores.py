@@ -233,9 +233,7 @@ class ChunkScopedIndex(Protocol):
 class ChunkScopedGraph(Protocol):
     """Graph capability: drop one chunk's provenance; facts supported elsewhere survive."""
 
-    def delete_chunk_support(
-        self, key: ChunkKey, *, below: ChunkIdentity | None = None
-    ) -> int: ...
+    def delete_chunk_support(self, key: ChunkKey, *, below: ChunkIdentity | None = None) -> int: ...
 
 
 @runtime_checkable

@@ -105,8 +105,9 @@ def list_documents(
 
 def document_row(db: sqlite3.Connection, tenant: str, doc_id: str) -> dict[str, Any] | None:
     sql = (
-        f"SELECT u.*, {_AGG_FIELDS} FROM ({_BASE} WHERE u.doc_id=:doc) AS u LEFT JOIN ({_AGG}) AS a "
-        "ON a.doc_id=u.doc_id ORDER BY u.reserved ASC, u.updated_at DESC LIMIT 1"
+        f"SELECT u.*, {_AGG_FIELDS} FROM ({_BASE} WHERE u.doc_id=:doc) AS u "
+        f"LEFT JOIN ({_AGG}) AS a ON a.doc_id=u.doc_id "
+        "ORDER BY u.reserved ASC, u.updated_at DESC LIMIT 1"
     )
     rows = _dict_rows(db, sql, {"tenant": tenant_key(tenant), "doc": doc_id})
     return _row(rows[0]) if rows else None

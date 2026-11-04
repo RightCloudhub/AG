@@ -7,7 +7,7 @@ not on Neo4j or Qdrant client types.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +15,8 @@ from typing import Any, Literal
 from agentic_graphrag.config import AppConfig, Settings, get_config, get_settings, resolve_path
 from agentic_graphrag.core.ports.capabilities import Closable, SnapshotLoader
 from agentic_graphrag.core.ports.stores import DocStore, FulltextStore, GraphStore, VectorStore
+from agentic_graphrag.core.ports.visibility import AllVisible, ChunkVisibility
+from agentic_graphrag.stores.chunk_visibility import chunk_visibility_for
 from agentic_graphrag.stores.doc_store import FileDocStore, InMemoryDocStore
 from agentic_graphrag.stores.fulltext_shared import SharedFileBM25Store
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
@@ -50,6 +52,9 @@ class StoreBundle:
     docs: DocStore
     graph_backend: GraphBackend
     vector_backend: VectorBackend
+    # C-04: authoritative chunk visibility + persisted tenant generation. Defaults to
+    # serving everything so hand-built bundles keep working; create_bundle wires it.
+    visibility: ChunkVisibility = field(default_factory=AllVisible)
 
     def close(self) -> None:
         if isinstance(self.graph, Closable):
@@ -174,6 +179,7 @@ def create_bundle(
         docs=docs,
         graph_backend=g_backend,
         vector_backend=v_backend,
+        visibility=chunk_visibility_for(docs),
     )
 
 

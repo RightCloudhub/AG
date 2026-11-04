@@ -139,9 +139,7 @@ def _commit(
     return CommandOutcome(response, op=op)
 
 
-def _write_chunk(
-    db: sqlite3.Connection, where: tuple[str, int, int], chunk: ChunkRecord
-) -> None:
+def _write_chunk(db: sqlite3.Connection, where: tuple[str, int, int], chunk: ChunkRecord) -> None:
     tenant, version, position = where
     doc = DocumentRecord(chunk.doc_id, "", "", version=version)
     values = chunk_row(ops.tenant_key(tenant), doc, position, chunk)

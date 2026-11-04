@@ -80,9 +80,7 @@ def tombstone(db: sqlite3.Connection, tenant: str, doc_id: str) -> None:
 
 
 def clear_tombstone(db: sqlite3.Connection, tenant: str, doc_id: str) -> None:
-    db.execute(
-        "DELETE FROM tombstones WHERE tenant=? AND doc_id=?", (tenant_key(tenant), doc_id)
-    )
+    db.execute("DELETE FROM tombstones WHERE tenant=? AND doc_id=?", (tenant_key(tenant), doc_id))
 
 
 def record_history(db: sqlite3.Connection, tenant: str, version: int, chunk: ChunkRecord) -> None:

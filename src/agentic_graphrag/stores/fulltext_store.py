@@ -7,8 +7,14 @@ import re
 from collections import Counter
 from uuid import uuid4
 
-from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.ports.stores import (
+    STAGE_FULLTEXT,
+    ChunkIdentity,
+    ChunkKey,
+    ChunkRecord,
+)
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
+from agentic_graphrag.stores.chunk_identity import admits, remove_below
 
 _TOKEN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
@@ -61,11 +67,15 @@ class BM25FulltextStore:
         self._chunks: list[ChunkRecord] = []
         self._corpus_tokens: list[list[str]] = []
         self._bm25: _SimpleBM25 | None = None
+        self._floors: dict[str, ChunkIdentity] = {}
 
     def index(self, chunks: list[ChunkRecord]) -> int:
+        """Index chunks; an older identity never replaces a newer one (K-05)."""
         by_id = {scoped_id(c.tenant_id, c.chunk_id): c for c in self._chunks}
         for ch in chunks:
-            by_id[scoped_id(ch.tenant_id, ch.chunk_id)] = ch
+            key = scoped_id(ch.tenant_id, ch.chunk_id)
+            if admits(by_id, self._floors, (key, ch), stage=STAGE_FULLTEXT):
+                by_id[key] = ch
         self._chunks = list(by_id.values())
         self._corpus_tokens = [tokenize(c.text) for c in self._chunks]
         self._bm25 = _SimpleBM25(self._corpus_tokens) if self._corpus_tokens else None
@@ -95,8 +105,18 @@ class BM25FulltextStore:
         self.index([])
         return before - len(self._chunks)
 
+    def delete_chunk(self, key: ChunkKey, *, below: ChunkIdentity | None = None) -> int:
+        by_id = {scoped_id(c.tenant_id, c.chunk_id): c for c in self._chunks}
+        scoped = scoped_id(key.tenant_id, key.chunk_id)
+        removed = remove_below(by_id, self._floors, scoped, below=below, stage=STAGE_FULLTEXT)
+        if removed:
+            self._chunks = list(by_id.values())
+            self.index([])
+        return removed
+
     def clear(self) -> None:
         self.index_generation = uuid4().hex
+        self._floors.clear()
         self._chunks.clear()
         self._corpus_tokens.clear()
         self._bm25 = None
@@ -114,6 +134,8 @@ class BM25FulltextStore:
                 "index": c.index,
                 "metadata": c.metadata,
                 "tenant_id": c.tenant_id,
+                "revision": c.revision,
+                "stages": c.stages,
             }
             for c in self._chunks
         ]
@@ -135,6 +157,8 @@ class BM25FulltextStore:
                 tenant_id=str(
                     item.get("tenant_id") or (item.get("metadata") or {}).get("tenant_id") or ""
                 ),
+                revision=int(item.get("revision") or 1),
+                stages=dict(item.get("stages") or {}),
             )
             for item in data
         ]

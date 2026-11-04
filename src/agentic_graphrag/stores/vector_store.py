@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.ports.stores import STAGE_VECTOR, ChunkIdentity, ChunkKey, ChunkRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
+from agentic_graphrag.stores.chunk_identity import admits, remove_below
+from agentic_graphrag.stores.qdrant_chunks import (
+    chunk_from_payload,
+    chunk_scope,
+    identity_payload,
+    newest_per_chunk,
+)
 from agentic_graphrag.stores.qdrant_models import QdrantModelRouting, tenant_filter
 
 
@@ -51,7 +57,11 @@ class QdrantVectorStore(QdrantModelRouting):
         for ch in chunks:
             if not ch.embedding:
                 raise ValueError(f"Chunk {ch.chunk_id} missing embedding")
-            point_id = str(uuid5(NAMESPACE_URL, scoped_id(ch.tenant_id, ch.chunk_id)))
+            ident = ch.identity(STAGE_VECTOR)
+            # Physical point per (tenant, chunk, version, revision, generation): an
+            # obsolete writer creates a lower-identity point instead of overwriting.
+            physical = scoped_id(ch.tenant_id, ident.physical_key(ch.chunk_id))
+            point_id = str(uuid5(NAMESPACE_URL, physical))
             points.append(
                 qm.PointStruct(
                     id=point_id,
@@ -64,6 +74,7 @@ class QdrantVectorStore(QdrantModelRouting):
                         "metadata": ch.metadata or {},
                         "tenant_id": ch.tenant_id,
                         "embedding_model": ch.embedding_model,
+                        **identity_payload(ident),
                     },
                 )
             )
@@ -107,21 +118,9 @@ class QdrantVectorStore(QdrantModelRouting):
             query_filter=query_filter,
             limit=top_k,
         ).points
-        out: list[tuple[ChunkRecord, float]] = []
-        for hit in hits:
-            payload: dict[str, Any] = hit.payload or {}
-            chunk = ChunkRecord(
-                chunk_id=str(payload.get("chunk_id", hit.id)),
-                doc_id=str(payload.get("doc_id", "")),
-                text=str(payload.get("text", "")),
-                index=int(payload.get("index", 0)),
-                metadata=payload.get("metadata") or {},
-                tenant_id=str(payload.get("tenant_id") or ""),
-                embedding_model=str(payload.get("embedding_model") or ""),
-                embedded=True,
-            )
-            out.append((chunk, float(hit.score)))
-        return out
+        return newest_per_chunk(
+            [(chunk_from_payload(hit.payload or {}, hit.id), float(hit.score)) for hit in hits]
+        )
 
     def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
         from qdrant_client.http import models as qm
@@ -134,6 +133,19 @@ class QdrantVectorStore(QdrantModelRouting):
         )
         count = 0
         for name in self._document_collections(tenant_id):
+            count += self._client.count(collection_name=name, count_filter=scope).count
+            self._client.delete(
+                collection_name=name, points_selector=qm.FilterSelector(filter=scope), wait=True
+            )
+        return int(count)
+
+    def delete_chunk(self, key: ChunkKey, *, below: ChunkIdentity | None = None) -> int:
+        """Delete the chunk's points older than ``below`` (all when ``None``)."""
+        from qdrant_client.http import models as qm
+
+        scope = chunk_scope(key, below)
+        count = 0
+        for name in self._document_collections(key.tenant_id):
             count += self._client.count(collection_name=name, count_filter=scope).count
             self._client.delete(
                 collection_name=name, points_selector=qm.FilterSelector(filter=scope), wait=True
@@ -155,11 +167,17 @@ class QdrantVectorStore(QdrantModelRouting):
 
 
 class InMemoryVectorStore:
-    """Simple in-memory cosine store for tests / offline POC without Qdrant."""
+    """Simple in-memory cosine store for tests / offline POC without Qdrant.
+
+    One record per logical chunk; a write with a lower :class:`ChunkIdentity` than
+    the stored one (or below a cleanup floor) is ignored, so late writes from an
+    obsolete worker never replace newer content.
+    """
 
     def __init__(self) -> None:
         self.index_generation = uuid4().hex
-        self._items: list[ChunkRecord] = []
+        self._items: dict[str, ChunkRecord] = {}
+        self._floors: dict[str, ChunkIdentity] = {}
         self._dim: int | None = None
 
     def ensure_collection(self, dim: int) -> None:
@@ -169,9 +187,10 @@ class InMemoryVectorStore:
         for ch in chunks:
             if not ch.embedding:
                 raise ValueError(f"Chunk {ch.chunk_id} missing embedding")
+        for ch in chunks:
             key = scoped_id(ch.tenant_id, ch.chunk_id)
-            self._items = [x for x in self._items if scoped_id(x.tenant_id, x.chunk_id) != key]
-            self._items.append(ch)
+            if admits(self._items, self._floors, (key, ch), stage=STAGE_VECTOR):
+                self._items[key] = ch
         return len(chunks)
 
     def search(
@@ -182,7 +201,7 @@ class InMemoryVectorStore:
         tenant_id: str | None = None,
     ) -> list[tuple[ChunkRecord, float]]:
         scored: list[tuple[ChunkRecord, float]] = []
-        for ch in self._items:
+        for ch in self._items.values():
             if not tenant_matches(ch.tenant_id, tenant_id):
                 continue
             if not ch.embedding:
@@ -193,16 +212,22 @@ class InMemoryVectorStore:
         return scored[:top_k]
 
     def delete_by_doc(self, doc_id: str, tenant_id: str) -> int:
-        before = len(self._items)
-        self._items = [
-            c
-            for c in self._items
-            if not (c.doc_id == doc_id and tenant_matches(c.tenant_id, tenant_id))
+        doomed = [
+            key
+            for key, c in self._items.items()
+            if c.doc_id == doc_id and tenant_matches(c.tenant_id, tenant_id)
         ]
-        return before - len(self._items)
+        for key in doomed:
+            del self._items[key]
+        return len(doomed)
+
+    def delete_chunk(self, key: ChunkKey, *, below: ChunkIdentity | None = None) -> int:
+        scoped = scoped_id(key.tenant_id, key.chunk_id)
+        return remove_below(self._items, self._floors, scoped, below=below, stage=STAGE_VECTOR)
 
     def clear(self) -> None:
         self._items.clear()
+        self._floors.clear()
         self.index_generation = uuid4().hex
 
     def close(self) -> None:

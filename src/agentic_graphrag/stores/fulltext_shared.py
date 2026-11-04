@@ -17,7 +17,7 @@ import logging
 import os
 from pathlib import Path
 
-from agentic_graphrag.core.ports.stores import ChunkRecord
+from agentic_graphrag.core.ports.stores import ChunkIdentity, ChunkKey, ChunkRecord
 from agentic_graphrag.stores.file_lock import FileMutex
 from agentic_graphrag.stores.fulltext_store import BM25FulltextStore
 
@@ -79,6 +79,13 @@ class SharedFileBM25Store:
         with self._mutex.hold():
             self._refresh()
             count = self._inner.delete_by_doc(doc_id, tenant_id)
+            self._persist()
+            return count
+
+    def delete_chunk(self, key: ChunkKey, *, below: ChunkIdentity | None = None) -> int:
+        with self._mutex.hold():
+            self._refresh()
+            count = self._inner.delete_chunk(key, below=below)
             self._persist()
             return count
 
