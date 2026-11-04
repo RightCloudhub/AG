@@ -11,6 +11,15 @@ from pathlib import Path
 
 from agentic_graphrag.core.ports.stores import ChunkRecord, DocumentRecord
 from agentic_graphrag.core.tenancy import scoped_id, tenant_matches
+from agentic_graphrag.stores.doc_artifacts_sql import clear_tombstone, tombstone
+from agentic_graphrag.stores.doc_ops_sql import bump_generation
+from agentic_graphrag.stores.doc_ops_store import DocOpsMixin
+from agentic_graphrag.stores.doc_schema import (
+    PROJECTION_NAMES,
+    document_projection,
+    finish_upgrade,
+    prepare_schema,
+)
 from agentic_graphrag.stores.document_chunks import (
     checkpoint_chunks,
     create_chunk_table,
@@ -60,7 +69,8 @@ class InMemoryDocStore:
         if any(c.chunk_id not in positions for c in chunks):
             raise ValueError("Cannot checkpoint missing chunks")
         for chunk in chunks:
-            stored.chunks[positions[chunk.chunk_id]] = deepcopy(chunk)
+            if stored.chunks[positions[chunk.chunk_id]].revision <= chunk.revision:
+                stored.chunks[positions[chunk.chunk_id]] = deepcopy(chunk)
 
     def get(self, doc_id: str, *, tenant_id: str | None = None) -> DocumentRecord | None:
         matches = [
@@ -96,11 +106,12 @@ class InMemoryDocStore:
         )
 
 
-class FileDocStore:
+class FileDocStore(DocOpsMixin):
     """SQLite identity index and document payloads; imports legacy JSON once.
 
     Identity and chunk progress commit together. Imported paths are tracked so
-    deleted documents cannot be resurrected from legacy migration input.
+    deleted documents cannot be resurrected from legacy migration input. Schema v2
+    adds read projections, chunk revisions and durable operations (``doc_schema``).
     """
 
     durable = True
@@ -121,7 +132,9 @@ class FileDocStore:
             db.execute("CREATE INDEX IF NOT EXISTS doc_id ON documents(id)")
             db.execute("CREATE TABLE IF NOT EXISTS imported (path TEXT PRIMARY KEY)")
             create_chunk_table(db)
+            prepare_schema(db)
             self._upgrade_chunks(db)
+            finish_upgrade(db)
         self._import_legacy()
 
     def _connect(self) -> sqlite3.Connection:
@@ -151,17 +164,21 @@ class FileDocStore:
 
     @staticmethod
     def _save(db: sqlite3.Connection, doc: DocumentRecord) -> None:
+        names = ",".join(("tenant", "id", "source", "hash", "payload", *PROJECTION_NAMES))
         db.execute(
-            "INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?)",
+            f"INSERT OR REPLACE INTO documents ({names}) VALUES "
+            f"({','.join('?' * (5 + len(PROJECTION_NAMES)))})",
             (
                 _tenant(doc),
                 doc.doc_id,
                 doc.source_uri,
                 doc.content_sha256,
                 json.dumps(asdict(replace(doc, chunks=[])), ensure_ascii=False),
+                *document_projection(doc),
             ),
         )
         replace_chunks(db, doc, tenant=_tenant(doc))
+        clear_tombstone(db, _tenant(doc), doc.doc_id)
 
     def _import_legacy(self, *, force: bool = False) -> None:
         directories = [self.root, self.root / "v2"]
@@ -222,8 +239,12 @@ class FileDocStore:
         return sorted({did for did, _ in self.list_refs(tenant_id=tenant_id)})
 
     def delete(self, doc_id: str, *, tenant_id: str) -> None:
+        """Delete identity and chunks; a tombstone keeps stale index hits invisible."""
+        tenant = tenant_id or "default"
         with closing(self._connect()) as db, db:
-            delete_chunks(db, doc_id, tenant=tenant_id or "default")
-            db.execute(
-                "DELETE FROM documents WHERE id=? AND tenant=?", (doc_id, tenant_id or "default")
-            )
+            delete_chunks(db, doc_id, tenant=tenant)
+            db.execute("DELETE FROM documents WHERE id=? AND tenant=?", (doc_id, tenant))
+            # Fence any worker still holding this document's lease.
+            db.execute("DELETE FROM doc_state WHERE tenant=? AND doc_id=?", (tenant, doc_id))
+            tombstone(db, tenant, doc_id)
+            bump_generation(db, tenant)
