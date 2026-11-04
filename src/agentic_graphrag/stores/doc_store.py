@@ -121,7 +121,7 @@ class FileDocStore(DocOpsMixin):
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "documents.sqlite3"
         self._mutex = FileMutex(self.root / ".documents.lock")
-        self._legacy_stamp: tuple[int, ...] = ()
+        self._legacy_stamp: tuple[tuple[str, int], ...] = ()
         with self.lock(), closing(self._connect()) as db, db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS documents (tenant TEXT, id TEXT, "
@@ -180,14 +180,23 @@ class FileDocStore(DocOpsMixin):
         replace_chunks(db, doc, tenant=_tenant(doc))
         clear_tombstone(db, _tenant(doc), doc.doc_id)
 
+    def _legacy_paths(self) -> list[Path]:
+        return [*self.root.glob("*.json"), *(self.root / "v2").glob("*.json")]
+
     def _import_legacy(self, *, force: bool = False) -> None:
-        directories = [self.root, self.root / "v2"]
-        stamp = tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in directories)
-        if not force and stamp == self._legacy_stamp:
+        """Import legacy JSON payloads; reads without such files never take the lock.
+
+        The stamp covers only ``*.json`` inputs: SQLite journal files change the
+        directory mtime on every write, which used to make ordinary reads wait on
+        the document mutex held by indexing.
+        """
+        paths = self._legacy_paths()
+        stamp = tuple(sorted((str(p), p.stat().st_mtime_ns) for p in paths))
+        if not paths or (not force and stamp == self._legacy_stamp):
+            self._legacy_stamp = stamp
             return
         with self.lock(), closing(self._connect()) as db, db:
             imported = {r[0] for r in db.execute("SELECT path FROM imported")}
-            paths = [p for directory in directories for p in directory.glob("*.json")]
             for path in paths:
                 if str(path) not in imported:
                     self._save(db, decode_document(path.read_text(encoding="utf-8")))
