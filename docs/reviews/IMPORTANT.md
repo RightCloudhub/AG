@@ -54,6 +54,7 @@
 | 2026-09-07 | **P5-UI-02 角色感知控制台交付**：壳 + hash 路由 + 五视图（问答 / 知识 / 审核 / 可观测 / 图谱浏览）；M0 前置两项（`GET /v1/me`、`GET /v1/ingest-tasks` 分页）随批落地（`api/routes/workspace.py`）；2026-10-31 v2 重设计后管理视图位于 `js/admin/` |
 | 2026-08-08 | **P5-UI-02 前端重规划立项**（已于 2026-09-07 交付）：试用问答 UI → 角色感知控制台（知识运维 / 审核 / 可观测 / 图谱浏览视图）；API 前置缺口两项随计划挂账（`GET /v1/me`、`GET /v1/ingest-tasks` 列表）；计划见 [`plan/phases/p5-ui-02-console-replan.md`](../../plan/phases/p5-ui-02-console-replan.md)；视觉设计基准 [`docs/design/UI_DESIGN.md`](../design/UI_DESIGN.md)（「制图室」方向；2026-10-31 起由 v2「推理笔记本」取代，见 UI_DESIGN §10） |
 | 2026-11-02 | **文档同步（代码复核）**：BL-01/03/12/13/14 状态由「挂账」改为已解挂（对齐 `BUSINESS_LOGIC.md` §5）；`ARCH_OPTIMIZATION_V2.md` 标注当时的离线基线与现 CI 门禁差异；`DESIGN_VS_IMPLEMENTATION.md` 增补 D1–D5 复核；`EXTERNAL_RUNTIMES.md` §3.1 改为记录静态 ESM 加载；`evaluation.md` / `repo-structure.md` / `cicd-observability.md` / `testing-strategy.md` / `ARCHITECTURE.md` / `RUNBOOK.md` / `README.md` / `CLAUDE.md` 按当前代码校正 |
+| 2026-11-03 | **多 Agent 编排设计（黑板 + 监督者 + 并行研究者）评估完成，未实现**：提案经逐条对代码核对修订 6 处（register 无独立节点、研究者为有界检索-精化而非自由 ReAct、register 更新保持每轮一次单写者、冲突走需求机具、预算台账为归因而非第二计量、检查点语义诚实化）；修订后的设计、分步迁移（a–e）与评估协议（max_parallel 1 vs 3、配对 McNemar、`reports/multi_agent_eval.md`）见 [MULTI_AGENT.md](../design/MULTI_AGENT.md)。默认 `agent.mode=single`、`--no-llm` 路径不变；翻转默认前必须有评估报告 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
