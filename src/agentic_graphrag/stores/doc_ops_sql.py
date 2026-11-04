@@ -196,7 +196,11 @@ def replay(db: sqlite3.Connection, scope: CommandScope, digest: str) -> dict[str
 
 
 def remember(
-    db: sqlite3.Connection, scope: CommandScope, digest: str, outcome: tuple[dict[str, Any], str]
+    db: sqlite3.Connection,
+    scope: CommandScope,
+    *,
+    digest: str,
+    outcome: tuple[dict[str, Any], str],
 ) -> None:
     response, op_id = outcome
     db.execute(

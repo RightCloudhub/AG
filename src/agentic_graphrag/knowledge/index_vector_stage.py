@@ -60,6 +60,7 @@ class VectorStage:
         self,
         docs: DocStore,
         vector: VectorStore,
+        *,
         embed_many: BatchEmbedder,
         config: IngestWorkerConfig,
     ) -> None:
@@ -82,17 +83,17 @@ class VectorStage:
                     return
 
     def _pending(self, doc: DocumentRecord, ctx: StageContext) -> list[ChunkRecord]:
-        model = self.config.embedding_model
-        pending = [
-            c
-            for c in doc.chunks
-            if c.enabled and (not c.embedded or (ctx.reindex and c.embedding_model != model))
-        ]
+        pending = [c for c in doc.chunks if c.enabled and self._stale(c, reindex=ctx.reindex)]
         if ctx.reindex:
             pending_ids = {c.chunk_id for c in pending}
             ready = [c for c in doc.chunks if c.embedded and c.chunk_id not in pending_ids]
             self._restore(ready)
         return pending
+
+    def _stale(self, chunk: ChunkRecord, *, reindex: bool) -> bool:
+        return not chunk.embedded or (
+            reindex and chunk.embedding_model != self.config.embedding_model
+        )
 
     def _restore(self, chunks: list[ChunkRecord]) -> None:
         size = self.config.embedding_batch_size

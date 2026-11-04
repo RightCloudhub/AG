@@ -46,7 +46,9 @@ def chunk_summary(chunk: ChunkRecord) -> dict[str, Any]:
     }
 
 
-def chunk_row(tenant: str, doc: DocumentRecord, position: int, c: ChunkRecord) -> tuple[Any, ...]:
+def chunk_row(
+    tenant: str, doc: DocumentRecord, c: ChunkRecord, *, position: int = 0
+) -> tuple[Any, ...]:
     return (
         tenant,
         doc.doc_id,
@@ -89,7 +91,7 @@ def replace_chunks(db: sqlite3.Connection, doc: DocumentRecord, *, tenant: str) 
     db.executemany(
         f"INSERT INTO chunks ({CHUNK_COLUMNS}) VALUES ({_PLACEHOLDERS})",
         (
-            chunk_row(tenant, doc, pos, c)
+            chunk_row(tenant, doc, c, position=pos)
             for pos, c in enumerate(doc.chunks)
             if c.chunk_id not in newer
         ),
@@ -106,7 +108,7 @@ def checkpoint_chunks(
     """
     written: list[ChunkRecord] = []
     for c in chunks:
-        row = chunk_row(tenant, doc, 0, c)
+        row = chunk_row(tenant, doc, c)
         cursor = db.execute(
             "UPDATE chunks SET payload=?,enabled=?,text_sha256=?,token_count=?,embedded=?,"
             "fulltext_indexed=?,graph_extracted=?,model=?,summary=? "

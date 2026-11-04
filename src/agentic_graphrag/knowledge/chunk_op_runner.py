@@ -68,7 +68,7 @@ class ChunkOpRunner:
             self.docs.update_op(op.op_id, state=OpState.DONE.value, error="superseded")
             return IngestResult(op.doc_id)
         try:
-            error = self._stages(doc, chunk, fence, ctx)
+            error = self._stages(doc, chunk, fence=fence, ctx=ctx)
         except StageRejected:
             self.docs.update_op(op.op_id, state=OpState.DONE.value, error="superseded")
             return IngestResult(op.doc_id)
@@ -77,7 +77,7 @@ class ChunkOpRunner:
         return IngestResult(op.doc_id, chunks_indexed=int(not error), error=error)
 
     def _stages(
-        self, doc: DocumentRecord, chunk: ChunkRecord, fence: Fence, ctx: StageContext
+        self, doc: DocumentRecord, chunk: ChunkRecord, *, fence: Fence, ctx: StageContext
     ) -> str | None:
         key = ChunkKey(doc.tenant_id or "default", doc.doc_id, chunk.chunk_id)
         if not chunk.enabled:
@@ -96,7 +96,7 @@ class ChunkOpRunner:
             except Exception as exc:  # noqa: BLE001 — recorded on the chunk and the task
                 record_degradation(f"{stage}_index", REASON_INDEX_WRITE_FAILED, exc)
                 errors.append(f"{stage}_failed: {type(exc).__name__}")
-                chunk = self._fail(doc, chunk, (stage, errors[-1]), fence)
+                chunk = self._fail(doc, chunk, (stage, errors[-1]), fence=fence)
         return "; ".join(errors) or None
 
     def _commit(self, doc: DocumentRecord, chunk: ChunkRecord, fence: Fence) -> ChunkRecord:
@@ -105,7 +105,7 @@ class ChunkOpRunner:
         return chunk
 
     def _fail(
-        self, doc: DocumentRecord, chunk: ChunkRecord, failure: tuple[str, str], fence: Fence
+        self, doc: DocumentRecord, chunk: ChunkRecord, failure: tuple[str, str], *, fence: Fence
     ) -> ChunkRecord:
         stage, error = failure
         stages = {**chunk.stages, stage: {**chunk.stages.get(stage, {}), "error": error}}

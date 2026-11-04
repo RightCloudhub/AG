@@ -110,32 +110,38 @@ def _dict_rows(db: sqlite3.Connection, sql: str, params: dict[str, Any]) -> list
     return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
 
-def _row(row: dict[str, Any]) -> dict[str, Any]:
-    stages = {
-        stage: {
-            "indexed": int(row.get(f"{stage}_n") or 0),
-            "generation": int(row.get(f"{stage}_gen") or 0),
-            "error": row.get(f"{stage}_err"),
-        }
-        for stage in INDEX_STAGES
-    }
+def _stage_summary(row: dict[str, Any], stage: str) -> dict[str, Any]:
     return {
-        "doc_id": row["doc_id"],
-        "title": row["title"] or "",
-        "source": row["source"] or "",
-        "version": int(row["version"] or 0),
-        "created_at": row["created_at"] or "",
-        "updated_at": row["updated_at"] or "",
-        "lifecycle": row["lifecycle"] or "",
-        "index_error": row["index_error"] or "",
-        "task_id": row["task_id"] or "",
-        "reserved": bool(row["reserved"]),
-        "status": row["status"],
-        "total": int(row.get("total") or 0),
-        "enabled": int(row.get("enabled_n") or 0),
-        "model": row.get("model"),
-        "stages": stages,
+        "indexed": int(row.get(f"{stage}_n") or 0),
+        "generation": int(row.get(f"{stage}_gen") or 0),
+        "error": row.get(f"{stage}_err"),
     }
+
+
+_TEXT_FIELDS = (
+    "title",
+    "source",
+    "created_at",
+    "updated_at",
+    "lifecycle",
+    "index_error",
+    "task_id",
+)
+
+
+def _row(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {name: row.get(name) or "" for name in _TEXT_FIELDS}
+    out.update(
+        doc_id=row["doc_id"],
+        version=int(row.get("version") or 0),
+        reserved=bool(row["reserved"]),
+        status=row["status"],
+        total=int(row.get("total") or 0),
+        enabled=int(row.get("enabled_n") or 0),
+        model=row.get("model"),
+        stages={stage: _stage_summary(row, stage) for stage in INDEX_STAGES},
+    )
+    return out
 
 
 def list_chunk_rows(

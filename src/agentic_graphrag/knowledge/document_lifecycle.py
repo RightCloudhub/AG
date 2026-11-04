@@ -48,13 +48,11 @@ class DocumentLifecycle:
             previous = self.docs.find(incoming.source_uri, tenant_id=incoming.tenant_id)
             if previous and previous.metadata.get("lifecycle"):
                 previous = self.resume(previous)
-            incoming.doc_id = previous.doc_id if previous else (reserved_id or str(uuid4()))
-            incoming.version = previous.version + 1 if previous else 1
-            incoming.updated_at = datetime.now(UTC).isoformat()
-            incoming.created_at = (previous.created_at if previous else "") or incoming.updated_at
             if previous:
+                _assign_identity(incoming, previous.doc_id, previous=previous)
                 self._journal_replacement(previous, incoming)
             else:
+                _assign_identity(incoming, reserved_id or str(uuid4()), previous=None)
                 self.docs.save(incoming)
                 self._changed(incoming.tenant_id)
             return document_row(incoming, "queued")
@@ -168,6 +166,15 @@ class DocumentLifecycle:
         self.docs.save(doc)
         self.resume(doc)
         return {"old_id": old_id, "doc_id": replacement.doc_id}
+
+
+def _assign_identity(
+    incoming: DocumentRecord, doc_id: str, *, previous: DocumentRecord | None
+) -> None:
+    incoming.doc_id = doc_id
+    incoming.version = previous.version + 1 if previous else 1
+    incoming.updated_at = datetime.now(UTC).isoformat()
+    incoming.created_at = (previous.created_at if previous else "") or incoming.updated_at
 
 
 def document_row(doc: DocumentRecord, status: str) -> dict[str, str]:

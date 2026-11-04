@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Protocol, runtime_checkable
 
-from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.evidence import Candidate, Citation
 
 ChunkRef = tuple[str, str]
 """``(doc_id, chunk_id)``; ``doc_id`` may be empty for legacy graph provenance."""
@@ -91,14 +91,16 @@ def _visible_copy(
     refs = candidate_refs(candidate)
     if not refs:
         return candidate
-    if not any(ref in shown for ref in refs) or _stale(candidate, refs, revisions):
+    hidden = {ref for ref in refs if ref not in shown}
+    if len(hidden) == len(set(refs)) or _stale(candidate, refs, revisions):
         return None
-    if all(ref in shown for ref in refs):
+    if not hidden:
         return candidate
-    citations = [
-        c for c in candidate.citations if not c.chunk_id or (c.doc_id or "", c.chunk_id) in shown
-    ]
-    return candidate.model_copy(update={"citations": citations})
+    return candidate.model_copy(update={"citations": _without(candidate, hidden)})
+
+
+def _without(candidate: Candidate, hidden: set[ChunkRef]) -> list[Citation]:
+    return [c for c in candidate.citations if (c.doc_id or "", c.chunk_id or "") not in hidden]
 
 
 def _stale(

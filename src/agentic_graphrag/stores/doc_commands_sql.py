@@ -77,7 +77,7 @@ def patched_chunk(chunk: ChunkRecord, patch: ChunkPatch) -> ChunkRecord:
 
 
 def apply_chunk_patch(
-    db: sqlite3.Connection, patch: ChunkPatch, command: Command, respond: ChunkResponder
+    db: sqlite3.Connection, patch: ChunkPatch, command: Command, *, respond: ChunkResponder
 ) -> CommandOutcome:
     begin_immediate(db)
     stored = ops.replay(db, command.scope, command.digest)
@@ -97,10 +97,10 @@ def apply_chunk_patch(
         )
     updated = patched_chunk(current, patch)
     _write_chunk(db, (patch.tenant_id, version, int(row[1])), updated)
-    record_history(db, patch.tenant_id, version, current)
-    record_history(db, patch.tenant_id, version, updated)
+    record_history(db, patch.tenant_id, current, version=version)
+    record_history(db, patch.tenant_id, updated, version=version)
     op = replace(command.op, payload={**command.op.payload, "doc_version": version})
-    return _commit(db, command, op, respond(updated, op))
+    return _commit(db, command, op=op, response=respond(updated, op))
 
 
 def record_command(
@@ -118,24 +118,24 @@ def record_command(
         raise RevisionConflict("Document version changed", details={"current_version": version})
     seq = ops.mutation_seq(db, op.tenant_id, op.doc_id)
     op = replace(op, payload={**op.payload, "mutation_seq": seq})
-    return _commit(db, command, op, respond(op))
+    return _commit(db, command, op=op, response=respond(op))
 
 
 def _commit(
-    db: sqlite3.Connection, command: Command, op: DocOperation, response: dict[str, Any]
+    db: sqlite3.Connection, command: Command, *, op: DocOperation, response: dict[str, Any]
 ) -> CommandOutcome:
     if op.kind != OpKind.REPARSE:
         ops.bump_mutation(db, op.tenant_id, op.doc_id)
     ops.bump_generation(db, op.tenant_id)
     ops.insert_op(db, op)
-    ops.remember(db, command.scope, command.digest, (response, op.op_id))
+    ops.remember(db, command.scope, digest=command.digest, outcome=(response, op.op_id))
     return CommandOutcome(response, op=op)
 
 
 def _write_chunk(db: sqlite3.Connection, where: tuple[str, int, int], chunk: ChunkRecord) -> None:
     tenant, version, position = where
     doc = DocumentRecord(chunk.doc_id, "", "", version=version)
-    values = chunk_row(ops.tenant_key(tenant), doc, position, chunk)
+    values = chunk_row(ops.tenant_key(tenant), doc, chunk, position=position)
     db.execute(
         "UPDATE chunks SET payload=?,enabled=?,revision=?,text_sha256=?,token_count=?,embedded=?,"
         "fulltext_indexed=?,graph_extracted=?,model=?,summary=? "
@@ -151,7 +151,7 @@ def commit_stage(
     begin_immediate(db)
     if not ops.fence_valid(db, fence):
         return False
-    values = chunk_row(ops.tenant_key(doc.tenant_id), doc, 0, chunk)
+    values = chunk_row(ops.tenant_key(doc.tenant_id), doc, chunk)
     cursor = db.execute(
         "UPDATE chunks SET payload=?,enabled=?,text_sha256=?,token_count=?,embedded=?,"
         "fulltext_indexed=?,graph_extracted=?,model=?,summary=? "

@@ -63,7 +63,7 @@ class DocOpsMixin:
         self, patch: ChunkPatch, command: Command, respond: cmd.ChunkResponder
     ) -> CommandOutcome:
         outcome: CommandOutcome = self._write(
-            lambda db: cmd.apply_chunk_patch(db, patch, command, respond)
+            lambda db: cmd.apply_chunk_patch(db, patch, command, respond=respond)
         )
         return outcome
 
@@ -82,7 +82,7 @@ class DocOpsMixin:
                 return
             ops.insert_op(db, op)
             for row in reservations:
-                art.reserve(db, op.op_id, (op.tenant_id, row["doc_id"]), row)
+                art.reserve(db, op.op_id, ref=(op.tenant_id, row["doc_id"]), row=row)
             ops.bump_generation(db, op.tenant_id)
 
         self._write(run)
@@ -138,7 +138,7 @@ class DocOpsMixin:
     def stage_content(
         self, op_id: str, ref: tuple[str, str], parsed: tuple[str, dict[str, Any]]
     ) -> None:
-        self._write(lambda db: art.stage_content(db, op_id, ref, parsed))
+        self._write(lambda db: art.stage_content(db, op_id, ref=ref, parsed=parsed))
 
     def staged_content(self, op_id: str) -> tuple[str, dict[str, Any]] | None:
         result: tuple[str, dict[str, Any]] | None = self._read(

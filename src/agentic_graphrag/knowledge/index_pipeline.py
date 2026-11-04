@@ -145,7 +145,9 @@ class IndexPipeline:
             return IngestResult(doc_id, error=chunk_error, fatal=True, unchunkable=True)
         result = IngestResult(doc_id, chunks_created=len(doc.chunks))
         if self.embed_many is not None:
-            VectorStage(self.docs, self.vector, self.embed_many, self.config).run(doc, result, ctx)
+            VectorStage(self.docs, self.vector, embed_many=self.embed_many, config=self.config).run(
+                doc, result, ctx
+            )
         if not ctx.reindex:
             self._fulltext(doc, result, ctx)
             self._graph(doc, result, batch_id=batch_id, ctx=ctx)
@@ -203,21 +205,31 @@ class IndexPipeline:
         pending = [c for c in doc.chunks if c.enabled and not c.fulltext_indexed]
         if self.fulltext is None or not pending:
             return
-        staged = [stamp_stage(c, STAGE_FULLTEXT, generation=ctx.generation) for c in pending]
         try:
-            ctx.guard()
-            if self.fulltext.index(staged) != len(staged):
-                raise RuntimeError("Incomplete fulltext write")
-            for chunk, written in zip(pending, staged, strict=True):
-                chunk.fulltext_indexed = True
-                chunk.stages = written.stages
-            ctx.guard()
-            self.docs.save_chunks(doc, pending)
+            self._write_fulltext(self.fulltext, doc, pending=pending, ctx=ctx)
         except LeaseLost:
             raise
         except Exception as exc:
             record_degradation("fulltext_index", REASON_INDEX_WRITE_FAILED, exc, doc_id=doc.doc_id)
             result.error = result.error or f"fulltext_failed: {type(exc).__name__}"
+
+    def _write_fulltext(
+        self,
+        index: FulltextStore,
+        doc: DocumentRecord,
+        *,
+        pending: list[ChunkRecord],
+        ctx: StageContext,
+    ) -> None:
+        staged = [stamp_stage(c, STAGE_FULLTEXT, generation=ctx.generation) for c in pending]
+        ctx.guard()
+        if index.index(staged) != len(staged):
+            raise RuntimeError("Incomplete fulltext write")
+        for chunk, written in zip(pending, staged, strict=True):
+            chunk.fulltext_indexed = True
+            chunk.stages = written.stages
+        ctx.guard()
+        self.docs.save_chunks(doc, pending)
 
     def _graph(
         self, doc: DocumentRecord, result: IngestResult, *, batch_id: str, ctx: StageContext

@@ -43,7 +43,11 @@ def source_for(db: sqlite3.Connection, ref: tuple[str, str, int]) -> SourceArtif
 
 
 def stage_content(
-    db: sqlite3.Connection, op_id: str, ref: tuple[str, str], parsed: tuple[str, dict[str, Any]]
+    db: sqlite3.Connection,
+    op_id: str,
+    *,
+    ref: tuple[str, str],
+    parsed: tuple[str, dict[str, Any]],
 ) -> None:
     content, metadata = parsed
     db.execute(
@@ -57,7 +61,9 @@ def staged_content(db: sqlite3.Connection, op_id: str) -> tuple[str, dict[str, A
     return (str(row[0]), json.loads(row[1] or "{}")) if row else None
 
 
-def reserve(db: sqlite3.Connection, op_id: str, ref: tuple[str, str], row: dict[str, str]) -> None:
+def reserve(
+    db: sqlite3.Connection, op_id: str, *, ref: tuple[str, str], row: dict[str, str]
+) -> None:
     now = time.time()
     db.execute(
         "INSERT OR REPLACE INTO reservations VALUES (?,?,?,?,?,?,?,?,?)",
@@ -83,7 +89,9 @@ def clear_tombstone(db: sqlite3.Connection, tenant: str, doc_id: str) -> None:
     db.execute("DELETE FROM tombstones WHERE tenant=? AND doc_id=?", (tenant_key(tenant), doc_id))
 
 
-def record_history(db: sqlite3.Connection, tenant: str, version: int, chunk: ChunkRecord) -> None:
+def record_history(
+    db: sqlite3.Connection, tenant: str, chunk: ChunkRecord, *, version: int
+) -> None:
     db.execute(
         "INSERT OR IGNORE INTO chunk_history VALUES (?,?,?,?,?,?,?,?,?)",
         (

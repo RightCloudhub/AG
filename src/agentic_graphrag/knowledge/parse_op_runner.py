@@ -163,7 +163,7 @@ class ParseOpRunner:
             except Exception as exc:  # noqa: BLE001 — every failure lands on the task
                 errors[str(f["name"])] = _parse_error(exc)
                 continue
-            parsed.append(_record(op, f, result.markdown, result.metadata()))
+            parsed.append(_record(op, f, markdown=result.markdown, metadata=result.metadata()))
         return parsed, errors
 
     def _accept(
@@ -190,7 +190,7 @@ def _row(file: dict[str, Any]) -> dict[str, str]:
 
 
 def _record(
-    op: DocOperation, file: dict[str, Any], markdown: str, metadata: dict[str, str]
+    op: DocOperation, file: dict[str, Any], *, markdown: str, metadata: dict[str, str]
 ) -> DocumentRecord:
     return DocumentRecord(
         doc_id="",

@@ -123,7 +123,7 @@ def _backfill(db: sqlite3.Connection) -> None:
     rows = db.execute("SELECT tenant,doc_id,id,version,payload FROM chunks").fetchall()
     for tenant, did, cid, version, payload in rows:
         chunk = decode_chunk(payload)
-        values = chunk_row(tenant, DocumentRecord(did, "", "", version=version), 0, chunk)
+        values = chunk_row(tenant, DocumentRecord(did, "", "", version=version), chunk)
         db.execute(
             "UPDATE chunks SET enabled=?,revision=?,text_sha256=?,token_count=?,embedded=?,"
             "fulltext_indexed=?,graph_extracted=?,model=?,summary=? "
