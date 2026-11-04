@@ -109,7 +109,9 @@ def freeze_splits(
     remaining = sorted(set(dev_pool) - set(final))
     ids: dict[SplitName, tuple[str, ...]] = {SplitName.FINAL: tuple(final)}
     for offset, split in enumerate(DEV_SPLIT_ORDER, start=1):
-        chosen = sample_ids(remaining, spec.split_sizes.get(split.value, 0), spec.sampling_seed + offset)
+        chosen = sample_ids(
+            remaining, spec.split_sizes.get(split.value, 0), spec.sampling_seed + offset
+        )
         ids[split] = tuple(chosen)
         remaining = sorted(set(remaining) - set(chosen))
     ids[SplitName.DEV] = tuple(remaining)

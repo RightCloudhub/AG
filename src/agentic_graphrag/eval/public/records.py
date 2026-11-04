@@ -11,7 +11,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,7 +19,6 @@ from agentic_graphrag.eval.public.enums import DatasetName
 
 PASSAGE_DIGEST_CHARS = 16
 _FROZEN = ConfigDict(extra="forbid", frozen=True)
-_M = TypeVar("_M", bound=BaseModel)
 
 
 class Passage(BaseModel):
@@ -104,5 +103,5 @@ def iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
                 yield json.loads(line)
 
 
-def read_models(path: Path, model: type[_M]) -> list[_M]:
+def read_models[M: BaseModel](path: Path, model: type[M]) -> list[M]:
     return [model.model_validate(row) for row in iter_jsonl(path)]

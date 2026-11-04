@@ -1,0 +1,8 @@
+# LightRAG isolated environment — PLACEHOLDER, UNVERIFIED, Not Executed.
+# Create with: python3.12 -m venv evals/public/envs/lightrag/.venv
+#              evals/public/envs/lightrag/.venv/bin/pip install --require-hashes -r requirements.lock
+# Before the live smoke run an operator must replace the line below with an exact version
+# (or git commit) plus hashes (pip-compile --generate-hashes), record it as
+# arms[lightrag].external.package_revision in configs/benchmarks/hipporag.yaml, and confirm
+# the driver binding in evals/public/drivers/bench_driver.py (LightRAGBackend).
+# lightrag-hku==<UNVERIFIED> --hash=sha256:<UNVERIFIED>

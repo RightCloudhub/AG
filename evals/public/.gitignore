@@ -1,0 +1,4 @@
+# Local artifacts: downloaded corpora, prepared indexes, result journals, external envs.
+data/
+work/
+envs/*/.venv/

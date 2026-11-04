@@ -33,7 +33,9 @@ class _CorpusIndex:
         return exact or self.unique_title.get(normalize_text(passage.title))
 
 
-def rekey_to_corpus(conv: Conversion, corpus_rows: list[RawRow], dataset: DatasetName) -> Conversion:
+def rekey_to_corpus(
+    conv: Conversion, corpus_rows: list[RawRow], dataset: DatasetName
+) -> Conversion:
     corpus = [corpus_passage(dataset, row) for row in corpus_rows]
     index = _CorpusIndex(corpus)
     mapping: dict[str, str] = {}

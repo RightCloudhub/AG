@@ -1,0 +1,7 @@
+# HippoRAG 2 isolated environment — PLACEHOLDER, UNVERIFIED, Not Executed.
+# Create with: python3.12 -m venv evals/public/envs/hipporag2/.venv
+#              evals/public/envs/hipporag2/.venv/bin/pip install --require-hashes -r requirements.lock
+# Pin the exact upstream release/commit that matches protocol.upstream_revision in
+# configs/benchmarks/hipporag.yaml, with hashes, and confirm HippoRAG2Backend in
+# evals/public/drivers/bench_driver.py against it during the live smoke run.
+# hipporag==<UNVERIFIED> --hash=sha256:<UNVERIFIED>
