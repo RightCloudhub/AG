@@ -88,3 +88,17 @@ class ModelVectorSearch(Protocol):
         top_k: int,
         tenant_id: str,
     ) -> list[tuple[ChunkRecord, float]]: ...
+
+
+@runtime_checkable
+class RelationScanner(Protocol):
+    """A complete, tenant-filtered relation scan with stable pagination."""
+
+    def scan_relations(
+        self, *, tenant_id: str, limit: int = 1000, offset: int = 0
+    ) -> list[RelationRecord]: ...
+
+
+@runtime_checkable
+class EntityLookup(Protocol):
+    def get_entity_by_id(self, entity_id: str, *, tenant_id: str) -> EntityRecord | None: ...

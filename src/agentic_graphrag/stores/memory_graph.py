@@ -15,10 +15,16 @@ from agentic_graphrag.core.ports.capabilities import (
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.core.tenancy import tenant_matches as _tenant_matches
 from agentic_graphrag.stores.document_provenance import MemoryDocumentDeletion, merge_sources
+from agentic_graphrag.stores.memory_graph_lookup import MemoryGraphLookup
 
 
 class InMemoryGraphStore(
-    MemoryDocumentDeletion, EntityLister, RelationLister, RelationDeletion, EntityMutation
+    MemoryDocumentDeletion,
+    MemoryGraphLookup,
+    EntityLister,
+    RelationLister,
+    RelationDeletion,
+    EntityMutation,
 ):
     def __init__(self) -> None:
         self.index_generation = uuid4().hex

@@ -13,8 +13,9 @@ from agentic_graphrag.core.ports.capabilities import (
     RelationDeletion,
     RelationLister,
 )
-from agentic_graphrag.core.ports.stores import RelationRecord
-from agentic_graphrag.stores.neo4j_codec import rel_to_record
+from agentic_graphrag.core.ports.stores import EntityRecord, RelationRecord
+from agentic_graphrag.stores.neo4j_codec import node_to_entity, rel_to_record
+from agentic_graphrag.stores.neo4j_queries import tenant_predicate
 
 _SAFE_RELATION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _RELATION_TYPES = """
@@ -40,6 +41,36 @@ class _RewireRequest:
 
 class Neo4jEntityMutation(EntityMutation, RelationLister, RelationDeletion):
     _driver: Driver
+
+    def get_entity_by_id(self, entity_id: str, *, tenant_id: str) -> EntityRecord | None:
+        with self._driver.session() as session:
+            row = session.run(
+                f"MATCH (e) WHERE e.id=$id AND {tenant_predicate('e')} RETURN e LIMIT 1",
+                id=entity_id,
+                tenant_id=tenant_id,
+            ).single()
+        return node_to_entity(row["e"]) if row else None
+
+    def scan_relations(
+        self, *, tenant_id: str, limit: int = 1000, offset: int = 0
+    ) -> list[RelationRecord]:
+        query = (
+            f"MATCH (h)-[r]->(t) WHERE {tenant_predicate('r')} "
+            f"AND {tenant_predicate('h')} AND {tenant_predicate('t')} "
+            "RETURN r,h,t ORDER BY r.id SKIP $offset LIMIT $limit"
+        )
+        with self._driver.session() as session:
+            rows = session.run(
+                query, tenant_id=tenant_id, limit=max(0, limit), offset=max(0, offset)
+            )
+            return [
+                rel_to_record(
+                    row["r"],
+                    head_name=str(row["h"].get("name") or ""),
+                    tail_name=str(row["t"].get("name") or ""),
+                )
+                for row in rows
+            ]
 
     def rewire_entity(self, drop_id: str, keep_id: str, *, keep_name: str, tenant_id: str) -> None:
         request = _RewireRequest(drop_id, keep_id, keep_name, tenant_id)

@@ -27,6 +27,8 @@ class EntityRecord:
     aliases: list[str] = field(default_factory=list)
     sources: list[dict[str, Any]] = field(default_factory=list)
     tenant_id: str = ""
+    kb_id: str = "default"
+    generation: str = "1"
 
 
 @dataclass
@@ -41,6 +43,8 @@ class RelationRecord:
     attributes: dict[str, Any] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
     tenant_id: str = ""
+    kb_id: str = "default"
+    generation: str = "1"
 
 
 @dataclass
@@ -65,6 +69,8 @@ class DocumentRecord:
     created_at: str = ""
     updated_at: str = ""
     chunks: list[ChunkRecord] = field(default_factory=list)
+    kb_id: str = "default"
+    generation: str = "1"
 
 
 @dataclass
@@ -81,6 +87,8 @@ class ChunkRecord:
     fulltext_indexed: bool = False
     graph_extracted: bool = False
     embedding_model: str = ""
+    kb_id: str = "default"
+    generation: str = "1"
 
 
 @runtime_checkable
