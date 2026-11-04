@@ -25,7 +25,7 @@ export const RAIL_TEMPLATE = `
   <ol class="hoprail__track" role="list">
     <li v-for="(it, i) in p.rail" :key="it.key" role="listitem" class="hop" :aria-label="railAria(it)"
         :class="[hopClass(it.hop), 'hop--' + it.state, 'hop--' + it.kind, { 'hop--selected': isSelected(p, it), 'hop--new': p.live }]">
-      <span class="hop__link" :class="{ 'hop__link--pending': linkPending(p.rail, i) }" aria-hidden="true"></span>
+      <span v-if="!it.parallelNext" class="hop__link" :class="{ 'hop__link--pending': linkPending(p.rail, i) }" aria-hidden="true"></span>
       <button type="button" class="hop__btn" :disabled="it.kind !== 'hop' || !p.answer" @click="selectHop(p, it)">
         <span class="hop__node" :class="{ 'hop__node--diamond': it.kind === 'answer' }">
           <span v-if="it.kind === 'hop'">{{ it.hop }}</span>
@@ -33,6 +33,7 @@ export const RAIL_TEMPLATE = `
           <span v-else-if="it.state === 'failed'"><ag-icon name="close" :size="12"></ag-icon></span>
         </span>
         <span class="hop__label">{{ railLabel(it) }}</span>
+        <span v-if="it.parallelLabel" class="hop__parallel">{{ it.parallelLabel }}</span>
         <span v-if="railMeta(it)" class="hop__meta">{{ railMeta(it) }}</span>
       </button>
       <span v-if="it.kind === 'hop' && it.subQuestion" class="popover"><strong>{{ it.subQuestion }}</strong><template v-if="it.conclusion"><br>{{ it.conclusion }}</template></span>

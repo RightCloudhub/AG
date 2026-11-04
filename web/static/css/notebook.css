@@ -28,6 +28,7 @@
 .hop__node--diamond > span { transform: rotate(-45deg); display: inline-flex; }
 .hop__label { max-width: 100%; font-size: var(--fs-ui); line-height: var(--lh-ui); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hop__meta { font-family: var(--font-mono); font-size: var(--fs-data); line-height: var(--lh-data); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hop__parallel { font-size: var(--fs-caption); color: var(--text-dim); }
 .hop--pending .hop__node { background: transparent; border-color: var(--line-strong); color: var(--text-dim); }
 .hop--pending .hop__label, .hop--pending .hop__meta { color: var(--text-dim); }
 .hop--active .hop__node { animation: ring-pulse 1.2s var(--ease) infinite; }

@@ -1,7 +1,7 @@
 # 多 Agent 编排：黑板 + 监督者 + 并行研究者
 
 > **本文性质**：对一份外部提案（黑板 + 监督者 + 并行研究者，**不是**自由对话式多智能体）的逐条评估
-> 与修订后的设计。**代码未实现**；`agent.mode` 默认 `single`。分步迁移见 §4，评估协议见 §5；
+> 与修订后的设计。**已有实验实现，部分目标未交付**；`agent.mode` 默认 `single`。分步迁移见 §4，评估协议见 §5；
 > 翻转默认之前必须有 `reports/multi_agent_eval.md` 的配对报告。
 > **结论先行**：方向成立——它是现「需求登记表」模式（[REQUIREMENT_REGISTER.md](REQUIREMENT_REGISTER.md)）
 > 的并行化与角色化，而不是第二套范式；但提案有 6 处与代码事实或本仓库约束不符/欠妥（§0.2），
@@ -10,6 +10,24 @@
 > **关联**：[ARCH_OPTIMIZATION_V2.md](ARCH_OPTIMIZATION_V2.md)（A/B 协议与开关先例）·
 > [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md) BL-12（检索并发先例）· [ARCHITECTURE.md](../ARCHITECTURE.md) §2（当前实现）·
 > [rules.md](../../plan/engineering/rules.md) §3/§6/§7 · tech-stack.md ADR-003/ADR-005 · [IMPORTANT.md](../reviews/IMPORTANT.md)。
+
+## 集成状态（2026-11-04）
+
+§0—4 保留原设计目标；当前实现与目标有差异时，以下表及
+[ARCHITECTURE.md](../ARCHITECTURE.md) §2 说明实际行为，不把未交付目标当作现有能力。
+
+| 主题 | 当前集成实现 | 剩余工作 |
+|---|---|---|
+| 默认与回退 | single + register 关闭时保留原 live DAG；multi 显式开启；离线路径保持确定性 | 真实效果验收前不翻转默认 |
+| 状态 | 基线已为 typed v3，multi 升为 v4；新运行完整初始化所有通道 | 旧状态可读不等于可跨图续跑 |
+| 提案与发布 | researcher 提交 Requirement 提案，Merge 经过不变量校验后单写者发布 | 尚未采用每轮集中 register-update LLM；并发 1 不承诺与旧 register 等价 |
+| 预算 | provider 是计量入口，子预算同步预留/结算到根预算；ledger 记录归因及 embedding 次数 | 在途 token 预留、失败用量持久化及跨 runtime 恢复仍待完善 |
+| 恢复 | 指定 saver 上成功兄弟不重跑已有测试 | 分支异常仍会中断查询；HTTP 恢复入口、跨进程费用恢复未交付 |
+| 调度 | 派发可负担的 ready 需求，信号量限制同时运行数量 | 不等于每波仅派发 max_parallel 项；no_progress 待定义 |
+| 退出与质量 | 有预算、轮数、超时检查及独立 verifier | deadline 贯穿、关系冲突约束、verifier 分批与 Writer 容量仍挂账 |
+
+对应工作流的「⚠ 差异」见 [agent-orchestration.md](../../plan/workstreams/agent-orchestration.md) §5，
+本轮范围、验证及后续门槛见 [集成记录](../reviews/ARCH_V3_MULTI_INTEGRATION.md)。
 
 ---
 
@@ -78,9 +96,9 @@
 
 ```yaml
 agent:
-  mode: single          # single | multi；默认 single，报告无回退前不翻转（env 覆盖仿 AGR_CRITIC_MODE）
+  mode: single          # single | multi；实际配置字段，未提供 AGR_AGENT_MODE alias
   max_parallel: 1       # 就绪需求扇出上限；先 1（等价迁移），评估时 3
-  researcher_rounds: 2  # 每个研究者的有界检索-精化轮数
+  max_research_calls: 2 # 每个研究者的模型调用上限
 ```
 
 - **multi 的前置**：需要 LLM（无 LLM 时 `RegisterRuntime.enabled()` 已返回 False，自然回落到旧循环）；
@@ -290,20 +308,25 @@ llm:
   按 hop / 模板分解、register 轮数与分支数。
 - **延迟测量纪律**：LLM/embedding 磁盘缓存回放会掩盖真实延迟 → 延迟只取缓存关闭或首次运行的样本；
   注明本环境已知风险（网关 403、embedding 401）。
-- **验收判据（翻转默认的条件）**：准确率无非劣（McNemar 不显著劣于 C 且点估在噪声内）+ 四项离线地板
-  与金标审计全绿 + 成本受档位约束 + 目标题集（比较/多实体）P95 改善方向明确。**纯链式题不变快是预期
-  结果，不视为失败**。
-- **命令草案**（与 register 验证同一路径）：
+- **验收判据（翻转默认的条件）**：先约定准确率非劣界限、样本量/功效和置信区间判据；
+  McNemar 不显著不能证明非劣。重复题按 question ID 聚类，保留失败率和超时截尾信息。
+  五组离线地板与金标审计全绿、成本受约定约束，并在比较/多实体题上满足预定 P95 目标。
+  原 live DAG、single-register、multi-1、multi-3 分开比较，固定代码/模型/图/检索状态。
+  纯链式题不预期因并行而提速。
+- **当前可运行的离线命令**（只证明兼容性；真实评估改用 `--live` 并增加重复次数）：
 
 ```bash
-# 每臂（示例：B 臂；A/C 换开关重复）
-AGR_AGENT_MODE=multi agr-run-cases --cases evals/datasets/g2_all.jsonl \
-  --seed-triples data/processed/pilot_triples.jsonl --run-name multi-p3
-python scripts/eval_compare.py reports/single.jsonl reports/multi-p3.jsonl \
-  --cases evals/datasets/g2_all.jsonl --json reports/multi_agent_paired.json
-PYTHONPATH=src python scripts/analyze_search_drift.py reports/multi-p3.jsonl \
-  --base reports/single.jsonl --cases evals/datasets/g2_all.jsonl --out reports/multi_agent_drift.json
+PYTHONPATH=src .venv/bin/python scripts/eval_multi_agent.py --no-llm \
+  --cases evals/datasets/g2_all.jsonl --seed-triples data/processed/pilot_triples.jsonl \
+  --parallel 1 3 --include-single --seeds 11 --out /tmp/agr-multi-eval
+PYTHONPATH=src .venv/bin/python scripts/eval_compare.py \
+  /tmp/agr-multi-eval/single-seed-11.jsonl /tmp/agr-multi-eval/multi-3-seed-11.jsonl \
+  --cases evals/datasets/g2_all.jsonl --json /tmp/agr-multi-eval/paired.json
 ```
+
+`--include-single` 使用当前 register 开关；第四臂需显式开启 register 后另跑。
+模型配置位于顶层 `roles`，不是 `llm.roles`；`--run-name` 仅命名输出，不能选择模式。
+历史 live 报告的 single 是迁移后的 register，不能直接当作本轮恢复后的默认 DAG 基线。
 
 ---
 

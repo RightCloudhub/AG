@@ -8,10 +8,13 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.types import Overwrite
 from pydantic import TypeAdapter
 
+from agentic_graphrag.agent.blackboard import BranchEvent, BudgetEntry, Proposal
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_state import RegisterRuntimeState
 from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.agent.research_cache import QueryCache
+from agentic_graphrag.agent.research_state import ResearchDecision, ResearchTask, VerificationResult
 from agentic_graphrag.agent.state import Retrieved
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain, ToolCallTrace
@@ -26,12 +29,22 @@ _CODECS = {
     "register_runtime": TypeAdapter[object](RegisterRuntimeState),
     "sub_questions": TypeAdapter[object](list[SubQuestion]),
     "prefetched": TypeAdapter[object](dict[str, Retrieved]),
+    "proposals": TypeAdapter[object](list[Proposal]),
+    "events": TypeAdapter[object](list[BranchEvent]),
+    "budget_ledger": TypeAdapter[object](list[BudgetEntry]),
+    "task": TypeAdapter[object](ResearchTask),
+    "decision": TypeAdapter[object](ResearchDecision),
+    "verifications": TypeAdapter[object](list[VerificationResult]),
+    "query_cache": TypeAdapter[object](QueryCache),
+    "traces": TypeAdapter[object](list[ToolCallTrace]),
 }
 _MODEL_TAGS = {
     ReasoningChain: "chain",
     MemoryState: "memory",
     Register: "register",
     RegisterRuntimeState: "register_runtime",
+    ResearchTask: "task",
+    ResearchDecision: "decision",
 }
 
 
@@ -60,15 +73,33 @@ def _tag(value: object) -> str | None:
     if tag is not None:
         return tag
     if isinstance(value, list):
-        return "sub_questions" if value and all(isinstance(v, SubQuestion) for v in value) else None
+        return _list_tag(value)
     if isinstance(value, dict) and value:
         return _mapping_tag(value)
+    return None
+
+
+def _list_tag(value: list[object]) -> str | None:
+    for model, tag in (
+        (SubQuestion, "sub_questions"),
+        (Proposal, "proposals"),
+        (BranchEvent, "events"),
+        (BudgetEntry, "budget_ledger"),
+        (VerificationResult, "verifications"),
+        (ToolCallTrace, "traces"),
+    ):
+        if value and all(isinstance(item, model) for item in value):
+            return tag
     return None
 
 
 def _mapping_tag(value: dict[str, object]) -> str | None:
     if all(isinstance(v, Candidate) for v in value.values()):
         return "evidence"
+    if all(
+        isinstance(v, list) and all(isinstance(c, Candidate) for c in v) for v in value.values()
+    ):
+        return "query_cache"
     return "prefetched" if all(_is_retrieved(v) for v in value.values()) else None
 
 

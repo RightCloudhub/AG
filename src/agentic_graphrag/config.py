@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agentic_graphrag.config_agent import AgentConfig
 from agentic_graphrag.config_degradation import DegradationConfig
 from agentic_graphrag.config_enterprise import RetentionConfig, TenantBudgetConfig
 from agentic_graphrag.config_ingest import IndexingConfig
@@ -19,6 +20,7 @@ from agentic_graphrag.config_llm import LLMResilienceConfig
 from agentic_graphrag.config_paths import PathsConfig, find_root
 from agentic_graphrag.config_register import RequirementRegisterConfig
 from agentic_graphrag.config_rerank import RerankConfig as RerankConfig
+from agentic_graphrag.config_roles import RolesConfig
 from agentic_graphrag.core.constants import DEFAULT_RECURSION_LIMIT, DEFAULT_RRF_K
 from agentic_graphrag.core.enums import CriticMode, FusionMethod, PromptName, RerankKind
 
@@ -94,6 +96,8 @@ class EvalConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    roles: RolesConfig = Field(default_factory=RolesConfig)
     question_matching_path: str = "configs/question_matching.yaml"
     name: str = "agentic-graphrag"
     env: str = "local"

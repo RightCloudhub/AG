@@ -95,3 +95,19 @@
 是否保留由 [V3-09](../../docs/design/ARCH_OPTIMIZATION_V3.md) 的 live 配对决定。
 
 Prompt 与模型配置全部外置于配置文件，变更须过评测集回归（P5-GOV-03 机制自阶段三起执行）。
+
+## 5. 多 Agent 集成（2026-11-04）
+
+⚠ 差异：`MULTI_AGENT.md` 的集中 register-update LLM 尚未采用；当前 researcher
+直接提交 Requirement 提案，由 Merge 单写者校验并发布。失败分支目前仍向调用方抛出，
+指定 saver 的原生恢复已验证，HTTP 自动恢复与失败费用持久化未交付。supervisor 会派发
+所有可负担的 ready 需求，信号量控制实际并发；no_progress 尚无独立退出判据。
+
+本轮将架构 V3 与多 Agent 合入独立集成分支，恢复默认 live DAG，保留显式 register / multi。
+局部预算通过 parent 同步计入根预算，角色客户端保留共享熔断，v4 初始化包含全部通道。
+操作阶段指标继续使用 `LLMRole`；模型分工和 req_id / branch_id 归因使用 ledger 的 `role`。
+配置真实字段为 `agent.max_research_calls`、顶层 `roles`，未提供 `AGR_AGENT_MODE` 别名。
+
+用户确认本轮范围为可靠集成，独立缺陷继续挂账。验证、关闭项和后续验收见
+[集成记录](../../docs/reviews/ARCH_V3_MULTI_INTEGRATION.md) 与
+[IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6；不据此翻转 multi 默认值。

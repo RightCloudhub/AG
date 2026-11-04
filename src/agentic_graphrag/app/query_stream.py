@@ -169,6 +169,7 @@ def _build_stream_deps(
     guard_cfg, budget = guard_budget
     executor, llm = build_query_deps(svc, budget, tenant_id=tenant_id)
     opts = QueryOptions(
+        agent_config=svc.cfg.agent,
         query_id=query_id,
         guard_cfg=guard_cfg,
         budget=budget,

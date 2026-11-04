@@ -15,7 +15,12 @@ from agentic_graphrag.governance.budget import BudgetExceeded
 
 
 def answer_from_register(
-    state: AgentState, llm: LLMClient | None, *, allow_llm: bool, context_limit: int
+    state: AgentState,
+    llm: LLMClient | None,
+    *,
+    allow_llm: bool,
+    context_limit: int,
+    offline_fallback: bool = True,
 ) -> ReasoningChain:
     register = active_register(state)
     runtime = state["register_runtime"]
@@ -34,6 +39,9 @@ def answer_from_register(
         + json_text([c.model_dump(mode="json") for c in evidence])
     )
     allow_llm = allow_llm and context_size([], prompt_bound) <= context_limit
+    if not allow_llm and not offline_fallback:
+        chain.honest_fallback("writer budget exhausted")
+        return annotate_register(chain, state)
     try:
         chain = generate_answer(
             chain,
@@ -45,7 +53,10 @@ def answer_from_register(
             report_evidence_gaps=False,
         )
     except BudgetExceeded:
-        chain = generate_answer(chain, evidence, None, conclusions="", allow_llm=False)
+        if offline_fallback:
+            chain = generate_answer(chain, evidence, None, conclusions="", allow_llm=False)
+        else:
+            chain.honest_fallback("writer budget exhausted")
     return annotate_register(chain, state)
 
 

@@ -9,9 +9,10 @@ iterator. Fast → Deep escalation carries the fast path's evidence forward.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
+from agentic_graphrag.agent.blackboard import BudgetEntry
 from agentic_graphrag.agent.chitchat import try_chitchat_answer
 from agentic_graphrag.agent.executor import Executor
 from agentic_graphrag.agent.fast_path import run_fast_path_with_evidence
@@ -31,7 +32,15 @@ from agentic_graphrag.agent.loop_stream_events import (
 from agentic_graphrag.agent.options import AgentRunOptions, QueryOptions
 from agentic_graphrag.agent.pipeline_graph import _initial_state as _initial_state
 from agentic_graphrag.agent.pipeline_graph import _iter_agentic
+from agentic_graphrag.agent.pipeline_usage import (
+    entry_client,
+    entry_meter,
+    fast_limit,
+    multi_enabled,
+)
 from agentic_graphrag.agent.triage import Route, TriageResult, triage
+from agentic_graphrag.agent.triage_multi import forced_route as _entry_triage
+from agentic_graphrag.agent.triage_multi import live_metadata, summary_route
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
@@ -51,8 +60,6 @@ __all__ = [
     "run_pipeline",
 ]
 
-DEFAULT_ESTIMATED_HOPS = 2
-
 
 class AgentStreamEmptyError(RuntimeError):
     """Raised when LangGraph stream yields no usable state (fail closed)."""
@@ -67,6 +74,7 @@ class _StreamCtx:
     llm: LLMClient | None
     opts: QueryOptions
     run_opts: AgentRunOptions
+    entry_usage: list[BudgetEntry] = field(default_factory=list)
 
 
 def iter_query_progress(
@@ -111,6 +119,7 @@ def _route(
                 "estimated_hops": 0,
                 "confidence": 1.0,
                 "rule_hit": "chitchat",
+                **({"question_kind": "chitchat", "budget_tier": "small"} if opts.allow_llm else {}),
             },
         )
         yield EVENT_FINAL_CHAIN, chitchat
@@ -137,7 +146,7 @@ def _route(
         opts=opts,
         run_opts=resolved_run_opts(opts),
     )
-    if not opts.enable_triage or opts.force_agentic:
+    if opts.resume or not opts.enable_triage or opts.force_agentic:
         yield from _stream_force_or_no_triage(ctx)
         return
     yield from _stream_with_triage(ctx)
@@ -201,7 +210,8 @@ def _with_rerank_telemetry(
 def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, object]]:
     # Contract stability: clients always see a triage frame first — including
     # when triage is disabled, which previously emitted no frame at all (BL-11).
-    yield EVENT_TRIAGE, _entry_triage(force_agentic=ctx.opts.force_agentic).model_dump(mode="json")
+    decision = _entry_triage(force_agentic=ctx.opts.force_agentic)
+    yield EVENT_TRIAGE, _triage_metadata(ctx, decision)
     for etype, payload in _iter_agentic(ctx):
         if etype == EVENT_FINAL_CHAIN and ctx.opts.force_agentic:
             chain = cast(ReasoningChain, payload)
@@ -211,37 +221,34 @@ def _stream_force_or_no_triage(ctx: _StreamCtx) -> Iterator[tuple[str, object]]:
             yield etype, payload
 
 
-def _entry_triage(*, force_agentic: bool) -> TriageResult:
-    rule = "force_agentic" if force_agentic else "triage_disabled"
-    return TriageResult(
-        route=Route.AGENTIC,
-        rationale=rule,
-        estimated_hops=DEFAULT_ESTIMATED_HOPS,
-        confidence=1.0,
-        rule_hit=rule,
-    )
-
-
 def _stream_with_triage(ctx: _StreamCtx) -> Iterator[tuple[str, object]]:
     known = (
         ctx.opts.known_entities
         if ctx.opts.known_entities is not None
         else list(ctx.executor.known_entities or [])
     )
-    decision = triage(
-        ctx.question,
-        ctx.llm if ctx.opts.allow_llm else None,
-        allow_llm=ctx.opts.allow_llm and ctx.llm is not None,
-        force_agentic=False,
-        known_entities=known,
-        health=ctx.executor.health,
-    )
-    triage_meta = decision.model_dump(mode="json")
+    client = entry_client(ctx, "triage")
+    with entry_meter(ctx, "triage", client):
+        decision = (summary_route(ctx.question) if multi_enabled(ctx) else None) or triage(
+            ctx.question,
+            client,
+            allow_llm=ctx.opts.allow_llm and ctx.llm is not None,
+            force_agentic=False,
+            known_entities=known,
+            health=ctx.executor.health,
+        )
+    triage_meta = _triage_metadata(ctx, decision)
     yield EVENT_TRIAGE, triage_meta
     if decision.route == Route.FAST_PATH:
         yield from _iter_fast_or_escalate(ctx, triage_meta)
         return
     yield from _agentic_with_meta(ctx, triage_meta)
+
+
+def _triage_metadata(ctx: _StreamCtx, decision: TriageResult) -> dict[str, object]:
+    if ctx.opts.allow_llm:
+        return live_metadata(ctx.question, decision)
+    return decision.model_dump(mode="json")
 
 
 def _agentic_with_meta(
@@ -267,16 +274,18 @@ def _agentic_with_meta(
 def _iter_fast_or_escalate(
     ctx: _StreamCtx, triage_meta: dict[str, object]
 ) -> Iterator[tuple[str, object]]:
-    chain, candidates = run_fast_path_with_evidence(
-        ctx.question,
-        ctx.executor,
-        ctx.llm,
-        allow_llm=ctx.run_opts.allow_llm,
-        budget=ctx.run_opts.budget,
-        triage_meta=triage_meta,
-        tenant_id=ctx.run_opts.tenant_id or None,
-        query_id=ctx.opts.query_id,
-    )
+    client = entry_client(ctx, "writer")
+    with entry_meter(ctx, "writer", client), fast_limit(ctx):
+        chain, candidates = run_fast_path_with_evidence(
+            ctx.question,
+            ctx.executor,
+            client,
+            allow_llm=ctx.run_opts.allow_llm,
+            budget=ctx.run_opts.budget,
+            triage_meta=triage_meta,
+            tenant_id=ctx.run_opts.tenant_id or None,
+            query_id=ctx.opts.query_id,
+        )
     if not should_escalate_chain(chain):
         yield from _emit_steps_then_chain(chain)
         return

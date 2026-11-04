@@ -17,7 +17,7 @@
 | | [BUSINESS_LOGIC.md](./design/BUSINESS_LOGIC.md) | 业务逻辑与完整性审查（BL-xx） |
 | | [MULTITENANT_WEB.md](./design/MULTITENANT_WEB.md) | 多租户 Web 应用页面设计记录（账号 / 团队空间，沿用推理笔记本主题） |
 | | [REQUIREMENT_REGISTER.md](./design/REQUIREMENT_REGISTER.md) | 需求登记表模式：搜索引导、停止判据与评估口径 |
-| | [MULTI_AGENT.md](./design/MULTI_AGENT.md) | 多 Agent 编排设计：黑板 + 监督者 + 并行研究者（评估、迁移与评估协议；未实现，默认单线） |
+| | [MULTI_AGENT.md](./design/MULTI_AGENT.md) | 多 Agent 编排设计：目标、实验实现差异与评估协议；默认单线 |
 | | [DESIGN_VS_IMPLEMENTATION.md](./design/DESIGN_VS_IMPLEMENTATION.md) | 设计与实现差异 |
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
@@ -28,6 +28,7 @@
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |
 | | [REAL_DOMAIN_PLAYBOOK.md](./ops/REAL_DOMAIN_PLAYBOOK.md) | 真实领域语料接入 |
 | `reviews/` | [IMPORTANT.md](./reviews/IMPORTANT.md) | 延期工作总账 |
+| | [ARCH_V3_MULTI_INTEGRATION.md](./reviews/ARCH_V3_MULTI_INTEGRATION.md) | 架构 V3、多 Agent 实现与设计分支的集成范围、验证和剩余风险 |
 | | [TYPE_SAFETY_AUDIT.md](./reviews/TYPE_SAFETY_AUDIT.md) | 全项目类型安全与常量化检查计划、问题台账和修复验证 |
 | | [IMPORTANT_DOCUMENTATION.md](./reviews/IMPORTANT_DOCUMENTATION.md) | BL 修复验证状态与当前验证入口 |
 | | [ENTERPRISE_READINESS.md](./reviews/ENTERPRISE_READINESS.md) | 企业级能力审计 |

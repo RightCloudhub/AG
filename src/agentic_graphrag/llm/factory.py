@@ -56,4 +56,5 @@ def build_llm_provider(
             c.llm.resilience.breaker_template(),
         ),
         fallback_to_light=c.llm.resilience.fallback_to_light,
+        roles=c.roles,
     )

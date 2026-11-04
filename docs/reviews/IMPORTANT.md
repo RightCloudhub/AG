@@ -40,12 +40,12 @@
 | 阶段二 MVP 代码 | **P0 代码 + 金标 ≥200 + dev offline 评测** 已齐；**正式 G2 效果**仍 Conditional |
 | 阶段三代码 | PERF/OP/KG/AN **代码 [x]**；P3-EV **offline 脚手架**见 `scripts/p3_ev_offline.py` |
 | 离线 CI | POC ≥30/31、G2 ≥196/200，probe ≥52/54 与 ≥19/20；金标审计 `--max-flagged 0` 阻塞合并 |
-| AgentState | v3 对象状态、追加 reducer、复制后修改、v1/v2 checkpoint 迁移及边界序列化已实现；见 [类型重构验证](TYPED_AGENT_STATE_PR.md) |
+| AgentState | v4 对象状态、追加 reducer、复制后修改、v1/v2/v3 checkpoint 迁移及边界序列化已实现；见 [类型重构验证](TYPED_AGENT_STATE_PR.md) |
 | 解析与摄取 | 统一解析端口、签名/编码校验、MinerU、token 分块、UUID/版本/hash 去重、chunk checkpoint、partial/reconcile、租户隔离删除与 reindex 已实现；线上迁移和模型切换见 [RUNBOOK](../ops/RUNBOOK.md) |
 | 多智能体架构 V3 | 第一批九项修复已完成代码复核与离线配对，包含取消/畸形响应计量及熔断并发回归；[验证记录](../../CHANGELOG.md#arch-v3-batch-1)；**live 配对未做**；目标与后续批次见 [ARCH_OPTIMIZATION_V3.md](../design/ARCH_OPTIMIZATION_V3.md) |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
-| 2026-11-03 | **多 Agent 编排设计（黑板 + 监督者 + 并行研究者）评估完成，未实现**：提案经逐条对代码核对修订 6 处（register 无独立节点、研究者为有界检索-精化而非自由 ReAct、register 更新保持每轮一次单写者、冲突走需求机具、预算台账为归因而非第二计量、检查点语义诚实化）；修订后的设计、分步迁移（a–e）与评估协议（max_parallel 1 vs 3、配对 McNemar、`reports/multi_agent_eval.md`）见 [MULTI_AGENT.md](../design/MULTI_AGENT.md)。默认 `agent.mode=single`、`--no-llm` 路径不变；翻转默认前必须有评估报告 |
+| 多 Agent 集成 | 黑板 / Send 实验实现已合入；默认 live DAG 和 register 显式开关保留，multi 默认关闭。根预算、角色熔断和 v4 reset 已整合；[验证与边界](ARCH_V3_MULTI_INTEGRATION.md)，剩余缺陷见 §6 |
 
 ```bash
 ./scripts/g2_formal_eval.sh --with-llm
@@ -227,6 +227,25 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | OTLP `insecure=True` | `[ ]` | 无 scheme 的端点走明文；本地无 SDK 与 collector，未改动 | collector 联调时改由 scheme 决定 |
 | `index_error` 原始异常文本 | `[ ]` | `index_pipeline` 把 `str(exc)` 写入文档元数据 | 改为异常类型名并核对读取方 |
 
+### 三分支集成后的剩余问题（2026-11-04）
+
+本轮按用户确认范围完成独立分支集成，未作线上启用验收。
+已处理默认 live 路由、子预算向根计量、模型角色共享熔断、操作阶段归因和 v4 全通道初始化；
+详情与验证见 [ARCH_V3_MULTI_INTEGRATION.md](ARCH_V3_MULTI_INTEGRATION.md)。
+
+| 审查编号 | 状态 | 剩余问题 | 解挂条件 |
+|---|---|---|---|
+| A-01 | `[ ]` | HTTP 200 外层非 JSON/非对象响应可能释放已完成调用额度 | 区分成功响应解码失败与网络失败，保留调用和未知 token 状态 |
+| A-02 | `[ ]` | 根预算未预留在途 token；并发响应仍可超过 token 阈值 | 输入/输出及 embedding 原子预留和结算 |
+| B-02 / B-03 | `[ ]` | 研究者模型异常仍向外抛出；本次运行根计量保留完成用量，但节点未提交的 receipt 仍可能在新 runtime 恢复时丢失 | 错误分支输出/可用恢复入口，失败凭据持久化与幂等重放；不能把现有 ledger floor 恢复当成完整会计恢复 |
+| B-04 | `[ ]` | deadline 只在监督者检查，入口/排队/检索/Writer 尚未贯穿，线程超时后可能继续调用 | 统一截止时间与取消；禁止过期后新调用，已完成用量保留 |
+| B-05 | `[ ]` | 冲突检测未按 schema 区分函数/非函数关系与时间范围 | 合法多值事实不冲突，真实互斥事实可调度解决 |
+| B-06 | `[ ]` | verifier 整批上下文超限被视作拒绝，Writer 固定 8000 额度可能弃答 | 分批、unavailable 与 rejected 分离、基于实际上下文分配 Writer 预算 |
+| B-07 | `[ ]` | 前端将预算停止映射为 done，最终链分支身份不完整 | stopped 原因及稳定 branch_id/req_id 可追溯 |
+| D-02 / D-03 / D-06 | `[~]` | 已明示集中 update/错误隔离/原生恢复的差异；冲突状态机、no_progress、跨图续跑契约仍待落实 | 设计取舍评审与对应行为验收 |
+| Live / Prompt | `[ ]` | 本轮未跑真实 LLM；原报告基线不等价，不能证明新 Prompt 和默认迁移通过 | dev Prompt 回归、原 DAG/register/multi-1/multi-3 四臂、预先定义非劣/费用/P95 门槛 |
+| 离线性能 | `[ ]` | G2 空闲复测：原 integration P95 中位数 62.05 ms、原 B 73.00 ms、集成候选 75.65 ms；较大部分差异已在原 B 存在，本轮不认定性能验收通过 | 定位开销并复测；向主集成/生产推广前按工程规则通过性能验收，详见集成记录 |
+
 ### 产品面部分完成
 
 | 面 | 当前状态 | 延期 |
@@ -375,3 +394,5 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 ---
 
 *关闭某项时：更新当前状态与阶段清单，过程和验证结果写入 CHANGELOG；门禁 JSON / 风险状态尽量同一变更集更新。*
+
+- 2026-11-04：multi-agent 黑板 / Send researcher 迁移已分步落地；默认 single；退化检索 live P95 约 45s，8s 目标未达，准确率上线门槛尚未证实；验证结果与后续工作见 [reports/multi_agent_eval.md](../../reports/multi_agent_eval.md)。

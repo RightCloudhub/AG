@@ -4,17 +4,40 @@ app:
   name: agentic-graphrag
   env: local
 
+roles:
+  # Null models inherit light (triage/verifier) or strong (researcher/writer).
+  # Set both USD prices per million tokens to enable monetary cost reporting.
+  triage: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  researcher: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  verifier: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+  writer: {model: null, input_usd_per_million: null, output_usd_per_million: null}
+
+agent:
+  budget_tiers:
+    small: {tokens: 12000, calls: 4, rounds: 1}
+    standard: {tokens: 50000, calls: 20, rounds: 5}
+    summary: {tokens: 50000, calls: 20, rounds: 3}
+  mode: single
+  max_parallel: 1
+  max_tool_calls: 3
+  max_research_calls: 2
+  branch_tokens: 12000
+  writer_reserve_tokens: 8000
+  writer_reserve_calls: 4
+  verifier_reserve_tokens: 4000
+  max_output_tokens: 1500
+
 guardrails:
-  # Opt in after paired evaluation on your retrieval stack. Disabled = same-stack
-  # agentic baseline. All existing hop/call/token/time ceilings still apply.
+  # Single keeps the original DAG unless the register is explicitly enabled.
+  # Multi is a separate opt-in live mode controlled by agent.mode.
   requirement_register:
-    enabled: false
+    enabled: false     # Live register opt-in; no-llm always uses the original DAG.
     seed_enabled: true
     updates_enabled: true
     delta_enabled: true
     verifier_enabled: true
     verifier:
-      model: null  # Use llm.light_model; set a distinct judge model on the chat endpoint.
+      model: null  # Legacy override; otherwise select roles.verifier.
       temperature: 0.0
       max_rejections: 2
     answer_policy: partial  # partial | abstain; factual claims still require citations

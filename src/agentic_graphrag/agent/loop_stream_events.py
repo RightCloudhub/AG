@@ -22,6 +22,11 @@ EVENT_THINKING = StreamEvent.THINKING
 
 def events_for_node(node_name: str, delta: AgentState) -> Iterator[tuple[str, dict[str, object]]]:
     """Map one LangGraph node update to zero-or-more SSE (event, payload) pairs."""
+    if node_name in {"bootstrap", "researcher", "verify"}:
+        from agentic_graphrag.agent.multi_events import multi_events
+
+        yield from multi_events(node_name, delta)
+        return
     if node_name == AgentNode.PLANNER:
         yield from _events_for_planner(delta)
         return
@@ -34,17 +39,23 @@ def events_for_node(node_name: str, delta: AgentState) -> Iterator[tuple[str, di
         if not delta.get("done"):
             yield from _events_for_executor(hop, last)
     elif node_name == AgentNode.CRITIC:
-        runtime = delta.get("register_runtime")
-        if runtime is not None and runtime.progress:
-            yield EVENT_THINKING, {"stage": "progress", "text": runtime.progress}
-        yield (
-            EVENT_HOP_DONE,
-            {
-                "hop": hop,
-                "conclusion": last.conclusion or "",
-                "critic_action": last.critic_action or "",
-            },
-        )
+        yield from _events_for_critic(delta, last)
+
+
+def _events_for_critic(
+    delta: AgentState, last: ReasoningStep
+) -> Iterator[tuple[str, dict[str, object]]]:
+    runtime = delta.get("register_runtime")
+    if runtime is not None and runtime.progress:
+        yield EVENT_THINKING, {"stage": "progress", "text": runtime.progress}
+    yield (
+        EVENT_HOP_DONE,
+        {
+            "hop": last.hop,
+            "conclusion": last.conclusion or "",
+            "critic_action": last.critic_action or "",
+        },
+    )
 
 
 def fast_path_step_events(steps: list[ReasoningStep]) -> Iterator[tuple[str, dict[str, object]]]:

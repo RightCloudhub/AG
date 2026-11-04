@@ -19,7 +19,11 @@ from agentic_graphrag.core.enums import GraphStreamMode, QueryRoute
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain
 
-_STREAM_MODES: list[StreamMode] = [GraphStreamMode.UPDATES.value, GraphStreamMode.VALUES.value]
+_STREAM_MODES: list[StreamMode] = [
+    GraphStreamMode.UPDATES.value,
+    GraphStreamMode.VALUES.value,
+    "custom",
+]
 
 
 def _initial_state(
@@ -42,22 +46,33 @@ def _initial_state(
 
 def _stream_graph_updates(
     graph: AgentGraph,
-    initial: AgentState,
+    initial: AgentState | None,
     config: RunnableConfig,
 ) -> Generator[tuple[str, object], None, AgentState | None]:
     """Yield hop events; return full accumulated state from ``values`` mode."""
     final_state: AgentState | None = None
     # Fresh queries reset append channels even when the caller reuses a thread.
-    graph_input = cast(
-        AgentState,
-        {
-            **initial,
-            "evidence": Overwrite(initial["evidence"]),
-            "register_runtime": Overwrite(initial["register_runtime"]),
-        },
+    graph_input = (
+        None
+        if initial is None
+        else cast(
+            AgentState,
+            {
+                **initial,
+                "evidence": Overwrite(initial["evidence"]),
+                "register_runtime": Overwrite(initial["register_runtime"]),
+                "proposals": Overwrite(initial["proposals"]),
+                "events": Overwrite(initial["events"]),
+                "budget_ledger": Overwrite(initial["budget_ledger"]),
+                "query_cache": Overwrite(initial["query_cache"]),
+            },
+        )
     )
     for item in graph.stream(graph_input, config=config, stream_mode=_STREAM_MODES):
         mode, chunk = _unpack_stream_item(item)
+        if mode == "custom":
+            yield from _custom_event(chunk)
+            continue
         if mode == GraphStreamMode.VALUES and isinstance(chunk, dict):
             final_state = cast(AgentState, chunk)
             continue
@@ -67,6 +82,11 @@ def _stream_graph_updates(
             if isinstance(delta, dict):
                 yield from events_for_node(node_name, delta)
     return final_state
+
+
+def _custom_event(chunk: object) -> Iterator[tuple[str, object]]:
+    if isinstance(chunk, tuple) and len(chunk) == 2:
+        yield str(chunk[0]), chunk[1]
 
 
 def _unpack_stream_item(item: object) -> tuple[str, object]:
@@ -82,6 +102,24 @@ if TYPE_CHECKING:
 
 
 def _iter_agentic(
+    ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
+) -> Iterator[tuple[str, object]]:
+    from agentic_graphrag.config import get_config
+
+    opts = ctx.run_opts
+    agent_config = opts.agent_config or get_config().agent
+    multi = agent_config.mode == "multi" and opts.allow_llm and ctx.llm is not None
+    if opts.resume and not multi:
+        raise ValueError("checkpoint resume requires multi mode and an enabled LLM")
+    if multi:
+        from agentic_graphrag.agent.pipeline_multi import iter_multi
+
+        yield from iter_multi(ctx, agent_config, seed_evidence=seed_evidence)
+        return
+    yield from _iter_single_agentic(ctx, seed_evidence=seed_evidence)
+
+
+def _iter_single_agentic(
     ctx: _StreamCtx, *, seed_evidence: list[Candidate] | None = None
 ) -> Iterator[tuple[str, object]]:
     from agentic_graphrag.agent.pipeline import AgentStreamEmptyError

@@ -9,14 +9,23 @@ from __future__ import annotations
 
 from typing import Annotated, TypedDict
 
+from agentic_graphrag.agent.blackboard import (
+    BranchEvent,
+    BudgetEntry,
+    BudgetTier,
+    Proposal,
+    append_records,
+)
 from agentic_graphrag.agent.memory import MemoryState
 from agentic_graphrag.agent.plan_dag import SubQuestion
 from agentic_graphrag.agent.register_state import RegisterRuntimeState, merge_register_runtime
 from agentic_graphrag.agent.requirements import Register
+from agentic_graphrag.agent.research_cache import QueryCache, merge_cache
+from agentic_graphrag.agent.research_state import ResearchTask, VerificationResult
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.reasoning import ReasoningChain, ToolCallTrace
 
-STATE_SCHEMA_VERSION = 3
+STATE_SCHEMA_VERSION = 4
 
 type Retrieved = tuple[list[Candidate], list[ToolCallTrace]]
 
@@ -58,6 +67,16 @@ class AgentState(TypedDict, total=False):
     answer_retries: int
     register: Register | None
     register_runtime: Annotated[RegisterRuntimeState, merge_register_runtime]
+    proposals: Annotated[list[Proposal], append_records]
+    events: Annotated[list[BranchEvent], append_records]
+    budget_ledger: Annotated[list[BudgetEntry], append_records]
+    run_id: str
+    budget_tier: BudgetTier
+    query_cache: Annotated[QueryCache, merge_cache]
+    tasks: list[ResearchTask]
+    verifications: list[VerificationResult]
+    conflicts: dict[str, list[str]]
+    deadline: float
 
 
 def active_register(state: AgentState) -> Register:
@@ -94,6 +113,16 @@ def initial_state(
         memory=MemoryState(),
         register=None,
         register_runtime=RegisterRuntimeState(),
+        proposals=[],
+        events=[],
+        budget_ledger=[],
+        run_id=chain.query_id,
+        budget_tier="standard",
+        query_cache={},
+        tasks=[],
+        verifications=[],
+        conflicts={},
+        deadline=0.0,
         done=False,
         guardrail_status="",
         allow_llm=allow_llm,

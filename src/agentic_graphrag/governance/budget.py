@@ -64,6 +64,7 @@ class BudgetTracker:
     tier_fallbacks: int = 0
     events: list[str] = field(default_factory=list)
     by_role: dict[LLMRole, RoleUsage] = field(default_factory=dict)
+    parent: BudgetTracker | None = field(default=None, repr=False, compare=False, kw_only=True)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
@@ -73,6 +74,8 @@ class BudgetTracker:
     def check(self) -> None:
         with self._lock:
             self._check_limits()
+            if self.parent is not None:
+                self.parent.check()
 
     def _check_limits(self) -> None:
         if self.llm_calls >= self.max_llm_calls:
@@ -86,6 +89,8 @@ class BudgetTracker:
         """Check an embedding's token budget without requiring a chat-call slot."""
         with self._lock:
             self._check_tokens()
+            if self.parent is not None:
+                self.parent.check_tokens()
 
     def _check_tokens(self) -> None:
         if self.total_tokens >= self.max_tokens:
@@ -101,22 +106,30 @@ class BudgetTracker:
         """Claim a chat-call slot before paying for it: concurrent callers cannot overshoot."""
         with self._lock:
             self._check_limits()
+            if self.parent is not None:
+                self.parent.reserve_call()
             self.llm_calls += 1
 
     def release_call(self) -> None:
         """Return a reserved slot whose call produced nothing to pay for."""
         with self._lock:
+            if self.parent is not None:
+                self.parent.release_call()
             self.llm_calls = max(0, self.llm_calls - 1)
 
     def settle_call(self, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
         """Book a reserved call. It is already paid for, so this never raises."""
         with self._lock:
+            if self.parent is not None:
+                self.parent.settle_call(prompt_tokens, completion_tokens)
             self._book_tokens(prompt_tokens, completion_tokens)
 
     def record_call(self, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
         """Reserve and settle one call that has no remote step (replay, stub)."""
         with self._lock:
             self._check_limits()
+            if self.parent is not None:
+                self.parent.record_call(prompt_tokens, completion_tokens)
             self.llm_calls += 1
             self._book_tokens(prompt_tokens, completion_tokens)
 
@@ -134,6 +147,8 @@ class BudgetTracker:
     def record_embedding(self, tokens: int = 0) -> None:
         """Meter one finished embedding call: its tokens count, it is not a chat call."""
         with self._lock:
+            if self.parent is not None:
+                self.parent.record_embedding(tokens)
             self.embed_calls += 1
             self.prompt_tokens += max(0, tokens)
             usage = self._usage(LLMRole.EMBEDDING)
@@ -144,17 +159,34 @@ class BudgetTracker:
     def record_remote(self, elapsed_ms: int, *, failed: bool, role: LLMRole | None = None) -> None:
         """Time spent waiting on the gateway, whether or not the call succeeded."""
         with self._lock:
+            if self.parent is not None:
+                self.parent.record_remote(elapsed_ms, failed=failed, role=role)
             usage = self._usage(role)
             usage.llm_ms += max(0, elapsed_ms)
             usage.failures += int(failed)
 
     def note_parse_failure(self) -> None:
         with self._lock:
+            if self.parent is not None:
+                self.parent.note_parse_failure()
             self._usage().parse_failures += 1
 
     def note_tier_fallback(self) -> None:
         with self._lock:
+            if self.parent is not None:
+                self.parent.note_tier_fallback()
             self.tier_fallbacks += 1
+
+    def restore_usage(self, snapshot: dict[str, int]) -> None:
+        """Restore checkpoint totals without lowering already metered usage.
+
+        Only use at graph boundaries, never to aggregate concurrent scopes:
+        scopes account to their parent when each call completes. Old checkpoints
+        can restore totals, but cannot reconstruct unpersisted failed calls.
+        """
+        with self._lock:
+            for key in ("llm_calls", "embed_calls", "prompt_tokens", "completion_tokens"):
+                setattr(self, key, max(getattr(self, key), snapshot.get(key, 0)))
 
     def snapshot(self) -> dict[str, int]:
         with self._lock:

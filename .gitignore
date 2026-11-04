@@ -98,3 +98,8 @@ secrets/
 coverage.json
 coverage.xml
 .coverage
+
+!reports/multi_agent_eval.md
+!reports/multi_agent_eval_summary.json
+!reports/multi_agent_hoprail_desktop.jpg
+!reports/multi_agent_hoprail_mobile.jpg
