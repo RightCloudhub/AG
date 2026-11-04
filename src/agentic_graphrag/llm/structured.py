@@ -8,8 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from agentic_graphrag.core.enums import MessageRole
+from agentic_graphrag.core.enums import LLMRole, MessageRole
 from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
+from agentic_graphrag.governance.budget import BudgetTracker, role_scope
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 
@@ -30,22 +31,38 @@ def complete_structured[T: BaseModel](
     tier: Tier = Tier.STRONG,
     max_retries: int = 2,
     temperature: float | None = None,
+    role: LLMRole = LLMRole.UNKNOWN,
 ) -> T:
     """Call LLM and parse into a Pydantic model with limited retries."""
+    options: dict[str, Any] = {"tier": tier, "response_format": {"type": "json_object"}}
+    if temperature is not None:
+        options["temperature"] = temperature
+    with role_scope(role):
+        return _parse_with_retries(
+            llm, messages, model_type, options=options, max_retries=max_retries
+        )
+
+
+def _parse_with_retries[T: BaseModel](
+    llm: CompletionClient,
+    messages: list[Message],
+    model_type: type[T],
+    *,
+    options: dict[str, Any],
+    max_retries: int,
+) -> T:
+    budget = getattr(llm, "budget", None)
     history = list(messages)
     last_error: Exception | None = None
     for _attempt in range(max_retries + 1):
-        raw = llm.complete(
-            history,
-            tier=tier,
-            response_format={"type": "json_object"},
-            **({"temperature": temperature} if temperature is not None else {}),
-        )
+        raw = llm.complete(history, **options)
         try:
             data = extract_json(raw)
             return model_type.model_validate(data)
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             last_error = exc
+            if isinstance(budget, BudgetTracker):
+                budget.note_parse_failure()
             history = list(history) + [
                 Message(role=MessageRole.ASSISTANT, content=raw),
                 Message(

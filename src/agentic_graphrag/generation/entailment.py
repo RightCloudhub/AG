@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER
-from agentic_graphrag.core.enums import MessageRole, PromptName, RetrievalChannel
+from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import EntailmentPolicy, LLMClient
@@ -96,7 +96,14 @@ def _ask(claims: list[Claim], evidence: list[Candidate], llm: LLMClient) -> Verd
         Message(role=MessageRole.SYSTEM, content=_system_prompt()),
         Message(role=MessageRole.USER, content="\n\n".join(blocks)),
     ]
-    return complete_structured(llm, messages, VerdictPayload, tier=Tier.LIGHT, max_retries=1)
+    return complete_structured(
+        llm,
+        messages,
+        VerdictPayload,
+        tier=Tier.LIGHT,
+        max_retries=1,
+        role=LLMRole.ENTAILMENT,
+    )
 
 
 def _claim_block(index: int, claim: Claim, by_id: dict[str, Candidate]) -> str:

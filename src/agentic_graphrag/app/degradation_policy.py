@@ -17,10 +17,12 @@ from agentic_graphrag.config import AppConfig
 from agentic_graphrag.core.enums import RetrievalChannel
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.entailment import JUDGE_ABSTAINED
+from agentic_graphrag.governance.budget import DEGRADED_FROM_KEY
 from agentic_graphrag.observability.degradation import (
     DEGRADED_CHANNELS_KEY,
     LOW_CONFIDENCE_KEY,
     REASON_LLM_UNAVAILABLE,
+    REASON_TIER_FALLBACK,
     ChannelHealth,
     degraded_channel,
     merge_degraded_channels,
@@ -75,4 +77,6 @@ def _deeper_markers(chain: ReasoningChain) -> list[dict[str, str]]:
     """Channels marked where the fallback happened, below the executor."""
     if chain.metadata.get(LLM_DEGRADED_KEY) or chain.metadata.get(JUDGE_ABSTAINED):
         return [degraded_channel(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE)]
+    if chain.metadata.get(DEGRADED_FROM_KEY):
+        return [degraded_channel(RetrievalChannel.LLM, REASON_TIER_FALLBACK)]
     return []

@@ -140,10 +140,10 @@ def test_healthy_run_reports_no_degradation(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_fake_embedder_401_is_reported_as_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 401 from the embedder shows up as the embedding channel, logged and counted."""
-    from agentic_graphrag.app import wiring
+    from agentic_graphrag.app import query_run
 
     svc = _offline_service()
-    monkeypatch.setattr(wiring, "_embed_llm", lambda **_kwargs: _Embedder401())
+    monkeypatch.setattr(query_run, "build_llm_for_service", lambda **_kwargs: _Embedder401())
     before = _counter("embedding", "embedding_unavailable")
     try:
         with (

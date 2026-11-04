@@ -24,21 +24,16 @@ from agentic_graphrag.app.degradation_policy import (
 from agentic_graphrag.app.errors import INTERNAL_ERROR, ApiError
 from agentic_graphrag.app.query_run import (
     MS_PER_SECOND,
-    QUESTION_SPAN_PREVIEW,
     _budget_api_error,
     _finalize_chain,
     _persist_and_commit,
     _release_budget,
     _reserve_budget,
+    build_query_deps,
 )
 from agentic_graphrag.app.stream_events import EVENT_ANSWER, EVENT_DEGRADED, EVENT_ERROR
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
-from agentic_graphrag.app.tenant_context import tenant_entities
-from agentic_graphrag.app.wiring import (
-    build_executor_for_service,
-    build_llm_for_service,
-    stream_cache_hit_events,
-)
+from agentic_graphrag.app.wiring import stream_cache_hit_events
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance.budget import BudgetExceeded
 from agentic_graphrag.observability.context import iterate_with_context, query_context
@@ -139,7 +134,7 @@ def _stream_agent(
     executor, llm, opts = _build_stream_deps(
         svc, req, (guard_cfg, budget), tenant_id=tenant_id, query_id=trace_ctx.query_id
     )
-    with span(trace_ctx, "stream_query", question=req.question[:QUESTION_SPAN_PREVIEW]):
+    with span(trace_ctx, "stream_query", question_chars=len(req.question)):
         yield from _consume_progress(
             svc,
             req,
@@ -172,19 +167,7 @@ def _build_stream_deps(
     query_id: str,
 ) -> tuple[Executor, LLMClient | None, QueryOptions]:
     guard_cfg, budget = guard_budget
-    executor = build_executor_for_service(
-        bundle=svc.bundle,
-        cfg=svc.cfg,
-        settings=svc.settings,
-        allow_llm=svc.allow_llm,
-        known_entities=tenant_entities(svc, tenant_id),
-        tenant_id=tenant_id or None,
-        retrieval_cache=svc.retrieval_cache,
-        enable_cache=svc.enable_cache,
-    )
-    llm = build_llm_for_service(
-        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
-    )
+    executor, llm = build_query_deps(svc, budget, tenant_id=tenant_id)
     opts = QueryOptions(
         query_id=query_id,
         guard_cfg=guard_cfg,

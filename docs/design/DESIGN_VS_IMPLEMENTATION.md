@@ -118,7 +118,7 @@ capability, not the hot path, and D9's missing `−graph` ablation is what would
 
 ### E2 · Guardrails are coupled, not independent
 
-`guardrails.py:20 min_recursion_limit(max_hops) = 2*max_hops + 5`, derived from the worst-case node
+`guardrails.py min_recursion_limit(max_hops) = 2*max_hops + 10`, derived from the worst-case node
 visit count, and applied via `max(configured, floor)` in both `from_app_config` and `with_overrides`
 — *"Never ship a recursion_limit that the hop budget can exhaust."* Plus a `hard_max_hops=20` ceiling
 that per-request overrides cannot exceed.

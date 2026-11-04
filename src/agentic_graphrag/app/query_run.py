@@ -17,7 +17,7 @@ from agentic_graphrag.app.answer_cache import (  # noqa: F401 — re-exported
 from agentic_graphrag.app.contracts import QueryRequest, QueryResultData
 from agentic_graphrag.app.degradation_policy import apply_degradation_policy
 from agentic_graphrag.app.errors import BUDGET_EXCEEDED, ApiError
-from agentic_graphrag.app.query_agent import QUESTION_SPAN_PREVIEW, run_agent_with_timeout
+from agentic_graphrag.app.query_agent import run_agent_with_timeout
 from agentic_graphrag.app.telemetry import record_metrics as _record_metrics
 from agentic_graphrag.app.telemetry import save_chain_audit
 from agentic_graphrag.app.tenant_context import tenant_entities
@@ -30,7 +30,7 @@ from agentic_graphrag.app.wiring import (
 from agentic_graphrag.core.constants import MILLISECONDS_PER_SECOND
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.governance import audit_events
-from agentic_graphrag.governance.budget import BudgetExceeded
+from agentic_graphrag.governance.budget import BudgetExceeded, BudgetTracker
 from agentic_graphrag.observability.context import query_context
 from agentic_graphrag.observability.degradation import (
     REASON_AUDIT_WRITE_FAILED,
@@ -42,7 +42,10 @@ from agentic_graphrag.observability.metrics import get_metrics
 from agentic_graphrag.observability.trace import get_tracer
 
 if TYPE_CHECKING:
+    from agentic_graphrag.agent.executor import Executor
     from agentic_graphrag.app.query_service import QueryService
+    from agentic_graphrag.core.ports.llm import LLMClient
+    from agentic_graphrag.llm.provider import MockLLMProvider
 
 MS_PER_SECOND = MILLISECONDS_PER_SECOND
 # Must match MultiLevelBudget.check_and_reserve defaults used by the API path.
@@ -52,7 +55,6 @@ RESERVE_COST = 0.01
 # Re-export for service_stream / tests.
 __all__ = [
     "MS_PER_SECOND",
-    "QUESTION_SPAN_PREVIEW",
     "RESERVE_CALLS",
     "RESERVE_COST",
     "RESERVE_TOKENS",
@@ -163,6 +165,27 @@ def _budget_api_error(exc: BudgetExceeded, *, tenant_id: str = "", user_id: str 
     )
 
 
+def build_query_deps(
+    svc: QueryService, budget: BudgetTracker, *, tenant_id: str
+) -> tuple[Executor, LLMClient | MockLLMProvider]:
+    """One metered client per query: all roles and embeddings draw on the same budget."""
+    llm = build_llm_for_service(
+        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
+    )
+    executor = build_executor_for_service(
+        bundle=svc.bundle,
+        cfg=svc.cfg,
+        settings=svc.settings,
+        allow_llm=svc.allow_llm,
+        known_entities=tenant_entities(svc, tenant_id),
+        tenant_id=tenant_id or None,
+        retrieval_cache=svc.retrieval_cache,
+        enable_cache=svc.enable_cache,
+        llm=llm,
+    )
+    return executor, llm
+
+
 def _reserve_budget(svc: QueryService, *, tenant_id: str, user_id: str) -> None:
     if not svc.multi_budget:
         return
@@ -209,19 +232,7 @@ def _invoke_agent(
         query_id=query_id_var.get() or None, tenant_id=tenant_id, user_id=user_id
     )
     # Build deps without a process-global lock so concurrent queries can proceed.
-    executor = build_executor_for_service(
-        bundle=svc.bundle,
-        cfg=svc.cfg,
-        settings=svc.settings,
-        allow_llm=svc.allow_llm,
-        known_entities=tenant_entities(svc, tenant_id),
-        tenant_id=tenant_id or None,
-        retrieval_cache=svc.retrieval_cache,
-        enable_cache=svc.enable_cache,
-    )
-    llm = build_llm_for_service(
-        allow_llm=svc.allow_llm, settings=svc.settings, cfg=svc.cfg, budget=budget
-    )
+    executor, llm = build_query_deps(svc, budget, tenant_id=tenant_id)
     chain = run_agent_with_timeout(
         svc,
         req,

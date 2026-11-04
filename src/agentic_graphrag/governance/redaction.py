@@ -231,6 +231,18 @@ def reset_redactor() -> None:
 # Hook entry-points
 # ---------------------------------------------------------------------------
 
+# Correlation keys are system identifiers, not personal data. The digit patterns
+# would otherwise rewrite them and break log joins, audit lookup and tenant checks.
+_LOG_KEPT_KEYS = ("query_id", "request_id", "tenant_id")
+_AUDIT_KEPT_KEYS = ("query_id",)
+_AUDIT_KEPT_METADATA_KEYS = ("tenant_id", "thread_id")
+
+
+def _restore(
+    original: dict[str, Any], redacted: dict[str, Any], keys: tuple[str, ...]
+) -> dict[str, Any]:
+    return {**redacted, **{key: original[key] for key in keys if key in original}}
+
 
 def redact_log_record(record: dict[str, Any]) -> dict[str, Any]:
     """Hook for ``logging_setup.py`` JSON formatter.
@@ -239,7 +251,8 @@ def redact_log_record(record: dict[str, Any]) -> dict[str, Any]:
 
         record_dict = redact_log_record(record_dict)
     """
-    return get_redactor().redact_dict(record)
+    redacted = get_redactor().redact_dict(record)
+    return record if redacted is record else _restore(record, redacted, _LOG_KEPT_KEYS)
 
 
 def redact_audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -247,4 +260,11 @@ def redact_audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     Call before writing a ``ReasoningChain`` dict to the audit store.
     """
-    return get_redactor().redact_dict(payload)
+    redacted = get_redactor().redact_dict(payload)
+    if redacted is payload:
+        return payload
+    restored = _restore(payload, redacted, _AUDIT_KEPT_KEYS)
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        restored["metadata"] = _restore(metadata, restored["metadata"], _AUDIT_KEPT_METADATA_KEYS)
+    return restored

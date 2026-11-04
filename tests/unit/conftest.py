@@ -12,6 +12,8 @@ from collections.abc import Iterator
 
 import pytest
 
+from agentic_graphrag.llm.circuit import reset_shared_breakers
+
 _PROFILE_ENV = ("AGR_PROFILE", "AGR_USE_LIVE_STORES", "AGR_ALLOW_LLM")
 
 
@@ -25,3 +27,11 @@ def _isolate_profile_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[N
         # go to a temp dir instead of data/processed in the working tree.
         mp.setenv("AGR_RUNTIME_DIR", str(tmp_path_factory.mktemp("agr_runtime")))
         yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_breakers() -> Iterator[None]:
+    """Process-wide breakers would carry one test's failures into the next."""
+    reset_shared_breakers()
+    yield
+    reset_shared_breakers()

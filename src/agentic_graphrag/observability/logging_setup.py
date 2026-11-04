@@ -20,6 +20,8 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
+from agentic_graphrag.governance.redaction import redact_log_record
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -153,6 +155,10 @@ def setup_logging(
     if _CONFIGURED:
         return
     _CONFIGURED = True
+
+    # AGR_REDACTION_ENABLED takes effect here; a hook set by the caller wins.
+    if _redact_hook is _identity_redact:
+        set_redact_hook(redact_log_record)
 
     resolved_level = (level or os.environ.get(_ENV_LOG_LEVEL) or _DEFAULT_LOG_LEVEL).upper()
     resolved_file = log_file or os.environ.get(_ENV_LOG_FILE)

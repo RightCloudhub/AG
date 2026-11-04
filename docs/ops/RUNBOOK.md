@@ -267,8 +267,18 @@ groups:
   - name: agentic-graphrag
     rules:
       - alert: AgenticP95High
-        expr: agr_latency_p95_ms > 8000
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(agr_query_latency_ms_bucket{route="agentic"}[5m]))) > 8000
         for: 10m
+        labels: {severity: high}
+      - alert: FastPathP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(agr_query_latency_ms_bucket{route="fast_path"}[5m]))) > 3000
+        for: 10m
+        labels: {severity: high}
+      - alert: LLMCircuitOpen
+        expr: agr_llm_circuit_open == 1
+        for: 5m
         labels: {severity: high}
       - alert: ErrorRateHigh
         expr: rate(agr_errors_total[5m]) / rate(agr_queries_total[5m]) > 0.05

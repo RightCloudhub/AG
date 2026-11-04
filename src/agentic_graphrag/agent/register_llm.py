@@ -11,7 +11,7 @@ from agentic_graphrag.agent.register_state import InitializationAudit, Verificat
 from agentic_graphrag.agent.requirements import Register, RegisterPayload, Requirement
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.config_register import RequirementRegisterConfig
-from agentic_graphrag.core.enums import MessageRole, PromptName, RequirementStatus
+from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName, RequirementStatus
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
@@ -46,7 +46,12 @@ def initialize(
     else:
         user = initialization_prompt(question, seed, config=config)
         payload = complete_structured(
-            llm, _messages(user), RegisterPayload, temperature=0, max_retries=0
+            llm,
+            _messages(user),
+            RegisterPayload,
+            temperature=0,
+            max_retries=0,
+            role=LLMRole.REGISTER_UPDATE,
         )
         if audit is not None:
             audit["evidence_summary"] = payload.evidence_summary
@@ -95,7 +100,9 @@ def update(
     user = update_prompt(register.question, fresh)
     messages = [Message(role=MessageRole(m["role"]), content=m["content"]) for m in context]
     messages.append(Message(role=MessageRole.USER, content=user))
-    payload = complete_structured(llm, messages, RegisterPayload, temperature=0, max_retries=0)
+    payload = complete_structured(
+        llm, messages, RegisterPayload, temperature=0, max_retries=0, role=LLMRole.REGISTER_UPDATE
+    )
     proposed = Register(question=register.question, items=payload.requirement_register)
     if proposals is not None:
         proposals.extend(
@@ -132,7 +139,13 @@ def verify(
         input_json=json_text({"requirement": item.text, "passages": evidence_input(supporting)})
     )
     return complete_structured(
-        llm, _messages(user), Verification, tier=Tier.LIGHT, temperature=temperature, max_retries=0
+        llm,
+        _messages(user),
+        Verification,
+        tier=Tier.LIGHT,
+        temperature=temperature,
+        max_retries=0,
+        role=LLMRole.REGISTER_VERIFY,
     )
 
 

@@ -24,7 +24,7 @@ from agentic_graphrag.core.enums import AgentNode
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningChain
 from agentic_graphrag.generation.confidence import grade_confidence
-from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetTracker, apply_budget
 
 _MS_PER_SEC = MILLISECONDS_PER_SECOND
 
@@ -202,12 +202,7 @@ def finalize_agentic_chain(
 ) -> ReasoningChain:
     out = result["chain"].model_copy(deep=True)
     out.cost.latency_ms = int((time.perf_counter() - t0) * _MS_PER_SEC)
-    if budget:
-        snap = budget.snapshot()
-        out.cost.llm_calls = snap["llm_calls"]
-        out.cost.tokens = snap["total_tokens"]
-        out.cost.prompt_tokens = snap["prompt_tokens"]
-        out.cost.completion_tokens = snap["completion_tokens"]
+    apply_budget(out, budget)
     meta = dict(out.metadata or {})
     meta["thread_id"] = tid
     meta["checkpointer"] = True

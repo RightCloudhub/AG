@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from agentic_graphrag.agent.entities import extract_entity_mentions
 from agentic_graphrag.agent.planner_chain import parse_chain
 from agentic_graphrag.agent.question_normalization import normalize_question
-from agentic_graphrag.core.enums import MessageRole, RetrievalChannel
+from agentic_graphrag.core.enums import LLMRole, MessageRole, RetrievalChannel
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 from agentic_graphrag.observability.degradation import (
@@ -237,6 +237,7 @@ def _llm_triage(
             ],
             _LlmTriage,
             tier=Tier.LIGHT,
+            role=LLMRole.TRIAGE,
         )
         route = Route.FAST_PATH if raw.route.lower().startswith("fast") else Route.AGENTIC
         hops = max(

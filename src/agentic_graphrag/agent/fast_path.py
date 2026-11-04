@@ -14,7 +14,7 @@ from agentic_graphrag.core.ports.llm import LLMClient, Tier
 from agentic_graphrag.core.reasoning import ReasoningChain, ReasoningStep, ToolCallTrace
 from agentic_graphrag.generation.answer import generate_answer
 from agentic_graphrag.generation.confidence import grade_confidence
-from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.governance.budget import BudgetTracker, apply_budget
 
 
 def run_fast_path(
@@ -68,7 +68,7 @@ def run_fast_path_with_evidence(
     conf = grade_confidence(chain, candidates)
     chain.metadata = {**(chain.metadata or {}), "confidence": conf}
     chain.cost.latency_ms = int((time.perf_counter() - t0) * MILLISECONDS_PER_SECOND)
-    _apply_budget(chain, budget)
+    apply_budget(chain, budget)
     return chain, candidates
 
 
@@ -94,13 +94,3 @@ def _fast_step(
         conclusion="",
         critic_action=StepAction.FAST_PATH,
     )
-
-
-def _apply_budget(chain: ReasoningChain, budget: BudgetTracker | None) -> None:
-    if not budget:
-        return
-    snap = budget.snapshot()
-    chain.cost.llm_calls = snap["llm_calls"]
-    chain.cost.tokens = snap["total_tokens"]
-    chain.cost.prompt_tokens = snap["prompt_tokens"]
-    chain.cost.completion_tokens = snap["completion_tokens"]

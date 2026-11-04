@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -22,6 +22,7 @@ from agentic_graphrag.api.tenant import request_tenant
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.tenancy import tenant_matches
+from agentic_graphrag.llm.circuit import CircuitState, shared_breaker_states
 
 router = APIRouter(prefix="/v1", tags=["admin"])
 
@@ -111,58 +112,94 @@ def _prom_line(name: str, value: Any, labels: dict[str, str] | None = None) -> s
     return f"{name} {value}"
 
 
+_LATENCY_GAUGES = (
+    ("agr_latency_p50_ms", "Query latency P50 in milliseconds", "latency_p50_ms"),
+    ("agr_latency_p95_ms", "Query latency P95 in milliseconds", "latency_p95_ms"),
+    ("agr_latency_p99_ms", "Query latency P99 in milliseconds", "latency_p99_ms"),
+)
+_LABELLED_FAMILIES = (
+    ("agr_route_queries_total", "Queries by route", "route_counts", "route"),
+    ("agr_errors_total", "Errors by code", "error_counts", "code"),
+    (
+        "agr_event_handler_failures_total",
+        "Critical event handlers that failed after retries (alert on increase)",
+        "event_handler_failures",
+        "handler",
+    ),
+    (
+        "agr_llm_calls_total",
+        "LLM and embedding calls by role, cache replays included",
+        "llm_role_calls",
+        "role",
+    ),
+    (
+        "agr_llm_remote_ms_total",
+        "Milliseconds spent waiting on the LLM gateway by role",
+        "llm_role_remote_ms",
+        "role",
+    ),
+)
+
+
 def prometheus_metrics_text(*, tenant_id: str | None = None) -> str:
     """Convert MetricsRegistry summary to Prometheus exposition format."""
     from agentic_graphrag.observability.metrics import get_metrics
 
-    s = get_metrics().summary(tenant_id=tenant_id)
+    s = cast(Mapping[str, Any], get_metrics().summary(tenant_id=tenant_id))
     lines: list[str] = []
-
-    lines.append("# HELP agr_queries_total Total queries processed")
-    lines.append("# TYPE agr_queries_total counter")
-    lines.append(_prom_line("agr_queries_total", s.get("count", 0)))
-    lines.append("")
-
-    lines.append("# HELP agr_latency_p50_ms Query latency P50 in milliseconds")
-    lines.append("# TYPE agr_latency_p50_ms gauge")
-    lines.append(_prom_line("agr_latency_p50_ms", s.get("latency_p50_ms", 0.0)))
-    lines.append("")
-
-    lines.append("# HELP agr_latency_p95_ms Query latency P95 in milliseconds")
-    lines.append("# TYPE agr_latency_p95_ms gauge")
-    lines.append(_prom_line("agr_latency_p95_ms", s.get("latency_p95_ms", 0.0)))
-    lines.append("")
-
-    lines.append("# HELP agr_latency_p99_ms Query latency P99 in milliseconds")
-    lines.append("# TYPE agr_latency_p99_ms gauge")
-    lines.append(_prom_line("agr_latency_p99_ms", s.get("latency_p99_ms", 0.0)))
-    lines.append("")
-
-    _labelled(
-        lines,
-        "agr_route_queries_total",
-        "Queries by route",
-        counts=s.get("route_counts"),
-        label="route",
-    )
-    _labelled(
-        lines, "agr_errors_total", "Errors by code", counts=s.get("error_counts"), label="code"
-    )
-    _labelled(
-        lines,
-        "agr_event_handler_failures_total",
-        "Critical event handlers that failed after retries (alert on increase)",
-        counts=s.get("event_handler_failures"),
-        label="handler",
-    )
+    _single(lines, "agr_queries_total", "Total queries processed", kind="counter", value=s["count"])
+    for name, help_text, key in _LATENCY_GAUGES:
+        _single(lines, name, help_text, kind="gauge", value=s[key])
+    for name, help_text, key, label in _LABELLED_FAMILIES:
+        _labelled(lines, name, help_text, counts=s.get(key), label=label)
     _degradation_family(lines, s.get("degradations"))
+    _latency_histogram_family(lines, s.get("latency_histogram"))
+    _llm_circuit_family(lines)
+    _single(
+        lines,
+        "agr_budget_trips_total",
+        "Budget trip events",
+        kind="counter",
+        value=s["budget_trips"],
+    )
+    return "\n".join(lines) + "\n"
 
-    lines.append("# HELP agr_budget_trips_total Budget trip events")
-    lines.append("# TYPE agr_budget_trips_total counter")
-    lines.append(_prom_line("agr_budget_trips_total", s.get("budget_trips", 0)))
+
+def _single(lines: list[str], name: str, help_text: str, *, kind: str, value: Any) -> None:
+    lines.append(f"# HELP {name} {help_text}")
+    lines.append(f"# TYPE {name} {kind}")
+    lines.append(_prom_line(name, value))
     lines.append("")
 
-    return "\n".join(lines) + "\n"
+
+def _latency_histogram_family(lines: list[str], rows: Mapping[str, Any] | None) -> None:
+    """``agr_query_latency_ms``: aggregatable per-route latency (AC-4 has per-route targets)."""
+    if not rows:
+        return
+    lines.append("# HELP agr_query_latency_ms Query latency in milliseconds by route")
+    lines.append("# TYPE agr_query_latency_ms histogram")
+    for route, row in sorted(rows.items()):
+        for edge, count in row["buckets"].items():
+            labels = {"route": route, "le": edge}
+            lines.append(_prom_line("agr_query_latency_ms_bucket", count, labels))
+        labels = {"route": route, "le": "+Inf"}
+        lines.append(_prom_line("agr_query_latency_ms_bucket", row["count"], labels))
+        lines.append(_prom_line("agr_query_latency_ms_sum", row["sum_ms"], {"route": route}))
+        lines.append(_prom_line("agr_query_latency_ms_count", row["count"], {"route": route}))
+    lines.append("")
+
+
+def _llm_circuit_family(lines: list[str]) -> None:
+    """``agr_llm_circuit_open{route}``: 1 while calls on the route are refused."""
+    states = shared_breaker_states()
+    if not states:
+        return
+    lines.append("# HELP agr_llm_circuit_open LLM circuit breaker open on this route")
+    lines.append("# TYPE agr_llm_circuit_open gauge")
+    for route, state in sorted(states.items()):
+        is_open = int(state == CircuitState.OPEN)
+        lines.append(_prom_line("agr_llm_circuit_open", is_open, {"route": route}))
+    lines.append("")
 
 
 def _degradation_family(lines: list[str], rows: Sequence[Mapping[str, Any]] | None) -> None:

@@ -2,7 +2,7 @@
 
 **用途：** 汇总所有**有意延期、被阻塞、未完成或明确不做**的事项，便于一眼扫完。  
 **不是**路线图重写——细节仍以各阶段计划为准；本文件是债务 / 缺口总览。  
-**最近汇总：** 2026-11-03
+**最近汇总：** 2026-11-04
 
 **来源：** `plan/roadmap.md`、各阶段计划、`reports/G1_review.md`、`reports/G1_to_G2_status.json`、PRD 开放问题、风险登记册、`pyproject.toml` 覆盖率 omit、代码注释。
 
@@ -42,6 +42,7 @@
 | 离线 CI | POC ≥30/31、G2 ≥196/200，probe ≥52/54 与 ≥19/20；金标审计 `--max-flagged 0` 阻塞合并 |
 | AgentState | v3 对象状态、追加 reducer、复制后修改、v1/v2 checkpoint 迁移及边界序列化已实现；见 [类型重构验证](TYPED_AGENT_STATE_PR.md) |
 | 解析与摄取 | 统一解析端口、签名/编码校验、MinerU、token 分块、UUID/版本/hash 去重、chunk checkpoint、partial/reconcile、租户隔离删除与 reindex 已实现；线上迁移和模型切换见 [RUNBOOK](../ops/RUNBOOK.md) |
+| 多智能体架构 V3 | 第一批九项修复已完成代码复核与离线配对，包含取消/畸形响应计量及熔断并发回归；[验证记录](../../CHANGELOG.md#arch-v3-batch-1)；**live 配对未做**；目标与后续批次见 [ARCH_OPTIMIZATION_V3.md](../design/ARCH_OPTIMIZATION_V3.md) |
 | 仍开 | 真域签字、live fair baseline、**生产** P95≤8s、G4 灰度流程 |
 | Live heldout（合成） | agentic **rescored 93.6%** / +70pp / recall 0.94；P95 **~92s**（未达 AC-4） |
 
@@ -211,6 +212,20 @@ PYTHONPATH=src .venv/bin/python scripts/p3_load_http.py --n 20
 | Paraphrase robustness | 40 个 dev 组及 2 个图验证四跳补充组；离线结果见 [报告](../../reports/paraphrase_robustness.md) | 四个 planner xfail、重排语序/口语缺口；真实 LLM 评估 |
 | 摄取与索引 | 离线 adapter 回归已覆盖恢复和租户边界 | Neo4j/Qdrant 线上验收、旧 ID 迁移和 live embedding 模型切换 |
 
+### 多智能体架构 V3 挂账（2026-11-04，[ARCH_OPTIMIZATION_V3](../design/ARCH_OPTIMIZATION_V3.md)）
+
+| 项 | 状态 | 说明 | 解挂需要 |
+|----|------|------|----------|
+| 第一批 live 配对 | `[ ]` | live 查询上限从 20 降为配置的 16，工具规划与 embedding 开始占预算，可能更早触顶；熔断改为进程级 | 同图同题同缓存的配对评估，重点看触顶率与准确率 |
+| P95 重测 | `[ ]` | 现可用 `metadata.llm_by_role` 拆解到角色；历史 ~92 s 的原始行已是 0 字节文件 | live 预算 |
+| V3-01…15 | `[ ]` | 后续批次的目标与验收已定，未实现 | 按 V3 §4 顺序立项；V3-15 先写 ADR |
+| 诊断未覆盖 | `[~]` | 时延、执行器、状态对账 3 个维度与原九维诊断的对抗复核因 API 限流未完成；第一批改动范围的代码复核已完成；§4 中的研究计数未被独立复现 | 补做后更新 V3 §6 |
+| `agr-run-cases --direct` 未计量 | `[ ]` | LLM 未接预算，该路径 `llm_calls` 恒为 0 | 接入 tracker，或移除该遗留路径 |
+| 缓存回放计费 | `[ ]` | 回放仍占调用上限与租户用量；A/B 的调用均值依赖此口径 | 决定是否单列 `cached_calls` |
+| rerank 未计量 | `[ ]` | 重排 HTTP 调用不进 `BudgetTracker` | 随 V3-11 |
+| OTLP `insecure=True` | `[ ]` | 无 scheme 的端点走明文；本地无 SDK 与 collector，未改动 | collector 联调时改由 scheme 决定 |
+| `index_error` 原始异常文本 | `[ ]` | `index_pipeline` 把 `str(exc)` 写入文档元数据 | 改为异常类型名并核对读取方 |
+
 ### 产品面部分完成
 
 | 面 | 当前状态 | 延期 |
@@ -259,7 +274,7 @@ BL-01…BL-14 均已实现，当前行为与边界见
 ### 规范 / 结构备注
 
 - 进一步包布局（如 `knowledge/extraction/` 包、`ingest/` 包等）为可选对齐完整目录树。  
-- **架构优化建议 P-A1…A5 挂账**（2026-07-23，[`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) §7）：env 习语归并、魔法默认值常量化、`neo4j_store.py` 顶格 300 行须先拆再改、`config.py` 294 行预留拆分、`AGR_*` 收编 Settings（低优先）。实施前后按其 §8 验证清单跑门禁。  
+- **架构优化建议 P-A1…A5 挂账**（2026-07-23，记录见 [CHANGELOG](../../CHANGELOG.md)；`ARCHITECTURE.md` 已不含原章节，未逐项复核）：env 习语归并、魔法默认值常量化、`AGR_*` 收编 Settings（低优先）。`neo4j_store.py`、`config.py` 现为 281、275 行，已不顶格。
 - **offline/live 边界：** `configs/prompts/*` 仅服务 live LLM；demo 语料假设只应落在 `generation/offline_heuristics/`（omit + 上表诚实项）。
 
 ---
@@ -332,6 +347,7 @@ PRD 仍为**初稿待评审**；AC 数值指标需结合试点业务最终确认
 3. **Live 重跑 3 道 3-hop badcase**（验证 critic_guard）或全量 `--with-llm`。  
 4. **Staging P95** — `p3_load_http.py --target ...` + triage，目标 Agentic ≤8s。  
 5. 人工金标抽检 + G2 材料诚实标注合成/真域。  
+6. **V3 第一批 live 配对**，然后按 [V3 §4](../design/ARCH_OPTIMIZATION_V3.md) 从 V3-01 开始。
 
 ---
 

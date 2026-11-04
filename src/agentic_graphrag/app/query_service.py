@@ -199,7 +199,13 @@ class QueryService:
                 cache_dir=resolve_path(cfg.paths.cache_dir) / "retrieval",
                 answer_ttl_seconds=ANSWER_CACHE_TTL_SECONDS,
             ),
-            multi_budget=MultiLevelBudget(tenant_overrides=tenant_overrides),
+            multi_budget=MultiLevelBudget(
+                tenant_overrides=tenant_overrides,
+                query_limits=BudgetLimits(
+                    max_llm_calls=cfg.guardrails.max_llm_calls,
+                    max_tokens=cfg.guardrails.max_tokens_per_query,
+                ),
+            ),
             ingest_tasks=IngestTaskStore(runtime_dir(cfg) / "ingest_tasks.jsonl"),
         )
         from agentic_graphrag.app.write_path import attach_write_path

@@ -134,7 +134,7 @@ flowchart TD
     AG --> OUT
 ```
 
-`agent/pipeline.py` 是**唯一**的执行实现：`iter_query_progress()` 逐步产出事件，终止事件固定为 `(__final_chain__, chain)`。SSE 直接消费事件；非流式的 `loop.run_query()` / `run_agentic_query()` 只是把同一个迭代器消费到结束（`run_pipeline` / `drain`），不再维护第二套代码。Fast 升级到 Deep 时，Fast 已检索到的证据作为初始 `evidence` 进入 Agent 状态（`metadata.inherited_evidence` 记录条数）。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
+`agent/pipeline.py` 是**唯一**的执行实现：`iter_query_progress()` 逐步产出事件，终止事件固定为 `(__final_chain__, chain)`。SSE 直接消费事件；非流式的 `loop.run_query()` / `run_agentic_query()` 只是把同一个迭代器消费到结束（`run_pipeline` / `drain`），不再维护第二套代码。Fast 升级到 Deep 时，Fast 已检索到的证据作为初始 `evidence` 进入 Agent 状态（`metadata.inherited_evidence` 记录条数），但首次 executor 会用共享记忆替换它，详见下文状态通道；是否真正继承由 V3-07 决定。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
 
 ### 2.2 LangGraph 状态机
 
@@ -143,9 +143,9 @@ stateDiagram-v2
     [*] --> planner
     planner --> executor: 子问题 DAG<br/>cap_plan_breadth
     executor --> critic: 执行就绪子问题
-    executor --> answer: 护栏触发 / 计划耗尽
-    critic --> executor: next_hop / rewrite
-    critic --> answer: sufficient / give_up
+    executor --> answer: 护栏触发 / 无可运行节点
+    critic --> executor: sufficient（计划未完）/ next_hop / rewrite
+    critic --> answer: sufficient（计划已完）/ give_up / 跳数耗尽
     answer --> executor: evidence_gap（缺证，≤1 次且 hop 未耗尽）
     answer --> [*]
 ```
@@ -154,7 +154,7 @@ stateDiagram-v2
 |---|---|---|
 | planner | `planner.py` `plan_dag.py` `planner_patterns.py` | 问题 → 带依赖的子问题 DAG，`{from:sqN}` 占位由上游结论物化；广度受 `max_sub_questions` 限制，被裁剪项写入 metadata |
 | executor | `executor.py` `executor_plan.py` `executor_dispatch.py` `parallel_branches.py` `tools/registry.py` | 为子问题选择工具（graph_neighbors / graph_path / graph_subgraph / vector_search / fulltext_search），**所有工具调用都经 `ToolRegistry.invoke()`**（ToolSpec 含 schema、成本、超时、权限；护栏 / 预算 / trace 以中间件挂在注册表上），并行执行后 RRF 融合；就绪且互不依赖的 DAG 节点并发检索、共享同一 hop |
-| critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up` |
+| critic | `critic.py` `critic_offline*.py` `critic_guard.py` | 子问题级 + 全局两级判断：`sufficient` / `next_hop` / `rewrite` / `give_up`。只判断真正执行过的节点：executor 在同一超步内越过重复、已排除或依赖未解析的节点（`advance_past_skipped`），不耗 hop，原因写入 `metadata.skipped_sub_questions` |
 | answer | `generation/answer.py` `generation/verdict.py` | 引用绑定生成答案。校验失败按 Verdict 分类：**表述类**（无 claim、引用 id 缺失或越界）在生成层内定向重生成一次；**缺证类**（claim 不被证据支持、不蕴含）在仍有 hop 时输出 `evidence_gap`，经 answer → executor 回边补充检索（每次运行最多 1 次），否则重生成后走保守回答 |
 
 `AgentState` 只在 `agent/state.py` 定义一次，是 LangGraph 兼容的 `TypedDict`，当前 `state_version=3`。初始状态只由 `initial_state()` 构造（`tenant_id` 必填）；节点之间传递领域对象，不再把状态反复 `model_dump()` / `model_validate()`。
@@ -184,7 +184,7 @@ flowchart LR
     RT --> REG["tools/registry.py<br/>ToolRegistry + 中间件"]
 ```
 
-Guardrails 只负责控制流（hop、广度、截止时间），资源计量（LLM 调用、token、embedding 调用）统一由 `governance/budget.py` 的 `BudgetTracker` 负责，Guardrails 通过 `check()` 查询余量。hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=15`。
+Guardrails 只负责控制流（hop、广度、截止时间），资源计量（LLM 调用、token、embedding 调用）统一由 `governance/budget.py` 的 `BudgetTracker` 负责，Guardrails 通过 `check()` 查询余量。hop 计数的是**依赖深度**：被并发预取的兄弟节点不再消耗 hop，广度由 `max_sub_questions` 单独限制。默认护栏（`configs/default.yaml`）：`max_hops=4`、`max_sub_questions=4`、`max_llm_calls=16`、`max_tokens_per_query=50000`、`query_timeout_seconds=45`、`recursion_limit=18`。`min_recursion_limit` 是结构上界 `2×max_hops+10`（计划节点 + 证据缺口节点，加每轮收尾访问），护栏总先于它停止运行。
 
 `checkpointer.py` 工厂与 `build_graph()` 统一包裹 `StateCheckpointer`（`state_checkpointer.py`）。默认 `AgentStateSerializer`（`state_serde.py`）在写入字节时用批量 `TypeAdapter` codec 序列化模型及容器，读取时恢复原类型；调用方提供的自定义 serializer 保留。内存与 SQLite 后端及同步 / 异步接口使用同一迁移入口。
 
@@ -371,7 +371,7 @@ flowchart LR
     PR --> MOCK["MockLLMProvider<br/>离线默认"]
 ```
 
-chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存；熔断器按路由拆分（V2 O-8，`llm.resilience`）：embedding 故障不再连带 chat，STRONG 熔断时若开启 `fallback_to_light`，会改用 LIGHT 模型完成调用（`provider.degradations` 计数）。默认参数与 V1 等价。embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
+chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存；每个查询只有一个受计量的客户端（`build_query_deps`），工具规划和查询 embedding 也走它。熔断器按路由拆分（V2 O-8，`llm.resilience`），并按端点进程级共享（`shared_breakers`），Provider 虽按查询构建，熔断状态不随查询丢失：半开只放一个探测，400/413/422 属请求自身问题不计失败，状态见 `/healthz` 的 `llm_circuit`。embedding 故障不再连带 chat，STRONG 熔断时若开启 `fallback_to_light`，会改用 LIGHT 模型完成调用，并记入 `degraded_channels` 与 `metadata.degraded_from`。`BudgetTracker` 线程安全，HTTP 调用前预留额度、成功后结算；embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。每次调用按 `LLMRole` 记账，写入 `metadata.llm_by_role`。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
 
 ---
 
@@ -425,7 +425,7 @@ flowchart LR
     AE --> RET
 ```
 
-`governance/` 只放策略（预算、审计、脱敏、保留期），`observability/` 只放遥测数据。旧路径 `llm.budget`、`llm.budget_policy`、`generation.audit_store`、`observability.audit_events`、`observability.redaction`、`retention` 保留为别名。
+`governance/` 只放策略（预算、审计、脱敏、保留期），`observability/` 只放遥测数据。`agr_queries_total` 单调增长，百分位取最近 5000 条，跨副本聚合用 `agr_query_latency_ms` 分路由直方图。`AGR_REDACTION_ENABLED=1` 时日志和审计链落盘前脱敏，定位键（`query_id`、`metadata.tenant_id` 等）保留；trace 不含问题原文，只记 `question_chars`。旧路径 `llm.budget`、`llm.budget_policy`、`generation.audit_store`、`observability.audit_events`、`observability.redaction`、`retention` 保留为别名。
 
 ### 8.1 领域事件（读写解耦）
 

@@ -74,8 +74,7 @@ class CircuitGate(Protocol):
 
 @runtime_checkable
 class CircuitControlledClient(LLMClient, Protocol):
-    @property
-    def circuit(self) -> CircuitGate: ...
+    def circuit_for(self, tier: Tier) -> CircuitGate: ...
 
 
 @runtime_checkable

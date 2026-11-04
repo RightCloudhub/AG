@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
-from agentic_graphrag.core.enums import MessageRole, PromptName, RetrievalChannel
+from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import CircuitControlledClient, LLMClient, Message, Tier
 from agentic_graphrag.core.reasoning import Claim, QueryStatus, ReasoningChain
@@ -156,6 +156,7 @@ def _llm_answer(
         AnswerPayload,
         tier=tier,
         max_retries=1,  # P95: one repair pass max (was 2 → up to 3 LLM calls)
+        role=LLMRole.COMPOSER,
     )
 
 
@@ -184,14 +185,13 @@ def generate_answer(
         return offline_answer(chain, evidence, conclusions)
 
     # Skip remote call entirely when circuit is already open (P95: avoid 3s connect).
-    circuit = llm.circuit if isinstance(llm, CircuitControlledClient) else None
+    circuit = llm.circuit_for(tier) if isinstance(llm, CircuitControlledClient) else None
     if circuit is not None and not circuit.allow():
         record_degradation(RetrievalChannel.LLM, REASON_LLM_UNAVAILABLE, error="CircuitOpen")
         chain.metadata = {
             **(chain.metadata or {}),
             "llm_degraded": True,
             "llm_error": "CircuitOpen",
-            "llm_error_msg": "LLM circuit open; offline answer",
         }
         return offline_answer(chain, evidence, conclusions)
 
@@ -224,7 +224,6 @@ def _degrade(
         **(chain.metadata or {}),
         "llm_degraded": True,
         "llm_error": type(exc).__name__,
-        "llm_error_msg": str(exc)[:200],
     }
     return offline_answer(chain, evidence, conclusions)
 

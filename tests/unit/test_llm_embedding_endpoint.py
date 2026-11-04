@@ -59,7 +59,7 @@ def test_provider_embed_uses_embedding_base_url():
     mock_client.__exit__ = MagicMock(return_value=False)
     mock_client.post.return_value = mock_resp
 
-    client_path = "agentic_graphrag.llm.provider.httpx.Client"
+    client_path = "agentic_graphrag.llm.transport.httpx.Client"
     with patch(client_path, return_value=mock_client) as client_cls:
         vec = llm.embed("hello")
 
@@ -94,7 +94,7 @@ def test_provider_complete_uses_chat_base_url():
 
     from agentic_graphrag.llm.provider import Message
 
-    client_path = "agentic_graphrag.llm.provider.httpx.Client"
+    client_path = "agentic_graphrag.llm.transport.httpx.Client"
     with patch(client_path, return_value=mock_client) as client_cls:
         out = llm.complete([Message(role="user", content="hi")])
 

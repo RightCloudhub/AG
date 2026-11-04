@@ -21,6 +21,7 @@
 | | [UI_DESIGN.md](./design/UI_DESIGN.md) | Web 工作台视觉规范 |
 | | [REFACTOR_PLAN.md](./design/REFACTOR_PLAN.md) | 架构重构计划与逐项进度（core / app / bootstrap / 事件 / 账本） |
 | | [ARCH_OPTIMIZATION_V2.md](./design/ARCH_OPTIMIZATION_V2.md) | 架构优化当前实现、后续设计与验收标准 |
+| | [ARCH_OPTIMIZATION_V3.md](./design/ARCH_OPTIMIZATION_V3.md) | 多智能体编排优化：目标、已交付批次、后续批次与验收 |
 | `ops/` | [RUNBOOK.md](./ops/RUNBOOK.md) | 部署、环境变量、告警、排障 |
 | | [WEBAPP.md](./ops/WEBAPP.md) | 独立 Web 应用配置、开发邮件、数据库、会话与租户隔离 |
 | | [EXTERNAL_RUNTIMES.md](./ops/EXTERNAL_RUNTIMES.md) | Neo4j 等外部运行时 |

@@ -20,7 +20,7 @@ from agentic_graphrag.agent.planner_patterns import OFFLINE_MATCHERS, PlanContex
 from agentic_graphrag.agent.question_normalization import normalize_question
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
-from agentic_graphrag.core.enums import MessageRole, PromptName
+from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.llm.structured import complete_structured
 
@@ -60,6 +60,7 @@ def plan(
         ],
         PlanResult,
         tier=Tier.STRONG,
+        role=LLMRole.PLANNER,
     )
     if not result.sub_questions:
         return plan_offline(question, known_entities=known_entities)

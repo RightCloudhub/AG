@@ -143,6 +143,74 @@ def test_fresh_query_on_existing_thread_resets_append_channels(monkeypatch) -> N
     assert list(saved.checkpoint["channel_values"]["memory"].evidence) == ["second"]
 
 
+def test_initial_state_sets_every_channel() -> None:
+    """A channel left out here is inherited from the previous run on a reused thread."""
+    state = initial_state("q", ReasoningChain(question="q"), allow_llm=False)
+    assert set(state) == set(AgentState.__annotations__)
+
+
+def test_fresh_query_on_existing_thread_ignores_previous_trip(monkeypatch) -> None:
+    executor = Executor(GraphRetriever(InMemoryGraphStore()))
+    monkeypatch.setattr(executor, "run", lambda *_args, **_kwargs: ([candidate("fresh")], []))
+    backend = MemorySaver()
+    tripped = run_agentic_query(
+        "Who leads Apex Holdings?",
+        executor,
+        None,
+        allow_llm=False,
+        guard_cfg=GuardrailConfig(max_hops=1, max_llm_calls=0),
+        checkpointer=backend,
+        thread_id="shared-thread",
+    )
+    assert not tripped.steps
+
+    def ask(thread_id: str) -> ReasoningChain:
+        return run_agentic_query(
+            "Who leads Apex Holdings?",
+            executor,
+            None,
+            allow_llm=False,
+            guard_cfg=GuardrailConfig(max_hops=1),
+            checkpointer=backend,
+            thread_id=thread_id,
+        )
+
+    reused, fresh = ask("shared-thread"), ask("fresh-thread")
+    assert reused.steps and reused.status == fresh.status and reused.answer == fresh.answer
+
+
+def test_fresh_query_on_existing_thread_drops_parked_branches(monkeypatch) -> None:
+    executor = Executor(GraphRetriever(InMemoryGraphStore()))
+    monkeypatch.setattr(executor, "run", lambda *_args, **_kwargs: ([candidate("fresh")], []))
+    backend = MemorySaver()
+    question = "Who leads Apex Holdings?"
+    graph = build_graph(executor, None, GuardrailConfig(max_hops=1), checkpointer=backend)
+    config = invoke_config("shared-thread")
+    parked = {"sq9": ([candidate("stale", "Evidence for an earlier question")], [])}
+    graph.invoke(
+        {
+            **initial_state(question, ReasoningChain(question=question), allow_llm=False),
+            "prefetched": parked,
+        },
+        config,
+    )
+    saved = backend.get_tuple(config)
+    assert saved is not None and "sq9" in saved.checkpoint["channel_values"]["prefetched"]
+
+    run_agentic_query(
+        question,
+        executor,
+        None,
+        allow_llm=False,
+        guard_cfg=GuardrailConfig(max_hops=1),
+        checkpointer=backend,
+        thread_id="shared-thread",
+    )
+
+    saved = backend.get_tuple(config)
+    assert saved is not None and saved.checkpoint["channel_values"]["prefetched"] == {}
+
+
 @pytest.mark.parametrize("hits", [[], [candidate("fresh")], [candidate("seed", "replacement")]])
 def test_executor_replaces_inherited_seed_pool_like_legacy_nodes(monkeypatch, hits) -> None:
     seed = candidate("seed", "inherited evidence")

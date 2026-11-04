@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from agentic_graphrag.agent.critic import CriticAction, CriticResult
 from agentic_graphrag.agent.executor import Executor
@@ -13,12 +14,16 @@ from agentic_graphrag.agent.parallel_branches import (
     PREFETCH_KEY,
     retrieve_for_node,
 )
-from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion
+from agentic_graphrag.agent.plan_coverage import record_dropped_subquestion, record_skipped
 from agentic_graphrag.agent.planner import SubQuestion, materialize_subquestion
 from agentic_graphrag.agent.state import AgentState
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.ports.llm import LLMClient
 from agentic_graphrag.core.reasoning import ReasoningStep
+
+SKIP_UNRESOLVED: Final = "unresolved_dependency"
+SKIP_EXCLUDED: Final = "excluded"
+SKIP_DUPLICATE: Final = "duplicate"
 
 
 @dataclass
@@ -51,37 +56,47 @@ class CriticApplyCtx:
     guard_cfg: GuardrailConfig
 
 
-def skip_excluded_or_duplicate(ctx: ExecutorNodeCtx) -> AgentState | None:
-    """Return early state when sub-question is excluded/duplicate; else None."""
-    sq, sqs, idx = ctx.sq, ctx.sqs, ctx.idx
-    memory, guards, state = ctx.memory, ctx.guards, ctx.state
-    hop = guards.state.hop
-    hop_cap = hop >= guards.config.max_hops
+def _skip_reason(sq: SubQuestion, idx: int, memory: MemoryState) -> str | None:
+    """Why this plan node must not run, recording the skip in memory."""
     # A slot whose dependency produced no conclusion stays "{from:sqN}"; running
     # retrieval on that literal text only fetches noise (and spends a hop).
-    if memory.is_excluded(sq.text) or sq.unresolved_placeholders():
+    if sq.unresolved_placeholders():
         memory.mark_subquestion_done(sq.id)
-        return {
-            **state,
-            "sub_questions": sqs,
-            "current_index": idx + 1,
-            "hop": hop,
-            "done": hop_cap or idx + 1 >= len(sqs),
-            "guardrail_status": guards.status_text(),
-            "memory": memory.copy(),
-        }
+        return SKIP_UNRESOLVED
+    if memory.is_excluded(sq.text):
+        memory.mark_subquestion_done(sq.id)
+        return SKIP_EXCLUDED
     if memory.is_duplicate_subquestion(sq.text) and idx > 0:
         memory.exclude_hypothesis(sq.text)
-        return {
-            **state,
-            "sub_questions": sqs,
-            "current_index": idx + 1,
-            "hop": hop,
-            "guardrail_status": guards.status_text(),
-            "done": hop_cap or idx + 1 >= len(sqs),
-            "memory": memory.copy(),
-        }
+        return SKIP_DUPLICATE
     return None
+
+
+def advance_past_skipped(
+    state: AgentState, memory: MemoryState
+) -> tuple[AgentState, SubQuestion | None]:
+    """Move the plan cursor to the next node worth running (None when none is left).
+
+    Skips stay inside the executor superstep: a skipped node spends no hop and never
+    reaches the critic, which would judge a node that never ran against the previous
+    step's evidence and overwrite that step's verdict.
+    """
+    sqs = list(state.get("sub_questions") or [])
+    idx = int(state.get("current_index") or 0)
+    skipped: list[dict[str, str]] = []
+    current: SubQuestion | None = None
+    while idx < len(sqs) and current is None:
+        sq, sqs = materialize_current(sqs, idx, memory)
+        reason = _skip_reason(sq, idx, memory)
+        if reason is None:
+            current = sq
+        else:
+            skipped.append({"id": sq.id, "text": sq.text, "reason": reason})
+            idx += 1
+    advanced: AgentState = {**state, "sub_questions": sqs, "current_index": idx}
+    if skipped:
+        advanced["chain"] = record_skipped(state["chain"], skipped)
+    return advanced, current
 
 
 def execute_subquestion(ctx: ExecutorNodeCtx) -> AgentState:
