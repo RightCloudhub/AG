@@ -171,3 +171,34 @@ def test_disable_is_prompt_while_indexing_is_blocked(tmp_path):
     assert env.search("Widget") == []
     stored = env.docs.get(row["doc_id"], tenant_id="alpha").chunks[0]
     assert not stored.enabled and stored.stages["vector"]["state"] == "disabled"
+
+
+def test_stage_failure_is_recorded_and_retried_by_reconcile(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    did = env.upload()
+    outcome = env.patch(did, 0, key="edit", text="Acme PRODUCES Gizmo.")
+
+    def down(chunks):
+        raise OSError("bm25 snapshot unavailable")
+
+    monkeypatch.setattr(env.fulltext, "index", down)
+    results = env.worker.run_once()
+    assert results[0].error == "fulltext_failed: OSError"
+    chunk = env.docs.get(did, tenant_id="alpha").chunks[0]
+    assert chunk.stages["fulltext"]["state"] == "failed" and chunk.embedded
+    assert env.tasks.get(outcome.op.task_id).status == IngestStatus.PARTIAL
+    monkeypatch.undo()
+    env.worker.reconcile(tenant_id="alpha")
+    assert env.search("Gizmo") and env.docs.get_op(outcome.op.op_id).state == "done"
+
+
+def test_operations_on_deleted_documents_end_in_conflict(tmp_path):
+    env = make_env(tmp_path)
+    did = env.upload()
+    outcome = env.patch(did, 0, key="edit", text="Acme PRODUCES Gizmo.")
+    env.worker.pipeline.lifecycle.delete(did, tenant_id="alpha")
+    env.worker.run_once()
+    assert env.docs.get_op(outcome.op.op_id).state == "conflict"
+    task = env.tasks.get(outcome.op.task_id)
+    assert task.status == IngestStatus.FAILED and task.message == "document_changed"
+    assert env.search("Gizmo") == []
