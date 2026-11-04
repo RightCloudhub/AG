@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from agentic_graphrag.core.ports.stores import DocStore
+from agentic_graphrag.core.ports.stores import DocStore, DocumentRecord
 from agentic_graphrag.knowledge.review.queue import ReviewItem
 
 
@@ -16,7 +16,18 @@ def stale_document(item: ReviewItem, docs: DocStore, *, tasks: Any = None) -> bo
         return True
     version = raw.get("source_doc_version") or _task_version(item, doc_id, tasks=tasks)
     # Legacy reviews without a version can only be trusted for an unreplaced document.
-    return str(version if version is not None else 1) != str(doc.version)
+    if str(version if version is not None else 1) != str(doc.version):
+        return True
+    return _stale_chunk(raw, doc)
+
+
+def _stale_chunk(raw: dict[str, Any], doc: DocumentRecord) -> bool:
+    """K-04: an edited or disabled supporting chunk invalidates the pending decision."""
+    revision = raw.get("source_chunk_revision")
+    if revision is None or not raw.get("source_chunk_id"):
+        return False
+    chunk = next((c for c in doc.chunks if c.chunk_id == raw["source_chunk_id"]), None)
+    return chunk is None or not chunk.enabled or chunk.revision != int(revision)
 
 
 def _task_version(item: ReviewItem, doc_id: str, *, tasks: Any) -> Any:

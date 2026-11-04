@@ -19,7 +19,7 @@ def reindex_tenant(
             rebuild.begin_reindex(model, tenant_id=tenant_id)
         try:
             results = [
-                pipeline.process(did, tenant_id=tenant_id, reindex=True)
+                pipeline.process_or_busy(did, tenant_id=tenant_id, reindex=True)
                 for did in docs.list_ids(tenant_id=tenant_id)
             ]
             # An unchunkable document has no vectors to lose, so it cannot hold back the switch.

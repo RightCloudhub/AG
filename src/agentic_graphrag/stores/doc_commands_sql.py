@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any
 
 from agentic_graphrag.core.ports.document_ops import (
     ChunkPatch,
+    Command,
     CommandOutcome,
-    CommandScope,
     DocOperation,
     DocumentBusy,
     Fence,
@@ -28,13 +28,6 @@ from agentic_graphrag.stores.doc_artifacts_sql import record_history
 from agentic_graphrag.stores.document_chunks import chunk_row, decode_chunk
 
 ChunkResponder = Callable[[ChunkRecord, DocOperation], dict[str, Any]]
-
-
-@dataclass(frozen=True)
-class Command:
-    scope: CommandScope
-    digest: str
-    op: DocOperation
 
 
 def begin_immediate(db: sqlite3.Connection) -> None:

@@ -49,6 +49,21 @@ def _tenant_of(triple: Triple) -> str:
     return str((triple.attributes or {}).get(TENANT_KEY) or "")
 
 
+def source_entry(t: Triple) -> JsonObject:
+    """Provenance entry; revision-scoped identity only for managed documents."""
+    source: JsonObject = {
+        "doc_id": t.source_doc_id,
+        "chunk_id": t.source_chunk_id,
+        "span": t.source_span,
+        "confidence": t.confidence,
+    }
+    if t.source_chunk_revision is not None:
+        source["doc_version"] = t.source_doc_version or 0
+        source["revision"] = t.source_chunk_revision
+        source["generation"] = t.source_stage_generation or 0
+    return source
+
+
 def triples_to_records(
     triples: list[Triple],
 ) -> tuple[list[EntityRecord], list[RelationRecord]]:
@@ -58,12 +73,7 @@ def triples_to_records(
 
     for t in triples:
         tenant = _tenant_of(t)
-        source = {
-            "doc_id": t.source_doc_id,
-            "chunk_id": t.source_chunk_id,
-            "span": t.source_span,
-            "confidence": t.confidence,
-        }
+        source = source_entry(t)
         hid = _add_entity(entities, t.head, tenant)
         tid = _add_entity(entities, t.tail, tenant)
         sources_by_entity[(tenant, hid)].append(source)

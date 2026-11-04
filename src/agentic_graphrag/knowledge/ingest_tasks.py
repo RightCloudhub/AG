@@ -108,6 +108,26 @@ class IngestTaskStore:
             self._persist(task)
         return task
 
+    def ensure(
+        self, tenant_id: str, docs: builtins.list[dict[str, str]], *, task_id: str
+    ) -> IngestTask:
+        """Create ``task_id`` unless it exists: idempotent dispatch of pending work (K-04)."""
+        with self._locked():
+            existing = self._tasks.get(task_id)
+            if existing is not None:
+                return IngestTask.from_dict(existing.to_dict())
+            return self.create(tenant_id, docs, task_id=task_id)
+
+    def update_docs(self, task_id: str, docs: builtins.list[dict[str, str]]) -> None:
+        """Record per-document outcomes (e.g. provisional → canonical IDs) on a task."""
+        with self._locked():
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            task.docs = [dict(row) for row in docs]
+            task.updated_at = time.time()
+            self._persist(task)
+
     def get(self, task_id: str, *, tenant_id: str | None = None) -> IngestTask | None:
         with self._locked():
             task = self._tasks.get(task_id)

@@ -21,7 +21,7 @@ from typing import Any
 from agentic_graphrag.core.events import EventBus
 from agentic_graphrag.core.ports.capabilities import EntityLister
 from agentic_graphrag.core.ports.llm import LLMClient
-from agentic_graphrag.core.ports.stores import ChunkRecord, GraphStore
+from agentic_graphrag.core.ports.stores import STAGE_GRAPH, ChunkRecord, GraphStore
 from agentic_graphrag.knowledge.extract_rules import extract_rules_from_chunk
 from agentic_graphrag.knowledge.incremental import IncrementalUpdater
 from agentic_graphrag.knowledge.resolution import normalize_key
@@ -30,6 +30,18 @@ from agentic_graphrag.knowledge.schema_check import SchemaDefinition, Triple, de
 from agentic_graphrag.observability.degradation import REASON_EXTRACT_FAILED, record_degradation
 
 _ENTITY_SCAN_LIMIT = 100_000
+
+
+def stamp_provenance(triple: Triple, chunk: ChunkRecord) -> None:
+    """Revision-scoped provenance: graph support is keyed like vector/BM25 records."""
+    triple.source_doc_id = chunk.doc_id
+    triple.source_chunk_id = chunk.chunk_id
+    triple.source_doc_version = chunk.metadata.get("document_version")
+    if chunk.metadata.get("document_version") is not None:
+        triple.source_chunk_revision = chunk.revision
+        triple.source_stage_generation = int(
+            (chunk.stages.get(STAGE_GRAPH) or {}).get("generation") or 0
+        )
 
 
 @dataclass
@@ -104,9 +116,7 @@ class GraphIngestor:
         for chunk in chunks:
             extracted = self._extract_chunk(chunk, result)
             for triple in extracted:
-                triple.source_doc_id = chunk.doc_id
-                triple.source_chunk_id = chunk.chunk_id
-                triple.source_doc_version = chunk.metadata.get("document_version")
+                stamp_provenance(triple, chunk)
             triples.extend(extracted)
         return triples
 

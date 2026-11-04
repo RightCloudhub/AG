@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import uuid
 from collections.abc import Callable
 
+from agentic_graphrag.core.ports.document_ops import DocumentBusy
 from agentic_graphrag.core.ports.stores import DocStore, DocumentRecord, FulltextStore, VectorStore
 from agentic_graphrag.knowledge.embedding_batch import BatchEmbedder, single_adapter
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
@@ -36,6 +36,8 @@ from agentic_graphrag.knowledge.ingest_tasks import (
     IngestTaskStore,
     LeaseLost,
 )
+from agentic_graphrag.knowledge.worker_ops import WorkerOps
+from agentic_graphrag.knowledge.worker_thread import PollingThread
 from agentic_graphrag.observability.degradation import (
     REASON_UNEXPECTED,
     ChannelStatus,
@@ -50,7 +52,7 @@ def _new_worker_id() -> str:
     return f"worker-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
-class IngestWorker:
+class IngestWorker(PollingThread):
     """Process unindexed documents from the doc store into vector/fulltext indexes.
 
     Chunk progress is persisted in DocStore after every successful stage.
@@ -90,19 +92,27 @@ class IngestWorker:
             config=self.config,
             on_commit=on_commit,
         )
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self.pipeline.owner = self.worker_id
+        self.ops = WorkerOps.build(doc_store, self.pipeline, task_store)
+        super().__init__()
 
-    def process_doc(
-        self, doc_id: str, *, batch_id: str = "", tenant_id: str | None = None
-    ) -> IngestResult:
+    @property
+    def poll_interval_seconds(self) -> float:  # type: ignore[override]
+        return self.config.poll_interval_seconds
+
+    def _beat(self, batch_id: str) -> Callable[[], None]:
         def heartbeat() -> None:
             if batch_id and self.task_store:
                 if not self.task_store.touch(batch_id, owner=self.worker_id):
                     raise LeaseLost("Task lease lost")
 
+        return heartbeat
+
+    def process_doc(
+        self, doc_id: str, *, batch_id: str = "", tenant_id: str | None = None
+    ) -> IngestResult:
         return self.pipeline.process(
-            doc_id, tenant_id=tenant_id, batch_id=batch_id, heartbeat=heartbeat
+            doc_id, tenant_id=tenant_id, batch_id=batch_id, heartbeat=self._beat(batch_id)
         )
 
     def run_once(self) -> list[IngestResult]:
@@ -112,12 +122,14 @@ class IngestWorker:
         for doc_id, tenant in self.doc_store.list_refs():
             doc = self.doc_store.get(doc_id, tenant_id=tenant)
             if doc and self.pipeline.needs_processing(doc):
-                results.append(self.process_doc(doc_id, tenant_id=tenant))
+                results.append(self.pipeline.process_or_busy(doc_id, tenant_id=tenant))
             if len(results) >= self.config.batch_size:
                 break
         return results
 
     def reconcile(self, *, tenant_id: str) -> list[IngestResult]:
+        if self.ops is not None:
+            self.ops.dispatch()
         results = self._reconcile_tasks(tenant_id)
         attempted = {result.doc_id for result in results}
         for did in self.doc_store.list_ids(tenant_id=tenant_id):
@@ -152,6 +164,8 @@ class IngestWorker:
         )
 
     def _run_task_batch(self) -> list[IngestResult]:
+        if self.ops is not None:
+            self.ops.dispatch()
         requeued = self._queue.requeue_stale(
             stale_seconds=self.config.stale_task_seconds,
             exclude_owner=self.worker_id,
@@ -187,6 +201,10 @@ class IngestWorker:
             # A stale requeue gave the task to another worker, which now owns its outcome.
             logger.warning("Lost the lease on task %s; leaving it to its new owner", task.id)
             return []
+        except DocumentBusy:
+            # 5a serializes stages per document: retry once the other holder finishes.
+            self._finalize(task.id, IngestStatus.QUEUED, "Waiting for document lease")
+            return []
         except Exception as exc:  # noqa: BLE001
             record_degradation(
                 "ingest",
@@ -217,6 +235,9 @@ class IngestWorker:
 
     def _process_task_docs(self, task: IngestTask) -> list[IngestResult]:
         """Index every document, refreshing the lease between documents."""
+        op_results = self.ops.run_task(task, heartbeat=self._beat(task.id)) if self.ops else None
+        if op_results is not None:
+            return op_results
         results: list[IngestResult] = []
         for row in task.docs:
             if row.get("error"):
@@ -258,37 +279,6 @@ class IngestWorker:
             )
         except (KeyError, ValueError) as exc:
             logger.error("Cannot record %s for task %s: %s", status.value, task_id, exc)
-
-    def start(self) -> None:
-        """Start background polling thread."""
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="ingest-worker")
-        self._thread.start()
-
-    def stop(self) -> None:
-        """Signal the background thread to stop."""
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=10)
-
-    def _loop(self) -> None:
-        logger.info("IngestWorker started")
-        while not self._stop.is_set():
-            try:
-                results = self.run_once()
-                if results:
-                    logger.info(
-                        "Ingested %d docs: %s",
-                        len(results),
-                        ", ".join(r.doc_id for r in results),
-                    )
-            except Exception as exc:  # noqa: BLE001
-                # The loop must survive, but never silently: that hid a dead worker (O-9).
-                record_degradation("ingest", REASON_UNEXPECTED, exc, severity=ChannelStatus.FAILED)
-            self._stop.wait(timeout=self.config.poll_interval_seconds)
-        logger.info("IngestWorker stopped")
 
 
 if __name__ == "__main__":

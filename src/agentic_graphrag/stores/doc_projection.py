@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.core.ports.document_ops import DocumentQuery
 from agentic_graphrag.core.ports.stores import INDEX_STAGES
 from agentic_graphrag.stores.doc_ops_sql import tenant_key
 
@@ -24,15 +24,6 @@ DOCUMENT_STATUSES = (
     "replacing",
 )
 _STAGE_FLAG = {"vector": "embedded", "fulltext": "fulltext_indexed", "graph": "graph_extracted"}
-
-
-@dataclass(frozen=True)
-class DocumentQuery:
-    tenant_id: str
-    query: str = ""
-    status: str = ""
-    limit: int = 20
-    offset: int = 0
 
 
 def _stage_aggregates() -> str:

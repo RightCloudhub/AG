@@ -10,8 +10,10 @@ import pytest
 from agentic_graphrag.core.evidence import Candidate, Citation
 from agentic_graphrag.core.ports.document_ops import (
     ChunkPatch,
+    Command,
     CommandScope,
     DocOperation,
+    DocumentQuery,
     IdempotencyConflict,
     RevisionConflict,
     TargetNotFound,
@@ -20,8 +22,6 @@ from agentic_graphrag.core.ports.document_ops import (
 from agentic_graphrag.core.ports.stores import ChunkRecord, DocumentRecord
 from agentic_graphrag.core.ports.visibility import AllVisible, filter_visible_candidates
 from agentic_graphrag.stores.chunk_visibility import chunk_visibility_for
-from agentic_graphrag.stores.doc_commands_sql import Command
-from agentic_graphrag.stores.doc_projection import DocumentQuery
 from agentic_graphrag.stores.doc_schema import SCHEMA_VERSION
 from agentic_graphrag.stores.doc_store import FileDocStore, InMemoryDocStore
 

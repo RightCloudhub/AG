@@ -7,11 +7,10 @@ chunks whose graph write never completed. Extraction failures are recorded throu
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from agentic_graphrag.core.ports.stores import ChunkRecord, DocStore, DocumentRecord
+from agentic_graphrag.core.ports.stores import STAGE_GRAPH, ChunkRecord, DocStore, DocumentRecord
 from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.index_result import IngestResult
+from agentic_graphrag.knowledge.index_vector_stage import StageContext, stamp_stage
 from agentic_graphrag.observability.degradation import (
     REASON_EXTRACT_FAILED,
     ChannelStatus,
@@ -26,13 +25,14 @@ def run_graph_stage(
     graph: GraphIngestor,
     docs: DocStore,
     batch_id: str,
-    heartbeat: Callable[[], None],
+    ctx: StageContext,
 ) -> None:
     result.graph = {"accepted": 0, "conflicts_review": 0}
     for chunk in doc.chunks:
-        heartbeat()
-        if not chunk.graph_extracted:
-            _graph_chunk(doc, chunk, graph=graph, docs=docs, batch_id=batch_id)
+        ctx.heartbeat()
+        if chunk.enabled and not chunk.graph_extracted:
+            ctx.guard()
+            _graph_chunk(doc, chunk, graph=graph, docs=docs, batch_id=batch_id, ctx=ctx)
         outcome = chunk.metadata.get("graph_result", {})
         for key in ("accepted", "conflicts_review"):
             result.graph[key] += int(outcome.get(key, 0))
@@ -55,12 +55,16 @@ def _graph_chunk(
     graph: GraphIngestor,
     docs: DocStore,
     batch_id: str,
+    ctx: StageContext,
 ) -> None:
     chunk.metadata["document_version"] = doc.version
+    stamped = stamp_stage(chunk, STAGE_GRAPH, generation=ctx.generation)
     try:
-        outcome = graph.ingest_chunks([chunk], tenant_id=doc.tenant_id, batch_id=batch_id)
+        outcome = graph.ingest_chunks([stamped], tenant_id=doc.tenant_id, batch_id=batch_id)
         chunk.metadata["graph_result"] = outcome.to_dict()
         chunk.graph_extracted = not outcome.error
+        if chunk.graph_extracted:
+            chunk.stages = stamped.stages
     except Exception as exc:
         record_degradation(
             "graph_ingest",
@@ -70,4 +74,5 @@ def _graph_chunk(
             chunk_id=chunk.chunk_id,
         )
         chunk.metadata["graph_result"] = {"error": f"graph_failed: {type(exc).__name__}"}
+    ctx.guard()
     docs.save_chunks(doc, [chunk])

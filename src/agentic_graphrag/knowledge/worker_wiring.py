@@ -16,6 +16,7 @@ def worker_config(cfg: AppConfig, *, live: bool) -> IngestWorkerConfig:
         retry_base_seconds=knobs.retry_base_seconds,
         retry_max_seconds=knobs.retry_max_seconds,
         embedding_model=cfg.llm.embedding_model if live else "offline-hash-v1",
+        parsing=cfg.knowledge.parsing,
     )
 
 

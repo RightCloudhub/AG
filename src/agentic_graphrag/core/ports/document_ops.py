@@ -158,3 +158,21 @@ def payload_hash(payload: dict[str, Any]) -> str:
     """Canonical command payload hash (key order and whitespace independent)."""
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class Command:
+    """A command ready to commit: idempotency scope, payload digest, pending work."""
+
+    scope: CommandScope
+    digest: str
+    op: DocOperation
+
+
+@dataclass(frozen=True)
+class DocumentQuery:
+    tenant_id: str
+    query: str = ""
+    status: str = ""
+    limit: int = 20
+    offset: int = 0

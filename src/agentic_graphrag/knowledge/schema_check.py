@@ -29,6 +29,9 @@ class Triple(BaseModel):
     source_doc_id: str = ""
     source_chunk_id: str = ""
     source_doc_version: int | None = None
+    # Chunk revision / graph stage generation of the supporting chunk (K-05).
+    source_chunk_revision: int | None = None
+    source_stage_generation: int | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 

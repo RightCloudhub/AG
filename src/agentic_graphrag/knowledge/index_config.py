@@ -6,6 +6,7 @@ from agentic_graphrag.config_knowledge import (
     DEFAULT_CHUNK_TOKENS,
     DEFAULT_OVERLAP_TOKENS,
     DEFAULT_TOKENIZER,
+    ParsingConfig,
 )
 from agentic_graphrag.knowledge.ingest_tasks import DEFAULT_STALE_SECONDS
 
@@ -23,6 +24,8 @@ class IngestWorkerConfig:
     retry_base_seconds: float = 0.5
     retry_max_seconds: float = 30.0
     embedding_model: str = "custom"
+    # Parser for async uploads and reparse; ``None`` uses the global configuration.
+    parsing: ParsingConfig | None = None
 
     def __post_init__(self) -> None:
         if min(self.embedding_batch_size, self.embedding_max_attempts, self.batch_size) < 1:

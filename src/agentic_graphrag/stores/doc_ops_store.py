@@ -10,8 +10,10 @@ from typing import Any
 
 from agentic_graphrag.core.ports.document_ops import (
     ChunkPatch,
+    Command,
     CommandOutcome,
     DocOperation,
+    DocumentQuery,
     Fence,
     SourceArtifact,
 )
@@ -58,7 +60,7 @@ class DocOpsMixin:
         return result
 
     def apply_chunk_patch(
-        self, patch: ChunkPatch, command: cmd.Command, respond: cmd.ChunkResponder
+        self, patch: ChunkPatch, command: Command, respond: cmd.ChunkResponder
     ) -> CommandOutcome:
         outcome: CommandOutcome = self._write(
             lambda db: cmd.apply_chunk_patch(db, patch, command, respond)
@@ -66,7 +68,7 @@ class DocOpsMixin:
         return outcome
 
     def record_command(
-        self, command: cmd.Command, respond: Callable[[DocOperation], dict[str, Any]]
+        self, command: Command, respond: Callable[[DocOperation], dict[str, Any]]
     ) -> CommandOutcome:
         outcome: CommandOutcome = self._write(lambda db: cmd.record_command(db, command, respond))
         return outcome
@@ -144,7 +146,7 @@ class DocOpsMixin:
         )
         return result
 
-    def list_documents(self, query: proj.DocumentQuery) -> tuple[list[dict[str, Any]], int]:
+    def list_documents(self, query: DocumentQuery) -> tuple[list[dict[str, Any]], int]:
         result: tuple[list[dict[str, Any]], int] = self._read(
             lambda db: proj.list_documents(db, query)
         )
