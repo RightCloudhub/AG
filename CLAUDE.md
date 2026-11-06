@@ -83,7 +83,7 @@ All subcommands are also reachable as `python -m agentic_graphrag <command>` (in
 CSRF, users, tenants, invitations and API keys. Install `.[webapp]` and run `agr-webapp`;
 core `agr-api`, CLI and offline eval do not import or initialize it. Only the Web business
 adapter imports core API routers; it passes the existing string `tenant_id`/`user_id` context.
-Strict typing and the full unit suite use `.[dev,webapp]`. The offline eval CI job
+Strict typing and the full unit suite use `.[dev,webapp,summary,contracts]`. The offline eval CI job
 installs only the core package. See `docs/ops/WEBAPP.md` and `plan/workstreams/multitenant-webapp.md`
 for configuration and staged delivery.
 
@@ -99,7 +99,7 @@ Offline backends are the default. CI uses deterministic fixtures without live se
 
 Fulltext uses process-local BM25 for `offline`/`eval` and shared-file BM25 for `live`/`hybrid`; the doc store is file-backed. `create_bundle()` and `create_live_bundle()` fail when a requested backend is unavailable. The legacy `allow_memory_graph_fallback=True` option is rejected; choose an explicit profile.
 
-**Runtime profiles** (`bootstrap/profile.py`): `AGR_PROFILE=offline|live|hybrid|eval` picks one row of `CAPABILITY_MATRIX` (graph/vector backends, caches, seed graph). Legacy `AGR_USE_LIVE_STORES=1` maps to `live`; default is `offline`. `AGR_ALLOW_LLM=1` (+ a non-placeholder `LLM_API_KEY`) enables the real LLM in any profile. `agr-api` builds `QueryService.create_for_profile()` via `build_default_service()`; an unreachable Neo4j/Qdrant or missing credentials fail startup — **there is no implicit fallback** (Neo4j + memory vectors must be declared as `hybrid`). CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`; `agr-run-cases` runs through `QueryApp` with the `eval` profile (`--direct` = legacy loop call).
+**Runtime profiles** (`bootstrap/profile.py`): `AGR_PROFILE=offline|live|hybrid|eval` picks one row of `CAPABILITY_MATRIX` (graph/vector backends, caches, seed graph). Legacy `AGR_USE_LIVE_STORES=1` maps to `live`; default is `offline`. `AGR_ALLOW_LLM=1` enables real models independently of the storage profile. Legacy strong/light requires a non-placeholder `LLM_API_KEY` unless `LLM_AUTH_REQUIRED=false` explicitly enables a local unauthenticated service; configured model roles validate each provider's own authentication requirements. `agr-api` builds `QueryService.create_for_profile()` via `build_default_service()`; unavailable requested backends or required credentials fail startup. Neo4j + memory vectors must be declared as `hybrid`. CLI equivalents are `--no-llm` / `--neo4j` / `--memory-graph`; `agr-run-cases` runs through `QueryApp` with the `eval` profile (`--direct` = legacy loop call).
 
 The offline answer path (`generation/offline_answer.py` + `generation/offline_heuristics/rules_*.py`) is a large rule set hardcoded to the demo corpus in `data/raw/` — it exists to make `--no-llm` evals deterministic, is excluded from coverage, and is **not** the production path. Don't "fix" live-LLM behavior by editing it, and vice versa.
 
@@ -112,7 +112,7 @@ The offline answer path (`generation/offline_answer.py` + `generation/offline_he
 `api/routes/query.py` → `QueryService` a.k.a. `QueryApp` (`app/query_service.py`, holds the bundle + audit store + review queue + retrieval cache + multi-tenant budget) → `agent/pipeline.py` (`iter_query_progress`; `loop.run_query()` just drains it — streaming and non-streaming share one implementation):
 
 0. **Chitchat short-circuit** (`agent/chitchat.py`) runs *before* triage in the pipeline router: greetings/capability questions skip retrieval entirely, even under `force_agentic`.
-1. **Triage** (`agent/triage.py`) routes to Fast Path or Agentic (`Route` has exactly these two members); Fast Path (`agent/fast_path.py`) can escalate back to Agentic on weak evidence (`should_escalate_fast_path`); escalation seeds the agentic state with the fast path's evidence.
+1. **Scope and strategy** (`app/knowledge_scope.py`, `query_selection.py`, `query_agent.py`) pin the knowledge base, documents, model revision and `KnowledgeSnapshot`. Global intent/`strategy=global` uses the bounded summary map-reduce/verifier pipeline (`agent/global_query.py`); local **Triage** routes to Fast Path or Agentic. Fast Path (`agent/fast_path.py`) can escalate back to Agentic on weak evidence (`should_escalate_fast_path`); escalation seeds the agentic state with the fast path's evidence.
 2. **Agentic** = LangGraph `StateGraph`: `planner → executor → critic → (loop back to executor | answer)`, plus `answer → executor` once when the composer reports a structured `evidence_gap` (`generation/verdict.py`) and hops remain. `AgentState` is defined once, versioned, in `agent/state.py` (v4: `chain`/`evidence`/`register_runtime`/`memory` carry typed models; `state_serde.py` + `state_migration.py` keep v1/v2/v3 checkpoints loadable), compiled with a checkpointer (`agent/checkpointer.py`: process-local `MemorySaver` by default, optional SQLite via the `.[sqlite-checkpoint]` extra). Node handlers live in `agent/loop_runtime.py`/`loop_handlers.py`; `loop.py` only wires the graph. Planner emits a DAG (`agent/plan_dag.py`) that can gain sub-questions mid-run.
    Live `single` keeps this DAG unless `guardrails.requirement_register.enabled=true`; `agent.mode=multi` explicitly selects the blackboard/Send graph with an enabled LLM. Multi entry role clients and Fast Path limits are opt-in. Child budgets account directly to the query root and role clients preserve shared circuits. Remaining rollout limits and validation: `docs/reviews/ARCH_V3_MULTI_INTEGRATION.md`.
 3. **Executor** (`agent/executor.py` + `executor_plan.py`/`executor_dispatch.py`, every tool call goes through `ToolRegistry.invoke()` in `agent/tools/registry.py`, which supports middleware) fans out to three retrievers — vector, graph beam search (`retrieval/graph.py` + `graph_beam`/`graph_paths`/`graph_relation`) and BM25 (`retrieval/fulltext.py`), with shared chunk-hit→`Candidate` construction in `retrieval/chunk_hits.py` — fused via RRF (`retrieval/fusion.py`), optionally reranked (`retrieval/rerankers.py` + `rerank_base`/`rerank_http`/`rerank_local`/`rerank_text`; `retrieval.rerank.kind` = `none|lexical|http|local`, default `none`), through `RetrievalCache` (`retrieval/cache.py`, invalidated by index version). `retrieval/provenance.py` surfaces each graph edge's source-chunk citations (ARCH_OPTIMIZATION_V2 O-6) on the candidate.
@@ -122,11 +122,32 @@ The offline answer path (`generation/offline_answer.py` + `generation/offline_he
 
 The output contract is `ReasoningChain` (`core/reasoning.py`); its JSON Schema is `configs/schema/reasoning_chain_v1.json` (regenerate with `export-reasoning-schema`). Chains are persisted to the audit store (`governance/audit_store.py`) and carry `metadata.prompt_versions` (content hashes of every `configs/prompts/*.md` used); `POST /v1/feedback` links user feedback to a chain and enqueues inaccurate ones into the review queue.
 
+`app/query_persistence.py` publishes versioned source artifacts and an explicit audit receipt.
+`audit_required=true` fails with `AUDIT_UNAVAILABLE` unless durable audit succeeds. Deletion is
+rechecked before the terminal result and during source/audit reads; tombstones override rollback.
+SSE uses a bounded thread/async bridge, one terminal, heartbeats and cancellation accounting;
+it has no durable replay. Previously delivered progress cannot be recalled.
+
 ### Knowledge pipeline (`knowledge/`)
 
 `ingest.py` (docs → chunks) → `extraction.py` (facade over `extract_core`/`extract_pipeline`/`extract_chunk`; per-chunk LLM extraction with a **resume journal, retry, and quarantine** for failures) → `schema_check.py` (validates against `configs/schema/domain_v0.yaml` + confidence threshold; **non-conforming triples are rejected and recorded, never entering the graph**) → `resolution.py`/`resolution_merge.py` (three-tier entity disambiguation) → `graph_builder.py` (triples → graph records → `GraphStore`).
 
 `incremental.py` handles new docs against an existing graph: extract → conflict detect → high-confidence auto-merge, low-confidence into the review queue (`knowledge/review/queue.py`). `pilot_triples.py` supplies deterministic triples for the synthetic pilot corpus so graph build and gold-case generation need no live LLM — it mirrors `scripts/generate_pilot_corpus.py` and both must be changed together. `ingest_tasks.py` is the durable upload task state machine consumed by `ingest_worker.py` (CLI wiring in `ingest_worker_cli.py` + `worker_wiring.py`); chunk state and document identity live in FileDocStore SQLite. `reconcile`, `reindex` and `migrate-doc-ids` require `--tenant`; see the RUNBOOK.
+
+Knowledge bases choose `schema` or `open`; open extraction/description/semantic resolution are in
+`knowledge/open_*`, and open planning must never use domain rule planning. `review_policy=required`
+is Schema-only and stages facts until approval; Open mode rejects that policy. Pending Schema review
+recovery replays persisted approvals before restoring indexing completion and publishing.
+Generation writes/recovery and SQLite change journals publish complete
+shadow snapshots with CAS; conflicts do not automatically rebase. CLI maintenance accepts `--kb`
+and stable, globally unique `--operation-id` values. Full payload snapshots restore independent
+read indexes; current coordination is single-host SQLite, not a multi-host shared filesystem.
+
+Document/community summaries, Leiden and incremental invalidation live in `knowledge/communities.py`,
+`community_incremental.py`, `summarizer.py` and `app/summary_*`. The ingest worker also processes
+summary jobs; summary readiness is separate from document indexing. Install `summary` for Leiden.
+Schema drafts require human approval and shadow promotion; Agent review automation defaults off
+and requires real held-out calibration plus a low-risk allowlist. Runbook: `docs/ops/GRAPH_PLATFORM.md`.
 
 API/CLI ingestion shares the `core/ports/parsing.py` document parser port, implemented in `knowledge/parsers/` (sniff → encoding → text/html → html_markdown; `mineru.py` for PDF/Office/scans, disabled by default per `knowledge.parsing.mineru`). `knowledge/chunking.py` emits heading-aware Markdown chunks with breadcrumbs and metadata (`chunk_splitting.py`/`markdown_sections.py`/`markdown_tables.py`), using token budgets that include the prefix. `knowledge.chunk_size_tokens` / `chunk_overlap_tokens` replace the old character settings; the default cl100k_base vocabulary is bundled for offline use. Durable ingest: `resumable_upload.py` (bounded upload sessions, 5 MiB parts, 24 h expiry) → `ingest_tasks.py` → `index_pipeline.py` (batch embeddings with retry, UUID/version/hash dedupe, SQLite chunk checkpoints, `index_recovery.py` partial reconcile, `index_reindex.py` resumable model reindex). Contract and operations: ADR-009 and RUNBOOK §6.1.
 
@@ -135,6 +156,9 @@ API/CLI ingestion shares the `core/ports/parsing.py` document parser port, imple
 All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps everything; role checks are per-route via `Depends(require_role(...))` from `api/rbac.py`; responses go through the shared success/error envelope (`api/envelope.py`, `api/errors.py`).
 
 - **query.py**: `POST /v1/query`, `POST /v1/query/stream` (SSE)
+- **retrieval.py**: `POST /v1/search`, `GET /v1/evidence/{id}`, `GET /v1/audit/searches/{id}`
+- **knowledge_bases.py / summaries.py / schemas.py**: scoped configuration, summary jobs/retries, human-approved Schema drafts and generation rollback
+- **model_profiles.py / review_advice.py**: model catalog/drafts/tests/publication, review suggestions and calibration
 - **knowledge.py**: `POST /v1/docs`, `GET /v1/ingest-tasks/{id}`, `GET /v1/review-queue`, `POST /v1/review-queue/{id}/decision` (admin/operator); `GET /v1/audit/queries/{id}`, `POST /v1/feedback`, `GET /v1/metrics` (admin). Upload validation/batch logic lives in `knowledge_upload.py`.
 - **document_routes.py** (mounted under the knowledge router; admin/operator): `DELETE /v1/documents/{doc_id}`; resumable upload sessions `POST /v1/uploads/init`, `GET /v1/uploads/{upload_id}`, `PUT /v1/uploads/{upload_id}/parts/{number}`, `POST /v1/uploads/{upload_id}/complete`.
 - **workspace.py**: `identity_router` serves `GET /v1/me` (identity + role capabilities); `GET /v1/ingest-tasks` is tenant-scoped and paginated; `GET /v1/graph/entities` supports search, type filtering, and pagination (browse helpers in `knowledge_graph_browse.py`, fallback task cache in `workspace_tasks.py`).
@@ -142,6 +166,13 @@ All routers are `prefix="/v1"`. `AuthRateLimitMiddleware` (`api/auth.py`) wraps 
 - **app.py**: `GET /healthz`, `GET /metrics-prom` (Prometheus text), `GET /web` (Vue workspace)
 
 `QueryService` is split across `app/query_service.py`, `wiring.py`, `query_run.py`, `query_stream.py`, `query_agent.py`, and `telemetry.py`. The old `api/service*.py` paths are compatibility aliases.
+
+Exported contracts are `configs/contracts/openapi-v1.json` and `sse-v1.schema.json`;
+`python scripts/export_api_contracts.py --check --base-ref <base>` detects drift/breakage.
+If the base predates exports, compatibility comparison is skipped (drift checking still runs).
+`sdk/python` and `integrations/mcp` are independently locked packages; run their setup scripts,
+lint/mypy/tests and `uv run --locked uv build --no-sources`. The core `contracts` extra only supports
+combined API/SDK/official MCP tests. Real providers and Claude/Cursor acceptance remain outstanding.
 
 ### Config
 

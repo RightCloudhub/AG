@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
 
 from agentic_graphrag.config_roles import ModelRole, RoleModelConfig
-from agentic_graphrag.core.ports.llm import LLMClient
+from agentic_graphrag.core.models import ModelRole as SemanticRole
+from agentic_graphrag.core.ports.llm import CompletionClient, LLMClient
 
 if TYPE_CHECKING:
     from agentic_graphrag.llm.provider import LLMProvider
@@ -38,3 +39,20 @@ def model_name(llm: LLMClient) -> str:
 def usage_cost(llm: LLMClient, prompt: int, completion: int) -> float | None:
     config = getattr(llm, "role_config", None)
     return config.cost(prompt, completion) if isinstance(config, RoleModelConfig) else None
+
+
+@runtime_checkable
+class RoleClientFactory(Protocol):
+    def for_role(self, role: SemanticRole) -> LLMClient: ...
+
+
+@overload
+def for_role(llm: LLMClient, role: SemanticRole) -> LLMClient: ...
+
+
+@overload
+def for_role(llm: CompletionClient, role: SemanticRole) -> CompletionClient: ...
+
+
+def for_role(llm: CompletionClient, role: SemanticRole) -> CompletionClient:
+    return llm.for_role(role) if isinstance(llm, RoleClientFactory) else llm

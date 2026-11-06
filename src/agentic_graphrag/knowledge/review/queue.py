@@ -279,6 +279,12 @@ class ReviewQueue:
 
 
 def _matches_document(item: ReviewItem, doc_id: str, version: int | None) -> bool:
+    if item.payload.get("source_refs"):
+        return any(
+            source.get("doc_id") == doc_id
+            and (version is None or source.get("doc_version") == version)
+            for source in item.payload["source_refs"]
+        )
     raw = item.payload.get("incoming") or item.payload.get("triple") or {}
     return bool(
         raw.get("source_doc_id") == doc_id

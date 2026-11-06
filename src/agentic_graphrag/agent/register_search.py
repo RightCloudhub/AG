@@ -31,7 +31,7 @@ def search(
     tenant_id: str,
     anchors: list[str],
 ) -> tuple[list[Candidate], list[ToolCallTrace]]:
-    specs = executor._choose_tools(query, anchors, allow_llm=False)
+    specs = executor._choose_tools(query, anchors, allow_llm=executor.config.llm_only)
     pending, reused = _uncached(specs, cache)
     groups, traces = run_tool_specs(executor, pending, query, tenant_id=tenant_id)
     for spec, trace in zip(pending, traces, strict=True):

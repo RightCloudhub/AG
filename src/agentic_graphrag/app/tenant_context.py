@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentic_graphrag.core.ports.capabilities import EntityLister
+from agentic_graphrag.core.ports.capabilities import EntityLister, EntityNames
 
 if TYPE_CHECKING:
     from agentic_graphrag.app.query_service import QueryService
@@ -14,6 +14,8 @@ ENTITY_SCAN_LIMIT = 100_000
 
 def tenant_entities(service: QueryService, tenant_id: str) -> list[str]:
     graph = service.bundle.graph
+    if isinstance(graph, EntityNames):
+        return graph.entity_names(tenant_id=tenant_id or "default")
     if not isinstance(graph, EntityLister):
         return list(service.known_entities) if tenant_id in {"", "default"} else []
     rows = graph.list_entities(limit=ENTITY_SCAN_LIMIT, tenant_id=tenant_id or None)

@@ -15,10 +15,16 @@ from agentic_graphrag.core.ports.capabilities import (
 from agentic_graphrag.core.ports.stores import EntityRecord, PathRecord, RelationRecord
 from agentic_graphrag.core.tenancy import tenant_matches as _tenant_matches
 from agentic_graphrag.stores.document_provenance import MemoryDocumentDeletion, merge_sources
+from agentic_graphrag.stores.memory_graph_lookup import MemoryGraphLookup
 
 
 class InMemoryGraphStore(
-    MemoryDocumentDeletion, EntityLister, RelationLister, RelationDeletion, EntityMutation
+    MemoryDocumentDeletion,
+    MemoryGraphLookup,
+    EntityLister,
+    RelationLister,
+    RelationDeletion,
+    EntityMutation,
 ):
     def __init__(self) -> None:
         self.index_generation = uuid4().hex
@@ -26,14 +32,17 @@ class InMemoryGraphStore(
         self._relations: dict[str, RelationRecord] = {}
         # Lazy endpoint-name → relation keys index; None = stale (any mutation).
         self._by_name: dict[str, list[str]] | None = None
+        self._by_entity_name: dict[tuple[str, str], list[EntityRecord]] | None = None
 
     def clear(self) -> None:
         self.index_generation = uuid4().hex
         self._entities.clear()
         self._relations.clear()
         self._by_name = None
+        self._by_entity_name = None
 
     def upsert_entities(self, entities: list[EntityRecord]) -> int:
+        self._by_entity_name = None
         for entity in entities:
             self._entities[_key(entity.tenant_id, entity.id)] = entity
         return len(entities)
@@ -62,6 +71,7 @@ class InMemoryGraphStore(
                 relation.tail_id, relation.tail_name = keep_id, keep_name
 
     def delete_entity(self, entity_id: str, *, tenant_id: str) -> None:
+        self._by_entity_name = None
         self._entities.pop(_key(tenant_id, entity_id), None)
 
     def delete_relation(self, relation_id: str, *, tenant_id: str | None = None) -> bool:
@@ -80,17 +90,6 @@ class InMemoryGraphStore(
             del self._relations[key]
         self._by_name = None
         return bool(keys)
-
-    def get_entity_by_name(
-        self, name: str, entity_type: str | None = None, *, tenant_id: str | None = None
-    ) -> EntityRecord | None:
-        target = name.lower()
-        for entity in self._entities.values():
-            if entity.name.lower() != target or not _tenant_matches(entity.tenant_id, tenant_id):
-                continue
-            if entity_type is None or entity.type == entity_type:
-                return entity
-        return None
 
     def neighbors(
         self,

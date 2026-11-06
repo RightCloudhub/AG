@@ -1,0 +1,33 @@
+# Optional example: merge this section into the deployment configuration.
+# Model names and dimensions must match servers already deployed by the operator.
+models:
+  providers:
+    local:
+      base_url: http://127.0.0.1:11434/v1
+      auth_required: false
+      allowed_tenants: [default]
+      timeout_seconds: 30
+  catalog:
+    local-chat:
+      provider: local
+      model: qwen3:8b
+      revision: "1"
+      capabilities:
+        completion: true
+        structured_output: json_object
+    local-embedding:
+      provider: local
+      model: bge-m3
+      revision: "1"
+      capabilities:
+        completion: false
+        embedding: true
+        embedding_dimensions: 1024
+  roles:
+    triage: local-chat
+    researcher: local-chat
+    verifier: local-chat
+    writer: local-chat
+    extractor: local-chat
+    embedding: local-embedding
+    rerank: null

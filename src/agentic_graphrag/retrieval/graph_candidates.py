@@ -27,8 +27,13 @@ __all__ = [
 
 
 def iter_beam_edges(beams: list[BeamItem]) -> Iterator[tuple[RelationRecord, EntityRecord]]:
+    seen: set[tuple[int, int]] = set()
     for item in beams:
-        yield from item.edges
+        for edge, entity in item.edges:
+            key = (id(edge), id(entity))
+            if key not in seen:
+                seen.add(key)
+                yield edge, entity
 
 
 def edge_labels(rel: RelationRecord, ent: EntityRecord, entity_name: str) -> tuple[str, str, str]:

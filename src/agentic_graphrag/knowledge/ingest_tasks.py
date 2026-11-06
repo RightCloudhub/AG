@@ -104,6 +104,10 @@ class IngestTaskStore:
             message="Queued for background indexing" if docs else "No documents received",
         )
         with self._locked():
+            if existing := self._tasks.get(task.id):
+                if existing.tenant_id != tenant_id or existing.docs != docs:
+                    raise ValueError("Task ID already exists with different contents or scope")
+                return IngestTask.from_dict(existing.to_dict())
             self._tasks[task.id] = task
             self._persist(task)
         return task
@@ -141,6 +145,7 @@ class IngestTaskStore:
         *,
         stale_seconds: float = DEFAULT_STALE_SECONDS,
         exclude_owner: str | None = None,
+        tenant_id: str | None = None,
     ) -> builtins.list[str]:
         """Requeue abandoned tasks while holding the same lock as heartbeats.
 
@@ -152,6 +157,7 @@ class IngestTaskStore:
             stale = [
                 task.id
                 for task in self._tasks.values()
+                if (tenant_id is None or task.tenant_id == tenant_id)
                 if _is_abandoned(task, cutoff=cutoff, exclude_owner=exclude_owner)
             ]
             for task_id in stale:

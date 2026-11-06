@@ -28,6 +28,8 @@ def candidates_from_chunk_hits(
                         doc_id=chunk.doc_id,
                         chunk_id=chunk.chunk_id,
                         span=chunk.text[:CITATION_SPAN_CHARS],
+                        doc_version=chunk.metadata.get("document_version"),
+                        content_sha256=chunk.metadata.get("content_sha256"),
                     )
                 ],
                 metadata={"rank": rank},

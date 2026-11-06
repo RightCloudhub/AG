@@ -1,0 +1,16 @@
+{
+  "count": 200,
+  "boundary": "run_query_chain call, including source and audit persistence; excludes HTTP serialization and network",
+  "percentile": "nearest rank",
+  "service": {
+    "p50_ms": 43.72,
+    "p95_ms": 65.9,
+    "mean_ms": 46.16
+  },
+  "chain": {
+    "p50_ms": 39.0,
+    "p95_ms": 60,
+    "mean_ms": 41.5
+  },
+  "llm_calls": 0
+}

@@ -1,11 +1,11 @@
 # 硬性规则（必须严格遵守）
 
 **定位**：本文件汇总对本仓库**所有代码与文档变更**具有强制力的规则，是唯一的规则汇总入口。各规则注明**强制机制**（CI / 门禁脚本 / 评审约定）。与 CLAUDE.md、各工程文档冲突时以本文件与实际门禁为准。
-**版本**：V1.7（2026-11-01）— ADR-007 批准独立 Web 应用、可选身份数据库与本地 Vue Router；门禁要求不变。
+**版本**：V1.8（2026-11-04）— ADR-010～012 扩展 REST/SSE 契约和独立客户端门禁；既有质量/离线下限不变。
 
 | 强制层级 | 机制 |
 |---|---|
-| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`，3 个并行 job：`lint`（ruff lint + format check + `check_code_metrics.py`）、`test`（mypy + `tsc`（`web/jsconfig.json`）+ 单测 + 覆盖率 ≥80%）、`eval-offline`（`scripts/check_eval_floor.py`：`poc_cases` agentic 与 triage 两条路径均 ≥30/31；`g2_all` ≥196/200；`probe_compositional` ≥52/54、`probe_negative` ≥19/20；金标审计 `--max-flagged 0` 阻断） |
+| CI（每次 push/PR 阻塞） | `.github/workflows/ci.yml`，4 个 job 定义：`lint`（ruff/format/代码指标）、`test`（mypy/tsc、REST/SSE 导出与 PR 基线兼容、单测/覆盖率 ≥80%）、`clients`（SDK/MCP 两项矩阵：独立锁定依赖、lint/types/tests/覆盖率/打包）、`eval-offline`（POC agentic/triage 均 ≥30/31；G2 ≥196/200；probe ≥52/54、负例 ≥19/20；金标审计 `--max-flagged 0`） |
 | 门禁脚本（提交前自查） | `scripts/check_code_metrics.py`、`scripts/check_eval_floor.py`、`scripts/eval_compare.py`、`scripts/audit_gold.py`、`scripts/g1_to_g2_gate.sh` |
 | 评审约定（人工核查） | 本文件 §4~§9 |
 
@@ -43,6 +43,8 @@
 - 架构 A/B（评审约定）：改动检索、规划、critic、生成等影响效果的模块时，必须在同一数据集、同一图、同一 LLM 缓存上跑基线和候选，用 `scripts/eval_compare.py` 报告配对 McNemar p 值、准确率、P95 延迟和 LLM 调用均值。只有 p < 0.05 才能声称“提升”；三项中任何一项明显退化都不合并。31 题的 poc 只能作为冒烟测试，不能作为效果结论的依据（95% CI 宽约 31pp）。
 - 每个 bugfix 附回归测试（先写失败测试复现，再修）。
 - Prompt（`configs/prompts/*.md`）变更不阻塞单测门禁，但**必须**跑 dev 评测集回归后合入。
+- REST/SSE 公开契约通过 `scripts/export_api_contracts.py --check` 检查导出漂移，PR 对比基线；
+  基线尚无导出文件时不声称已完成机械兼容比较。SDK/MCP 使用各自锁文件执行独立门禁。
 
 ## 4. 提交与版本管理（评审约定）
 
@@ -90,7 +92,7 @@
 - **零构建运行时**：不引入 npm 清单、打包器或浏览器运行所需的 Node 工具链；改完刷新即生效。Node/TypeScript 仅用于 §2 的开发与 CI 验证。前端运行时**白名单仅钉版 Vue 3**（[ADR-006](./tech-stack.md#adr-006试用-web-前端采用-vue-3-零构建已采纳2026-07-21)，钉版与加载策略见该条目）；其它框架或构建链须先新 ADR。vendor 与 CDN 钉版（Vue 3.5.13 §3.1、Lucide 图标几何子集 §3.2）同步记录于 [docs/ops/EXTERNAL_RUNTIMES.md](../../docs/ops/EXTERNAL_RUNTIMES.md)；前端视觉校验（headless Chromium）环境见 [docs/EXTERNAL_RUNTIMES.md](../../docs/EXTERNAL_RUNTIMES.md)。
 - **JS 模块硬指标**：`web/` 下 JS/CSS/HTML **同样遵守 §1 行数与复杂度上限**（评审强制；`scripts/check_code_metrics.py` 目前只扫 Python，前端靠 PR 复核 + `wc -l`）。
 - 只调用 `/v1/*` API 并遵守统一 envelope；不得绕过 `success/error` 判定。
-- SSE 消费必须覆盖全部事件类型（`cache_hit/triage/thinking/sub_question/hop_done/answer/error`），未知事件静默忽略。
+- SSE 消费必须覆盖全部公开事件类型（`cache_hit/triage/thinking/sub_question/hop_done/degraded/global_progress/answer/error`），未知事件静默忽略；以导出的事件 schema 为准。
 - 所有动态文本注入走 **mustache / `textContent`**；**禁止 `v-html` 与任何 `innerHTML`**（§5 XSS 项；boot 失败卡亦须 DOM API）。
 - DOM / 模块结构变更同步更新 `tests/unit/test_web_claude_ui.py` 的结构与注入安全断言；文案集中 `web/static/js/i18n.js`，纯模块与模板编译由 `tests/unit/test_web_wizard_ui.py` 在 Node 下校验。
 - V1 明确不做（未改 PRD 不得实现）：多轮对话上下文、图谱编辑、移动端适配、图路径可视化编辑器。**⚠ 2026-10-31 差异**：响应式布局已应产品要求落地（<1024px / <768px 抽屉等），PRD 与本条待评审同步；挂账 [IMPORTANT.md](../../docs/reviews/IMPORTANT.md) §6「前端向导改版挂账」。

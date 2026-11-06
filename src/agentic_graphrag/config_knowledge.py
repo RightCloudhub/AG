@@ -7,6 +7,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agentic_graphrag.config_review import ReviewAutomationConfig
+
 DEFAULT_CHUNK_TOKENS = 512
 DEFAULT_OVERLAP_TOKENS = 64
 DEFAULT_TOKENIZER = "cl100k_base"
@@ -35,6 +37,7 @@ class ParsingConfig(BaseModel):
 class KnowledgeConfig(BaseModel):
     # Reject obsolete *_chars settings instead of silently ignoring their units.
     model_config = ConfigDict(extra="forbid")
+    agent_review: ReviewAutomationConfig = Field(default_factory=ReviewAutomationConfig)
 
     chunk_size_tokens: int = Field(default=DEFAULT_CHUNK_TOKENS, gt=0)
     chunk_overlap_tokens: int = Field(default=DEFAULT_OVERLAP_TOKENS, ge=0)

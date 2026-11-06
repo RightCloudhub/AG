@@ -1,0 +1,241 @@
+{
+  "base": {
+    "correct": 200,
+    "total": 200,
+    "accuracy": 1.0,
+    "ci95": [
+      0.9812,
+      1.0
+    ],
+    "latency_p50_ms": 37.0,
+    "latency_p95_ms": 65.0,
+    "llm_calls_mean": 0.0,
+    "by_category": {
+      "2hop": {
+        "correct": 90,
+        "total": 90,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9591,
+          1.0
+        ]
+      },
+      "3hop": {
+        "correct": 60,
+        "total": 60,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9398,
+          1.0
+        ]
+      },
+      "no_answer": {
+        "correct": 20,
+        "total": 20,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8389,
+          1.0
+        ]
+      },
+      "open": {
+        "correct": 30,
+        "total": 30,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8865,
+          1.0
+        ]
+      }
+    },
+    "by_template": {
+      "ceo_competitor_producer": {
+        "correct": 46,
+        "total": 46,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9229,
+          1.0
+        ]
+      },
+      "ceo_of_parent": {
+        "correct": 39,
+        "total": 39,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9103,
+          1.0
+        ]
+      },
+      "ceo_parent_producer": {
+        "correct": 14,
+        "total": 14,
+        "accuracy": 1.0,
+        "ci95": [
+          0.7847,
+          1.0
+        ]
+      },
+      "ceo_prior_employers": {
+        "correct": 46,
+        "total": 46,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9229,
+          1.0
+        ]
+      },
+      "competes_path": {
+        "correct": 30,
+        "total": 30,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8865,
+          1.0
+        ]
+      },
+      "competitor_of_producer": {
+        "correct": 5,
+        "total": 5,
+        "accuracy": 1.0,
+        "ci95": [
+          0.5655,
+          1.0
+        ]
+      },
+      "no_answer_phantom": {
+        "correct": 20,
+        "total": 20,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8389,
+          1.0
+        ]
+      }
+    }
+  },
+  "candidate": {
+    "correct": 200,
+    "total": 200,
+    "accuracy": 1.0,
+    "ci95": [
+      0.9812,
+      1.0
+    ],
+    "latency_p50_ms": 39.0,
+    "latency_p95_ms": 64.0,
+    "llm_calls_mean": 0.0,
+    "by_category": {
+      "2hop": {
+        "correct": 90,
+        "total": 90,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9591,
+          1.0
+        ]
+      },
+      "3hop": {
+        "correct": 60,
+        "total": 60,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9398,
+          1.0
+        ]
+      },
+      "no_answer": {
+        "correct": 20,
+        "total": 20,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8389,
+          1.0
+        ]
+      },
+      "open": {
+        "correct": 30,
+        "total": 30,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8865,
+          1.0
+        ]
+      }
+    },
+    "by_template": {
+      "ceo_competitor_producer": {
+        "correct": 46,
+        "total": 46,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9229,
+          1.0
+        ]
+      },
+      "ceo_of_parent": {
+        "correct": 39,
+        "total": 39,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9103,
+          1.0
+        ]
+      },
+      "ceo_parent_producer": {
+        "correct": 14,
+        "total": 14,
+        "accuracy": 1.0,
+        "ci95": [
+          0.7847,
+          1.0
+        ]
+      },
+      "ceo_prior_employers": {
+        "correct": 46,
+        "total": 46,
+        "accuracy": 1.0,
+        "ci95": [
+          0.9229,
+          1.0
+        ]
+      },
+      "competes_path": {
+        "correct": 30,
+        "total": 30,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8865,
+          1.0
+        ]
+      },
+      "competitor_of_producer": {
+        "correct": 5,
+        "total": 5,
+        "accuracy": 1.0,
+        "ci95": [
+          0.5655,
+          1.0
+        ]
+      },
+      "no_answer_phantom": {
+        "correct": 20,
+        "total": 20,
+        "accuracy": 1.0,
+        "ci95": [
+          0.8389,
+          1.0
+        ]
+      }
+    }
+  },
+  "paired": {
+    "a_only": 0,
+    "b_only": 0,
+    "both": 200,
+    "neither": 0,
+    "p_value": 1.0
+  },
+  "verdict": "no_significant_difference",
+  "flipped_cases": []
+}

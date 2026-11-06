@@ -33,6 +33,15 @@ class Envelope(BaseModel):
     meta: MetaBody = Field(default_factory=MetaBody)
 
 
+class TypedEnvelope[T](BaseModel):
+    """Published response schema; wire shape stays compatible with Envelope."""
+
+    success: bool
+    data: T | None = None
+    error: ErrorBody | None = None
+    meta: MetaBody = Field(default_factory=MetaBody)
+
+
 def ok(data: Any, *, meta: MetaBody | None = None) -> dict[str, Any]:
     env = Envelope(success=True, data=data, error=None, meta=meta or MetaBody())
     return env.model_dump(mode="json")

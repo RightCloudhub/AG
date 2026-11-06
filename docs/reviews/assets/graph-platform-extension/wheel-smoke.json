@@ -1,0 +1,22 @@
+{
+  "wheels_only": true,
+  "sdk_http_sse": "passed",
+  "mcp_stdio_http": {
+    "tools": [
+      "get_audit",
+      "get_evidence",
+      "list_knowledge_bases",
+      "query",
+      "search"
+    ],
+    "query_audit": "persisted",
+    "search_audit": "persisted",
+    "original": "available",
+    "cross_kb_read": "denied"
+  },
+  "wheel_sha256": {
+    "sdk/python/dist/agentic_graphrag_client-0.1.0-py3-none-any.whl": "7735b4a920452466a401b46184927cab9958bd379094a3cc3b2a8fa2cd3ffa2f",
+    "integrations/mcp/dist/agentic_graphrag_mcp-0.1.0-py3-none-any.whl": "1d57b8520b7226b8d1c2f0a752bf471cc220d492664b00966904cf7dbcc6a62d"
+  },
+  "python": "3.12.13"
+}

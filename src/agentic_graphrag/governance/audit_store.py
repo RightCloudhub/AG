@@ -71,13 +71,13 @@ class AuditStore:
             raise ValueError("chain missing query_id")
         payload = redact_audit_payload(payload)
         with self._lock:
-            self._remember(qid, payload)
             if self.path:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(payload, ensure_ascii=False) + "\n")
                 if self.path.stat().st_size > self.max_bytes:
                     self._rotate()
+            self._remember(qid, payload)
         return qid
 
     def _rotate(self) -> None:

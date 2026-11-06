@@ -64,6 +64,9 @@ def dispatch(
     tenant_id: str | None = None,
 ) -> list[Candidate]:
     """Route a tool call through the executor's registry (single dispatch point)."""
+    from agentic_graphrag.governance.execution import check_execution
+
+    check_execution()
     registry = executor.tools
     if not registry.has(tool):
         return []

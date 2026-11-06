@@ -6,7 +6,7 @@
  * do not carry them; elapsed time is measured client-side.
  */
 import { StepPhase, StepState, ThinkingStage, isRecord } from '../contracts.js';
-import { record, text, number, strings } from '../responses.js';
+import { record, text, number, strings, parseCoverage } from '../responses.js';
 
 /** @typedef {import('./types.js').ProgressModel} ProgressModel */
 /** @typedef {import('./types.js').HopProgress} HopProgress */
@@ -84,6 +84,12 @@ export function applyCacheHit(model) {
   return { ...model, cacheHit: true };
 }
 
+/** Global progress counts documents; it is independent of the local hop limit.
+ * @param {ProgressModel} model @param {unknown} payload */
+export function applyGlobalProgress(model, payload) {
+  return { ...model, phase: StepPhase.RETRIEVE, coverage: parseCoverage(payload) };
+}
+
 /** One or more retrieval channels failed (O-9). @param {ProgressModel} model @param {unknown} payload */
 export function applyDegraded(model, payload) {
   const data = record(payload);
@@ -96,6 +102,7 @@ export function applyDegraded(model, payload) {
 
 /** Attach the final chain: hit counts per hop and the answer phase. @param {ProgressModel} model @param {Answer} answer */
 export function finishProgress(model, answer) {
+  if (answer.source_retracted) return { ...emptyProgress(model.startedAt), phase: StepPhase.ANSWER, state: StepState.DONE, route: answer.route };
   const hops = model.hops.map(hop => {
     const step = answer.steps.find(s => s.hop === hop.hop && (!hop.branchId || s.sub_question === hop.subQuestion));
     const hits = step ? new Set([...step.evidence_ids, ...step.tool_calls.flatMap(c => c.hits)]).size : hop.hits;

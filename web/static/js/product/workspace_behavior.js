@@ -7,7 +7,8 @@ import { preferences } from '../store/preferences.js';
 import { closeOverlays } from '../store/shell.js';
 import { applyInspectorWidth, toggleInspector, stepInspectorHop } from '../shell/use_inspector.js';
 import { toggleTheme } from '../theme.js';
-import { changingIdentity, logout, switchTenant } from './session.js';
+import { changingIdentity, logout, switchTenant, user, sessionRevision } from './session.js';
+import { refreshKnowledgeBases } from '../store/knowledge.js';
 import { useForm } from './forms.js';
 import { closePopovers } from './use_notebook.js';
 import { T } from './copy.js';
@@ -38,6 +39,9 @@ export function useWorkspaceBehavior(notebook, palette) {
     if (event.key === Shortcut.NEXT_HOP) stepInspectorHop(1);
   }
   watch(changingIdentity, changing => { if (changing) { closePopovers(); creatingTenant.value = false; form.message.value = ''; } });
+  watch(() => [user.value?.user_id, user.value?.tenant_id, sessionRevision.value, changingIdentity.value], () => {
+    if (user.value && !changingIdentity.value) void refreshKnowledgeBases();
+  }, { immediate: true });
   onMounted(() => { applyInspectorWidth(preferences.value.inspectorWidth); void probe(); window.addEventListener('keydown', keydown); });
   onUnmounted(() => window.removeEventListener('keydown', keydown));
   return { ...form, creatingTenant, openCreateTenant, closeCreateTenant, chooseTenant, signOut, probe, offline, healthKind, healthTitle, closePopovers, UiPolicy };

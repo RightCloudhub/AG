@@ -8,14 +8,21 @@
 
 ## 特性
 
-- **分诊双路径**：简单问题走 Fast Path，复杂问题走 LangGraph 循环（Planner → Executor → Critic → Answer）
+- **分诊与概括**：局部问题走 Fast Path / LangGraph 循环；启用摘要的知识库支持 Global map-reduce、覆盖率与原文验证
 - **三路混合检索**：向量 / 图 Beam Search / BM25 并行召回，RRF 融合 + 缓存
-- **知识管线**：上传 → 抽取（LLM / 离线规则）→ Schema 校验 → 实体对齐 → 增量入图（按基数、时间、置信度裁决冲突）→ 人工复核并作用于图谱
+- **知识库双模**：Schema 约束或开放抽取，实体描述/向量/别名消歧、必审候选、版本快照与可恢复发布；开放模式需显式启用模型
+- **增量知识管线**：上传、复核、文档/社区摘要、受影响社区更新，以及人审 Schema 升级与回滚
+- **七角色模型**：按知识库固定配置版本，支持模型目录、能力测试、草稿发布和回滚；兼容本地无鉴权服务
 - **护栏与预算**：跳数、LLM 调用、token、超时上限；租户 / 用户 / 查询三级预算与熔断
 - **需求登记表（可选）**：种子检索、证据约束的状态更新、实体锚定、依赖调度与独立充分性校验；详见 [启用与评估](docs/design/REQUIREMENT_REGISTER.md)。`--no-llm` 保持原流程。
-- **可审计**：每次回答产出 `ReasoningChain`，claim 须通过引用、关系一致与蕴含校验，可按 query ID 回查
+- **可审计取证**：`ReasoningChain`、原文版本引用、独立检索审计与持久化回执；可要求审计成功才返回结果
+- **对外接入**：typed REST/OpenAPI、可取消 SSE、独立 Python SDK 和只读 stdio MCP
 - **企业能力**：多租户、RBAC、限流、JSON 日志、Prometheus、可选 OTel、PII 脱敏
 - **独立多租户应用**：邮箱注册 / 登录、工作空间切换、成员邀请、服务密钥、账号安全与分区笔记历史；[使用指南](docs/product/WEBAPP_GUIDE.md)
+
+扩展能力已完成本地工程验证，见 [交付记录与截图](docs/reviews/GRAPH_PLATFORM_EXTENSION.md)。
+真实领域的抽取/概括质量、复核校准、真实供应商和 Claude/Cursor 验收仍待完成，
+既有 G2/G3/G4 产品门禁状态不变。
 
 ## 快速开始
 
@@ -76,6 +83,12 @@ AGR_PROFILE=live AGR_ALLOW_LLM=1 LLM_API_KEY=... agr-api   # Neo4j / Qdrant 不�
 
 运行 Profile：`offline`（默认）、`live`、`hybrid`（Neo4j + 内存向量，须显式声明）、`eval`（评测，关闭缓存）。详见 [docs/ops/RUNBOOK.md](docs/ops/RUNBOOK.md)。
 
+使用文档/社区摘要时，通过 `./scripts/setup.sh --locked --extras dev,webapp,summary`
+安装可选 Leiden 依赖，按 [角色模型配置](docs/ops/MODEL_PROFILES.md) 登记并测试实际模型，
+然后在知识库中绑定已发布版本、开启摘要并运行 worker。省略 `kb_id` 的旧请求仍使用默认库。
+建库、模式选择、增量恢复、embedding 重建与回滚步骤见
+[知识库运行手册](docs/ops/GRAPH_PLATFORM.md)。SQLite 协调限单主机，大库与多主机容量另行验收。
+
 ## 架构
 
 ```mermaid
@@ -107,6 +120,8 @@ configs/                配置、领域 Schema、Prompt
 data/                   样例语料与 seed 三元组（见 data/README.md）
 evals/                  评测数据集
 web/                    Vue 3 零构建工作台（推理笔记本）
+sdk/python/             独立同步/异步 HTTP 与 SSE 客户端
+integrations/mcp/       通过公共 API 取证的 stdio MCP 适配器
 tests/ scripts/         单元测试、门禁与评测脚本
 docs/                   架构、设计、运维、评审文档
 plan/ reports/          阶段计划与门禁报告
@@ -133,6 +148,9 @@ pytest tests/unit --cov=agentic_graphrag --cov-fail-under=80 -q
 | [docs/product/TEN_HOP_QUESTIONS.md](./docs/product/TEN_HOP_QUESTIONS.md) | 三道 10 / 10 / 11 跳证据链题目、参考答案与逐跳原文 |
 | [docs/ops/WEBAPP.md](./docs/ops/WEBAPP.md) | Web 配置、开发邮件、数据库与部署 |
 | [docs/ops/RUNBOOK.md](./docs/ops/RUNBOOK.md) | 部署、环境变量、运维 |
+| [docs/ops/GRAPH_PLATFORM.md](./docs/ops/GRAPH_PLATFORM.md) | 知识库双模、摘要任务、迁移恢复、回滚与取证 |
+| [docs/ops/MODEL_PROFILES.md](./docs/ops/MODEL_PROFILES.md) | 七角色模型、能力探测与配置发布 |
+| [sdk/python/README.md](./sdk/python/README.md) / [integrations/mcp/README.md](./integrations/mcp/README.md) | 独立 SDK 与 MCP 接入 |
 | [docs/design/REFACTOR_PLAN.md](./docs/design/REFACTOR_PLAN.md) | 架构重构进度 |
 | [docs/design/ARCH_OPTIMIZATION_V2.md](./docs/design/ARCH_OPTIMIZATION_V2.md) | 架构优化当前实现、后续设计与验收标准 |
 | [docs/README.md](./docs/README.md) | 全部文档索引 |

@@ -10,7 +10,9 @@ import { text as T } from '../i18n.js';
 import { theme, toggleTheme } from '../theme.js';
 import {
   activeConversationId, conversations, findConversation, groupConversations, hopCountOf, removeConversation, startNewConversation,
+  initializeLegacyHistory, selectHistoryOwner,
 } from '../store/conversations.js';
+import { knowledgeRole, refreshKnowledgeBases, resetKnowledgeScope } from '../store/knowledge.js';
 import { preferences, setPreferences } from '../store/preferences.js';
 import { closeNotebook, closePalette, notebookOpen, openNotebook, openPalette, paletteOpen } from '../store/shell.js';
 import { inspSyncTo } from './use_inspector.js';
@@ -67,9 +69,17 @@ export function useShell(deps) {
   async function loadUser() {
     try {
       const { data } = await fetchMe();
+      if (!user.value || user.value.user_id !== data.user_id || user.value.tenant_id !== data.tenant_id) {
+        if (data.authenticated) selectHistoryOwner(data.user_id, data.tenant_id);
+        else initializeLegacyHistory();
+      }
       user.value = data;
       capabilities.value = data.capabilities || {};
-    } catch {
+      knowledgeRole.value = data.role;
+      await refreshKnowledgeBases();
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      if (getApiKey()) selectHistoryOwner(null);
       // Unauthenticated: the reader capabilities
       capabilities.value = { [View.CHAT]: true, [View.GRAPH]: true };
     }
@@ -83,6 +93,11 @@ export function useShell(deps) {
   async function updateApiKey(key) {
     apiKey.value = key;
     setApiKey(key);
+    resetKnowledgeScope();
+    selectHistoryOwner(null);
+    user.value = null;
+    capabilities.value = {};
+    deps.navigate(View.CHAT);
     await loadUser();
     await probe();
   }

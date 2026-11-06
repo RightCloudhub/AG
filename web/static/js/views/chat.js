@@ -141,6 +141,7 @@ export default {
         [StreamEvent.THINKING](p) { log(StreamEvent.THINKING, p); update(m => progress.applyThinking(m, p)); },
         [StreamEvent.SUB_QUESTION](p) { log(StreamEvent.SUB_QUESTION, p); update(m => progress.applySubQuestion(m, p, Date.now())); },
         [StreamEvent.HOP_DONE](p) { log(StreamEvent.HOP_DONE, p); update(m => progress.applyHopDone(m, p, Date.now())); },
+        [StreamEvent.GLOBAL_PROGRESS](p) { log(StreamEvent.GLOBAL_PROGRESS, p); update(m => progress.applyGlobalProgress(m, p)); },
         [StreamEvent.CACHE_HIT](p) { log(StreamEvent.CACHE_HIT, p); update(progress.applyCacheHit); },
         [StreamEvent.DEGRADED](p) { log(StreamEvent.DEGRADED, p); update(m => progress.applyDegraded(m, p)); },
         [StreamEvent.ANSWER](p) { log(StreamEvent.ANSWER, p); finish(parseAnswer(p), q, target); },
@@ -150,6 +151,7 @@ export default {
     }
     /** @param {Answer} answer @param {string} q @param {string | null} target */
     function finish(answer, q, target) {
+      if (answer.source_retracted) logFrames = [];
       const done = live.value ? progress.finishProgress(live.value, answer) : null;
       push({ role: MessageRole.ASSISTANT, data: answer, progress: done, log: logFrames, followups: suggestFollowups(answer, q), ts: Date.now() }, target);
       const missing = missingInfoCard(answer, q);

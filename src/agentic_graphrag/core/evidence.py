@@ -118,6 +118,8 @@ class Citation(BaseModel):
     entity_id: str | None = None
     relation_id: str | None = None
     span: str | None = None
+    doc_version: int | None = None
+    content_sha256: str | None = None
 
 
 class Candidate(BaseModel):

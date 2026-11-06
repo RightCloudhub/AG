@@ -17,7 +17,12 @@ def tenant_predicate(alias: str) -> str:
 def neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
     if max_hops == 1:
         return one_hop_query(relation_types)
-    last_rel_pred = "AND type(last(relationships(path))) IN $rel_types" if relation_types else ""
+    last_rel_pred = (
+        "AND coalesce(last(relationships(path)).predicate, "
+        "type(last(relationships(path)))) IN $rel_types"
+        if relation_types
+        else ""
+    )
     tenant_pred = f"""
       AND ALL(edge IN relationships(path) WHERE {tenant_predicate("edge")})
       AND ALL(node IN nodes(path) WHERE {tenant_predicate("node")})
@@ -39,7 +44,7 @@ def neighbors_query(max_hops: int, relation_types: list[str] | None) -> str:
 
 
 def one_hop_query(relation_types: list[str] | None) -> str:
-    relation_pred = "AND type(r) IN $rel_types" if relation_types else ""
+    relation_pred = "AND coalesce(r.predicate, type(r)) IN $rel_types" if relation_types else ""
     return f"""
     MATCH (src)-[r]-(dst)
     WHERE toLower(src.name) = toLower($name) AND src <> dst

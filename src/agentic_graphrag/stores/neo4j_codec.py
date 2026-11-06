@@ -58,14 +58,18 @@ def _parse_list_of_dicts(raw: str) -> list[dict[str, Any]]:
 
 def node_to_entity(node: Any) -> EntityRecord:
     labels = list(node.labels) if hasattr(node, "labels") else []
-    etype = labels[0] if labels else "Entity"
     props = dict(node)
+    etype = str(props.get("entity_type") or (sorted(labels)[0] if labels else "Entity"))
     return EntityRecord(
         id=str(props.get("id", props.get("name", ""))),
         name=str(props.get("name", "")),
         type=etype,
         attributes=attrs_from_neo4j(props.get("attributes")),
+        aliases=list(props.get("aliases") or []),
+        sources=sources_from_neo4j(props.get("sources")),
         tenant_id=str(props.get("tenant_id") or ""),
+        kb_id=str(props.get("kb_id") or "default"),
+        generation=str(props.get("generation") or "1"),
     )
 
 
@@ -115,7 +119,7 @@ def rel_to_record(
     )
     return RelationRecord(
         id=str(props.get("id", f"{rel.type}:{h_name}->{t_name}")),
-        type=rel.type,
+        type=str(props.get("predicate") or rel.type),
         head_id=str(props.get("head_id", "")),
         tail_id=str(props.get("tail_id", "")),
         head_name=h_name,
@@ -124,4 +128,6 @@ def rel_to_record(
         attributes=attrs_from_neo4j(props.get("attributes")),
         sources=sources_from_neo4j(props.get("sources")),
         tenant_id=str(props.get("tenant_id") or ""),
+        kb_id=str(props.get("kb_id") or "default"),
+        generation=str(props.get("generation") or "1"),
     )

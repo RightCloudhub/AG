@@ -11,11 +11,13 @@ from pydantic import BaseModel, Field
 
 from agentic_graphrag.api.envelope import MetaBody, ok
 from agentic_graphrag.api.rbac import Role, require_role
-from agentic_graphrag.api.routes.deps import principal, service
+from agentic_graphrag.api.routes.deps import knowledge_service as service
+from agentic_graphrag.api.routes.deps import principal
 from agentic_graphrag.api.routes.document_routes import router as document_router
 from agentic_graphrag.api.routes.knowledge_upload import emit_audit, save_uploads, task_row
-from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task
+from agentic_graphrag.api.routes.workspace_tasks import get_cached_task, remember_task, task_kb
 from agentic_graphrag.api.tenant import request_tenant
+from agentic_graphrag.app.audit_reads import visible_query_audit
 from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
 from agentic_graphrag.app.review_app import ReviewApp
 from agentic_graphrag.core.enums import ReviewStatus
@@ -63,10 +65,14 @@ async def upload_docs(
     svc = service(request)
     tenant_id, _user_id = principal(request)
     task_id = str(uuid.uuid4())
+    from agentic_graphrag.app.knowledge_writes import prepare_upload
+
+    svc = prepare_upload(svc, task_id)
     saved = await save_uploads(svc, files or [], tenant_id=tenant_id, task_id=task_id)
     row = task_row(task_id, tenant_id, saved)
     if svc.ingest_tasks is not None:
         row = svc.ingest_tasks.create(tenant_id, saved, task_id=task_id).to_dict()
+    row["kb_id"] = svc.knowledge_base.kb_id if svc.knowledge_base else "default"
     remember_task(task_id, row)
     review_docs = [r for r in saved if r.get("status") != "duplicate" and not r.get("error")]
     if svc.review_queue is not None and review_docs:
@@ -98,6 +104,8 @@ def get_ingest_task(task_id: str, request: Request) -> JsonObject:
     svc = service(request)
     persisted = svc.ingest_tasks.get(task_id, tenant_id=tenant_id) if svc.ingest_tasks else None
     task = persisted.to_dict() if persisted is not None else get_cached_task(task_id)
+    if task is not None and task_kb(task) != request.query_params.get("kb_id", "default"):
+        task = None
     if task is None:
         raise ApiError(INVALID_INPUT, f"Unknown task: {task_id}", status_code=404)
     if not tenant_matches(task.get("tenant_id"), tenant_id):
@@ -162,7 +170,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
     svc = service(request)
     if svc.review_queue is None:
         raise ApiError("SERVICE_UNAVAILABLE", "Review queue not configured", status_code=503)
-    tenant_id, _user_id = principal(request)
+    tenant_id, actor = principal(request)
     try:
         dec = ReviewDecision(body.decision.lower())
     except ValueError as exc:
@@ -172,7 +180,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
         item = ReviewApp(svc).decide(
             item_id,
             dec,
-            reviewer=body.reviewer,
+            reviewer=actor,
             note=body.note,
             tenant_id=tenant_id,
         )
@@ -191,7 +199,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
             "action": "review_decision",
             "target": item_id,
             "outcome": dec.value,
-            "reviewer": body.reviewer,
+            "reviewer": actor,
             "effect": item.execution.get("effect", "none"),
         },
     )
@@ -206,10 +214,12 @@ def get_audit_query(query_id: str, request: Request) -> JsonObject:
         raise ApiError("SERVICE_UNAVAILABLE", "Audit store not configured", status_code=503)
     tenant_id, _user_id = principal(request)
     row = svc.audit_store.get_for_tenant(query_id, tenant_id)
-    if row is None:
+    if row is None or (row.get("metadata") or {}).get(
+        "kb_id", "default"
+    ) != request.query_params.get("kb_id", "default"):
         # 404 for both missing and cross-tenant (no existence leak).
         raise ApiError(INVALID_INPUT, f"Unknown query_id: {query_id}", status_code=404)
-    return ok(row)
+    return ok(visible_query_audit(svc, row))
 
 
 @router.post("/feedback")
@@ -218,7 +228,12 @@ def post_feedback(body: FeedbackBody, request: Request) -> JsonObject:
     svc = service(request)
     tenant_id, user_id = principal(request)
     audit = svc.audit_store
-    if audit is not None and audit.get_for_tenant(body.query_id, tenant_id) is None:
+    row = audit.get_for_tenant(body.query_id, tenant_id) if audit else None
+    if audit is not None and (
+        row is None
+        or (row.get("metadata") or {}).get("kb_id", "default")
+        != request.query_params.get("kb_id", "default")
+    ):
         # 404 whether the id belongs to another tenant or does not exist at all.
         # Answering 404 only for the cross-tenant case made this an existence
         # probe (docs/design/BUSINESS_LOGIC.md BL-09).

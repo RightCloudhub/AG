@@ -29,6 +29,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+contracts = ["mcp>=1.26,<2"]
+summary = ["igraph==0.11.8", "leidenalg==0.10.2"]
 rerank-local = ["sentence-transformers>=3.4,<6"]
 webapp = [
     "SQLAlchemy>=2.0.36,<3",
@@ -81,7 +83,7 @@ packages = ["src/agentic_graphrag"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "sdk/python/src", "integrations/mcp/src"]
 
 [tool.ruff]
 line-length = 100

@@ -26,14 +26,38 @@ def build_llm_provider(
     cache_dir: str | Path | None = None,
     settings: Settings | None = None,
     cfg: AppConfig | None = None,
+    tenant_id: str = "default",
+    kb_id: str = "default",
 ) -> LLMProvider:
     """Construct ``LLMProvider`` with chat vs embedding endpoint split."""
-    from agentic_graphrag.llm.circuit import shared_breakers
-    from agentic_graphrag.llm.provider import LLMProvider
-    from agentic_graphrag.llm.verifier import warn_same_model
-
     s = settings or get_settings()
     c = cfg or get_config()
+    if c.models.roles:
+        from agentic_graphrag.llm.role_factory import build_role_provider
+
+        return build_role_provider(
+            cfg=c,
+            settings=s,
+            tenant_id=tenant_id,
+            kb_id=kb_id,
+            budget=budget,
+            cache_dir=cache_dir,
+        )
+    return _legacy_provider(c, s, budget=budget, cache_dir=cache_dir)
+
+
+def _legacy_provider(
+    c: AppConfig,
+    s: Settings,
+    *,
+    budget: BudgetTracker | None,
+    cache_dir: str | Path | None,
+) -> LLMProvider:
+    from agentic_graphrag.llm.circuit import shared_breakers
+    from agentic_graphrag.llm.provider import LLMProvider
+    from agentic_graphrag.llm.provider_options import ProviderOptions
+    from agentic_graphrag.llm.verifier import warn_same_model
+
     register = c.guardrails.requirement_register
     if register.enabled and register.verifier_enabled:
         warn_same_model(c.llm.strong_model, register.verifier.model or c.llm.light_model)
@@ -57,4 +81,9 @@ def build_llm_provider(
         ),
         fallback_to_light=c.llm.resilience.fallback_to_light,
         roles=c.roles,
+        options=ProviderOptions(
+            auth_required=s.llm_auth_required,
+            embedding_auth_required=s.llm_auth_required,
+            cache_namespace=c.models.scope_key,
+        ),
     )

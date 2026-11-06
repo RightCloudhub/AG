@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class IndexingConfig(BaseModel):
+    max_llm_calls: int = Field(default=10000, ge=1)
+    max_tokens: int = Field(default=50000000, ge=1000)
     embedding_batch_size: int = Field(default=32, ge=1)
     embedding_max_attempts: int = Field(default=4, ge=1)
     retry_base_seconds: float = Field(default=0.5, ge=0)

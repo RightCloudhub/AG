@@ -3,14 +3,14 @@
 > 描述**当前代码已实现**的模块边界与运行路径，每个模块配一张架构图。目标设计见 [`design/ARCHITECTURE_DESIGN.md`](./design/ARCHITECTURE_DESIGN.md)，业务规则见 [`design/BUSINESS_LOGIC.md`](./design/BUSINESS_LOGIC.md)。
 
 - [0. 总览](#0-总览)
-- [1. 接入层 api / cli / web](#1-接入层-api--cli--web)
+- [1. 驱动层与应用层 api / cli / app](#1-驱动层与应用层-api--cli--app)
 - [2. Agent 编排 agent](#2-agent-编排-agent)
 - [3. 检索 retrieval](#3-检索-retrieval)
 - [4. 知识图谱 knowledge](#4-知识图谱-knowledge)
 - [5. 存储 stores](#5-存储-stores)
 - [6. LLM 网关 llm](#6-llm-网关-llm)
 - [7. 答案生成 generation](#7-答案生成-generation)
-- [8. 可观测与治理 observability](#8-可观测与治理-observability)
+- [8. 治理与可观测](#8-治理-governance-与可观测-observability)
 - [9. 评测 eval](#9-评测-eval)
 - [10. 查询全链路时序](#10-查询全链路时序)
 - [11. 配置与运行模式](#11-配置与运行模式)
@@ -20,6 +20,10 @@
 ## 0. 总览
 
 > 本文已同步架构重构（分支 `refactor/arch-v2`）。重构计划与逐项状态见 [`design/REFACTOR_PLAN.md`](./design/REFACTOR_PLAN.md)。
+
+2026-11-04 扩展在该分层内增加知识库/快照、双模构建、七角色模型、摘要/Global 和
+独立 SDK/MCP。新业务契约与部署边界见 [GRAPH_PLATFORM](ops/GRAPH_PLATFORM.md)，
+工程证据与真实环境待验收项见 [交付记录](reviews/GRAPH_PLATFORM_EXTENSION.md)。
 
 ```mermaid
 flowchart TD
@@ -109,11 +113,13 @@ flowchart LR
 ```
 
 - **鉴权与租户**：`auth.py` 解析 `AGR_API_KEYS=tenant:key:role`，`rbac.py` 提供 admin / operator / reader 三角色路由守卫。
-- **QueryApp**（`app/query_service.py` + `query_run.py` / `query_stream.py`）：查答案缓存 → 预留预算 → `QueryPipeline` → 落审计 → 结算预算 → 指标。`run_query()` 返回 API 视图，`run_query_chain()` 走同一条生产路径但返回完整 `ReasoningChain`（供 eval / CLI 使用）。
+- **QueryApp**（`app/query_service.py` + `query_run.py` / `query_stream.py`）：固定知识库/文档选择与快照 → 查答案缓存 → 预留预算 → 局部或 Global pipeline → 原文/审计持久化 → 结算预算 → 指标。`run_query()` 返回 API 视图，`run_query_chain()` 走同一条生产路径但返回完整 `ReasoningChain`（供 eval / CLI 使用）。
 - **ReviewApp**：`POST /v1/review-queue/{id}/decision` 只做鉴权与参数校验，记录决策和执行决策都在 `ReviewApp.decide()` 中完成。
 - **上传**：`POST /v1/docs` 创建任务（UTF-8 md/txt，≤5 MiB/文件，≤20/批）；worker（`AGR_INGEST_INLINE=1` 时在 API 进程内运行，`IngestApp` 装配）完成分块索引并抽取三元组入图，冲突进入复核队列（见 §4.4）。
 - **web/**：Vue 3 ESM 零构建工作台（「推理笔记本」壳：顶栏 + 笔记本栏 + 问题页 + 检查器；管理视图在 `js/admin/*`；文案集中 `i18n.js`），`api.js` 调用上述接口。独立多租户应用由 `web/application.html` + `js/product/*` 提供（登录注册、工作空间、设置）。
 - **webapp/**（可选，ADR-007）：`agr-webapp` 启动独立身份库（SQLAlchemy/Alembic）+ Cookie 会话 + 租户/成员/邀请/服务密钥路由，业务端点复用 `api/routes/`；核心 `agr-api`、CLI 与离线评测不导入该包（见 `docs/ops/WEBAPP.md`）。
+- **SDK/MCP**：`sdk/python` 独立封装 HTTP/SSE；`integrations/mcp` 通过官方 MCP stdio
+  调用 SDK，不导入服务端或存储。五个只读工具提供知识库列表、检索、查询、原文和审计。
 
 ---
 
@@ -149,7 +155,14 @@ flowchart TD
     U -->|clear / budget / blocked / rejected / timeout| W[Writer：引用、partial / abstain]
 ```
 
-Fast 升级到 Deep 时，已检索证据作为初始 `evidence` 进入状态（`metadata.inherited_evidence` 记录条数）；原 DAG 的首次 executor 仍会用共享记忆替换它，这项限制由 V3-07 跟进。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
+`agent/pipeline.py` 是局部查询的统一执行实现：`iter_query_progress()` 逐步产出事件，终止事件固定为 `(__final_chain__, chain)`。SSE 消费事件；非流式的 `loop.run_query()` / `run_agentic_query()` 将同一迭代器消费到结束（`run_pipeline` / `drain`）。Fast 升级到 Deep 时，Fast 已检索到的证据作为初始 `evidence` 进入 Agent 状态（`metadata.inherited_evidence` 记录条数）。`agent/loop_stream.py` 保留为 `pipeline` 的别名。
+
+应用层先按 `strategy=auto|local|global` 和概括意图选择路径。Global 使用
+`agent/global_query.py` 的文档/社区 map、reduce 及 `generation/global_verifier.py`
+原文验证，记录处理范围、分母和 partial；不把局部检索 top-k 作为全库覆盖。
+两条路径共享预算、终态持久化、取证与取消结算。
+
+原 DAG 的首次 executor 仍会用共享记忆替换继承证据，这项限制由 V3-07 跟进。
 
 `configs/default.yaml` 的 `roles.triage / researcher / verifier / writer` 支持独立模型和输入 / 输出每百万 token 的美元价格；未指定模型时分别继承 light / strong / light / strong。客户端经 `for_role()` 与 `for_budget()` 复制。各分支保留局部额度，但通过 `BudgetTracker.parent` 在调用时同步预留/结算到同一根预算；ledger 负责归因，不能在完成时覆盖根计数。角色选择沿用进程共享熔断作用域。multi 要求 researcher 与 verifier 模型不同；价格未配置或 embedding 费用无法归属时 `cost_usd=null`。
 
@@ -300,7 +313,7 @@ flowchart LR
     IDX --> VS[("Vector / Fulltext")]
 ```
 
-### 4.3 增量冲突决策（`incremental_conflicts.py`，只在本租户范围内比较）
+### 4.3 增量冲突决策（`incremental_conflicts.py`，只在同一知识库内比较）
 
 ```mermaid
 flowchart TD
@@ -340,6 +353,22 @@ flowchart LR
 ### 4.5 时间维度（`knowledge/temporal.py`）
 
 关系可带 `valid_from` / `valid_to`（ISO 年 / 年-月 / 日期）。同一条边重复出现时较新日期优先；单值关系出现新值且双方都带日期时，按时间裁决（`SUCCEED` / `HISTORICAL`），旧事实写入 `valid_to` 而非删除。检索时已结束的事实降权（问题含「以前 / 曾 / previously」时不降），证据文本标注区间，如 `[2010–2016]`。
+
+### 4.6 双模式、版本发布与摘要
+
+`KnowledgeScope(tenant_id, kb_id)` 贯穿写入和读取，省略 `kb_id` 时兼容默认库。
+Schema 模式可用 `review_policy=required` 将候选事实留在待审区；开放模式通过
+`knowledge/open_*` 抽取自由关系、描述/别名与来源，实体语义索引按模型空间分离，
+规划和工具选择不回退公司领域规则。
+
+`GenerationPipeline` 先构建完整影子快照，再按配置 revision CAS 发布。
+SQLite 持久化写入意图、GraphChangeSet、快照载荷及删除标记；读取从载荷恢复独立索引，
+旧任务不能覆盖新 generation，删除优先于回滚。当前为单主机协调，大库容量待验收。
+
+`app/summary_*` 排队并执行文档/社区摘要，ingest worker 消费带租约的摘要任务。
+Leiden 通过社区端口接入；变更集决定复用或扩大重算范围，摘要就绪不等于原文索引就绪。
+SchemaDraft 的统计/映射经人工审核后影子升级；Agent 建议和真实留出集校准独立保存，
+自动处理默认关闭。操作步骤见 [运行手册](ops/GRAPH_PLATFORM.md)。
 
 ---
 
@@ -417,7 +446,12 @@ flowchart LR
     PR --> MOCK["MockLLMProvider<br/>离线默认"]
 ```
 
-chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存；每个查询只有一个受计量的客户端（`build_query_deps`），工具规划和查询 embedding 也走它。熔断器按路由拆分（V2 O-8，`llm.resilience`），并按端点进程级共享（`shared_breakers`），Provider 虽按查询构建，熔断状态不随查询丢失：半开只放一个探测，400/413/422 属请求自身问题不计失败，状态见 `/healthz` 的 `llm_circuit`。embedding 故障不再连带 chat，STRONG 熔断时若开启 `fallback_to_light`，会改用 LIGHT 模型完成调用，并记入 `degraded_channels` 与 `metadata.degraded_from`。`BudgetTracker` 线程安全，HTTP 调用前预留额度、成功后结算；embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。每次调用按 `LLMRole` 记账，写入 `metadata.llm_by_role`。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
+chat、embedding 和 NLI（蕴含判定）都经过 `LLMProvider`，共享磁盘缓存；每个查询只有一个受计量的客户端（`query_dependencies`，兼容入口 `build_query_deps`），工具规划和查询 embedding 也走它。熔断器按路由拆分（V2 O-8，`llm.resilience`），并按端点进程级共享（`shared_breakers`），Provider 虽按查询构建，熔断状态不随查询丢失：半开只放一个探测，400/413/422 属请求自身问题不计失败，状态见 `/healthz` 的 `llm_circuit`。embedding 故障不再连带 chat，STRONG 熔断时若开启 `fallback_to_light`，会改用 LIGHT 模型完成调用，并记入 `degraded_channels` 与 `metadata.degraded_from`。`BudgetTracker` 线程安全，HTTP 调用前预留额度、成功后结算；embedding 单独计为 `embed_calls`（并计 token），不占用限制推理跳数的 chat 调用额度。每次调用按 `LLMRole` 记账，写入 `metadata.llm_by_role`。所有 Prompt（含蕴含判定）都在 `configs/prompts/`，每次加载都会按内容哈希登记版本，最终写入 `chain.metadata.prompt_versions`。
+
+`llm/role_*` 在兼容 strong/light 接口外提供 triage、researcher、verifier、writer、
+extractor、embedding、rerank 七角色。部署目录声明模型能力与鉴权；管理员保存草稿、探测、
+发布/回滚，知识库固定已发布 revision。缓存键含作用域、端点、模型及配置版本，embedding
+空间变化通过新方案和影子重建发布，见 [MODEL_PROFILES](ops/MODEL_PROFILES.md)。
 
 ---
 
@@ -472,6 +506,11 @@ flowchart LR
 ```
 
 `governance/` 只放策略（预算、审计、脱敏、保留期），`observability/` 只放遥测数据。`agr_queries_total` 单调增长，百分位取最近 5000 条，跨副本聚合用 `agr_query_latency_ms` 分路由直方图。`AGR_REDACTION_ENABLED=1` 时日志和审计链落盘前脱敏，定位键（`query_id`、`metadata.tenant_id` 等）保留；trace 不含问题原文，只记 `question_chars`。旧路径 `llm.budget`、`llm.budget_policy`、`generation.audit_store`、`observability.audit_events`、`observability.redaction`、`retention` 保留为别名。
+
+`source_store.py` 保存不可变原文取证及独立检索审计。`app/query_persistence.py` 在响应前
+返回持久化回执，`audit_required` 失败即拒绝正常结果；原文与审计回读检查作用域及删除。
+SSE 使用 bounded thread/async bridge、心跳、唯一终态和取消结算，没有持久化重放。
+`chain.cost.latency_ms` 在持久化前结束，完整响应性能须另测服务调用和 HTTP 边界。
 
 ### 8.1 领域事件（读写解耦）
 
@@ -546,11 +585,14 @@ sequenceDiagram
 
 | Profile | 图 | 向量 | LLM | 缓存 | seed 图 | 用途 |
 |---|---|---|---|---|---|---|
-| `offline`（默认） | 内存 | 内存 | Mock；`AGR_ALLOW_LLM=1`+key 时为真实 LLM | 开 | 加载 | 本地 / CI |
+| `offline`（默认） | 内存 | 内存 | Mock；显式启用后可用真实模型 | 开 | 加载 | 本地 / CI |
 | `live` | Neo4j | Qdrant | 同上 | 开 | 不加载 | 生产 |
 | `hybrid` | Neo4j | 内存 | 同上 | 开 | 不加载 | 显式声明的混合部署 |
 | `eval` | 内存 | 内存 | Mock 或真实 LLM（磁盘缓存回放） | 关 | 加载 | 评测 |
 
 解析顺序：`AGR_PROFILE` → 兼容旧开关（`AGR_USE_LIVE_STORES=1` 等价于 `live`）→ `offline`。实现见 `bootstrap/profile.py`（`CAPABILITY_MATRIX`、`resolve_runtime_profile`）和 `bootstrap/stores.py`（`build_stores`）。API（`build_default_service`）和 ingest worker 都经过它。
+
+真实业务调用要求 `AGR_ALLOW_LLM=1`。传统配置默认要求 `LLM_API_KEY`，无鉴权本地服务
+显式设置 `LLM_AUTH_REQUIRED=false`；七角色目录按 provider 声明校验所需密钥。
 
 应用参数在 `configs/default.yaml`，由 `config.py` / `config_enterprise.py` 解析；密钥与端点走 `.env`。部署与变量清单见 [`ops/RUNBOOK.md`](./ops/RUNBOOK.md)，Neo4j 外部运行时见 [`ops/EXTERNAL_RUNTIMES.md`](./ops/EXTERNAL_RUNTIMES.md)。

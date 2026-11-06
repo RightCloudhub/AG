@@ -23,8 +23,10 @@ from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER
 from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName, RetrievalChannel
 from agentic_graphrag.core.evidence import Candidate
 from agentic_graphrag.core.json_types import JsonObject
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import EntailmentPolicy, LLMClient
 from agentic_graphrag.core.reasoning import Claim
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.observability.degradation import REASON_LLM_UNAVAILABLE, record_degradation
 
 NOT_ENTAILED = "claim not entailed by cited evidence"
@@ -97,7 +99,7 @@ def _ask(claims: list[Claim], evidence: list[Candidate], llm: LLMClient) -> Verd
         Message(role=MessageRole.USER, content="\n\n".join(blocks)),
     ]
     return complete_structured(
-        llm,
+        for_role(llm, ModelRole.VERIFIER),
         messages,
         VerdictPayload,
         tier=Tier.LIGHT,

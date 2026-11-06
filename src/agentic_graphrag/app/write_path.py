@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import replace
 
 from agentic_graphrag.app.query_service import QueryService
 from agentic_graphrag.core.events import (
@@ -24,7 +25,9 @@ from agentic_graphrag.core.events import (
     InProcessEventBus,
 )
 from agentic_graphrag.core.ports.capabilities import EntityLister
-from agentic_graphrag.knowledge.graph_ingest import GraphIngestDeps, GraphIngestor
+from agentic_graphrag.core.ports.llm import LLMClient
+from agentic_graphrag.governance.budget import BudgetTracker
+from agentic_graphrag.knowledge.graph_ingest import GraphIngestor
 from agentic_graphrag.knowledge.ingest_worker import IngestWorker
 from agentic_graphrag.knowledge.review.executor import ReviewExecutor, ReviewExecutorDeps
 from agentic_graphrag.knowledge.worker_wiring import batch_embedder, worker_config
@@ -102,6 +105,10 @@ def drop_caches(svc: QueryService, event: DomainEvent, exc: BaseException) -> No
 
 def attach_write_path(svc: QueryService) -> None:
     """Give the service a review executor bound to its graph, queue and tasks."""
+    from agentic_graphrag.app.graph_wiring import entity_index_for, entity_space, schema_for_service
+    from agentic_graphrag.app.knowledge_writes import publish_task
+
+    opened = bool(svc.knowledge_base and svc.knowledge_base.build_mode == "open")
     svc.review_executor = ReviewExecutor(
         ReviewExecutorDeps(
             graph=svc.bundle.graph,
@@ -109,6 +116,12 @@ def attach_write_path(svc: QueryService) -> None:
             task_store=svc.ingest_tasks,
             events=events_for(svc),
             docs=svc.bundle.docs,
+            schema=schema_for_service(svc),
+            entity_index=entity_index_for(svc) if opened else None,
+            embedding_space=entity_space(svc) if opened else "",
+            before_done=(lambda task_id: publish_task(svc, task_id))
+            if svc.knowledge_base
+            else None,
         )
     )
 
@@ -126,35 +139,50 @@ def review_executor_for(svc: QueryService) -> ReviewExecutor | None:
     return executor
 
 
-def build_graph_ingestor(svc: QueryService) -> GraphIngestor:
-    llm = None
-    if svc.allow_llm:
-        from agentic_graphrag.governance.budget import BudgetTracker
+def build_graph_ingestor(svc: QueryService, *, llm: LLMClient | None = None) -> GraphIngestor:
+    from agentic_graphrag.app.graph_wiring import graph_ingestor
 
-        llm = svc._build_llm(BudgetTracker(max_llm_calls=10_000, max_tokens=50_000_000))
-    return GraphIngestor(
-        GraphIngestDeps(
-            graph=svc.bundle.graph,
-            review_queue=svc.review_queue,
-            llm=llm,
-            events=events_for(svc),
-        )
-    )
+    return graph_ingestor(svc, llm=llm)
 
 
-def build_inline_worker(svc: QueryService) -> IngestWorker:
+def build_inline_worker(
+    svc: QueryService, *, route_tasks: bool = True, worker_id: str | None = None
+) -> IngestWorker:
     """Ingest worker sharing the API's stores (docs, vectors, BM25, graph)."""
     config = worker_config(svc.cfg, live=svc.allow_llm)
     config.poll_interval_seconds = float(os.environ.get("AGR_INGEST_POLL_SECONDS", "2"))
+    from agentic_graphrag.app.knowledge_writes import publish_task, run_scoped_task
+    from agentic_graphrag.app.summary_queue import process_summary_work
+
+    local = replace(svc, allow_llm=False) if route_tasks and svc.knowledge_base is None else svc
+    llm = (
+        local._build_llm(
+            BudgetTracker(
+                max_llm_calls=svc.cfg.indexing.max_llm_calls,
+                max_tokens=svc.cfg.indexing.max_tokens,
+            )
+        )
+        if local.allow_llm
+        else None
+    )
+
     return IngestWorker(
         doc_store=svc.bundle.docs,
         vector_store=svc.bundle.vector,
         fulltext_store=svc.bundle.fulltext,
         task_store=svc.ingest_tasks,
         config=config,
-        embed_many=batch_embedder(svc.cfg, svc.settings, live=svc.allow_llm),
+        embed_many=llm.embed_many if llm else batch_embedder(svc.cfg, svc.settings, live=False),
         on_commit=lambda: events_for(svc).publish(GraphCommitted(source="index")),
-        graph_ingestor=build_graph_ingestor(svc),
+        graph_ingestor=build_graph_ingestor(local, llm=llm),
+        before_done=(lambda task: publish_task(svc, task.id)) if svc.knowledge_base else None,
+        worker_id=worker_id,
+        task_runner=(lambda task, owner: run_scoped_task(svc, task, owner))
+        if route_tasks and svc.knowledge_base is None
+        else None,
+        background_work=(lambda: process_summary_work(svc))
+        if route_tasks and svc.knowledge_base is None
+        else None,
     )
 
 

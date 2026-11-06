@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from agentic_graphrag.llm.http_transport import ProviderHttpPool
 from agentic_graphrag.llm.responses import JSON_OBJECT
 
 # Connect must fail fast: SSL hang otherwise dominates Fast Path P95.
@@ -20,7 +21,10 @@ def post_json(
     base_url: str,
     api_key: str,
     timeout_seconds: float,
+    pool: ProviderHttpPool | None = None,
 ) -> dict[str, Any]:
+    if pool is not None:
+        return pool.post(path, payload, base_url=base_url, api_key=api_key, timeout=timeout_seconds)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     limit = float(timeout_seconds)
     connect = min(CONNECT_TIMEOUT_SECONDS, limit)

@@ -13,6 +13,8 @@ import { parseDegradedChannels } from '../responses.js';
 
 /** @type {string | null} */
 let storageKey = null;
+/** @type {string | null} */
+let ownerKey = null;
 const OWNED_PREFIX = 'agr_notebook_v2:';
 /** @returns {Conversation[]} */
 function load() {
@@ -56,12 +58,17 @@ export const activeConversationId = ref(null);
 
 /** Legacy data is loaded only by the core entry, never by the Cookie application. */
 export function initializeLegacyHistory() {
-  storageKey = StorageKey.CONVERSATIONS;
-  conversations.value = load();
+  ownerKey = StorageKey.CONVERSATIONS;
+  selectHistoryKnowledge('default');
 }
 /** @param {string | null} userId @param {string} [tenantId] */
 export function selectHistoryOwner(userId, tenantId = '') {
-  storageKey = userId ? `${OWNED_PREFIX}${encodeURIComponent(userId)}:${encodeURIComponent(tenantId)}` : null;
+  ownerKey = userId ? `${OWNED_PREFIX}${encodeURIComponent(userId)}:${encodeURIComponent(tenantId)}` : null;
+  selectHistoryKnowledge('default');
+}
+/** @param {string} kbId */
+export function selectHistoryKnowledge(kbId) {
+  storageKey = ownerKey && (kbId === 'default' ? ownerKey : `${ownerKey}:kb:${encodeURIComponent(kbId)}`);
   conversations.value = load();
   activeConversationId.value = null;
 }

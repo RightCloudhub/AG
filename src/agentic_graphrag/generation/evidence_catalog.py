@@ -33,4 +33,6 @@ def _catalog_entry(candidate: Candidate) -> dict[str, object]:
         "truncated": len(content) > EVIDENCE_CONTENT_CHARS,
         "source": source.value,
         "score": candidate.score,
+        "citations": [citation.model_dump(mode="json") for citation in candidate.citations],
+        "provenance": candidate.metadata.get("source_refs", []),
     }

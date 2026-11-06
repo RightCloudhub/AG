@@ -76,6 +76,7 @@ class ExecutorDeps:
 
 @dataclass
 class ExecutorConfig:
+    llm_only: bool = False
     """Runtime options for parallel retrieval and fusion."""
 
     parallel: bool = True
@@ -236,6 +237,7 @@ def _merge_config(
         cache=base.cache if cache is None else cache,
         reranker=base.reranker if reranker is None else reranker,
         candidate_pool=base.candidate_pool,
+        llm_only=base.llm_only,
     )
 
 

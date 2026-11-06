@@ -28,7 +28,9 @@ from agentic_graphrag.core.enums import (
     PromptName,
 )
 from agentic_graphrag.core.evidence import Candidate
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 
 _EVIDENCE_PROMPT_CAP = 20
@@ -237,7 +239,7 @@ def _llm_critique(ctx: CritiqueContext, llm: CompletionClient) -> CriticResult:
     )
     # LIGHT tier for critic: large latency win on live multi-hop (P95 path).
     raw = complete_structured(
-        llm,
+        for_role(llm, ModelRole.VERIFIER),
         [
             Message(role=MessageRole.SYSTEM, content=system),
             Message(role=MessageRole.USER, content=user),

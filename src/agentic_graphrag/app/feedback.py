@@ -19,6 +19,13 @@ def submit_feedback(
     user_id: str = "",
     tenant_id: str = "default",
 ) -> dict[str, Any]:
+    if svc.audit_store is not None:
+        from agentic_graphrag.app.errors import INVALID_INPUT, ApiError
+
+        chain = svc.audit_store.get_for_tenant(query_id, tenant_id)
+        kb_id = svc.knowledge_base.kb_id if svc.knowledge_base else "default"
+        if chain is not None and (chain.get("metadata") or {}).get("kb_id", "default") != kb_id:
+            raise ApiError(INVALID_INPUT, "Unknown query", status_code=404)
     payload: dict[str, Any] = {
         "query_id": query_id,
         "accurate": accurate,

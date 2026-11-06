@@ -26,3 +26,12 @@ def principal(request: Request) -> tuple[str, str]:
     if p is None:
         return "default", "anonymous"
     return p.tenant_id, p.user_id
+
+
+def knowledge_service(request: Request) -> QueryService:
+    from agentic_graphrag.app.knowledge_scope import select_service
+
+    tenant_id, _ = principal(request)
+    return select_service(
+        service(request), tenant_id=tenant_id, kb_id=request.query_params.get("kb_id", "default")
+    )

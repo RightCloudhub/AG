@@ -323,6 +323,9 @@ def test_cached_answer_still_reports_its_degraded_channels() -> None:
             record_degradation(channel, "store_unavailable", None, severity="failed", health=health)
         assert health.failed_channels() == {"vector", "graph"}
         apply_degradation_policy(chain, health, _config_with(["vector", "graph"]))
+        from agentic_graphrag.app.query_persistence import persist_chain
+
+        persist_chain(svc, chain)
         payload = chain.model_dump(mode="json")
         svc.retrieval_cache.set_answer(
             QUESTION,

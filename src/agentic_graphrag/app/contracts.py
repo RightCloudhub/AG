@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agentic_graphrag.core.enums import CriticAction, QueryRoute, StepAction, ToolName
 from agentic_graphrag.core.reasoning import QueryStatus
@@ -20,6 +20,20 @@ class QueryRequest(BaseModel):
     max_hops: int | None = Field(default=None, ge=1, le=20)
     timeout_ms: int | None = Field(default=None, ge=100, le=600_000)
     force_agentic: bool = False
+    kb_id: str = Field(default="default", min_length=1, max_length=128, pattern=r"^[\w.-]+$")
+    doc_ids: list[str] | None = Field(default=None, max_length=10000)
+    strategy: Literal["auto", "local", "global"] = "auto"
+    audit_required: bool = False
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> QueryRequest:
+        if self.strategy == "global" and self.force_agentic:
+            raise ValueError("strategy=global conflicts with force_agentic")
+        if self.doc_ids is not None:
+            if not self.doc_ids or any(not value.strip() for value in self.doc_ids):
+                raise ValueError("doc_ids must contain nonempty document IDs")
+            self.doc_ids = list(dict.fromkeys(self.doc_ids))
+        return self
 
     @field_validator("question", mode="before")
     @classmethod
@@ -81,6 +95,8 @@ class EvidenceOut(BaseModel):
     content: str = ""
     source: str = ""
     score: float = 0.0
+    evidence_id: str | None = None
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DegradedChannelOut(BaseModel):
@@ -114,3 +130,4 @@ class QueryResultData(BaseModel):
     # True when the configured channels all failed: the answer is the best
     # available guess, not a retrieved result (see app.degradation_policy).
     low_confidence: bool = False
+    audit_status: Literal["persisted", "failed", "disabled"] = "disabled"

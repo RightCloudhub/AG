@@ -7,6 +7,7 @@ import { fetchMetrics, fetchBudgetSnapshot, fetchAuditEvents, fetchHealth } from
 import { OpsTab, HealthStatus, AuditOutcome, UiPolicy } from '../contracts.js';
 import { text as T } from '../i18n.js';
 import { openNotebook } from '../store/shell.js';
+import ModelsPanel from './models.js';
 
 /** @param {number} ts */
 function fmtTime(ts) {
@@ -16,6 +17,7 @@ function fmtTime(ts) {
 
 export default {
   name: 'OpsView',
+  components: { ModelsPanel },
   setup() {
     /** @type {import('../../vendor/vue.esm-browser.prod.js').Ref<import('../contracts.js').OpsTabName>} */
     const activeTab = ref(OpsTab.METRICS);
@@ -88,9 +90,12 @@ export default {
       <button type="button" class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.METRICS }" @click="switchTab(OpsTab.METRICS)">{{ T.ops.metrics }}</button>
       <button type="button" class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.BUDGET }" @click="switchTab(OpsTab.BUDGET)">{{ T.ops.budget }}</button>
       <button type="button" class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.AUDIT }" @click="switchTab(OpsTab.AUDIT)">{{ T.ops.audit }}</button>
+      <button type="button" class="tab-bar__item" :class="{ 'tab-bar__item--active': activeTab === OpsTab.MODELS }" @click="switchTab(OpsTab.MODELS)">{{ T.ops.models }}</button>
     </div>
 
     <div v-if="loading" class="empty-state"><div class="spinner spinner--lg"></div></div>
+
+    <ModelsPanel v-else-if="activeTab === OpsTab.MODELS" />
 
     <template v-else-if="activeTab === OpsTab.METRICS">
       <div v-if="!metrics" class="empty-state empty-state--slot"><div class="empty-state__text">{{ T.ops.noMetrics }}</div></div>

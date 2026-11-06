@@ -134,6 +134,7 @@ def _iter_single_agentic(
         question=ctx.question,
         route=QueryRoute.AGENTIC,
         query_id=ctx.opts.query_id or str(uuid4()),
+        metadata={"llm_only": ctx.executor.config.llm_only},
     )
     tid = opts.thread_id or chain.query_id or str(uuid4())
     graph = build_graph(

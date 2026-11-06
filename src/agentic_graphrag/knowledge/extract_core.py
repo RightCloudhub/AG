@@ -10,6 +10,7 @@ from __future__ import annotations
 from agentic_graphrag.config import load_prompt
 from agentic_graphrag.core.constants import PROMPT_SYSTEM_HEADER, PROMPT_USER_HEADER
 from agentic_graphrag.core.enums import LLMRole, MessageRole, PromptName
+from agentic_graphrag.core.models import ModelRole
 from agentic_graphrag.core.ports.llm import LLMClient, Message, Tier
 from agentic_graphrag.core.ports.stores import ChunkRecord
 from agentic_graphrag.knowledge.schema_check import (
@@ -18,6 +19,7 @@ from agentic_graphrag.knowledge.schema_check import (
     Triple,
     gate_triples,
 )
+from agentic_graphrag.llm.roles import for_role
 from agentic_graphrag.llm.structured import complete_structured
 
 
@@ -72,7 +74,11 @@ def llm_extract_raw(chunk: ChunkRecord, schema: SchemaDefinition, llm: LLMClient
         Message(role=MessageRole.USER, content=user),
     ]
     return complete_structured(
-        llm, messages, ExtractResult, tier=Tier.STRONG, role=LLMRole.EXTRACTION
+        for_role(llm, ModelRole.EXTRACTOR),
+        messages,
+        ExtractResult,
+        tier=Tier.STRONG,
+        role=LLMRole.EXTRACTION,
     )
 
 

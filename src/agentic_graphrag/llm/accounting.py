@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from agentic_graphrag.governance.budget import BudgetTracker
-from agentic_graphrag.llm.responses import CompletionResponse, CompletionUsage
+from agentic_graphrag.llm.responses import CompletionResponse, CompletionUsage, completion_text
 
 
 def settle_completion(
@@ -26,7 +26,7 @@ def settle_completion(
         # cannot return that slot; invalid usage leaves its token count unknown.
         if budget:
             budget.settle_call(usage.prompt_tokens, usage.completion_tokens)
-    return response.choices[0].message.content, usage.model_dump()
+    return completion_text(response), usage.model_dump()
 
 
 def settle_embedding(data: dict[str, Any], budget: BudgetTracker | None) -> None:

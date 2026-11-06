@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 
 from agentic_graphrag.core.enums import LLMRole
 from agentic_graphrag.core.reasoning import ReasoningChain
+from agentic_graphrag.governance.execution import check_execution
 
 LLM_BY_ROLE_KEY = "llm_by_role"
 DEGRADED_FROM_KEY = "degraded_from"
@@ -78,6 +79,7 @@ class BudgetTracker:
                 self.parent.check()
 
     def _check_limits(self) -> None:
+        check_execution()
         if self.llm_calls >= self.max_llm_calls:
             raise BudgetExceeded(
                 f"max_llm_calls reached ({self.llm_calls}/{self.max_llm_calls})",

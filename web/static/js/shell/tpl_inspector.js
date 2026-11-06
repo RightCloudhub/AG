@@ -44,6 +44,7 @@ export const INSPECTOR_TEMPLATE = `
               <button type="button" class="link-btn" :aria-expanded="!!inspExpanded[r.ev.id]" @click="inspToggleExpanded(r.ev.id)">
                 {{ inspExpanded[r.ev.id] ? T.inspector.collapse : T.inspector.expand }}<ag-icon name="chevronDown" :size="12"></ag-icon></button>
             </footer>
+            <component v-if="inspExpanded[r.ev.id] && r.ev.evidence_id" :is="EvidenceSource" :key="inspAnswer.query_id + r.ev.evidence_id" :evidence-id="r.ev.evidence_id" :kb-id="inspAnswer.kb_id || 'default'"></component>
           </article>
         </div>
       </template>

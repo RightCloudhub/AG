@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from agentic_graphrag.core.enums import LLMRole, MessageRole
 from agentic_graphrag.core.ports.llm import CompletionClient, Message, Tier
 from agentic_graphrag.governance.budget import BudgetTracker, role_scope
+from agentic_graphrag.llm.output_format import StructuredFormatClient
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 
@@ -53,6 +54,12 @@ def _parse_with_retries[T: BaseModel](
 ) -> T:
     budget = getattr(llm, "budget", None)
     history = list(messages)
+    response_format = (
+        llm.format_for_schema(model_type.model_json_schema())
+        if isinstance(llm, StructuredFormatClient)
+        else {"type": "json_object"}
+    )
+    options["response_format"] = response_format
     last_error: Exception | None = None
     for _attempt in range(max_retries + 1):
         raw = llm.complete(history, **options)
