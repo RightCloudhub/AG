@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
+from agentic_graphrag.core.enums import ReviewDecision
 from agentic_graphrag.core.knowledge import KnowledgeScope, SourceRef
 from agentic_graphrag.core.ports.capabilities import (
     EntityLookup,
@@ -17,6 +18,7 @@ from agentic_graphrag.core.ports.capabilities import (
 from agentic_graphrag.core.ports.entities import EntitySemanticIndex, SemanticEntity
 from agentic_graphrag.core.ports.stores import DocStore, EntityRecord, GraphStore, RelationRecord
 from agentic_graphrag.knowledge.review.queue import ReviewItem, ReviewQueue
+from agentic_graphrag.knowledge.review.selection import merge_selection
 
 SCAN_PAGE = 1000
 
@@ -30,10 +32,7 @@ class OpenMergeDeps:
 
 
 def apply_open_merge(item: ReviewItem, deps: OpenMergeDeps) -> dict[str, Any]:
-    if not item.payload.get("keep_id") or item.payload["keep_id"] not in item.payload.get(
-        "candidate_ids", []
-    ):
-        return {"applied": False, "effect": "ambiguous_selection_required"}
+    merge_selection(item, ReviewDecision.APPROVE)
     scope = KnowledgeScope(
         tenant_id=item.tenant_id or "default", kb_id=item.payload.get("kb_id", "default")
     )

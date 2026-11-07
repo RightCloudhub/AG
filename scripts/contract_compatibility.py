@@ -14,6 +14,8 @@ def breaking_changes(before: Any, after: Any, path: str = "$") -> list[str]:
         return [f"{path}: existing schema alternatives changed"]
     if type(before) is not type(after):
         return [f"{path}: schema value type changed"]
+    if isinstance(before, bool) and before != after:
+        return [f"{path}: published boolean schema or constraint changed"]
     return []
 
 

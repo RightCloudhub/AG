@@ -43,11 +43,13 @@ class QueryDedup:
             return [hit.model_copy(deep=True) for hit in existing.result()]
         try:
             hits = run()
-        except Exception as exc:
+            saved = [hit.model_copy(deep=True) for hit in hits]
+        except BaseException as exc:
+            # Cancellation must wake every waiter too, then propagate to the worker.
             # A failed tool remains retryable; a successful empty result is cached.
             with self._lock:
                 self._pending.pop(key, None)
             future.set_exception(exc)
             raise
-        future.set_result([hit.model_copy(deep=True) for hit in hits])
+        future.set_result(saved)
         return hits

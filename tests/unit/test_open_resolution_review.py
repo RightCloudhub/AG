@@ -100,3 +100,29 @@ def test_prepared_merge_recovers_after_index_write_failure(tmp_path, monkeypatch
     )
     assert len([e for e in graph.list_entities() if e.type == "人"]) == 1
     index.close()
+
+
+def test_ambiguous_approval_stays_pending_until_valid_target_is_selected(tmp_path):
+    _kb, graph, index, queue, item, _docs, _deps, executor = setup_review(tmp_path)
+    keep = item.payload["keep_id"]
+    item.payload["keep_id"] = None
+    for selection in (None, "not-a-candidate", item.payload["drop_id"]):
+        with pytest.raises(ValueError, match="candidate"):
+            queue.decide(item.id, "approve", tenant_id="t", keep_id=selection)
+        assert queue.get(item.id).status == "pending"
+        assert queue.get(item.id).execution == {}
+    approved = queue.decide(item.id, "approve", tenant_id="t", keep_id=keep)
+    assert executor.execute(approved)["applied"]
+    assert graph.get_entity_by_id(item.payload["drop_id"], tenant_id="t") is None
+    assert executor.execute(approved)["completed"]
+    index.close()
+
+
+def test_unresolved_legacy_approval_is_not_marked_completed(tmp_path):
+    _kb, _graph, index, _queue, item, _docs, _deps, executor = setup_review(tmp_path)
+    item.payload["keep_id"] = None
+    item.status = "approved"
+    with pytest.raises(ValueError, match="candidate"):
+        executor.execute(item)
+    assert not item.execution.get("completed")
+    index.close()

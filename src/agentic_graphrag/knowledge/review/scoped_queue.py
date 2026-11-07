@@ -90,6 +90,7 @@ class ScopedReviewQueue(ReviewQueue):
         reviewer: str = "",
         note: str = "",
         tenant_id: str | None = None,
+        keep_id: str | None = None,
     ) -> ReviewItem:
         return self._public(
             self.store.decide(
@@ -98,6 +99,7 @@ class ScopedReviewQueue(ReviewQueue):
                 reviewer=reviewer,
                 note=note,
                 tenant_id=self._tenant(tenant_id),
+                keep_id=keep_id,
             )
         )
 

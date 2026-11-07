@@ -257,6 +257,8 @@ PYTHONPATH=src python scripts/prune_data_files.py
 
 PII 脱敏：`AGR_REDACTION_ENABLED=1`（默认关）启用正则管道，挂在日志 formatter 与审计链
 落盘前；`AGR_REDACTION_PATTERNS` 选择模式（默认 `all`）。
+审计中的机器标识、来源哈希及版本字段保持原值，以便回查和删除重检；正文、引用摘录及
+段落说明仍脱敏。
 
 ## 监控与告警（P4-REL-03 / ENT-08）
 
@@ -374,6 +376,12 @@ reconcile 同时恢复失败的版本替换/删除意图。DELETE 返回 503 `De
 `execution.effect=stale_document`，不修改图。旧审核优先从任务记录读取版本；无版本时仅允许
 未替换的第一版文档。任务终态使用当前队列的 pending 数量；共享 JSONL 的 API/worker 会刷新
 其它进程的决策，已处理的审核不会令修复后的任务再次卡在 `review`。
+
+Open 实体消歧有多个候选时，批准请求需携带 `keep_id`，其值必须来自审核项的
+`payload.candidate_ids`，且不能等于 `drop_id`。例如向
+`POST /v1/review-queue/{id}/decision?kb_id={kb}` 提交
+`{"decision":"approve","keep_id":"候选实体 ID"}`。未选择或选择无效候选返回 422，审核项
+仍为 pending；有效目标与决策一同持久化，执行重试沿用该目标。
 
 模型升级：先验证新模型服务，再让维护进程使用目标 `llm.embedding_model` 运行 reindex；
 查询会读取当前 collection 的 embedding_model 来选择 encoder；alias 在 embedding 请求期间变化时重新编码，

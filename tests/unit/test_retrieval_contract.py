@@ -169,3 +169,32 @@ def test_review_identity_is_bound_to_authenticated_actor(api):
     )
     assert response.is_success, response.text
     assert response.json()["data"]["reviewer"] == user_id_for_api_key("alpha-key")
+
+
+def test_review_api_validates_and_persists_ambiguous_target_selection(api, monkeypatch):
+    client, svc = api
+    selected = select_service(svc, tenant_id="alpha", kb_id="one")
+    item = selected.review_queue.enqueue(
+        "resolution",
+        {"open_resolution": True, "keep_id": None, "drop_id": "new", "candidate_ids": ["a", "b"]},
+        tenant_id="alpha",
+    )
+    # Execution is exercised against actual graph/index stores in test_open_resolution_review.
+    monkeypatch.setattr(
+        "agentic_graphrag.app.review_app.ReviewApp._execute", lambda self, item: item
+    )
+    path = f"/v1/review-queue/{item.id}/decision?kb_id=one"
+    for body in ({"decision": "approve"}, {"decision": "approve", "keep_id": "foreign"}):
+        response = client.post(path, headers=A, json=body)
+        assert response.status_code == 422, response.text
+        assert selected.review_queue.get(item.id).status == "pending"
+    assert (
+        client.post(path, headers=B, json={"decision": "approve", "keep_id": "b"}).status_code
+        == 404
+    )
+    response = client.post(path, headers=A, json={"decision": "approve", "keep_id": "b"})
+    assert response.is_success, response.text
+    assert response.json()["data"]["payload"]["keep_id"] == "b"
+    from agentic_graphrag.knowledge.review.queue import ReviewQueue
+
+    assert ReviewQueue(selected.review_queue.path).get(item.id).payload["keep_id"] == "b"

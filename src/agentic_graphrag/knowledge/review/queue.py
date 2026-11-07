@@ -18,6 +18,7 @@ from agentic_graphrag.core.enums import ReviewDecision as ReviewDecision
 from agentic_graphrag.core.enums import ReviewStatus as ReviewStatus
 from agentic_graphrag.core.enums import ReviewType as ReviewType
 from agentic_graphrag.knowledge.review.filters import filter_items, tenant_allows
+from agentic_graphrag.knowledge.review.selection import merge_selection
 from agentic_graphrag.stores.file_lock import FileMutex
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,7 @@ class ReviewQueue:
         reviewer: str = "",
         note: str = "",
         tenant_id: str | None = None,
+        keep_id: str | None = None,
     ) -> ReviewItem:
         """Record a decision.
 
@@ -227,7 +229,11 @@ class ReviewQueue:
                 raise KeyError(item_id)
             if item.status != ReviewStatus.PENDING.value:
                 raise ReviewAlreadyDecided(item)
-            item.status = _DECISION_STATUS[ReviewDecision(decision)]
+            dec = ReviewDecision(decision)
+            selected = merge_selection(item, dec, keep_id=keep_id)
+            if selected is not None:
+                item.payload = {**item.payload, "keep_id": selected}
+            item.status = _DECISION_STATUS[dec]
             item.reviewer = reviewer
             item.decision_note = note
             item.decided_at = time.time()

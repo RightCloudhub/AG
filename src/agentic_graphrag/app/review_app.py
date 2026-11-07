@@ -34,6 +34,7 @@ class ReviewApp:
         reviewer: str = "",
         note: str = "",
         tenant_id: str | None = None,
+        keep_id: str | None = None,
     ) -> ReviewItem:
         """Record + execute. Raises ``KeyError`` / ``ReviewAlreadyDecided`` from the queue."""
         queue = self._svc.review_queue
@@ -41,7 +42,9 @@ class ReviewApp:
             raise ReviewQueueUnavailable("review queue not configured")
         dec = decision if isinstance(decision, ReviewDecision) else ReviewDecision(decision)
         with self._svc.bundle.docs.lock():
-            item = queue.decide(item_id, dec, reviewer=reviewer, note=note, tenant_id=tenant_id)
+            item = queue.decide(
+                item_id, dec, reviewer=reviewer, note=note, tenant_id=tenant_id, keep_id=keep_id
+            )
             return self._execute(item)
 
     def retry(self, item_id: str, *, tenant_id: str) -> ReviewItem:

@@ -43,7 +43,9 @@ class Researcher:
         if budget.max_tokens <= 0 or used >= task.tool_limit:
             return {"outcome": "token_budget" if budget.max_tokens <= 0 else "tool_budget"}
         self.cache.prime(state.get("query_cache", {}))
-        executor = branch_executor(self.executor, task, budget)
+        executor = branch_executor(
+            self.executor, task, budget, max_output_tokens=self.config.max_output_tokens
+        )
         hits, traces, cache = retrieve(
             executor,
             task,

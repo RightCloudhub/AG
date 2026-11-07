@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from agentic_graphrag.app.contracts import CostOut
+from agentic_graphrag.core.evidence import Citation
 from agentic_graphrag.core.knowledge import SourceRef
 from agentic_graphrag.core.knowledge_versions import KnowledgeSnapshot
 
@@ -23,6 +24,7 @@ class SearchCandidate(BaseModel):
     source: str
     score: float = 0.0
     source_refs: list[SourceRef] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
     source_status: str = "unavailable"
     candidate_id: str = ""
     audit_status: Literal["persisted", "failed"] | None = None

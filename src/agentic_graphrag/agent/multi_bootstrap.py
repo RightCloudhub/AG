@@ -32,7 +32,7 @@ def bootstrap(
     budget = BudgetTracker(
         max_llm_calls=task.call_limit, max_tokens=task.token_limit, parent=root_budget
     )
-    local = branch_executor(executor, task, budget)
+    local = branch_executor(executor, task, budget, max_output_tokens=config.max_output_tokens)
     hits, _ = (
         seed_search(
             local,

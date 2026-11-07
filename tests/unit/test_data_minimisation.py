@@ -142,6 +142,65 @@ def test_audit_store_keeps_text_when_disabled(redaction_off, tmp_path: Path) -> 
     assert row is not None and EMAIL in row["question"]
 
 
+def test_audit_lineage_remains_valid_while_nested_prose_is_redacted(redaction_on, tmp_path):
+    from agentic_graphrag.app.audit_reads import visible_query_audit
+    from agentic_graphrag.core.knowledge import KnowledgeScope, SourceRef
+
+    digest = "a" * 53 + "13912345678"
+    ref = SourceRef(
+        scope=KnowledgeScope(tenant_id=DIGIT_TENANT_ID, kb_id="kb-13912345678"),
+        doc_id="doc-13912345678",
+        chunk_id="chunk-13912345678",
+        doc_version=1,
+        content_sha256=digest,
+        paragraph=EMAIL,
+    ).model_dump(mode="json")
+    payload = {
+        **_audit_row(),
+        "claims": [{"text": EMAIL, "evidence_ids": ["ev_" + digest]}],
+        "metadata": {
+            "tenant_id": DIGIT_TENANT_ID,
+            "hits": [{"content": EMAIL}],
+            "evidence": [
+                {
+                    "id": "ev_" + digest,
+                    "evidence_id": "ev_" + digest,
+                    "content": EMAIL,
+                    "source_refs": [ref],
+                    "citations": [
+                        {
+                            **{
+                                k: ref[k]
+                                for k in ("doc_id", "chunk_id", "doc_version", "content_sha256")
+                            },
+                            "span": EMAIL,
+                        }
+                    ],
+                }
+            ],
+            "snapshot": {"payload_sha256": digest, "document_selection_fingerprint": digest},
+        },
+    }
+    store = AuditStore(tmp_path / "lineage.jsonl")
+    store.save(payload)
+    saved = AuditStore(store.path).get(DIGIT_QUERY_ID)
+    evidence = saved["metadata"]["evidence"][0]
+    assert SourceRef.model_validate(evidence["source_refs"][0]).content_sha256 == digest
+    assert evidence["source_refs"][0] == {**ref, "paragraph": PLACEHOLDER_EMAIL}
+    assert evidence["id"] == evidence["evidence_id"] == "ev_" + digest
+    assert evidence["citations"][0]["doc_id"] == ref["doc_id"]
+    assert saved["claims"][0]["evidence_ids"] == ["ev_" + digest]
+    assert saved["metadata"]["snapshot"] == payload["metadata"]["snapshot"]
+    assert EMAIL not in json.dumps(saved)
+    assert payload["metadata"]["evidence"][0]["content"] == EMAIL
+    from types import SimpleNamespace
+
+    from agentic_graphrag.core.knowledge import KnowledgeBase
+
+    svc = SimpleNamespace(knowledge_base=KnowledgeBase(**ref["scope"]), knowledge_store=None)
+    assert visible_query_audit(svc, saved) == saved
+
+
 @pytest.fixture
 def service() -> Iterator[QueryService]:
     svc = QueryService.create_offline()

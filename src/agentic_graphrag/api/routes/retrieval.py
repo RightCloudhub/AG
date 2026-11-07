@@ -9,10 +9,9 @@ from agentic_graphrag.app.evidence_sources import (
     catalog_visible,
     query_scope,
     source_store,
-    source_visible,
 )
 from agentic_graphrag.app.search_contracts import EvidenceResult, SearchRequest, SearchResult
-from agentic_graphrag.app.search_service import search
+from agentic_graphrag.app.search_service import search, withdraw_deleted_sources
 from agentic_graphrag.core.json_types import JsonObject
 from agentic_graphrag.core.knowledge import SourceRef
 
@@ -69,8 +68,5 @@ def get_search_audit(search_id: str, request: Request) -> JsonObject:
     if row is None:
         raise ApiError(INVALID_INPUT, "Unknown search audit", status_code=404)
     result = SearchResult.model_validate(row)
-    for candidate in result.candidates:
-        if not all(source_visible(svc, ref) for ref in candidate.source_refs):
-            candidate.content = ""
-            candidate.source_status = "deleted"
+    withdraw_deleted_sources(svc, result)
     return ok(result.model_dump(mode="json"))

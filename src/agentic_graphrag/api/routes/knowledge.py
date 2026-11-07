@@ -28,6 +28,7 @@ from agentic_graphrag.knowledge.review.queue import (
     ReviewDecision,
     ReviewType,
 )
+from agentic_graphrag.knowledge.review.selection import InvalidReviewSelection
 
 router = APIRouter(prefix="/v1", tags=["knowledge"])
 
@@ -48,6 +49,12 @@ class ReviewDecisionBody(BaseModel):
     decision: str = Field(..., description="approve|reject|skip")
     reviewer: str = ""
     note: str = ""
+    keep_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=512,
+        description="Candidate entity ID to retain when approving an ambiguous open merge",
+    )
 
 
 class FeedbackBody(BaseModel):
@@ -183,6 +190,7 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
             reviewer=actor,
             note=body.note,
             tenant_id=tenant_id,
+            keep_id=body.keep_id,
         )
     except KeyError as exc:
         # Same 404 for unknown and cross-tenant ids — no existence probe (BL-09).
@@ -193,6 +201,8 @@ def decide_review(item_id: str, body: ReviewDecisionBody, request: Request) -> J
             f"Review item already decided: {exc.item.status}",
             status_code=409,
         ) from exc
+    except InvalidReviewSelection as exc:
+        raise ApiError(INVALID_INPUT, str(exc), status_code=422) from exc
     emit_audit(
         request,
         {

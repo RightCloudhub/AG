@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
 from test_retrieval_contract import A
 from test_retrieval_contract import api as api
 
@@ -74,3 +75,22 @@ def test_compatibility_gate_handles_openapi_required_boolean():
         {"properties": {"required": {"type": "boolean"}}},
         {"properties": {"required": {"type": "string"}}},
     )
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        (True, False),
+        ({"additionalProperties": True}, {"additionalProperties": False}),
+        ({"items": True}, {"items": False}),
+        ({"properties": {"allowed": True}}, {"properties": {"allowed": False}}),
+        ({"uniqueItems": False}, {"uniqueItems": True}),
+    ],
+)
+def test_compatibility_gate_rejects_changed_boolean_constraints(before, after):
+    path = Path(__file__).parents[2] / "scripts" / "contract_compatibility.py"
+    spec = importlib.util.spec_from_file_location("contract_compatibility", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.breaking_changes(before, after)
+    assert not module.breaking_changes(before, before)

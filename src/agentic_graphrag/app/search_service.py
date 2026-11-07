@@ -11,10 +11,10 @@ from agentic_graphrag.agent.executor_dispatch import run_tool_specs
 from agentic_graphrag.app.contracts import CostOut
 from agentic_graphrag.app.errors import ApiError
 from agentic_graphrag.app.evidence_sources import (
+    catalog_visible,
     publish_evidence_batch,
     query_scope,
     source_store,
-    source_visible,
 )
 from agentic_graphrag.app.knowledge_scope import needs_llm_planning, select_service
 from agentic_graphrag.app.query_run import (
@@ -82,10 +82,7 @@ def search(svc: QueryService, req: SearchRequest, *, tenant_id: str, user_id: st
 def _finalize_search(
     svc: QueryService, result: SearchResult, *, audit_required: bool
 ) -> SearchResult:
-    for candidate in result.candidates:
-        if not all(source_visible(svc, ref) for ref in candidate.source_refs):
-            candidate.content = ""
-            candidate.source_status = "deleted"
+    withdraw_deleted_sources(svc, result)
     _persist_search(svc, result)
     if audit_required and result.audit_status != "persisted":
         raise ApiError(
@@ -95,6 +92,19 @@ def _finalize_search(
             details={"search_id": result.search_id},
         )
     return result
+
+
+def withdraw_deleted_sources(svc: QueryService, result: SearchResult) -> None:
+    """Recheck original identities, including audits written before citations were retained."""
+    for candidate in result.candidates:
+        catalog = [candidate.model_dump(mode="json")]
+        if "citations" not in candidate.model_fields_set:
+            archived = source_store(svc).get(query_scope(svc), candidate.id, kind="evidence")
+            if archived is not None:
+                catalog.append(archived)
+        if not catalog_visible(svc, catalog, current=False):
+            candidate.content = ""
+            candidate.source_status = "deleted"
 
 
 def _persist_search(svc: QueryService, result: SearchResult) -> None:
@@ -166,6 +176,7 @@ def _candidate(candidate: Candidate, row: dict[str, Any]) -> SearchCandidate:
         source=candidate.source.value,
         score=candidate.score,
         source_refs=row["source_refs"],
+        citations=[citation.model_copy(update={"span": None}) for citation in candidate.citations],
         source_status=row["source_status"],
         audit_status=row["source_audit_status"],
     )

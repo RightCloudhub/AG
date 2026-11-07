@@ -19,9 +19,13 @@ class EvidenceScopeError(ValueError):
     """A storage scope violation must never become an empty successful result."""
 
 
-def branch_executor(executor: Executor, task: ResearchTask, budget: BudgetTracker) -> Executor:
+def branch_executor(
+    executor: Executor, task: ResearchTask, budget: BudgetTracker, *, max_output_tokens: int
+) -> Executor:
     local = copy(executor)
-    local.deps = replace(executor.deps, tenant_id=task.tenant_id)
+    if executor.llm is not None:
+        local.llm = scoped_client(executor.llm, budget, max_output_tokens=max_output_tokens)
+    local.deps = replace(executor.deps, tenant_id=task.tenant_id, llm=local.llm)
     local.cache = None
     if executor.vector is not None:
         local.vector = copy(executor.vector)
@@ -37,7 +41,9 @@ def retrieve(
     query: str,
     limit: int,
 ) -> tuple[dict[str, Candidate], list[ToolCallTrace], QueryCache]:
-    specs = executor._choose_tools(query, task.requirement.anchors, allow_llm=False)[:limit]
+    specs = executor._choose_tools(
+        query, task.requirement.anchors, allow_llm=executor.config.llm_only
+    )[:limit]
     groups: list[list[Candidate]] = []
     traces: list[ToolCallTrace] = []
     saved: QueryCache = {}

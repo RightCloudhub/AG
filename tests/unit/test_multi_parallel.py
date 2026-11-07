@@ -17,6 +17,7 @@ from agentic_graphrag.agent.pipeline_graph import _stream_graph_updates
 from agentic_graphrag.agent.pipeline_multi import checkpoint_thread
 from agentic_graphrag.agent.research_cache import QueryDedup, scoped_key
 from agentic_graphrag.config_agent import AgentConfig
+from agentic_graphrag.governance.execution import ExecutionStopped
 from agentic_graphrag.observability.branch import branch_span
 from agentic_graphrag.observability.logging_setup import tenant_id_var
 
@@ -119,6 +120,43 @@ def test_failed_queries_are_not_cached():
     with pytest.raises(RuntimeError):
         cache.retrieve("key", lambda: (_ for _ in ()).throw(RuntimeError("failed")))
     assert cache.retrieve("key", lambda: []) == []
+
+
+@pytest.mark.parametrize("reason", ["Query cancelled", "Query timed out"])
+def test_cancelled_single_flight_wakes_waiters_and_allows_retry(monkeypatch, reason):
+    from concurrent.futures import Future
+
+    waiting, started, release = Event(), Event(), Event()
+
+    class ObservedFuture(Future):
+        def result(self, *args, **kwargs):
+            waiting.set()
+            return super().result(*args, **kwargs)
+
+    monkeypatch.setattr("agentic_graphrag.agent.research_cache.Future", ObservedFuture)
+    cache = QueryDedup()
+
+    def stop():
+        started.set()
+        assert release.wait(5)
+        raise ExecutionStopped(reason)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(cache.retrieve, "key", stop)
+        assert started.wait(5)
+        pending = cache._pending["key"]
+        second = pool.submit(cache.retrieve, "key", lambda: pytest.fail("duplicate retrieval"))
+        try:
+            assert waiting.wait(5)
+            release.set()
+            for future in (first, second):
+                with pytest.raises(ExecutionStopped, match=reason):
+                    future.result(timeout=1)
+            assert cache.retrieve("key", lambda: []) == []
+        finally:
+            release.set()
+            if not pending.done():
+                pending.set_exception(ExecutionStopped(reason))
 
 
 def test_branch_span_publishes_final_attributes_and_preserves_errors(monkeypatch):

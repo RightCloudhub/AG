@@ -13,6 +13,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agentic_graphrag.governance.audit_identifiers import AUDIT_IDENTIFIER_KEYS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -131,15 +133,18 @@ class Redactor:
             result = pat.pattern.sub(pat.replacement, result)
         return result
 
-    def redact_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+    def redact_dict(
+        self, data: dict[str, Any], *, kept_keys: frozenset[str] = frozenset()
+    ) -> dict[str, Any]:
         """Deep-redact all string values in *data*.
 
         Returns a **new** dict — the original is never mutated.
         Lists and nested dicts are traversed up to ``MAX_DEPTH``.
+        ``kept_keys`` exempts machine identifiers, never prose-bearing objects.
         """
         if not self._enabled:
             return data
-        result = _walk(data, self._redact_value, depth=0)
+        result = _walk(data, self._redact_value, depth=0, kept_keys=kept_keys)
         assert isinstance(result, dict)
         return result
 
@@ -163,6 +168,7 @@ def _walk(
     transform: Callable[[str], str],
     *,
     depth: int,
+    kept_keys: frozenset[str],
 ) -> Any:
     """Recursively transform string leaves inside dicts/lists."""
     if depth > MAX_DEPTH:
@@ -170,10 +176,27 @@ def _walk(
     if isinstance(obj, str):
         return transform(obj)
     if isinstance(obj, dict):
-        return {k: _walk(v, transform, depth=depth + 1) for k, v in obj.items()}
+        return {
+            k: v
+            if k in kept_keys and _identifier_value(k, v)
+            else _walk(v, transform, depth=depth + 1, kept_keys=kept_keys)
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
-        return [_walk(item, transform, depth=depth + 1) for item in obj]
+        return [_walk(item, transform, depth=depth + 1, kept_keys=kept_keys) for item in obj]
     return obj
+
+
+def _identifier_value(key: str, value: Any) -> bool:
+    if isinstance(value, str):
+        return True
+    if isinstance(value, list):
+        return all(isinstance(item, str) for item in value)
+    return (
+        key == "prompt_versions"
+        and isinstance(value, dict)
+        and all(isinstance(item, str) for item in value.values())
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +257,6 @@ def reset_redactor() -> None:
 # Correlation keys are system identifiers, not personal data. The digit patterns
 # would otherwise rewrite them and break log joins, audit lookup and tenant checks.
 _LOG_KEPT_KEYS = ("query_id", "request_id", "tenant_id")
-_AUDIT_KEPT_KEYS = ("query_id",)
-_AUDIT_KEPT_METADATA_KEYS = ("tenant_id", "thread_id")
 
 
 def _restore(
@@ -260,11 +281,4 @@ def redact_audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     Call before writing a ``ReasoningChain`` dict to the audit store.
     """
-    redacted = get_redactor().redact_dict(payload)
-    if redacted is payload:
-        return payload
-    restored = _restore(payload, redacted, _AUDIT_KEPT_KEYS)
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict):
-        restored["metadata"] = _restore(metadata, restored["metadata"], _AUDIT_KEPT_METADATA_KEYS)
-    return restored
+    return get_redactor().redact_dict(payload, kept_keys=AUDIT_IDENTIFIER_KEYS)
